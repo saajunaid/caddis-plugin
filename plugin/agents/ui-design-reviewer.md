@@ -37,7 +37,7 @@ Read /tmp/ui-review-mobile.png
 ```
 
 ### Step 2 — Gather design context (if available)
-- Glob for `**/CLAUDE.md`, `**/design-tokens*`, `**/design-system*`, `**/tailwind.config*`
+- Glob for `**/AGENTS.md`, `**/CLAUDE.md`, `**/design-tokens*`, `**/design-system*`, `**/tailwind.config*`
 - Read any design doc the caller supplied
 - Note the declared color palette, spacing scale, and type scale (for token-drift findings)
 

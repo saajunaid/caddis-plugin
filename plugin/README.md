@@ -17,13 +17,13 @@ claude-harness/
 │   └── data-engineer.md · sql-expert.md                     (Phase 2)
 ├── commands/          slash commands — deployed to .claude/commands/
 │   ├── feature-plan.md · tdd.md · prd.md · handoff.md · setup-project-ai.md
-├── claude-md/         CLAUDE.md fragment library — composed into the project's CLAUDE.md hierarchy
-│   ├── root.md.tmpl       universal root (identity placeholders + harness + laws)
-│   ├── agents.md.tmpl     AGENTS.md mirror (Codex / agent-agnostic)
-│   ├── backend-python.md  → src/CLAUDE.md   (when Python backend detected)
-│   ├── backend-fastapi.md → appended to src/CLAUDE.md (when FastAPI detected)
-│   ├── frontend-react.md  → frontend/CLAUDE.md (when React/Vite detected)
-│   └── tests-pytest.md    → tests/CLAUDE.md  (when pytest detected)
+├── claude-md/         rules fragment library — composed into the project's AGENTS.md hierarchy (+ CLAUDE.md shims)
+│   ├── agents.md.tmpl     canonical root rules (identity placeholders + harness + laws) → AGENTS.md
+│   ├── root.md.tmpl       root CLAUDE.md shim: `@AGENTS.md` + a small Claude-native block
+│   ├── backend-python.md  → src/AGENTS.md   (when Python backend detected)  + src/CLAUDE.md shim
+│   ├── backend-fastapi.md → appended to src/AGENTS.md (when FastAPI detected)
+│   ├── frontend-react.md  → frontend/AGENTS.md (when React/Vite detected)   + frontend/CLAUDE.md shim
+│   └── tests-pytest.md    → tests/AGENTS.md  (when pytest detected)          + tests/CLAUDE.md shim
 ├── settings.template.json base .claude/settings.json
 ├── stack-map.json         stack-detection signals → which fragments/commands/subagents apply
 ├── LOCAL-MODELS.md        run on local models — tier→model table + hybrid/local profiles (see below)
@@ -32,16 +32,16 @@ claude-harness/
 
 ## Skills: two-plugin tiering (lean context)
 Claude Code loads every enabled plugin's skill descriptions into **every** session, so a large flat
-skill set is a standing context tax. claudster splits skills across two plugins in one marketplace:
+skill set is a standing context tax. caddis splits skills across two plugins in one marketplace:
 
-- **`claudster`** (this plugin) — agents, commands, loop hooks, and a **core** set (~38) of
+- **`caddis`** (this plugin) — agents, commands, loop hooks, and a **core** set (~38) of
   high-frequency dev skills. Always enabled; modest always-on cost.
-- **`claudster-extras`** — the **long tail** (cloud, data, the rest of frontend/coding, media,
+- **`caddis-extras`** — the **long tail** (cloud, data, the rest of frontend/coding, media,
   productivity). **Disabled by default**; enable only when you need it:
   ```
-  claude plugin install claudster-extras@claudster   # one-time
-  claude plugin enable  claudster-extras             # when you need the breadth
-  claude plugin disable claudster-extras             # back to lean
+  claude plugin install caddis-extras@caddis   # one-time
+  claude plugin enable  caddis-extras             # when you need the breadth
+  claude plugin disable caddis-extras             # back to lean
   ```
   While disabled it costs **zero** always-on context. (Plugin skills must live flat at
   `skills/<name>/SKILL.md` to be discovered — the build flattens the pool's category layout.)
@@ -71,9 +71,9 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
 
 ## Design rules (learned in Phase 0)
 - **Deterministic vs generative split.** Mechanical steps (placeholder substitution, venv/deps,
-  frontend test harness, file deploy) are pure Python — they must not vary. CLAUDE.md *curation*
+  frontend test harness, file deploy) are pure Python — they must not vary. AGENTS.md *curation*
   (enriching fragments with project-specific facts from STACK.md/code) is the skill's AI step.
-- **Idempotent.** Re-running never destroys user edits: existing CLAUDE.md/settings are merged or
-  left, harness files are refreshed only with `--force`.
-- **Agent-agnostic core.** CLAUDE.md ↔ AGENTS.md are mirrors; subagents/commands/skills are plain
-  markdown Codex can also read.
+- **Idempotent.** Re-running never destroys user edits: existing AGENTS.md/CLAUDE.md/settings are merged
+  or left, harness files are refreshed only with `--force`.
+- **Agent-agnostic core.** `AGENTS.md` is the canonical rules file; `CLAUDE.md` is a thin `@AGENTS.md`
+  import shim. subagents/commands/skills are plain markdown Codex/agy can also read.

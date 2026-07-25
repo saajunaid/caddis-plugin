@@ -12,7 +12,7 @@ issue. This skill runs that second reviewer over the current changes and acts on
 ## When to use
 - After a phase is green, **before** you commit or merge.
 - On a risky diff (auth, crypto, data-touching, concurrency) where a second opinion is cheap insurance.
-- NOT a replacement for the in-repo `/claudster:code-review` — this is the *cross-vendor* complement.
+- NOT a replacement for the in-repo `/caddis:code-review` — this is the *cross-vendor* complement.
 
 ## Prerequisites (one-time)
 Only the key is mandatory — the tool ships **provider presets** (default `deepseek`, the cheapest + most

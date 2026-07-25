@@ -19,7 +19,7 @@ For the plan (or the named phase) check each claim against the codebase:
 4. **Data fields** — JSON paths / DB columns the plan binds to: do they exist in the models/fixtures?
 5. **Dependencies** — libraries/primitives the plan needs: declared in the manifest? installed? (e.g. a
    UI primitive the plan assumes exists — confirm the component/package is actually present.)
-6. **Conventions** — does the plan's approach fit the patterns in the relevant `CLAUDE.md`? Flag drift.
+6. **Conventions** — does the plan's approach fit the patterns in the relevant `AGENTS.md`? Flag drift.
 7. **Test strategy** — does the plan put a failing test first for each behavior change (TDD law)?
 8. **Local-coder readiness** — could a low-capability model implement each phase with no reasoning of
    its own? Flag any phase that leaves a judgment call open, names a file/symbol vaguely, omits exact

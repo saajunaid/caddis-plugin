@@ -1,10 +1,10 @@
 {
-  "$comment": "Stack-detection signals → harness pieces. setup_project_ai.py reads this. Each detector lists file globs / dependency tokens; when matched, the listed fragments are composed into the named target CLAUDE.md, and the listed settings_allow entries are merged into .claude/settings.json.",
+  "$comment": "Stack-detection signals → harness pieces. setup_project_ai.py reads this. Each detector lists file globs / dependency tokens; when matched, the listed fragments are composed into the target folder's canonical AGENTS.md (the `target` key names <dir>/CLAUDE.md for back-compat; the sibling AGENTS.md path is derived in code, and a 2-line CLAUDE.md @import shim is written beside it), and the listed settings_allow entries are merged into .claude/settings.json.",
   "always": {
     "root_fragment": "root.md.tmpl",
     "agents_mirror": "agents.md.tmpl",
     "subagents": ["tester.md", "code-reviewer.md", "preflight.md", "security-analyst.md", "codebase-audit.md", "debug.md", "anchor.md", "knowledge-transfer.md", "data-engineer.md", "sql-expert.md"],
-    "commands": ["feature-plan.md", "tdd.md", "prd.md", "handoff.md", "setup-project-ai.md"]
+    "commands": ["feature-plan.md", "tdd.md", "prd.md", "handoff.md", "setup-project-ai.md", "add-rules.md"]
   },
   "detectors": [
     {

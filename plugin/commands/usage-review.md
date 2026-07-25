@@ -1,11 +1,11 @@
 ---
-description: Review local claudster usage over a window, surface prioritised recommendations, and apply config changes in one step
+description: Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step
 argument-hint: "[days]"
 ---
 
 # /usage-review — harness self-tuning
 
-Review your actual local usage patterns, surface claudster-specific improvements, and optionally
+Review your actual local usage patterns, surface caddis-specific improvements, and optionally
 apply config changes in one step. Data stays on-machine — no telemetry, no server.
 
 ## Step 1 — run the analysis script

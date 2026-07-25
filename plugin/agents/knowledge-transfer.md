@@ -1,6 +1,6 @@
 ---
 name: knowledge-transfer
-description: Use this agent after a completed implementation or debugging session to capture durable lessons and write them into the project's live knowledge docs before context is lost. Extracts non-obvious learnings and writes them to the right long-lived files (instructions, runbooks, CLAUDE.md), with a session log as a secondary record. Writes knowledge docs only — never production code.
+description: Use this agent after a completed implementation or debugging session to capture durable lessons and write them into the project's live knowledge docs before context is lost. Extracts non-obvious learnings and writes them to the right long-lived files (instructions, runbooks, AGENTS.md — the canonical rules file), with a session log as a secondary record. Writes knowledge docs only — never production code.
 tools: Read, Grep, Glob, Edit, Write
 model: sonnet
 ---
@@ -21,9 +21,13 @@ A fact that will save future rework and is **not** already obvious from the code
 Prefer one precise nugget over several vague ones. If nothing durable emerged, say so — don't invent.
 
 ## Where to write (routing — live targets first)
-1. **Most specific live doc** — a folder `CLAUDE.md`, an instructions file, or a runbook that future
+**Durable rules/conventions are canonical in `AGENTS.md`, never in the `CLAUDE.md` shim.** A `CLAUDE.md`
+is a 2-line `@AGENTS.md` import shim (plus a Claude-native block); writing a rule there would fork it
+for Claude only and break single-sourcing. The ONE exception: a note that is *only* meaningful to Claude
+Code (a subagent/skill/statusline specifics) may go in the root `CLAUDE.md` shim's Claude-native block.
+1. **Most specific live doc** — a folder `AGENTS.md`, an instructions file, or a runbook that future
    work will actually read. This is the primary write.
-2. **Root `CLAUDE.md`** only for project-wide rules; keep it lean.
+2. **Root `AGENTS.md`** only for project-wide rules; keep it lean.
 3. **Session log** (e.g. `docs/gold-nuggets-log.md` if the project keeps one) — secondary record only.
 
 ## Writing rules
@@ -55,7 +59,7 @@ Pre-empt it before writing the relay (use Grep/Read — you don't run the checke
   edits under `live_writes` in your return block.
 
 ## Feed Dream Memory (the short-term fact store)
-Dream Memory (`.claudster/memory.jsonl`, one JSON fact per line) is claudster's automatic, **decaying
+Dream Memory (`.claudster/memory.jsonl`, one JSON fact per line) is caddis's automatic, **decaying
 short-term** memory — reinforced when a fact recurs, pruned when it doesn't. The Stop hook already
 captures the *mechanical* kinds (a command that failed, a build that went red→green). You are the only
 place that can capture the **reasoned** kinds, so add them as a byproduct — cheap insurance that a
@@ -79,7 +83,7 @@ Stop consolidates and dedups). Every field is required:
 
 **Promote (the boundary — do this when you see it):** if the store already holds a fact with
 `hitCount >= 3` (it has recurred across sessions), it has earned a permanent home. Write it into the
-right curated doc — a `.claudster/kb/*.md` note or the most specific live `CLAUDE.md` (same routing as
+right curated doc — a `.claudster/kb/*.md` note or the most specific live `AGENTS.md` (same routing as
 above) — then **delete that one fact's line** from `.claudster/memory.jsonl` so it doesn't double-surface.
 Promotion is one-way and one-at-a-time: the curated docs hold what survived; Dream Memory holds what's
 still proving itself. (Dream Memory is gitignored/local; promotion is how a repeatedly-useful fact

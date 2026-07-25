@@ -1,7 +1,7 @@
 """Generic doc-discipline checker for claudster-managed repos.
 
 Ported from an internal project and made harness-generic: the same route-drift /
-doc-map-integrity / CLAUDE.md-budget checks, but every check **auto-skips** when its inputs
+doc-map-integrity / rules-file-budget checks, but every check **auto-skips** when its inputs
 are absent, so a backend-only or doc-less repo passes silently with no noise. Read-only; never writes.
 
 Three checks (all relative to a passed-in repo root — no module-level ROOT):
@@ -12,7 +12,9 @@ Three checks (all relative to a passed-in repo root — no module-level ROOT):
 2. **Doc-map integrity** — every link in ``.claudster/kb/DOC-MAP.md`` resolves (dangling = hard
    failure), and every KB note (``.claudster/kb/*.md``) is indexed in it (orphan = warning). Only the
    curated KB is governed — the wider ``docs/`` folder is NOT policed. Absent doc-map → **skip**.
-3. **CLAUDE.md budget** — always-loaded ``CLAUDE.md`` files stay lean (warning only).
+3. **Rules-file budget** — the always-loaded rules file stays lean (warning only). Post-migration
+   that is ``AGENTS.md`` (canonical) plus its tiny ``CLAUDE.md`` @import shim; a pre-migration repo has
+   only ``CLAUDE.md``. Config key ``agents_md_budget`` (``claude_md_budget`` is the back-compat alias).
 
 Usage::
 
@@ -64,8 +66,11 @@ DEFAULT_DOC_MAP = ".claudster/kb/DOC-MAP.md"
 # Routes intentionally undocumented in the page guide (pure framework/internal paths). Keep tiny.
 IGNORE_ROUTES: frozenset[str] = frozenset()
 
-# Always-loaded context files; keep them lean. Warning only.
+# Always-loaded rules file line budget; keep it lean. Warning only. Post-migration the canonical file
+# is AGENTS.md (measured with its CLAUDE.md @import shim); pre-migration repos have only CLAUDE.md.
+# Name kept as CLAUDE_MD_BUDGET for back-compat; AGENTS_MD_BUDGET is an alias.
 CLAUDE_MD_BUDGET = 200
+AGENTS_MD_BUDGET = CLAUDE_MD_BUDGET
 
 # The doc-map governs ONLY the curated KB it indexes (.claudster/kb/). The wider docs/ folder is the
 # project's own documentation and is intentionally NOT policed — the KB is the code-relevant set the
@@ -181,21 +186,38 @@ def _governed_docs(root: Path, globs: tuple[str, ...]) -> set[str]:
     return docs
 
 
-def _claude_md_lengths(root: Path) -> dict[str, int]:
+def _count_lines(path: Path) -> int | None:
+    # errors="replace": scans arbitrary repo files; a non-UTF-8 rules file must not crash the gate.
+    try:
+        return len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return None  # vanished/locked file mid-scan — skip, never crash the gate
+
+
+def _rules_md_lengths(root: Path) -> dict[str, int]:
+    """Line counts of the always-loaded rules file per folder.
+
+    Post-migration the canonical rules live in ``AGENTS.md`` and ``CLAUDE.md`` is a tiny ``@AGENTS.md``
+    import shim; the size Claude Code actually loads is AGENTS.md + the shim, so both are summed and the
+    entry is keyed by the AGENTS.md path. A pre-migration folder has only ``CLAUDE.md`` — measure that.
+    os.walk with in-place dir pruning skips vendored/generated trees DURING traversal so we never
+    descend into node_modules (slow, and a broken symlink there raises FileNotFoundError mid-rglob).
+    """
     lengths: dict[str, int] = {}
-    # os.walk with in-place dir pruning: skip vendored/generated trees DURING traversal so we never
-    # descend into node_modules (slow, and a broken symlink there raises FileNotFoundError mid-rglob).
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-        if "CLAUDE.md" not in filenames:
-            continue
-        path = Path(dirpath) / "CLAUDE.md"
-        try:
-            rel = path.relative_to(root).as_posix()
-            # errors="replace": scans arbitrary repo files; a non-UTF-8 CLAUDE.md must not crash the gate.
-            lengths[rel] = len(path.read_text(encoding="utf-8", errors="replace").splitlines())
-        except OSError:
-            continue  # vanished/locked file mid-scan — skip, never crash the gate
+        d = Path(dirpath)
+        if "AGENTS.md" in filenames:
+            n = _count_lines(d / "AGENTS.md")
+            if n is None:
+                continue
+            if "CLAUDE.md" in filenames:            # + the @import shim it loads alongside
+                n += _count_lines(d / "CLAUDE.md") or 0
+            lengths[(d / "AGENTS.md").relative_to(root).as_posix()] = n
+        elif "CLAUDE.md" in filenames:              # pre-migration repo: CLAUDE.md is the rules file
+            n = _count_lines(d / "CLAUDE.md")
+            if n is not None:
+                lengths[(d / "CLAUDE.md").relative_to(root).as_posix()] = n
     return lengths
 
 
@@ -522,7 +544,8 @@ def run(root: Path, check: bool) -> int:
     route_tree = root / get_str(cfg, "route_tree", DEFAULT_ROUTE_TREE)
     page_guide = root / get_str(cfg, "page_guide", DEFAULT_PAGE_GUIDE)
     doc_map = root / DEFAULT_DOC_MAP
-    budget = get_int(cfg, "claude_md_budget", CLAUDE_MD_BUDGET)
+    # agents_md_budget is the current key; claude_md_budget is the accepted back-compat alias.
+    budget = get_int(cfg, "agents_md_budget", get_int(cfg, "claude_md_budget", CLAUDE_MD_BUDGET))
     ignore = frozenset(get_str_list(cfg, "ignore_routes", list(IGNORE_ROUTES)))
 
     hard_failures: list[str] = []
@@ -555,8 +578,8 @@ def run(root: Path, check: bool) -> int:
         if orphans:
             warnings.append("DOC-MAP.md does not index governed doc(s): " + ", ".join(orphans))
 
-    # 3. CLAUDE.md budget (warning only).
-    for name, n in oversize_files(_claude_md_lengths(root), budget):
+    # 3. Rules-file budget (warning only) — AGENTS.md (+ its CLAUDE.md shim), or CLAUDE.md pre-migration.
+    for name, n in oversize_files(_rules_md_lengths(root), budget):
         warnings.append(f"{name} is {n} lines (> {budget} budget)")
 
     for w in warnings:

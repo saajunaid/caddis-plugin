@@ -24,7 +24,7 @@ conventional-commit summary).
 - **Local-only lane** — neither exists, or there is no push remote. There is no PR concept here:
   **refuse early**, tell the user to use `/ship`, and stop. Do not fabricate a PR flow.
 
-Read `CLAUDE.md` + the detected workflow file(s) first for the repo's real gate names, default
+Read `AGENTS.md` + the detected workflow file(s) first for the repo's real gate names, default
 branch, and merge conventions — never assume `main`, never assume job names.
 
 ## Step 1 — Refuse on the default branch

@@ -3,7 +3,7 @@ description: Park the current workstream on the stack and switch to a new task �
 argument-hint: [reason for the detour]
 ---
 
-# /claudster:digress — park the current task, switch, never lose the thread
+# /caddis:digress — park the current task, switch, never lose the thread
 
 You are about to leave the current task for a related-but-different one (a design decision, a sub-feature,
 or a blocker that must be fixed first). This command **records the original task on a workstream stack** so

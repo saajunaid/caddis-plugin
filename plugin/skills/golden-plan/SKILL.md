@@ -106,6 +106,7 @@ Run through the checklist below. For each item, determine its tier:
 - Use lower-cost models only for low-risk documentation, tracker, inventory, route metadata, or repetitive cleanup phases, and only when source-grounding plus validation keeps quality intact.
 - Include a one-line rationale explaining the quality/risk tradeoff.
 - Valid example recommendations include `GPT-5.4`, `GPT-5.3-Codex`, `Claude Sonnet 4.6`, and `GPT-5.4-Mini`; adapt to the user's available model list when they provide one.
+- In the caddis harness, a phase's model may be served by an OSS execution lane: `glm-headless` (`claude-glm -p "/caddis:implement <plan> — Phase N only"`) for mechanical fully-specced phases, with cross-vendor review by a vendor that did NOT implement (`oss_review.py --provider deepseek|glm`). When lanes are used, the plan MUST carry an Execution Protocol section: per-phase handoff, fresh-session boundaries, and a never-push-main ship gate (`/ship-pr` then human go).
 
 ---
 

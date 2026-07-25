@@ -3,24 +3,29 @@ description: Cross-vendor code review of the current diff — a second-vendor mo
 argument-hint: [git range, e.g. origin/main..HEAD]
 ---
 
-# /claudster:cross-review — a second-vendor set of eyes on your diff
+# /caddis:cross-review — a second-vendor set of eyes on your diff
 
 Run a cross-vendor review of the current changes with a DIFFERENT model family than the one that wrote them
 (default **DeepSeek** — the cheapest + most architecturally distinct-from-Claude option). Use after a phase
 is green and before you commit, or for a second opinion on a risky diff. This is the *cross-vendor*
-complement to `/claudster:code-review`, not a replacement.
+complement to `/caddis:code-review`, not a replacement.
 
 ## Prerequisite (one-time)
-Set `REVIEW_API_KEY` (and optionally `REVIEW_PROVIDER` = `deepseek` | `glm` | `openrouter`). Key resolution
-and provider details: see the `coding/cross-review` skill and the **Providers & keys** guide.
+A provider key must be resolvable. Precedence: `REVIEW_API_KEY` > the provider's own env var
+(`DEEPSEEK_API_KEY` / `GLM_API_KEY`) > `OSS_API_KEY` > the keys file (`~/.claudster/keys.env`,
+overridable via `CADDIS_KEYS_FILE`). If your keys file is populated, no env setup is needed.
+Details: the `coding/cross-review` skill and the **Providers & keys** guide.
 
 ## Run it
 The tool ships at `.github/tools/oss_review.py` (stdlib-only, no install):
 ```
-python .github/tools/oss_review.py                    # review the working tree (staged + unstaged)
+python .github/tools/oss_review.py                     # DeepSeek eyes (default)
+python .github/tools/oss_review.py --provider glm      # GLM eyes
 python .github/tools/oss_review.py --range $ARGUMENTS  # review a git range, e.g. origin/main..HEAD
 ```
-Optional: `--provider glm`, `--base-url <url>`, `--model <id>` (env always overrides the preset).
+Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
+**Alternate the provider between reviews** (DeepSeek one diff, GLM the next) — different model
+families have different blind spots, and alternation maximizes what the pair catches over time.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.

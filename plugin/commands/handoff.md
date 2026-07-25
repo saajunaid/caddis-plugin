@@ -17,7 +17,7 @@ is to run it.
   fixed, or proven. When in doubt, dispatch. "I already wrote some docs by hand" is **not** a reason to
   skip — the subagent routes/consolidates across the right files and catches what you'd miss.
 - It writes durable findings (root causes, workarounds, constraints, rejected approaches) into the right
-  CLAUDE.md / instructions / runbooks. Docs only — never code.
+  AGENTS.md (the canonical rules file) / instructions / runbooks. Docs only — never code.
 - **Record the outcome** in relay.md's `## Learnings captured` line (below). A skip must state its reason.
 
 ## Step 2 — gather verified signals (don't guess)

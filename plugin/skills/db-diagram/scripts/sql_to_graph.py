@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import deque
 from typing import Any
 
 try:  # sqlglot is required for structural extraction; absence is handled explicitly.
@@ -540,44 +541,144 @@ def _layout_flowchart(graph: dict[str, Any]) -> dict[str, Any]:
     return placed
 
 
+# ── ER geometry (single column + orthogonal left-channel routing) ──────────────
+#
+# Why not a grid + straight arrows? On a hub topology (one entity referenced by several, or a
+# chain A→B→C, or a self-ref) a straight src→dst arrow runs BACKWARDS through the boxes between
+# them — and under-painted, it hides entirely behind them. The fix that holds for ANY schema:
+# stack entities in one vertical column and route every FK as an orthogonal elbow through a
+# channel to the LEFT of the column. Every arrow segment lives at x ≤ (column's left edge), so it
+# provably can never enter a non-endpoint box — the space it travels through contains no boxes at
+# all. Each edge gets its own vertical lane (no two verticals overlap); ports along a box's left
+# edge are spread so fan-in / fan-out arrows never pile onto one point. Fully deterministic.
+_ER_W = 264            # entity box width
+_ER_PAD_H = 14         # horizontal text padding
+_ER_PAD_V = 12         # vertical text padding
+_ER_HDR_FONT = 15      # entity-name header font (distinct from columns)
+_ER_COL_FONT = 13      # column-line font
+_ER_HDR_LINE = 20      # header line height
+_ER_COL_LINE = 19      # column line height
+_ER_DIV_GAP = 14       # gap reserved for the header divider rule
+_ER_ROW_GAP = 46       # vertical gap between stacked entities (room for edge stubs)
+_ER_LANE_STEP = 24     # horizontal spacing between adjacent edge lanes in the channel
+_ER_CHANNEL_GAP = 30   # gap between the innermost lane and the boxes' left edge
+_ER_PORT_INSET = 14    # keep ports off the box corners
+_ER_BULLET_INDENT = 14 # x-indent for wrapped column continuation lines
+_ER_DIV_LIGHT = "#D8DBE0"   # divider rule colour in the (single-theme) Excalidraw scene
+
+
+def _er_char_max(width: float, font: int, *, indent: float = 0.0) -> int:
+    return max(6, int((width - 2 * _ER_PAD_H - indent) / (font * 0.55)))
+
+
+def _fmt_er_column(c: dict[str, str]) -> str:
+    typ = c.get("type") or "?"
+    key = f"  ·  {c['key']}" if c.get("key") else ""
+    return f"{c['name']}  {typ}{key}"
+
+
+def _build_er_node(nid: str, entity: dict[str, Any]) -> dict[str, Any]:
+    """An entity box carries a distinct HEADER (name, bold/larger/coloured, divider beneath) and a
+    BULLET-LIST of columns — kept as separate line groups so the renderers can style them apart
+    (a single container-bound text can't: it's one style)."""
+    hdr_max = _er_char_max(_ER_W, _ER_HDR_FONT)
+    col_max = _er_char_max(_ER_W, _ER_COL_FONT, indent=_ER_BULLET_INDENT)
+    header_lines = _wrap(entity["name"], hdr_max)
+    col_lines: list[dict[str, Any]] = []
+    for c in entity.get("columns", []):
+        for j, part in enumerate(_wrap(_fmt_er_column(c), col_max)):
+            col_lines.append({"text": part, "first": j == 0})
+    if not col_lines:
+        col_lines.append({"text": "(no columns)", "first": True})
+    h = float(_ER_PAD_V + len(header_lines) * _ER_HDR_LINE + _ER_DIV_GAP
+              + len(col_lines) * _ER_COL_LINE + _ER_PAD_V)
+    return {"id": nid, "role": "entity", "header_lines": header_lines, "col_lines": col_lines,
+            "w": _ER_W, "h": h, "x": 0.0, "y": 0.0}
+
+
+def _er_order(entities: list[dict[str, Any]], rels: list[dict[str, str]]) -> list[str]:
+    """Stack order: start at the hub (highest FK degree, ties → declaration order) and BFS out, so
+    related tables sit adjacent and their routing lanes stay short. Deterministic."""
+    names = [e["name"] for e in entities]
+    if not names:
+        return []
+    adj: dict[str, list[str]] = {n: [] for n in names}
+    for r in rels:
+        adj[r["from"]].append(r["to"])
+        adj[r["to"]].append(r["from"])
+    hub = max(names, key=lambda nm: (len(adj[nm]), -names.index(nm)))
+    order: list[str] = []
+    visited: set[str] = set()
+    dq = deque([hub])
+    while dq:
+        cur = dq.popleft()
+        if cur in visited:
+            continue
+        visited.add(cur)
+        order.append(cur)
+        for nb in adj[cur]:              # neighbours in declaration order (adjacency is stable)
+            if nb not in visited:
+                dq.append(nb)
+    for nm in names:                     # any component not reachable from the hub
+        if nm not in visited:
+            visited.add(nm)
+            order.append(nm)
+    return order
+
+
 def _layout_er(graph: dict[str, Any]) -> dict[str, Any]:
-    """Entities as boxes in a wrapped grid (rows of 3); FK relationships as arrows."""
-    nodes: list[dict[str, Any]] = []
-    node_by_name: dict[str, dict[str, Any]] = {}
+    """Entities stacked in one column; FK relationships routed as orthogonal elbows through a
+    left-side channel so no arrow can ever cross a non-endpoint box (see the note above)."""
+    entities = graph.get("entities", [])
     seen: dict[str, int] = {}
-    per_row = 3
-    col_w = _ROLE_W["entity"]
-    x0, y = float(_MARGIN), float(_MARGIN)
-    row_max_h = 0.0
-    for i, e in enumerate(graph.get("entities", [])):
-        header = e["name"]
-        col_lines = [f"{c['name']}: {c['type'] or '?'}{(' ' + c['key']) if c['key'] else ''}"
-                     for c in e["columns"]]
-        raw_lines = [header] + col_lines
-        lines: list[str] = []
-        for raw in raw_lines:
-            lines.extend(_wrap(raw, _role_max_chars("entity")))
-        line_px = int(_FONT * 1.25)
-        h = max(_MIN_H, len(lines) * line_px + 2 * _PAD_V)
-        col = i % per_row
-        if col == 0 and i > 0:
-            y += row_max_h + _ROW_GAP + 24
-            row_max_h = 0.0
-        n = {"id": _node_id("e", e["name"], seen), "role": "entity", "lines": lines,
-             "text": "\n".join(lines), "w": col_w, "h": h, "font": _FONT, "align": "left",
-             "line_px": line_px, "x": x0 + col * (col_w + _COL_GAP), "y": y}
-        row_max_h = max(row_max_h, h)
+    node_by_name: dict[str, dict[str, Any]] = {}
+    nodes: list[dict[str, Any]] = []
+    for e in entities:
+        n = _build_er_node(_node_id("e", e["name"], seen), e)
         nodes.append(n)
         node_by_name[e["name"]] = n
-    width = round(x0 + min(per_row, max(1, len(nodes))) * (col_w + _COL_GAP) - _COL_GAP + _MARGIN)
-    height = round(y + row_max_h + _MARGIN)
-    edges = []
-    for r in graph.get("relationships", []):
-        if r["from"] in node_by_name and r["to"] in node_by_name:
-            edges.append({"src": node_by_name[r["from"]]["id"], "dst": node_by_name[r["to"]]["id"],
-                          "label": r["on"]})
-    _annotate_fan_in(edges)
-    return {"nodes": nodes, "edges": edges, "width": width, "height": height}
+
+    rels = [r for r in graph.get("relationships", [])
+            if r["from"] in node_by_name and r["to"] in node_by_name]
+
+    # stack the boxes; leave a channel on the left wide enough for one lane per edge
+    n_lanes = max(1, len(rels))
+    box_x = float(_MARGIN + _ER_CHANNEL_GAP + n_lanes * _ER_LANE_STEP)
+    y = float(_MARGIN)
+    for nm in _er_order(entities, rels):
+        n = node_by_name[nm]
+        n["x"], n["y"] = box_x, y
+        y += n["h"] + _ER_ROW_GAP
+    total_h = (y - _ER_ROW_GAP + _MARGIN) if node_by_name else 2 * _MARGIN
+
+    # ports: every edge touching a box gets a distinct point spread along that box's left edge,
+    # ordered by edge index for determinism (so fan-in/fan-out arrows never share a point).
+    ports: dict[str, list[tuple[str, int]]] = {nm: [] for nm in node_by_name}
+    for idx, r in enumerate(rels):
+        ports[r["from"]].append(("out", idx))
+        ports[r["to"]].append(("in", idx))
+    port_y: dict[tuple[str, int, str], float] = {}
+    for nm, plist in ports.items():
+        b = node_by_name[nm]
+        m = len(plist)
+        top = b["y"] + _ER_PORT_INSET
+        usable = b["h"] - 2 * _ER_PORT_INSET
+        for i, (role, idx) in enumerate(sorted(plist, key=lambda t: t[1])):
+            port_y[(nm, idx, role)] = top + (usable * (i + 0.5) / m if m else usable / 2)
+
+    edges: list[dict[str, Any]] = []
+    for idx, r in enumerate(rels):
+        s, d = node_by_name[r["from"]], node_by_name[r["to"]]
+        sy = port_y[(r["from"], idx, "out")]
+        ey = port_y[(r["to"], idx, "in")]
+        lane_x = box_x - _ER_CHANNEL_GAP - idx * _ER_LANE_STEP
+        # out the source's left edge → down/up the lane → into the target's left edge
+        pts = [(box_x, sy), (lane_x, sy), (lane_x, ey), (box_x, ey)]
+        edges.append({"src": s["id"], "dst": d["id"], "label": r["on"], "points": pts,
+                      "lane_x": lane_x, "mid_y": (sy + ey) / 2})
+
+    return {"nodes": nodes, "edges": edges, "diagram_type": "erDiagram",
+            "width": round(box_x + _ER_W + _MARGIN), "height": round(total_h)}
 
 
 # ── Excalidraw export (container-bound text, bound arrows, theme=light) ─────────
@@ -586,6 +687,8 @@ def to_excalidraw(graph: dict[str, Any]) -> dict[str, Any]:
     """Render the layout as Excalidraw scene JSON. Every box carries a container-BOUND text element
     (so the label auto-wraps and stays vertically centred INSIDE the box, forever), and every arrow
     is bound to real start/end elements. Ids/seeds are deterministic — same SQL, byte-identical JSON."""
+    if graph.get("diagram_type") == "erDiagram":
+        return _excalidraw_er(graph)
     lay = _layout(graph)
     elements: list[dict[str, Any]] = []
     rect_by_id: dict[str, dict[str, Any]] = {}
@@ -670,7 +773,94 @@ def to_excalidraw(graph: dict[str, Any]) -> dict[str, Any]:
 
     return {"type": "excalidraw", "version": 2, "source": "db-diagram skill",
             "elements": elements, "files": {},
-            "appState": {"viewBackgroundColor": "#FDFCF9", "gridSize": None, "theme": "light"}}
+            "appState": {"viewBackgroundColor": "#ffffff", "gridSize": None, "theme": "light"}}
+
+
+def _excalidraw_er(graph: dict[str, Any]) -> dict[str, Any]:
+    """ER scene: each entity is a rectangle + a distinct HEADER text (bold-ish via larger font in
+    the role colour) + a divider line + a BULLET-LIST columns text (a container-bound text can't
+    carry two styles, so header and columns are separate elements). FK arrows are multi-point
+    orthogonal elbows routed through the left channel — provably never over a non-endpoint box."""
+    lay = _layout_er(graph)
+    fill, stroke = _EXCALI["entity"]
+    elements: list[dict[str, Any]] = []
+    rect_by_id: dict[str, dict[str, Any]] = {}
+
+    def _base(i: int) -> dict[str, Any]:
+        return {"angle": 0, "strokeWidth": 1.5, "strokeStyle": "solid", "fillStyle": "solid",
+                "roughness": 0, "opacity": 100, "groupIds": [], "frameId": None,
+                "roundness": {"type": 3}, "seed": 1000 + i, "version": 1, "versionNonce": 5000 + i,
+                "isDeleted": False, "boundElements": [], "updated": 1, "link": None, "locked": False}
+
+    def _text(i: int, x: float, y: float, w: float, h: float, s: str, size: int,
+              color: str, part: str, of: str) -> dict[str, Any]:
+        return {**_base(i), "id": f"{of}__{part}", "type": "text", "x": round(x, 2), "y": round(y, 2),
+                "width": round(w, 2), "height": round(h, 2), "strokeColor": color,
+                "backgroundColor": "transparent", "text": s, "originalText": s, "fontSize": size,
+                "fontFamily": 2, "textAlign": "left", "verticalAlign": "top", "containerId": None,
+                "lineHeight": 1.25, "autoResize": False, "roundness": None,
+                "customData": {"entityPart": part, "of": of}}
+
+    i = 0
+    for n in lay["nodes"]:
+        rect = {**_base(i), "id": n["id"], "type": "rectangle",
+                "x": round(n["x"], 2), "y": round(n["y"], 2), "width": n["w"], "height": n["h"],
+                "strokeColor": stroke, "backgroundColor": fill, "boundElements": [],
+                "customData": {"kind": "entity"}}
+        elements.append(rect)
+        rect_by_id[n["id"]] = rect
+        i += 1
+        tx = n["x"] + _ER_PAD_H
+        inner_w = n["w"] - 2 * _ER_PAD_H
+        hdr_y = n["y"] + _ER_PAD_V
+        hdr_txt = "\n".join(n["header_lines"])
+        elements.append(_text(1000 + i, tx, hdr_y, inner_w, len(n["header_lines"]) * _ER_HDR_LINE,
+                              hdr_txt, _ER_HDR_FONT, stroke, "header", n["id"])); i += 1
+        div_y = hdr_y + len(n["header_lines"]) * _ER_HDR_LINE + _ER_DIV_GAP / 2
+        elements.append({**_base(1000 + i), "id": f"{n['id']}__div", "type": "line",
+                         "x": round(tx, 2), "y": round(div_y, 2), "width": round(inner_w, 2),
+                         "height": 0, "strokeColor": _ER_DIV_LIGHT, "strokeWidth": 1,
+                         "points": [[0, 0], [round(inner_w, 2), 0]], "lastCommittedPoint": None,
+                         "startBinding": None, "endBinding": None, "startArrowhead": None,
+                         "endArrowhead": None, "roundness": None}); i += 1
+        col_y = hdr_y + len(n["header_lines"]) * _ER_HDR_LINE + _ER_DIV_GAP
+        col_txt = "\n".join(("•  " if c["first"] else "     ") + c["text"] for c in n["col_lines"])
+        elements.append(_text(1000 + i, tx, col_y, inner_w, len(n["col_lines"]) * _ER_COL_LINE,
+                              col_txt, _ER_COL_FONT, _EXCALI_INK, "columns", n["id"])); i += 1
+
+    for j, e in enumerate(lay["edges"]):
+        pts = e["points"]
+        x0, y0 = pts[0]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        arrow_id = f"edge_{j}"
+        arrow = {**_base(3000 + j), "id": arrow_id, "type": "arrow",
+                 "x": round(x0, 2), "y": round(y0, 2),
+                 "width": round(max(xs) - min(xs), 2), "height": round(max(ys) - min(ys), 2),
+                 "strokeColor": _EDGE_COLOR, "backgroundColor": "transparent", "strokeWidth": 2,
+                 "points": [[round(px - x0, 2), round(py - y0, 2)] for px, py in pts],
+                 "lastCommittedPoint": None, "startArrowhead": None, "endArrowhead": "triangle",
+                 "roundness": None,
+                 "startBinding": {"elementId": e["src"], "focus": 0, "gap": 2},
+                 "endBinding": {"elementId": e["dst"], "focus": 0, "gap": 2}}
+        elements.append(arrow)
+        rect_by_id[e["src"]]["boundElements"].append({"type": "arrow", "id": arrow_id})
+        rect_by_id[e["dst"]]["boundElements"].append({"type": "arrow", "id": arrow_id})
+        if e.get("label"):
+            lines, lw, lh = _edge_label_size(e["label"])
+            label = {**_base(6000 + j), "id": f"{arrow_id}__label", "type": "text",
+                     "x": round(e["lane_x"] + 6, 2), "y": round(e["mid_y"] - lh / 2, 2),
+                     "width": lw, "height": lh, "strokeColor": _EDGE_COLOR,
+                     "backgroundColor": "transparent", "text": "\n".join(lines),
+                     "originalText": "\n".join(lines), "fontSize": _EDGE_LABEL_FONT,
+                     "fontFamily": 2, "textAlign": "left", "verticalAlign": "top",
+                     "containerId": None, "lineHeight": 1.25, "autoResize": False,
+                     "roundness": None, "customData": {"edgeLabelOf": arrow_id}}
+            elements.append(label)
+
+    return {"type": "excalidraw", "version": 2, "source": "db-diagram skill",
+            "elements": elements, "files": {},
+            "appState": {"viewBackgroundColor": "#ffffff", "gridSize": None, "theme": "light"}}
 
 
 # ── SVG / HTML export (self-contained, dual-theme via CSS custom props) ─────────
@@ -679,14 +869,16 @@ def to_excalidraw(graph: dict[str, Any]) -> dict[str, Any]:
 # "Jewel on ivory": harbor teal / plum / saffron / madder / ink-blue / viridian on warm ivory.
 _SVG_ROLES = ["table", "cte", "filter", "aggregate", "result", "projection", "entity"]
 _SVG_LIGHT = {
-    "page": {"bg": "#FBF8F1", "ink": "#1C2431", "edge": "#A39E93", "edge_ink": "#5B6472"},
+    "page": {"bg": "#ffffff", "ink": "#1C2431", "edge": "#A39E93", "edge_ink": "#5B6472",
+             "div": "#D8DBE0"},
     "table": ("#EDF7F6", "#0E7C7B", "#073938"), "cte": ("#F4EEF8", "#7B4B94", "#3A2149"),
     "filter": ("#FBF1E3", "#C36F09", "#5E3604"), "aggregate": ("#F9ECEE", "#B23A48", "#571C24"),
     "result": ("#EBF1FA", "#2D5DA1", "#16294D"), "projection": ("#EDF5F0", "#4A7C59", "#1F3A29"),
     "entity": ("#EDF7F6", "#0E7C7B", "#073938"),
 }
 _SVG_DARK = {
-    "page": {"bg": "#10151F", "ink": "#E8EAF2", "edge": "#4E586C", "edge_ink": "#9FB0C8"},
+    "page": {"bg": "#10151F", "ink": "#E8EAF2", "edge": "#4E586C", "edge_ink": "#9FB0C8",
+             "div": "#2A3346"},
     "table": ("#0D2B2A", "#2FB5AE", "#BDECE9"), "cte": ("#251A31", "#B08DD9", "#E3D4F4"),
     "filter": ("#2E2110", "#E0A33E", "#F5DFB8"), "aggregate": ("#2E151A", "#E06D7E", "#F6C9D0"),
     "result": ("#131F35", "#6E9BE8", "#C9DAF8"), "projection": ("#14261B", "#66B285", "#C5E8D2"),
@@ -697,7 +889,8 @@ _SVG_DARK = {
 def _vars_block(selector: str, theme: dict[str, Any]) -> str:
     p = theme["page"]
     out = [selector + " {",
-           f"  --dbd-bg:{p['bg']}; --dbd-ink:{p['ink']}; --dbd-edge:{p['edge']}; --dbd-edge-ink:{p['edge_ink']};"]
+           f"  --dbd-bg:{p['bg']}; --dbd-ink:{p['ink']}; --dbd-edge:{p['edge']}; "
+           f"--dbd-edge-ink:{p['edge_ink']}; --dbd-div:{p.get('div', p['edge'])};"]
     for role in _SVG_ROLES:
         f, s, i = theme[role]
         out.append(f"  --dbd-{role}-fill:{f}; --dbd-{role}-stroke:{s}; --dbd-{role}-ink:{i};")
@@ -716,6 +909,11 @@ def _svg_struct_css() -> str:
     for role in _SVG_ROLES:
         rules.append(f".dbd-node.{role} rect {{ fill: var(--dbd-{role}-fill); stroke: var(--dbd-{role}-stroke); }}")
         rules.append(f".dbd-node.{role} text {{ fill: var(--dbd-{role}-ink); }}")
+    # ER entity box: a HEADER visually distinct from its BULLET columns (higher specificity than
+    # the generic `.dbd-node.entity text` rule above, so the header keeps the role's stroke colour).
+    rules.append(".dbd-node.entity text.dbd-entity-hdr { fill: var(--dbd-entity-stroke); font-weight: 700; }")
+    rules.append(".dbd-node.entity .dbd-entity-bullet { fill: var(--dbd-edge); }")
+    rules.append(".dbd-node.entity line.dbd-entity-div { stroke: var(--dbd-div); stroke-width: 1; }")
     return "\n".join(rules)
 
 
@@ -786,10 +984,53 @@ def _svg_edges(lay: dict[str, Any]) -> tuple[str, str]:
     return "".join(paths), "".join(labels)
 
 
+def _svg_er_node(n: dict[str, Any]) -> str:
+    """An entity box: header (bold, larger, role-coloured) + divider rule + bulleted columns."""
+    x, y, w, h = n["x"], n["y"], n["w"], n["h"]
+    tx = x + _ER_PAD_H
+    parts = [f'<g class="dbd-node entity">',
+             f'<rect x="{round(x, 1)}" y="{round(y, 1)}" width="{w}" height="{h}" rx="10"/>']
+    hy = y + _ER_PAD_V + _ER_HDR_FONT * 0.85
+    for i, line in enumerate(n["header_lines"]):
+        parts.append(f'<text class="dbd-entity-hdr" x="{round(tx, 1)}" '
+                     f'y="{round(hy + i * _ER_HDR_LINE, 1)}" font-size="{_ER_HDR_FONT}">{_esc(line)}</text>')
+    dy = y + _ER_PAD_V + len(n["header_lines"]) * _ER_HDR_LINE + _ER_DIV_GAP / 2
+    parts.append(f'<line class="dbd-entity-div" x1="{round(tx, 1)}" y1="{round(dy, 1)}" '
+                 f'x2="{round(x + w - _ER_PAD_H, 1)}" y2="{round(dy, 1)}"/>')
+    cy = y + _ER_PAD_V + len(n["header_lines"]) * _ER_HDR_LINE + _ER_DIV_GAP + _ER_COL_FONT * 0.85
+    for i, c in enumerate(n["col_lines"]):
+        yy = round(cy + i * _ER_COL_LINE, 1)
+        if c["first"]:
+            parts.append(f'<text class="dbd-entity-col" x="{round(tx, 1)}" y="{yy}" '
+                         f'font-size="{_ER_COL_FONT}"><tspan class="dbd-entity-bullet">•</tspan>  '
+                         f'{_esc(c["text"])}</text>')
+        else:
+            parts.append(f'<text class="dbd-entity-col" x="{round(tx + _ER_BULLET_INDENT, 1)}" '
+                         f'y="{yy}" font-size="{_ER_COL_FONT}">{_esc(c["text"])}</text>')
+    parts.append('</g>')
+    return "".join(parts)
+
+
+def _svg_er_edges(lay: dict[str, Any]) -> tuple[str, str]:
+    """Orthogonal FK arrows (painted ON TOP of the boxes — never occluded) + FK labels beside the
+    lane. Returns (paths, labels) so the caller can layer labels last."""
+    paths: list[str] = []
+    labels: list[str] = []
+    for e in lay["edges"]:
+        d = "M " + " L ".join(f"{round(px, 1)},{round(py, 1)}" for px, py in e["points"])
+        paths.append(f'<path class="dbd-edge" d="{d}"/>')
+        if e.get("label"):
+            paths_x = e["lane_x"] + 6
+            labels.append(f'<text class="dbd-edge-label" text-anchor="start" '
+                          f'x="{round(paths_x, 1)}" y="{round(e["mid_y"], 1)}">{_esc(e["label"])}</text>')
+    return "".join(paths), "".join(labels)
+
+
 def to_svg(graph: dict[str, Any], standalone: bool = True) -> str:
     """Self-contained SVG. ``standalone`` embeds the theme variables (default LIGHT, follows
     prefers-color-scheme for dark); embedded (False) relies on the host page's variables so the
     HTML toggle can drive it. No external references — safe to inline anywhere."""
+    is_er = graph.get("diagram_type") == "erDiagram"
     lay = _layout(graph)
     w, h = lay["width"], lay["height"]
     if standalone:
@@ -802,9 +1043,15 @@ def to_svg(graph: dict[str, Any], standalone: bool = True) -> str:
     defs = ('<defs><marker id="dbd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
             'markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>')
     bg = '<rect x="0" y="0" width="100%" height="100%" fill="var(--dbd-bg)"/>' if standalone else ""
-    edge_paths, edge_labels = _svg_edges(lay)
-    # paint order: arrows under boxes, boxes, then edge labels ON TOP (halo keeps them readable)
-    body = edge_paths + "".join(_svg_node(n) for n in lay["nodes"]) + edge_labels
+    if is_er:
+        # ER: boxes first, then orthogonal arrows ON TOP (routing guarantees no box crossings,
+        # so top-painting just makes every FK unmistakably visible), then labels.
+        edge_paths, edge_labels = _svg_er_edges(lay)
+        body = "".join(_svg_er_node(n) for n in lay["nodes"]) + edge_paths + edge_labels
+    else:
+        edge_paths, edge_labels = _svg_edges(lay)
+        # paint order: arrows under boxes, boxes, then edge labels ON TOP (halo keeps them readable)
+        body = edge_paths + "".join(_svg_node(n) for n in lay["nodes"]) + edge_labels
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
         f'role="img" aria-label="database diagram">'
@@ -817,7 +1064,10 @@ def to_html(graph: dict[str, Any], *, title: str = "DB diagram",
     """Self-contained HTML page: the SVG inline + a light/dark toggle. Default is LIGHT (it does NOT
     auto-follow the OS to dark — dark is opt-in via the toggle), and there are zero external requests."""
     svg = to_svg(graph, standalone=False)
-    light = _vars_block(":root", _SVG_LIGHT)
+    # Fully attribute-driven: BOTH light and dark are gated on data-theme, and NO @media rule
+    # competes with the toggle (that fight is what made the page half-apply / go black). An inline
+    # head script picks the initial theme from the OS once; the button just flips the attribute.
+    light = _vars_block(':root[data-theme="light"]', _SVG_LIGHT)
     dark = _vars_block(':root[data-theme="dark"]', _SVG_DARK)
     struct = _svg_struct_css()
     meta = " · ".join(x for x in [_esc(source), _esc(date)] if x)
@@ -830,6 +1080,7 @@ def to_html(graph: dict[str, Any], *, title: str = "DB diagram",
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_esc(title)}</title>
+<script>document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';</script>
 <style>
 {light}
 {dark}

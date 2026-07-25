@@ -78,6 +78,20 @@ Default to **mid**; reserve frontier/ultra for phases that earn them. Effort is 
 it at your session default and note **"bump to `high`"** only on a genuinely hard phase. `max` is manual
 escalation, never a planned default.
 
+### Assign an execution LANE per phase (which harness runs it — not just which model)
+A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
+`docs/guide/multi-model-workflow.md`; wiring: `.claudster/plans/model-access.md`):
+- **claude** (default) — this session, `/model <alias>` as above. Required for judgment-heavy,
+  security-sensitive, or novel-architecture phases.
+- **glm-headless** — mechanical, fully-specced phases run on GLM without touching Claude quota:
+  `claude-glm -p "/caddis:implement <plan-path> — Phase N only"` (from the repo root, on the
+  feature branch). The local-coder gate below exists exactly so these phases survive a weaker
+  implementer — a phase may only take this lane if it passes that gate.
+- **review lane (every phase that touches code)** — cross-vendor review by a vendor that did NOT
+  write the code: `python .github/tools/oss_review.py --range main..HEAD --provider deepseek`
+  (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
+  work). Never same-vendor.
+
 ## Step 3 — Write the plan to `.claudster/plans/<feature-slug>.md`
 
 Create `.claudster/plans/` if it doesn't exist.
@@ -87,7 +101,7 @@ Create `.claudster/plans/` if it doesn't exist.
 type: plan
 status: draft
 feature: <feature-slug>
-creation-agent: claudster
+creation-agent: caddis
 Original Author: Claude Code
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
 Creating Model: <model-id>
@@ -108,9 +122,11 @@ Creating Model: <model-id>
 ## Phases
 
 ### Phase 1 — <name>  ⏳
-> ⚠️ **Switch model BEFORE starting this phase** — run `/model <alias>`; the *active* model does the
-> work, not the one named here.
+> ⚠️ **Switch model/lane BEFORE starting this phase** — the *active* model does the work, not the
+> one named here. Lane `claude`: run `/model <alias>`. Lane `glm-headless`: run the exact command below.
 **Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>
+**Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
+**Session:** continue | **fresh** (start a new session for this phase — note why: lane change / heavy context)
 **Goal:** <one sentence>
 **Touches:** `<files>`
 **TDD:**
@@ -118,11 +134,23 @@ Creating Model: <model-id>
   - GREEN: <minimal implementation>
   - REFACTOR: <what to clean if needed>
 **Verify (subagents):** dispatch `tester` (must return passed), then `code-reviewer` (verdict: approved)
+**Cross-review:** `python .github/tools/oss_review.py --range main..HEAD --provider <vendor that did NOT implement>` → REVIEW: CLEAN
 **Exit gate:** <specific, testable — e.g. "GET /api/x returns 200 with {shape}", not "tests pass">
 **Commit:** `<conventional commit message>`
+**Then:** update the Tracker row (status + hash) → `/caddis:handoff` if ending the session here.
 
 ### Phase 2 — <name>  🔲
 <same structure>
+
+## Execution protocol (standing rules — this plan is the memory, not anyone's head)
+- One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
+  COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
+- **Session boundaries:** `/caddis:handoff` after any phase that ends a sitting. Start a FRESH
+  session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or whenever
+  context feels heavy. Resume with exactly: `read <this plan's path> and implement the next ⏳ phase`.
+- **Ship gate:** NEVER push or merge to main from a phase — phases only commit to the feature branch.
+  When all phases are ✅: `/caddis:ship-pr` (stops at green CI), then STOP and wait for the human's
+  explicit go before `/caddis:ship-merge`.
 
 ## Affected files
 | File | Action |
@@ -133,9 +161,9 @@ Creating Model: <model-id>
 |---|---|
 
 ## Tracker (update as you go — this is the resume signal)
-| Phase | Model | Status | Commit | Notes |
-|---|---|---|---|---|
-| 1 | mid | not started | — | |
+| Phase | Model | Lane | Status | Commit | Cross-review | Notes |
+|---|---|---|---|---|---|---|
+| 1 | mid | claude | not started | — | — | |
 ```
 
 ## Plan quality gate — local-coder ready (MANDATORY)
@@ -153,13 +181,18 @@ done:
 - **No abbreviation** — never "etc.", "similar to Phase 1", "and so on". Write every item in full.
 - **Model tier named** — every phase names a tier (cheap/mid/frontier/ultra) + a one-line rationale; no
   phase silently defaults to the most expensive model. Default mid; frontier/ultra only where justified.
+- **Lane + reviewer named** — every phase names its execution lane (`claude` or `glm-headless`, with
+  the literal launch command for glm phases) and a cross-review provider that is a different vendor
+  than the implementer. A glm-headless phase MUST pass every bullet of this gate — that lane has no
+  slack for reasoning out gaps.
 
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
 
 ## Step 4 — Report
 Output the plan path (`.claudster/plans/<feature-slug>.md`), the phase list (one line each, with each
-phase's model tier), confirm the local-coder gate passed (or list the phases that need tightening),
-and: *"To start: `read the plan and
-implement Phase 1`. To resume later: `/handoff` at session end, then `read relay.md` next time."*
+phase's model tier + lane), confirm the local-coder gate passed (or list the phases that need
+tightening), and: *"To start: `read the plan and implement Phase 1`. To resume later: `/handoff` at
+session end, then `read relay.md` next time. The plan's Execution protocol carries every command —
+nothing to memorize."*
 
 Do not start implementing — this command only produces the plan.

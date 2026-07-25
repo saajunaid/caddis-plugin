@@ -101,7 +101,9 @@ Malformed Mermaid renders as an error block — worse than no diagram. Before wr
 
 Use for a design review / ARB / slide deck. **The extractor emits the `.excalidraw` JSON directly** — run
 `--format excalidraw` and save the output as a `.excalidraw` file. No separate drawing skill, no MCP server.
-The generator already guarantees what a hand-drawn diagram gets wrong:
+The generator already guarantees what a hand-drawn diagram gets wrong.
+
+**Flowchart (query / proc):**
 - **Layout**: a strict left-to-right pipeline — sources → `WHERE` → `result` → projection — on a
   deterministic grid (same-column boxes share an x; columns balanced on one mid-line). **Edges connect
   adjacent stages only**, so an arrow can never cross a box; fan-in arrows land on distinct anchor
@@ -112,12 +114,27 @@ The generator already guarantees what a hand-drawn diagram gets wrong:
   alternative paths, which is wrong.
 - **Containment**: every label is a container-**bound** text element that auto-wraps and stays vertically
   centred *inside* its box; box heights are computed from the wrapped line count, so text never overflows.
-- **Theme**: `appState.theme` is `"light"` (default light; Excalidraw re-tints for dark itself if toggled).
+
+**ER diagram (schema DDL):**
+- **Header + bullet columns**: each entity renders its name as a distinct **header** (bold, larger, in the
+  role colour, with a divider rule) and every column as a **bullet-list** item (`•  col  type · PK/FK`) —
+  the title never reads as just another column.
+- **Arrows never cross a box**: entities are stacked in one column and every FK is routed as an
+  **orthogonal elbow through a left-side channel** (out the child's edge → down/up its own lane → into
+  the parent's edge). Every segment lives left of the boxes, so on a hub / chain / self-reference the FK
+  arrows can never run through — or hide behind — an intervening box (the old grid+straight-arrow bug).
+  Arrows are painted **on top** so every FK is unmistakably visible.
+
+- **Canvas**: pure white (`#ffffff`) by default, both outputs.
+- **Theme**: Excalidraw `appState.theme` is `"light"` (it re-tints for dark itself if toggled).
 - **Determinism**: fixed ids/seeds — regenerating on a schema change produces a clean diff, not a reshuffle.
 
 Then add the narration around it (business context + per-table descriptions + the execution-plan caveat).
 If someone wants a **shareable, no-app preview**, `--format html` produces a self-contained page (the SVG
-inline, a light/dark toggle, **default light**, zero external requests) and `--format svg` a standalone SVG.
+inline + a light/dark toggle) and `--format svg` a standalone SVG. The HTML theme is **fully
+attribute-driven**: an inline head script seeds light/dark from the OS once, both themes are defined under
+`:root[data-theme=…]` with the full variable set, and there is **no `@media` rule** to fight the toggle —
+so the toggle always applies cleanly (no half-applied / black-page state). Zero external requests.
 
 - **Do not maintain both formats for the same artifact.** If a Mermaid diagram already exists for an
   object and the user runs `/excalidraw-db` on it, say so and ask: a one-off review copy, or a replacement?

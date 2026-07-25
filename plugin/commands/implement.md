@@ -3,7 +3,7 @@ description: Headless plan executor — implement an approved plan phase-by-phas
 argument-hint: <path to .claudster/plans/<slug>.md>
 ---
 
-# /claudster:implement — execute an approved plan (headless driver)
+# /caddis:implement — execute an approved plan (headless driver)
 
 Implement the plan at **$ARGUMENTS** (falls back to the `DOCKET_PLAN` env var if `$ARGUMENTS` is empty).
 
@@ -38,8 +38,9 @@ depend on them:
 ## What to do
 
 **1. Read the plan.** Load the plan file (`$ARGUMENTS` / `DOCKET_PLAN`). Read its `## Phases`, `## Affected
-files`, `## Constraints & decisions`, and `## Tracker`. Read the `CLAUDE.md` at the repo root and in each
-folder you will touch, and `.claudster/PROJECT-FACTS.md` if present (for the real run/test commands) —
+files`, `## Constraints & decisions`, and `## Tracker`. Read the `AGENTS.md` at the repo root and in each
+folder you will touch (the canonical rules; `CLAUDE.md` is an `@AGENTS.md` shim), and
+`.claudster/PROJECT-FACTS.md` if present (for the real run/test commands) —
 **read it, never edit it**. Identify the test command the plan/facts specify so you can run it yourself.
 
 **2. Determine where to resume.** The `## Tracker` table is the resume signal. Start at the first phase whose

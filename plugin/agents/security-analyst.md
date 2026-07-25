@@ -12,7 +12,7 @@ Keep the main thread's context clean: return ranked findings, not a tour.
 ## How to review
 1. Scope the change: `git diff` / `git diff --staged` / `git status`, or the files/area named. For a
    broad audit, scan the auth, input-handling, data-access, and config layers.
-2. Read the relevant `CLAUDE.md` (root + folder) — its conventions (typed boundaries, no silent
+2. Read the relevant `AGENTS.md` (root + folder) — its conventions (typed boundaries, no silent
    failures, parameterized queries) are part of the security baseline you check against.
 3. Classify findings against OWASP Top 10 and rank by severity.
 

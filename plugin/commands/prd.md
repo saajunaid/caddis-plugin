@@ -65,7 +65,7 @@ both modes; only the interview is skipped.
 type: prd
 status: draft
 feature: <feature-slug>
-creation-agent: claudster
+creation-agent: caddis
 Original Author: Claude Code
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
 Creating Model: <model-id>

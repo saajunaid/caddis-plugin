@@ -7,8 +7,8 @@ argument-hint: <behavior to build>
 
 Build this behavior test-first: **$ARGUMENTS**
 
-If empty, ask what behavior to build and stop. Read the relevant `CLAUDE.md` (root + the folder you'll
-touch, e.g. `tests/CLAUDE.md`) before starting.
+If empty, ask what behavior to build and stop. Read the relevant `AGENTS.md` (root + the folder you'll
+touch, e.g. `tests/AGENTS.md`) before starting.
 
 ## The cycle — do not skip or reorder
 

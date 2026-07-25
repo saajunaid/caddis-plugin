@@ -3,14 +3,16 @@
 Deploys and customizes the canonical harness (claude-harness/) into a target project:
   • stack detection (pyproject/requirements/package.json + path signals, per stack-map.json)
   • placeholder substitution for provided keys, with a report of any leftovers (Phase 0 friction #1)
-  • CLAUDE.md hierarchy composed from fragments by detected stack + AGENTS.md mirror
+  • AGENTS.md-canonical rules hierarchy (root + folder AGENTS.md) with a CLAUDE.md `@AGENTS.md` shim
+    beside each, so every agent reads one source of rules and Claude Code inlines it via @import
   • subagents → .claude/agents/, commands → .claude/commands/, settings → .claude/settings.json (merged)
   • frontend Vitest/jsdom test-harness scaffold when react+vitest but no DOM env (Phase 0 friction #4)
   • venv / dev-deps detection (report; create+install only with --install)
 
-Idempotent: existing CLAUDE.md / AGENTS.md / settings are preserved unless --force; settings allow-lists
-are always merged (union). This script is the must-not-vary part; CLAUDE.md *enrichment* with
-project-specific facts is the AI step of the setup-project-ai skill that wraps this.
+Idempotent: existing AGENTS.md / CLAUDE.md / settings are preserved unless --force; settings allow-lists
+are always merged (union). This script is the must-not-vary part; AGENTS.md *enrichment* with
+project-specific facts is the AI step of the setup-project-ai skill that wraps this. The CLAUDE.md
+files are @import shims and are never enriched — durable rules always go in the matching AGENTS.md.
 
 Usage:
     python scripts/setup_project_ai.py <target_dir> --name "My App" --desc "One-line description"
@@ -151,7 +153,24 @@ def substitute_placeholders(target: Path, mapping: dict[str, str], dry: bool) ->
     return changed, leftovers
 
 
+# A folder CLAUDE.md is a 2-line @import shim — Claude Code inlines the sibling AGENTS.md (the
+# canonical rules) at load. The shim resolves `@AGENTS.md` relative to its own folder, so the same
+# text works at any depth. Durable folder rules always go in AGENTS.md, never in this shim.
+SUBFOLDER_SHIM = (
+    "# Folder conventions — canonical in AGENTS.md (imported below; Claude Code inlines it)\n"
+    "@AGENTS.md\n"
+)
+
+
 def compose_claude_md(target: Path, stack: dict, ident: dict[str, str], force: bool, dry: bool) -> list[str]:
+    """Emit the AGENTS.md-canonical rules hierarchy with a CLAUDE.md @import shim beside each.
+
+    Root:    AGENTS.md (canonical, from agents.md.tmpl) + CLAUDE.md shim (from root.md.tmpl —
+             `@AGENTS.md` + a small Claude-native-only block).
+    Folders: <dir>/AGENTS.md (the composed fragment body) + <dir>/CLAUDE.md (the 2-line shim).
+    stack-map `target` keys stay as `<dir>/CLAUDE.md`; the AGENTS.md path is derived here so the
+    map need not change.
+    """
     cm = HARNESS_DIR / "claude-md"
     written: list[str] = []
     has_stack_md = (target / "STACK.md").exists()
@@ -172,10 +191,11 @@ def compose_claude_md(target: Path, stack: dict, ident: dict[str, str], force: b
             dest.write_text(content, encoding="utf-8")
         written.append(f"write: {rel}")
 
-    write("CLAUDE.md", render((cm / "root.md.tmpl").read_text(encoding="utf-8"), mapping))
+    # root: canonical rules + the shim that imports them
     write("AGENTS.md", render((cm / "agents.md.tmpl").read_text(encoding="utf-8"), mapping))
+    write("CLAUDE.md", render((cm / "root.md.tmpl").read_text(encoding="utf-8"), mapping))
 
-    # folder fragments — only when the target folder exists
+    # folder fragments — only when the target folder exists. Canonical → <dir>/AGENTS.md; shim → <dir>/CLAUDE.md.
     by_target: dict[str, list[str]] = {}
     for det in stack["matched"]:
         tgt = det.get("target")
@@ -188,7 +208,10 @@ def compose_claude_md(target: Path, stack: dict, ident: dict[str, str], force: b
             written.append(f"skip (no folder): {tgt}")
             continue
         body = "\n".join((cm / f).read_text(encoding="utf-8") for f in frags)
-        write(tgt, render(body, mapping))
+        head, _, _fname = tgt.rpartition("/")
+        agents_rel = f"{head}/AGENTS.md" if head else "AGENTS.md"
+        write(agents_rel, render(body, mapping))
+        write(tgt, render(SUBFOLDER_SHIM, mapping))  # <dir>/CLAUDE.md shim
     return written
 
 
@@ -238,11 +261,11 @@ def merge_settings(target: Path, stack: dict, dry: bool) -> str:
             removed = [a for a in ex_ask if a in _LEGACY_HARNESS_ASK]
             existing["permissions"]["ask"] = pruned_ask
             notes.append(f"pruned stale ask rules that override bypassPermissions ({', '.join(removed)})")
-        # Strip stale hooks block — the claudster plugin owns all hooks via hooks.json.
+        # Strip stale hooks block — the caddis plugin owns all hooks via hooks.json.
         # Defining them here too causes double-fire at session start / pre-compact.
         if "hooks" in existing:
             del existing["hooks"]
-            notes.append("removed stale hooks block (now owned by claudster plugin)")
+            notes.append("removed stale hooks block (now owned by caddis plugin)")
         if "statusLine" not in existing:  # never clobber a user's own status line
             existing["statusLine"] = statusline
             notes.append("added status line")
@@ -318,9 +341,9 @@ def check_venv(target: Path, install: bool, dry: bool) -> list[str]:
 # so it runs under Git's bundled shell on Windows/Linux/macOS. Auto-skips tools that
 # aren't installed; only blocks when a present tool actually fails.
 PRE_PUSH_HOOK = r"""#!/usr/bin/env sh
-# Managed by claudster setup-project-ai. Delete this file to opt out.
+# Managed by caddis setup-project-ai. Delete this file to opt out.
 set -eu
-echo "[claudster] pre-push quality gate"
+echo "[caddis] pre-push quality gate"
 fail=0
 if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
   command -v ruff   >/dev/null 2>&1 && { echo "[gate] ruff check ."; ruff check . || fail=1; }
@@ -339,10 +362,10 @@ fi
 DOC_PY=$(command -v python || command -v python3 || true)
 [ -n "$DOC_PY" ] && [ -f "scripts/check_doc_coverage.py" ] && { echo "[gate] doc coverage"; "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1; }
 if [ "$fail" -ne 0 ]; then
-  echo "[claudster] push BLOCKED — fix the above, or 'git push --no-verify' to override." >&2
+  echo "[caddis] push BLOCKED — fix the above, or 'git push --no-verify' to override." >&2
   exit 1
 fi
-echo "[claudster] gate passed — pushing."
+echo "[caddis] gate passed — pushing."
 """
 
 
@@ -357,7 +380,8 @@ def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
     hooks_dir = git / "hooks"
     dest = hooks_dir / "pre-push"
     if dest.exists() and not force:
-        managed = "claudster" in dest.read_text(encoding="utf-8", errors="ignore")
+        _hook_txt = dest.read_text(encoding="utf-8", errors="ignore")
+        managed = "caddis" in _hook_txt or "claudster" in _hook_txt  # recognise pre-rename hooks too
         return [f"pre-push gate: exists ({'ours' if managed else 'yours — left intact, use --force to replace'}) — skipped"]
     if not dry:
         hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -546,9 +570,10 @@ def write_project_facts(target: Path, facts: dict, dry: bool) -> list[str]:
     out = [
         "# Project facts — auto-extracted by setup-project-ai",
         "",
-        "> Starting point for CLAUDE.md enrichment (skill Step 3). Pulled mechanically from",
+        "> Starting point for AGENTS.md enrichment (skill Step 3). Pulled mechanically from",
         "> package.json / pyproject.toml / .env.example / workflows — **verify, refine, fold the",
-        "> right ones into the matching CLAUDE.md (root vs backend/ vs frontend/), then delete this file.**",
+        "> right ones into the matching AGENTS.md (root vs backend/ vs frontend/) — the canonical rules",
+        "> file, NOT the CLAUDE.md shim — then delete this file.**",
         "",
     ]
 
@@ -568,7 +593,7 @@ def write_project_facts(target: Path, facts: dict, dry: bool) -> list[str]:
 
 
 CLAUDSTER_GITIGNORE = """\
-# claudster artifacts — commit plans/handoffs/agent-docs/prd; ignore transient state
+# caddis artifacts — commit plans/handoffs/agent-docs/prd; ignore transient state
 reviews/*.html
 usage-log.jsonl
 .last-usage-review
@@ -580,12 +605,12 @@ memory.jsonl
 
 
 CLAUDSTER_CONFIG_EXAMPLE = """\
-# claudster per-repo configuration — a documented template.
+# caddis per-repo configuration — a documented template.
 #
 # Nothing here takes effect until you copy this file to `.claudster/config.toml` (same directory)
-# and uncomment the keys you want. The claudster hooks/scripts read `config.toml` (never this
+# and uncomment the keys you want. The caddis hooks/scripts read `config.toml` (never this
 # `.example`) from the repo root's `.claudster/`. Unknown sections/keys are ignored, so a section
-# that a given claudster version doesn't yet honor is harmless to leave in place.
+# that a given caddis version doesn't yet honor is harmless to leave in place.
 #
 # All three sections below are honored. Every key falls back to a baked-in default, so uncomment
 # only the ones you want to change.
@@ -600,7 +625,7 @@ CLAUDSTER_CONFIG_EXAMPLE = """\
 # KILL SWITCH — turn the guard OFF entirely (bypasses ALL tiers, deny included). For users who run
 # Claude Code with `bypassPermissions` and want no second enforcement layer. Either:
 #   enabled = false            # (or mode = "off") — disables the guard for THIS repo.
-#   env CLAUDSTER_GUARD_DISABLED=1   — global, applies everywhere, survives plugin auto-updates.
+#   env CADDIS_GUARD_DISABLED=1   — global, applies everywhere, survives plugin auto-updates.
 # The env var is the recommended global switch; add it under `"env"` in ~/.claude/settings.json.
 [guard]
 # enabled = false
@@ -614,7 +639,9 @@ allow = [
 # [doc_coverage]
 # route_tree = "frontend/src/routeTree.gen.ts"   # where the generated route tree lives
 # page_guide = "UI_PAGE_GUIDE.md"                # the guide that must cover every live route
-# claude_md_budget = 200                         # warn when an always-loaded CLAUDE.md exceeds N lines
+# agents_md_budget = 200                         # warn when an always-loaded AGENTS.md (+ its CLAUDE.md
+#                                                # shim) exceeds N lines. `claude_md_budget` is the
+#                                                # accepted back-compat alias for this key.
 # ignore_routes = ["/health", "/__internal"]     # routes intentionally left out of the page guide
 
 # ── [dream_memory] — short-term fact store (scripts/dream_memory.py) ── LIVE ──
@@ -737,7 +764,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="Report actions without writing")
     ap.add_argument("--vendor", action="store_true",
                     help="Copy plugin-owned agents+commands into .claude/ (for raw checkouts without "
-                         "the claudster plugin installed; plugin installs load them globally — no copy needed)")
+                         "the caddis plugin installed; plugin installs load them globally — no copy needed)")
     args = ap.parse_args()
 
     target = args.target.resolve()
@@ -821,7 +848,7 @@ def main() -> int:
         for line in deploy_dir(HARNESS_DIR / "commands", target / ".claude" / "commands", args.force, args.dry_run):
             print(f"   {line}")
     else:
-        print("\n-- subagents/commands: skipped (provided by the claudster plugin; pass --vendor for a raw checkout)")
+        print("\n-- subagents/commands: skipped (provided by the caddis plugin; pass --vendor for a raw checkout)")
 
     print("\n-- settings")
     print(f"   {merge_settings(target, stack, args.dry_run)}")

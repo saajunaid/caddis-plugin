@@ -19,11 +19,14 @@ Load and follow the **`db-diagram`** skill; produce the Excalidraw output specif
    context / pasted). Multiple objects → ONE diagram of their relationships.
 2. **Generate the `.excalidraw` directly** — run the skill's extractor with
    `scripts/sql_to_graph.py --file <path> --format excalidraw` and save the output as a `.excalidraw` file.
-   The generator produces the layout deterministically: **left-to-right data flow** (sources left,
-   filters/transform middle, result/projection right), grid-aligned boxes, and **container-bound text that
-   auto-wraps and stays inside every box**. No separate drawing skill, no MCP server.
+   The generator lays out deterministically on a **white canvas**: a query becomes a **left-to-right data
+   flow** (sources → filters → result → projection) with container-bound text that stays inside every box;
+   schema DDL becomes an **ER diagram** where each entity has a distinct **header + bulleted columns** and
+   every FK arrow is **edge-anchored and orthogonally routed so it never crosses (or hides behind) a box** —
+   even on hub / chain / self-reference schemas. No separate drawing skill, no MCP server.
 3. **Optional no-app preview** — for a shareable page, `--format html` emits a self-contained HTML (inline
-   SVG, light/dark toggle, **default light**, no external requests); `--format svg` emits a standalone SVG.
+   SVG, a light/dark toggle that seeds from the OS and never half-applies, no external requests);
+   `--format svg` emits a standalone SVG.
 4. **Narrate + caveat** — include the business context and the execution-plan caveat (verbatim, per the
    skill).
 

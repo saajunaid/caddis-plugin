@@ -19,8 +19,9 @@ Escape hatch: `.claudster/config.toml [guard] allow = ["substr", ...]` may only 
 to `allow` (it can never override a `deny`); it matches the command/path value. Use specific strings.
 
 Kill switch: for users who run Claude Code with `bypassPermissions` and want zero additional
-gating from claudster, the guard can be turned off entirely (bypasses ALL tiers, deny included) via:
-  * env var `CLAUDSTER_GUARD_DISABLED=1` (also 1/true/yes/on) — global, survives plugin updates.
+gating from caddis, the guard can be turned off entirely (bypasses ALL tiers, deny included) via:
+  * env var `CADDIS_GUARD_DISABLED=1` (also 1/true/yes/on) — global, survives plugin updates.
+    (The former `CLAUDSTER_GUARD_DISABLED` is still read as a one-version fallback.)
   * `.claudster/config.toml [guard] enabled = false`  (or `mode = "off"`) — per-repo or user-level.
 When disabled, the hook exits 0 immediately and every call falls through to normal permission handling.
 """
@@ -212,8 +213,15 @@ def guard_disabled(root: str) -> bool:
     """True when the guard is turned off entirely (all tiers bypassed).
 
     Precedence: the env var wins (global, survives plugin auto-updates); otherwise the per-repo
-    `[guard]` table — `enabled = false` or `mode = "off"`. Any parse problem → not disabled (fail safe)."""
-    if os.environ.get("CLAUDSTER_GUARD_DISABLED", "").strip().lower() in _TRUTHY:
+    `[guard]` table — `enabled = false` or `mode = "off"`. Any parse problem → not disabled (fail safe).
+
+    Env var: CADDIS_GUARD_DISABLED is the current name. The pre-rename CLAUDSTER_GUARD_DISABLED is
+    read as a one-version fallback ONLY when the new name is unset, so existing global settings keep
+    working across the caddis rename. Read silently (this runs on every tool call — no per-call warn)."""
+    _disabled = os.environ.get("CADDIS_GUARD_DISABLED")
+    if _disabled is None:
+        _disabled = os.environ.get("CLAUDSTER_GUARD_DISABLED", "")
+    if _disabled.strip().lower() in _TRUTHY:
         return True
     section = _load_guard_config(root)
     if section.get("enabled") is False:

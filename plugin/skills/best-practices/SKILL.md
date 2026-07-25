@@ -136,16 +136,16 @@ Replace vague references with precise locations and details.
 | **Reference patterns** | "look at HotDogWidget.php and follow that pattern for the calendar widget" |
 | **Describe symptoms** | "users report login fails after session timeout. check src/auth/, especially token refresh" |
 
-**Respect Project CLAUDE.md:**
+**Respect Project AGENTS.md (the canonical rules file; CLAUDE.md is an @import shim):**
 
-If the project has a CLAUDE.md, the transformed prompt should:
+If the project has an AGENTS.md, the transformed prompt should:
 - Not contradict project conventions
 - Reference project-specific patterns when relevant
 - Note any project constraints that apply
 
 ```
 BEFORE: "add a new API endpoint"
-AFTER:  "add a GET /api/products endpoint. check CLAUDE.md for API conventions
+AFTER:  "add a GET /api/products endpoint. check AGENTS.md for API conventions
          in this project. follow the pattern in routes/users.ts. run the API
          tests after implementing."
 ```
@@ -381,7 +381,7 @@ Before outputting, verify the improved prompt has:
 - [ ] **Single task** — Not compound (split if needed)
 - [ ] **Phases** — If complex, structured as explore → plan → implement
 - [ ] **Root cause** — For bugs: "address root cause, don't suppress"
-- [ ] **CLAUDE.md** — Respect project conventions if they exist
+- [ ] **AGENTS.md** — Respect project conventions if they exist (CLAUDE.md is its @import shim)
 
 ---
 
@@ -443,7 +443,7 @@ A well-transformed prompt passes these checks:
 | File locations | `src/auth/login.ts` | "the auth code" |
 | Function/class names | `processPayment()` | "that function" |
 | Line numbers (if relevant) | `:42` | "somewhere in there" |
-| CLAUDE.md respected | "check project conventions" | Ignores project rules |
+| AGENTS.md respected | "check project conventions" | Ignores project rules |
 
 ### Principle 3: Constraints ✅
 | Check | Pass | Fail |

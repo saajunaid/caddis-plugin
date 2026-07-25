@@ -19,7 +19,7 @@ stack (pandas, polars, SQLAlchemy, pyodbc).
    columns. Read sample data / fixtures; don't assume.
 2. **Map source → target** field by field; name every transformation explicitly (no "etc.").
 3. **Design the pipeline** against the principles below; check the project's existing adapters/config
-   (read root + `src/` `CLAUDE.md`) and reuse them rather than re-inventing fetch→transform→load.
+   (read root + `src/` `AGENTS.md`) and reuse them rather than re-inventing fetch→transform→load.
 4. **Specify validation** — data-quality checks and contracts at the boundary (types, ranges, required
    fields) so bad data fails loudly, not silently.
 

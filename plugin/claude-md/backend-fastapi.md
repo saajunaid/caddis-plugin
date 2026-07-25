@@ -12,4 +12,4 @@
 - **Dependencies are injectable and overrideable** — design checks/clients as FastAPI dependencies so
   tests can `app.dependency_overrides` them (keeps the suite free of real external services).
 
-Skills (claudster plugin, by name): `fastapi-dev`, `api-design`.
+Skills (caddis plugin, by name): `fastapi-dev`, `api-design`.

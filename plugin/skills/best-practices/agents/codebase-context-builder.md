@@ -122,7 +122,7 @@ Identify what the prompt MUST respect:
 3. Note any files or areas explicitly mentioned
 
 ### Phase 2: Broad Discovery
-1. **Check CLAUDE.md** first — project-specific instructions
+1. **Check AGENTS.md** first — project-specific instructions (the canonical rules; CLAUDE.md is its @import shim)
 2. **Check README.md** — architecture overview
 3. **Check package.json/Gemfile** — dependencies and scripts
 4. **Glob for relevant directories** — find where domain code lives
@@ -316,7 +316,7 @@ Based on this codebase:
 
 ## Important Considerations
 
-- **CLAUDE.md is authoritative**: If it exists, respect its conventions
+- **AGENTS.md is authoritative**: If it exists, respect its conventions (CLAUDE.md is its @import shim)
 - **Let the codebase guide**: Don't suggest patterns that don't exist here
 - **Find the best examples**: Point to well-structured code, not legacy
 - **Consider dependencies**: Changes might affect other parts

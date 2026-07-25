@@ -2,7 +2,7 @@
 description: Pop the most recently parked workstream off the stack and resume it at its exact resume point
 ---
 
-# /claudster:resume — pop the parked task and pick it back up
+# /caddis:resume — pop the parked task and pick it back up
 
 A digression is finished; return to the task you parked with `/digress`. This pops the top frame off the
 workstream stack, restates where you were, realigns `relay.md`, and immediately continues the work — the

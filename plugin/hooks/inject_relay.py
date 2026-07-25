@@ -202,6 +202,21 @@ try:
 except Exception:
     pass
 
+# Maintenance nudge (Phase 9): ONE deterministic line when a signal fires — an oversize always-loaded
+# AGENTS.md (curator), a dangling DOC-MAP link (/caddis:kb), or a stale doctor run. PURE FILE CHECKS
+# via claudster_doctor.nudge_line (no subprocess, no LLM, no auto-fix). Fail-open & silent like every block.
+try:
+    _sc = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _sc not in sys.path:
+        sys.path.insert(0, _sc)
+    import claudster_doctor as _cd  # noqa: E402
+
+    _nudge = _cd.nudge_line(ROOT)
+    if _nudge:
+        print("\n" + _nudge)
+except Exception:
+    pass
+
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
 # Prefer the new .claudster location; fall back to the legacy .claude path during transition.
 _STAMP = _first_existing(

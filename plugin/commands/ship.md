@@ -24,7 +24,7 @@ Inspect the repo and pick exactly one lane:
 - **Local-only lane** — neither exists, or there is no push remote. Commit (and push if a remote
   exists); there is no CI to monitor — say so explicitly and stop after the push + local validation.
 
-Read `CLAUDE.md` and the detected workflow file(s) before starting so you use this repo's real gate
+Read `AGENTS.md` and the detected workflow file(s) before starting so you use this repo's real gate
 names, branch, and service identifiers — never assume.
 
 ## Steps 1–3 — common to every lane

@@ -25,7 +25,7 @@ strategy word (`squash` | `merge` | `rebase`) overrides the detected merge strat
 - **Local-only lane** — no forge, no PR concept: **refuse** and point at `/ship`. Stop.
 
 Resolve the target PR from `$ARGUMENTS`, else the current branch's open PR. No open PR → report
-that and point at `/ship-pr`. Read `CLAUDE.md` + the workflow file(s) for the repo's real deploy
+that and point at `/ship-pr`. Read `AGENTS.md` + the workflow file(s) for the repo's real deploy
 job names and default branch — never assume.
 
 ## Step 1 — Refuse unless green + mergeable + reviewed
@@ -51,7 +51,7 @@ future run — ask every time, even for the same PR five minutes later.
 ## Step 3 — Merge
 
 Use the repo's configured **merge strategy** — read it from repo settings (Gitea repo settings API /
-`gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`) and `CLAUDE.md`;
+`gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`) and `AGENTS.md`;
 an explicit argument wins. Options: **squash**, **merge-commit**, rebase-merge. **Don't assume** —
 if detection is inconclusive, say so and use merge-commit (never silently squash someone's history).
 Record the merge SHA.

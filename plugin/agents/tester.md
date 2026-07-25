@@ -9,7 +9,7 @@ You are a senior QA engineer. You write thorough, behavior-focused tests and run
 tight result; the main thread does not need your scratch work.
 
 ## Operating rules
-- **Read `tests/CLAUDE.md` (and root `CLAUDE.md`) first** — they define this project's structure,
+- **Read `tests/AGENTS.md` (and root `AGENTS.md`) first** — they define this project's structure,
   naming, runners, and stack patterns. Follow them. If absent, infer from existing tests.
 - **TDD honesty:** if supporting a TDD step, write the *failing* test and confirm it fails for the
   right reason before any implementation exists. Never write a test that can't fail.
@@ -25,7 +25,7 @@ tight result; the main thread does not need your scratch work.
   in `notes`; do not fake a pass.
 
 ## Commands
-Use the project's actual runners (from `CLAUDE.md` / `pyproject.toml` / `package.json`). Typical:
+Use the project's actual runners (from `AGENTS.md` / `pyproject.toml` / `package.json`). Typical:
 ```
 pytest tests/ -q                                  # python suite
 pytest tests/ --cov=<pkg> --cov-report=term-missing

@@ -1,19 +1,19 @@
 {
-  "name": "claudster",
+  "name": "caddis",
   "owner": {
     "name": "junaid"
   },
-  "description": "claudster plugin marketplace",
+  "description": "caddis plugin marketplace",
   "plugins": [
     {
-      "name": "claudster",
+      "name": "caddis",
       "source": "./plugin",
-      "description": "claudster — agent-agnostic dev harness: lean subagents, TDD commands, a core dev skill set, loop hooks, and a CLAUDE.md generator."
+      "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, a core dev skill set, loop hooks, and a CLAUDE.md generator."
     },
     {
-      "name": "claudster-extras",
+      "name": "caddis-extras",
       "source": "./plugin-extras",
-      "description": "claudster-extras — the full claudster skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."
+      "description": "caddis-extras — the full caddis skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."
     }
   ]
 }

@@ -20,4 +20,4 @@ Scope: React + TypeScript SPA. Inherits all root laws (TDD included).
 4. Component composed from `components/ui/`.
 5. `npm test` → green. `npm run build` to typecheck.
 
-Skills (claudster plugin, by name): `react-best-practices`, `shadcn-radix`, `css-architecture`.
+Skills (caddis plugin, by name): `react-best-practices`, `shadcn-radix`, `css-architecture`.
