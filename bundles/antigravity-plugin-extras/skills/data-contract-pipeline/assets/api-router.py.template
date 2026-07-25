@@ -1,0 +1,43 @@
+"""
+{{SOURCE_NAME}} API Router
+
+FastAPI endpoint returning typed response_model for {{source_name}} data.
+
+Part of the data contract pipeline:
+  Source → Adapter → Ingestion Model → Normalizer → Display DTO → **API Router**
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
+
+from src.models.responses.{{source_slug}} import {{ClassName}}Response
+from src.services.{{source_slug}}_service import get_{{source_slug}}_data
+
+router = APIRouter(
+    prefix="/api/{{url-slug}}",
+    tags=["{{source_name}}"],
+)
+
+
+@router.get(
+    "/",
+    response_model={{ClassName}}Response,
+    summary="Get {{source_name}} data",
+)
+async def get_data(
+    # --- Add query parameters as needed ---
+    # period: str = Query(..., description="Period identifier (e.g., '2026-03')"),
+):
+    """
+    Retrieve {{source_name}} data.
+
+    Returns a typed {{ClassName}}Response validated by Pydantic.
+    """
+    try:
+        result = await get_{{source_slug}}_data()
+        return result
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Data not found for requested period")
+    except Exception as e:
+        logger.error(f"Error fetching {{source_name}} data: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

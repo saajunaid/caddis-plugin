@@ -1,0 +1,46 @@
+/**
+ * {{SOURCE_NAME}} Frontend Service
+ *
+ * Typed fetch functions for {{source_name}} API endpoints.
+ * Return types match the TypeScript interfaces in types/{{source-slug}}.ts.
+ *
+ * Part of the data contract pipeline:
+ *   Backend API Router → **Frontend Service** → UI Components
+ */
+
+import type { {{ClassName}}Response } from '@/types/{{source-slug}}';
+// Use your project's API client — adapt the import to match:
+// import { apiClient } from '@/lib/api-client';
+// import axios from 'axios';
+
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+
+/**
+ * Fetch {{source_name}} data from the API.
+ *
+ * @returns Typed {{ClassName}}Response from the backend.
+ * @throws Error if the request fails.
+ */
+export async function fetch{{ClassName}}Data(): Promise<{{ClassName}}Response> {
+  const response = await fetch(`${BASE_URL}/api/{{url-slug}}`);
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch {{source_name}} data: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const data: {{ClassName}}Response = await response.json();
+  return data;
+}
+
+// --- React Query hook example (uncomment if using TanStack Query) ---
+//
+// import { useQuery } from '@tanstack/react-query';
+//
+// export function use{{ClassName}}Data() {
+//   return useQuery({
+//     queryKey: ['{{source-slug}}'],
+//     queryFn: fetch{{ClassName}}Data,
+//   });
+// }

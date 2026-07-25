@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""claudster /usage-review: local usage analysis + harness self-tuning recommendations.
+"""caddis /usage-review: local usage analysis + harness self-tuning recommendations.
 
 Reads:
   .claudster/usage-log.jsonl      per-session digest (Stop hook); legacy .claude/usage-log.jsonl fallback
@@ -314,8 +314,10 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
 _CHEAP_AGENTS = {"preflight", "tester", "codebase-audit", "ui-design-reviewer", "data-engineer",
                  "sql-expert", "claude-md-curator", "debug"}
 _HEAVY_AGENTS = {"anchor", "security-analyst"}
-_CORE_SKILLS  = {"claudster:feature-plan", "claudster:handoff", "claudster:prd",
-                 "claudster:ship", "claudster:tdd", "claudster:ui-brief"}
+# Core skill identity is the caddis plugin's; the pre-rename "claudster:" prefix is also listed so
+# legacy usage-log entries (recorded before the caddis rename) still categorize correctly.
+_CORE_SKILL_NAMES = ("feature-plan", "handoff", "prd", "ship", "tdd", "ui-brief")
+_CORE_SKILLS  = {f"{p}:{n}" for p in ("caddis", "claudster") for n in _CORE_SKILL_NAMES}
 
 
 def run_rules(metrics: dict, prev: dict, agents: list[dict]) -> list[dict]:
@@ -427,7 +429,7 @@ def run_rules(metrics: dict, prev: dict, agents: list[dict]) -> list[dict]:
             })
 
     # R5 — Extras footprint ───────────────────────────────────────────────────
-    extras_fired = {s for s in s_disp if s.startswith("claudster:") and s not in _CORE_SKILLS}
+    extras_fired = {s for s in s_disp if s.startswith(("caddis:", "claudster:")) and s not in _CORE_SKILLS}
     total_skill_fires = sum(s_disp.values())
     if total_skill_fires > 0 and not extras_fired and sessions >= 3:
         findings.append({
@@ -436,9 +438,9 @@ def run_rules(metrics: dict, prev: dict, agents: list[dict]) -> list[dict]:
             "finding": (
                 f"You had {total_skill_fires} skill call{'s' if total_skill_fires > 1 else ''} "
                 "this window but none from the extras tier. "
-                "If claudster-extras is enabled, it adds context to every session even when unused."
+                "If caddis-extras is enabled, it adds context to every session even when unused."
             ),
-            "action": "Disable claudster-extras if you don't use those skills: remove it from the plugins list in `.claude/settings.json`.",
+            "action": "Disable caddis-extras if you don't use those skills: remove it from the plugins list in `.claude/settings.json`.",
             "apply_target": None,
         })
 
@@ -1075,7 +1077,7 @@ def render_html(metrics: dict, findings: list[dict], days: int,
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>claudster · usage review</title>
+<title>caddis · usage review</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1100,7 +1102,7 @@ def render_html(metrics: dict, findings: list[dict], days: int,
  ╲  ╱</pre>
       </div>
       <div class="h-brand">
-        <span class="brand-name">◆ claudster</span>
+        <span class="brand-name">◆ caddis</span>
         <span class="brand-tag">usage review</span>
       </div>
     </div>
@@ -1123,7 +1125,7 @@ def render_html(metrics: dict, findings: list[dict], days: int,
   {action_section}
   {advisory_section}
 
-  <footer>Generated {generated} &middot; <code>.claudster/usage-log.jsonl</code> + session transcripts &middot; Estimates only — all data stays local. &middot; <a href="https://github.com/saajunaid/junai" style="color:var(--ink-4)">claudster</a></footer>
+  <footer>Generated {generated} &middot; <code>.claudster/usage-log.jsonl</code> + session transcripts &middot; Estimates only — all data stays local. &middot; <a href="https://github.com/saajunaid/junai" style="color:var(--ink-4)">caddis</a></footer>
 </div>
 </body>
 </html>"""
@@ -1132,7 +1134,7 @@ def render_html(metrics: dict, findings: list[dict], days: int,
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="claudster /usage-review: usage analysis + harness recommendations"
+        description="caddis /usage-review: usage analysis + harness recommendations"
     )
     ap.add_argument("--days", type=int, default=7, help="Analysis window in days (default 7)")
     ap.add_argument("--cwd", default=os.getcwd(), help="Project root (default: cwd)")

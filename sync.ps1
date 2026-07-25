@@ -319,8 +319,8 @@ function Bump-PackageJsonPatchVersion {
 
 function Get-RuntimeTargetsPluginVersion {
     # Read the version of a NAMED plugin block inside .github/runtime-targets.json (the export
-    # source of truth for plugin.json). Scoped by the plugin's "name" so "claudster" never matches
-    # "claudster-extras" - the closing quote after the name disambiguates the two.
+    # source of truth for plugin.json). Scoped by the plugin's "name" so "caddis" never matches
+    # "caddis-extras" - the closing quote after the name disambiguates the two.
     param(
         [Parameter(Mandatory)][string]$ManifestPath,
         [Parameter(Mandatory)][string]$PluginName
@@ -1068,6 +1068,18 @@ function junai-push {
         return
     }
 
+    # Nested-mirror guard (Phase 0 hygiene, 2026-07): the pool/mirror must NEVER contain a
+    # self-nested checkout of itself at vscode-extensions/junai. A stray copy there means a
+    # prior sync mirrored the pool into itself; a find/replace or publish over that tree would
+    # touch two inconsistent copies and can leak the whole mirror twice. Fail hard so it is
+    # fixed (git rm -r vscode-extensions/junai in the mirror), never silently shipped.
+    $nestedMirror = Join-Path $JUNO_POOL "vscode-extensions\junai"
+    if (Test-Path $nestedMirror) {
+        Write-Host "  [FAIL]  nested self-copy of the mirror detected at:" -ForegroundColor Red
+        Write-Host "          $nestedMirror" -ForegroundColor Red
+        throw "junai mirror hygiene: a nested vscode-extensions/junai checkout is present inside the pool. Remove it (in the mirror: git rm -r vscode-extensions/junai && commit) before pushing. The mirror must not contain a checkout of itself."
+    }
+
     Write-Host ""
     Write-Host "  JUNAI PUSH  $(Split-Path $ProjectRoot -Leaf) --> junai" -ForegroundColor Magenta
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
@@ -1185,12 +1197,45 @@ function junai-push {
                     }
                 }
             }
-            Write-Host "  [OK]  claudster plugins (.claude-plugin + plugin/ + plugin-extras/)" -ForegroundColor Green
+            Write-Host "  [OK]  caddis plugins (.claude-plugin + plugin/ + plugin-extras/)" -ForegroundColor Green
         } else {
             Write-Host "  [WARN]  claude plugin export failed; bundle not synced this run." -ForegroundColor Yellow
         }
     } else {
         Write-Host "  [--]  claude plugin - python not found, skipped" -ForegroundColor DarkGray
+    }
+
+    # -- Portable bundles (Phase 4 caddis) --------------------------------------
+    # Ship the non-Claude bundles at bundles/<target>/ so `caddis-init --target <t>` (GitHub
+    # tarball mode, no --from) resolves them (claudster_init.py BUNDLE_ROOTS = bundles, then
+    # dist/runtime-resources; dist/ is gitignored in the mirror so bundles/ is the published home),
+    # and so `agy plugin install <junai-checkout>/bundles/antigravity-plugin` works from a checkout.
+    $BUNDLE_TARGETS = @("codex", "codex-extras", "antigravity", "antigravity-extras",
+                        "antigravity-plugin", "antigravity-plugin-extras")
+    if ($claudePython) {
+        Push-Location $ProjectRoot
+        $bundleExportArgs = @("export_runtime_resources.py")
+        foreach ($t in $BUNDLE_TARGETS) { $bundleExportArgs += @("--profile", $t) }
+        & $claudePython.Path @($claudePython.PrefixArgs + $bundleExportArgs)
+        $bundleExportOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+        if ($bundleExportOk) {
+            $bundlesRoot = Join-Path $JUNO_POOL "bundles"
+            New-Item -ItemType Directory -Force $bundlesRoot | Out-Null
+            foreach ($t in $BUNDLE_TARGETS) {
+                $srcBundle = Join-Path $ProjectRoot "dist\runtime-resources\$t"
+                $dstBundle = Join-Path $bundlesRoot $t
+                if (Test-Path $srcBundle) {
+                    if (Test-Path $dstBundle) { Remove-ItemRobust $dstBundle }
+                    Copy-Item $srcBundle $bundlesRoot -Recurse -Force
+                    Write-Host "  [OK]  bundle: bundles/$t" -ForegroundColor Green
+                } else {
+                    Write-Host "  [WARN]  bundle $t not exported; skipped." -ForegroundColor Yellow
+                }
+            }
+        } else {
+            Write-Host "  [WARN]  portable-bundle export failed; bundles/ not refreshed this run." -ForegroundColor Yellow
+        }
     }
 
     Remove-LocalOnlyPoolFiles -GithubRoot $JUNO_GITHUB
@@ -1210,20 +1255,20 @@ function junai-push {
     #  mcp-server tool was removed alongside the Copilot-era pipeline runner.
     #  The published junai-mcp PyPI package is a separate artifact, untouched here.)
 
-    # -- Auto-bump the claudster plugin version when its bundle content changed --
+    # -- Auto-bump the caddis plugin version when its bundle content changed --
     # plugin.json is GENERATED from .github/runtime-targets.json by the export, so shipping
     # plugin content without bumping that manifest pins clients to a stale cached version (the
     # .claudster migration hit exactly this). When the mirror's plugin/ content changed beyond
     # plugin.json itself (so a manual version edit is not double-bumped), bump the manifest,
     # re-sync it, and re-export so the new version rides in THIS mirror commit. The source
     # manifest is committed separately after the push (it is the export's source of truth).
-    $bumpedClaudster = ""
+    $bumpedCaddis = ""
     if ($claudePython) {
         $pluginContentDiff = git status --porcelain -- plugin ":(exclude)plugin/.claude-plugin/plugin.json"
         if (-not [string]::IsNullOrWhiteSpace(($pluginContentDiff | Out-String).Trim())) {
             $manifestSrc = Join-Path $ProjectRoot ".github/runtime-targets.json"
-            $bumpedClaudster = Bump-RuntimeTargetsPluginVersion -ManifestPath $manifestSrc -PluginName "claudster"
-            if (-not [string]::IsNullOrWhiteSpace($bumpedClaudster)) {
+            $bumpedCaddis = Bump-RuntimeTargetsPluginVersion -ManifestPath $manifestSrc -PluginName "caddis"
+            if (-not [string]::IsNullOrWhiteSpace($bumpedCaddis)) {
                 Copy-Item $manifestSrc (Join-Path $JUNO_GITHUB "runtime-targets.json") -Force
                 Push-Location $ProjectRoot
                 & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude"))
@@ -1232,15 +1277,15 @@ function junai-push {
                 $rebuiltPlugin = Join-Path $claudeBundle "plugin\.claude-plugin\plugin.json"
                 if ($reExportOk -and (Test-Path $rebuiltPlugin)) {
                     Copy-Item $rebuiltPlugin (Join-Path $JUNO_POOL "plugin\.claude-plugin\plugin.json") -Force
-                    Write-Host "  [OK]  claudster bundle changed -> bumped manifest + plugin.json to $bumpedClaudster" -ForegroundColor Green
+                    Write-Host "  [OK]  caddis bundle changed -> bumped manifest + plugin.json to $bumpedCaddis" -ForegroundColor Green
                 } else {
-                    Write-Host "  [WARN]  claude re-export failed; plugin.json may lag the $bumpedClaudster bump." -ForegroundColor Yellow
+                    Write-Host "  [WARN]  claude re-export failed; plugin.json may lag the $bumpedCaddis bump." -ForegroundColor Yellow
                 }
             }
         }
     }
 
-    # -- Same auto-bump for claudster-extras when ITS bundle content changed --
+    # -- Same auto-bump for caddis-extras when ITS bundle content changed --
     # The extras plugin (plugin-extras/) versions independently. Without this, a content change
     # to extras (e.g. a skill removed during re-privatization) ships without a version bump, so
     # clients keep the stale cached copy and `/plugin update` reports "already up to date".
@@ -1250,7 +1295,7 @@ function junai-push {
         $extrasContentDiff = git status --porcelain -- plugin-extras ":(exclude)plugin-extras/.claude-plugin/plugin.json"
         if (-not [string]::IsNullOrWhiteSpace(($extrasContentDiff | Out-String).Trim())) {
             $manifestSrc = Join-Path $ProjectRoot ".github/runtime-targets.json"
-            $bumpedExtras = Bump-RuntimeTargetsPluginVersion -ManifestPath $manifestSrc -PluginName "claudster-extras"
+            $bumpedExtras = Bump-RuntimeTargetsPluginVersion -ManifestPath $manifestSrc -PluginName "caddis-extras"
             if (-not [string]::IsNullOrWhiteSpace($bumpedExtras)) {
                 Copy-Item $manifestSrc (Join-Path $JUNO_GITHUB "runtime-targets.json") -Force
                 Push-Location $ProjectRoot
@@ -1260,7 +1305,7 @@ function junai-push {
                 $rebuiltExtras = Join-Path $extrasBundle "plugin-extras\.claude-plugin\plugin.json"
                 if ($reExportExtrasOk -and (Test-Path $rebuiltExtras)) {
                     Copy-Item $rebuiltExtras (Join-Path $JUNO_POOL "plugin-extras\.claude-plugin\plugin.json") -Force
-                    Write-Host "  [OK]  claudster-extras bundle changed -> bumped manifest + plugin.json to $bumpedExtras" -ForegroundColor Green
+                    Write-Host "  [OK]  caddis-extras bundle changed -> bumped manifest + plugin.json to $bumpedExtras" -ForegroundColor Green
                 } else {
                     Write-Host "  [WARN]  claude-extras re-export failed; plugin.json may lag the $bumpedExtras bump." -ForegroundColor Yellow
                 }
@@ -1301,13 +1346,13 @@ function junai-push {
     # truth, so it must be committed here or the next export would regenerate plugin.json at the
     # old version and silently revert the bump. Path-scoped commit so unrelated source edits are
     # not swept in.
-    if ((-not [string]::IsNullOrWhiteSpace($bumpedClaudster)) -or (-not [string]::IsNullOrWhiteSpace($bumpedExtras))) {
+    if ((-not [string]::IsNullOrWhiteSpace($bumpedCaddis)) -or (-not [string]::IsNullOrWhiteSpace($bumpedExtras))) {
         $bumpParts = @()
-        if (-not [string]::IsNullOrWhiteSpace($bumpedClaudster)) { $bumpParts += "claudster v$bumpedClaudster" }
+        if (-not [string]::IsNullOrWhiteSpace($bumpedCaddis)) { $bumpParts += "caddis v$bumpedCaddis" }
         if (-not [string]::IsNullOrWhiteSpace($bumpedExtras))    { $bumpParts += "extras v$bumpedExtras" }
         $bumpSummary = $bumpParts -join " + "
         Push-Location $ProjectRoot
-        git commit ".github/runtime-targets.json" -m "chore(claudster): bump manifest version ($bumpSummary)" | Out-Null
+        git commit ".github/runtime-targets.json" -m "chore(caddis): bump manifest version ($bumpSummary)" | Out-Null
         $bumpExit = $LASTEXITCODE
         Pop-Location
         if ($bumpExit -ne 0) {

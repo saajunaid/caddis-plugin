@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "sh -c 'echo CLAUDSTER-HOOK-FIRED >> $HOME/.claudster-agy-hook.log'",
+        "windows": "cmd /c echo CLAUDSTER-HOOK-FIRED>>%USERPROFILE%\\.claudster-agy-hook.log",
+        "linux": "sh -c 'echo CLAUDSTER-HOOK-FIRED >> $HOME/.claudster-agy-hook.log'",
+        "osx": "sh -c 'echo CLAUDSTER-HOOK-FIRED >> $HOME/.claudster-agy-hook.log'"
+      }
+    ]
+  }
+}

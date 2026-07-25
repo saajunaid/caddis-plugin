@@ -1,0 +1,62 @@
+# Query Catalog — {FeatureName}
+# Generated: {date}
+# Target: {DB server / environment}
+# Schema: {schema} (default: dbo)
+#
+# PURPOSE: Every SQL query that populates a DB-backed UI field is listed here.
+# Queries use named bind parameters and are bounded — safe to run during data analysis.
+# Substitute {schema} → dbo (or your override) before executing.
+
+---
+
+## {EntityName} — {repository_module}.fetch_{entity}_list
+
+**UI fields populated:** `fieldA`, `fieldB`, `fieldC`, `embeddedStatus`
+**Called by:** `{EntityService}.get_list` → `normalize_{entity}` → `{EntityResponse}`
+**Paging:** OFFSET + FETCH, max {MAX_PAGE} rows
+
+```sql
+-- List query — paged, optional filter
+-- Parameters:
+--   :filter_value  VARCHAR  optional WHERE filter (pass NULL to skip)
+--   :offset        INT      OFFSET rows (0-based)
+--   :page_size     INT      rows per page (max {MAX_PAGE})
+SELECT
+    t.primary_key_col     AS primary_key,
+    t.display_col_a       AS field_a,
+    t.display_col_b       AS field_b,
+    t.embedded_col        AS embedded_col   -- NVARCHAR(MAX): see derived fields below
+FROM {schema}.{SourceTable} AS t
+WHERE (:filter_value IS NULL OR t.filter_col = :filter_value)
+ORDER BY t.created_at DESC
+OFFSET :offset ROWS FETCH NEXT :page_size ROWS ONLY;
+```
+
+**Derived fields from `embedded_col` (extracted by normalizer, not in SQL):**
+
+| UI field | Payload path | Adapter | Null behaviour |
+|---|---|---|---|
+| `embeddedStatus` | NULL check on `embedded_col` | n/a | `blocked` |
+| `derivedField1` | `embedded_col → json_key` | `embedded_json_adapter` | `[]` |
+| `derivedField2` | `embedded_col → ## Section Header` | `embedded_markdown_adapter` | `None` |
+
+---
+
+## {EntityName} — {repository_module}.fetch_{entity}_by_id
+
+**UI fields populated:** same as list + detail-only fields
+**Called by:** `{EntityService}.get_by_id` → `normalize_{entity}` → `{EntityResponse}`
+
+```sql
+-- Single-row lookup by primary key
+-- Parameters:
+--   :record_id  VARCHAR  primary key value
+SELECT
+    t.primary_key_col     AS primary_key,
+    t.display_col_a       AS field_a,
+    t.display_col_b       AS field_b,
+    t.detail_only_col     AS detail_field,
+    t.embedded_col        AS embedded_col
+FROM {schema}.{SourceTable} AS t
+WHERE t.primary_key_col = :record_id;
+```

@@ -37,6 +37,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 EXIT_CLEAN = 0
 EXIT_BLOCKING = 1
@@ -57,6 +58,29 @@ class ConfigError(Exception):
     """Raised when configuration can't be resolved (unknown provider, or missing API key)."""
 
 
+DEFAULT_KEYS_FILE = "~/.claudster/keys.env"
+
+
+def _parse_keys_file(path: str) -> dict[str, str]:
+    """Parse an INI/``KEY=VALUE`` keys file; missing file yields ``{}``.
+
+    Mirror of claude-harness/scripts/oss_model.py::_parse_keys_file — duplicated (15 lines)
+    rather than imported so this tool stays a single stdlib-only file that runs from any repo
+    the runtime resources are exported into.
+    """
+    p = Path(path).expanduser()
+    if not p.is_file():
+        return {}
+    out: dict[str, str] = {}
+    for raw in p.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        out[key.strip()] = val.strip().strip('"').strip("'")
+    return out
+
+
 def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, str, str]:
     """(base_url, api_key, model). Precedence: explicit flag > env var > provider preset.
 
@@ -73,12 +97,27 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, 
             f"could not resolve an endpoint for provider {provider!r}. Use a known --provider "
             f"({known}) or set REVIEW_BASE_URL and REVIEW_MODEL explicitly."
         )
-    api_key = (env.get("REVIEW_API_KEY") or "").strip()
+    # Key precedence: REVIEW_API_KEY > provider env (DEEPSEEK_API_KEY, …) > OSS_API_KEY >
+    # the claudster keys file — same resolution chain as the claude-oss launcher, so wiring
+    # a provider once (in ~/.claudster/keys.env) lights up both lanes.
+    key_env = f"{provider.upper()}_API_KEY"
+    api_key = ""
+    for name in ("REVIEW_API_KEY", key_env, "OSS_API_KEY"):
+        api_key = (env.get(name) or "").strip()
+        if api_key:
+            break
+    if not api_key:
+        keys_path = env.get("CADDIS_KEYS_FILE") or env.get("CLAUDSTER_KEYS_FILE") or DEFAULT_KEYS_FILE
+        file_keys = _parse_keys_file(keys_path)
+        for name in (key_env, "OSS_API_KEY"):
+            api_key = (file_keys.get(name) or "").strip()
+            if api_key:
+                break
     if not api_key:
         raise ConfigError(
-            "REVIEW_API_KEY is not set. Export your provider key first, e.g.\n"
-            "  PowerShell:  $env:REVIEW_API_KEY = <your-provider-key>\n"
-            "  bash:        export REVIEW_API_KEY=<your-provider-key>"
+            f"no API key for provider {provider!r}. Set $REVIEW_API_KEY or ${key_env}, or add\n"
+            f"  {key_env}=<your-key>\n"
+            f"to your keys file ({keys_path}). Override the file path with $CADDIS_KEYS_FILE."
         )
     return base_url, api_key, model
 
@@ -90,7 +129,11 @@ def get_diff(rng: str | None, cwd: str) -> str:
     main() maps it to EXIT_ERROR rather than reviewing an empty diff as CLEAN.
     """
     cmd = ["git", "diff", rng] if rng else ["git", "diff", "HEAD"]
-    out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=30)
+    # encoding pinned to UTF-8: git emits UTF-8, but text=True would decode with the locale
+    # codepage (cp1252 on Windows) — a non-ASCII diff then kills the reader thread and
+    # subprocess hands back stdout=None with returncode 0.
+    out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace", timeout=30)
     if out.returncode != 0:
         raise RuntimeError(f"git diff failed: {out.stderr.strip()}")
     return out.stdout
@@ -100,7 +143,8 @@ def current_branch(cwd: str) -> str:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=cwd, capture_output=True, text=True, timeout=10,
+            cwd=cwd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
         )
         return out.stdout.strip() or "the current branch"
     except Exception:

@@ -344,57 +344,26 @@
           "source": "skills",
           "destination": ".codex/skills",
           "excluded_names": ["_registry.md"],
-          "included_skills": {
-            "coding": [
-              "anchor-review", "api-client-patterns", "api-design", "architecture-design",
-              "backend-development", "backend-to-frontend-handoff", "caching-patterns", "codebase-audit",
-              "code-explainer", "code-review", "error-handling", "fastapi-dev", "javascript-typescript",
-              "llm-application-dev", "mcp-builder", "observability", "python", "refactoring",
-              "security-review", "sql", "understand-anything"
-            ],
-            "testing": [
-              "component-testing", "performance-testing", "playwright", "tdd-workflow", "test-strategy",
-              "ui-testing", "webapp-testing"
-            ],
-            "workflow": [
-              "agent-md-refactor", "asking-questions", "best-practices", "brainstorming", "context-curator",
-              "data-contract-pipeline", "golden-nuggets", "golden-plan", "intent-writer", "onboard-project",
-              "preflight", "receiving-code-review", "relay", "requesting-code-review", "setup-project-ai",
-              "skill-creator", "state-tracking", "verification-loop"
-            ],
-            "docs": [
-              "architecture-document", "code-documentation", "doc-coauthoring", "documentation-analyzer",
-              "naming-analyzer", "prd-to-code", "technical-writing", "writing-plans"
-            ],
-            "devops": [
-              "changelog-generator", "ci-cd-pipeline", "deploy-local", "gh-cli", "git-commit", "monorepo",
-              "update-readme", "using-git-worktrees"
-            ],
-            "data": [
-              "data-analysis", "database-design", "data-loader", "data-validation", "db-testing",
-              "schema-migration"
-            ],
-            "frontend": [
-              "css-architecture", "design-system-tokens", "enterprise-dashboard-aesthetic-system",
-              "frontend-design", "mockup", "nextjs-app-router",
-              "react-best-practices", "react-dev", "react-useeffect", "responsive-mobile-native",
-              "shadcn-radix", "streamlit-dev", "theme-factory", "ui-review",
-              "ui-styling-patterns", "ui-ux-intelligence", "warm-editorial-ui",
-              "webapp-development", "word-cloud"
-            ],
-            "media": [
-              "draw-io", "excalidraw", "mermaid-diagrams", "plantuml", "svg-create"
-            ],
-            "productivity": [
-              "github-issues", "jira-issues"
-            ]
-          }
+          "included_skills_from": "claude"
+        }
+      ]
+    },
+    {
+      "name": "codex-extras",
+      "_comment": "Codex EXTRAS tier — the long tail (all pool skills MINUS the ~41 core). Laid over the core codex bundle by `claudster-init --target codex --extras`. Denylist single-sourced from claude-extras (one core/extras split; no third tier).",
+      "workspace_root": ".",
+      "copies": [
+        {
+          "source": "skills",
+          "destination": ".codex/skills",
+          "excluded_names": ["_registry.md"],
+          "excluded_skills_from": "claude-extras"
         }
       ]
     },
     {
       "name": "antigravity",
-      "_comment": "Antigravity IDE bundle — probed contract (docs/analysis/antigravity-contract.md, v1.107.0): AGENTS.md discovered workspace-wide; skills read from .claude/skills/<name>/SKILL.md in the CLAUDE format, FLAT (no category nesting — hence flatten_skills). Roster mirrors the codex bundle. Rules dir (.agents/rules) and .gemini/mcp_config.json are Phase-5 seams, not shipped yet.",
+      "_comment": "Antigravity bundle — follows the CLI/2.0 contract (agy v1.1.5, probed 2026-07-23 — docs/analysis/antigravity-contract.md): AGENTS.md read as rules; skills auto-discovered at .agents/skills/<name>/SKILL.md, FLAT (hence flatten_skills; SKILL.md must START with name+description frontmatter). NOTE: IDE 1.107 used .claude/skills/ (legacy — see contract doc). Roster mirrors the codex bundle. .agents/rules and ~/.gemini/config/mcp_config.json are Phase-5 seams, not shipped yet.",
       "workspace_root": ".",
       "extra_roots": {"harness": "claude-harness"},
       "files": [
@@ -403,123 +372,79 @@
       "copies": [
         {
           "source": "skills",
-          "destination": ".claude/skills",
+          "destination": ".agents/skills",
           "flatten_skills": true,
           "excluded_names": ["_registry.md"],
-          "included_skills": {
-            "coding": [
-              "anchor-review",
-              "api-client-patterns",
-              "api-design",
-              "architecture-design",
-              "backend-development",
-              "backend-to-frontend-handoff",
-              "caching-patterns",
-              "codebase-audit",
-              "code-explainer",
-              "code-review",
-              "error-handling",
-              "fastapi-dev",
-              "javascript-typescript",
-              "llm-application-dev",
-              "mcp-builder",
-              "observability",
-              "python",
-              "refactoring",
-              "security-review",
-              "sql",
-              "understand-anything"
-            ],
-            "testing": [
-              "component-testing",
-              "performance-testing",
-              "playwright",
-              "tdd-workflow",
-              "test-strategy",
-              "ui-testing",
-              "webapp-testing"
-            ],
-            "workflow": [
-              "agent-md-refactor",
-              "asking-questions",
-              "best-practices",
-              "brainstorming",
-              "context-curator",
-              "data-contract-pipeline",
-              "golden-nuggets",
-              "golden-plan",
-              "intent-writer",
-              "onboard-project",
-              "preflight",
-              "receiving-code-review",
-              "relay",
-              "requesting-code-review",
-              "setup-project-ai",
-              "skill-creator",
-              "state-tracking",
-              "verification-loop"
-            ],
-            "docs": [
-              "architecture-document",
-              "code-documentation",
-              "doc-coauthoring",
-              "documentation-analyzer",
-              "naming-analyzer",
-              "prd-to-code",
-              "technical-writing",
-              "writing-plans"
-            ],
-            "devops": [
-              "changelog-generator",
-              "ci-cd-pipeline",
-              "deploy-local",
-              "gh-cli",
-              "git-commit",
-              "monorepo",
-              "update-readme",
-              "using-git-worktrees"
-            ],
-            "data": [
-              "data-analysis",
-              "database-design",
-              "data-loader",
-              "data-validation",
-              "db-testing",
-              "schema-migration"
-            ],
-            "frontend": [
-              "css-architecture",
-              "design-system-tokens",
-              "enterprise-dashboard-aesthetic-system",
-              "frontend-design",
-              "mockup",
-              "nextjs-app-router",
-              "react-best-practices",
-              "react-dev",
-              "react-useeffect",
-              "responsive-mobile-native",
-              "shadcn-radix",
-              "streamlit-dev",
-              "theme-factory",
-              "ui-review",
-              "ui-styling-patterns",
-              "ui-ux-intelligence",
-              "warm-editorial-ui",
-              "webapp-development",
-              "word-cloud"
-            ],
-            "media": [
-              "draw-io",
-              "excalidraw",
-              "mermaid-diagrams",
-              "plantuml",
-              "svg-create"
-            ],
-            "productivity": [
-              "github-issues",
-              "jira-issues"
-            ]
-          }
+          "included_skills_from": "claude"
+        }
+      ]
+    },
+    {
+      "name": "antigravity-plugin",
+      "_comment": "Installable agy plugin (agy 1.1.5 contract — docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (code-reviewer, preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (claudster_ping MCP tool).",
+      "workspace_root": ".",
+      "extra_roots": {
+        "harness": "claude-harness"
+      },
+      "agy_plugin": {
+        "name": "caddis",
+        "description": "caddis — agent-agnostic dev harness as an Antigravity (agy) plugin: TDD skills + commands, single-sourced with the Claude Code plugin."
+      },
+      "copies": [
+        {
+          "source": "skills",
+          "destination": "skills",
+          "flatten_skills": true,
+          "excluded_names": ["_registry.md"],
+          "included_skills_from": "claude"
+        },
+        {
+          "root": "harness",
+          "source": "commands",
+          "destination": "commands"
+        },
+        {
+          "root": "harness",
+          "source": "agents",
+          "destination": "agents",
+          "included_names": ["code-reviewer.md", "preflight.md"]
+        }
+      ],
+      "files": [
+        {"root": "harness", "source": "agy/hooks.json", "destination": "hooks.json"},
+        {"root": "harness", "source": "agy/mcp_config.json", "destination": "mcp_config.json"},
+        {"root": "harness", "source": "agy/mcp_ping_server.py", "destination": "mcp_ping_server.py"}
+      ]
+    },
+    {
+      "name": "antigravity-extras",
+      "_comment": "Antigravity (CLI) EXTRAS tier — the long tail over the core .agents/skills bundle (claudster-init --target antigravity --extras). Denylist single-sourced from claude-extras.",
+      "workspace_root": ".",
+      "copies": [
+        {
+          "source": "skills",
+          "destination": ".agents/skills",
+          "flatten_skills": true,
+          "excluded_names": ["_registry.md"],
+          "excluded_skills_from": "claude-extras"
+        }
+      ]
+    },
+    {
+      "name": "antigravity-plugin-extras",
+      "_comment": "The claudster-extras agy PLUGIN — the long-tail skills as a SECOND installable plugin (mirrors claude/claude-extras). `agy plugin install` it alongside the core claudster plugin. plugin.json at root; denylist single-sourced from claude-extras.",
+      "workspace_root": ".",
+      "agy_plugin": {
+        "name": "caddis-extras",
+        "description": "caddis-extras — the long-tail skills for the Antigravity (agy) caddis plugin; install alongside caddis for the full set."
+      },
+      "copies": [
+        {
+          "source": "skills",
+          "destination": "skills",
+          "flatten_skills": true,
+          "excluded_names": ["_registry.md"],
+          "excluded_skills_from": "claude-extras"
         }
       ]
     },
@@ -531,9 +456,9 @@
       "workspace_root": "plugin",
       "extra_roots": { "harness": "claude-harness", "scriptsrc": "scripts" },
       "plugin": {
-        "name": "claudster",
-        "version": "1.3.29",
-        "description": "claudster — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
+        "name": "caddis",
+        "version": "1.3.30",
+        "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/junai" },
         "homepage": "https://github.com/saajunaid/junai",
         "repository": "https://github.com/saajunaid/junai",
@@ -541,12 +466,12 @@
         "keywords": ["harness", "subagents", "tdd", "fastapi", "react", "claude-code", "agent-agnostic"]
       },
       "marketplace": {
-        "name": "claudster",
+        "name": "caddis",
         "owner": { "name": "junaid" },
-        "description": "claudster plugin marketplace",
+        "description": "caddis plugin marketplace",
         "plugins": [
-          {"name": "claudster", "source": "./plugin", "description": "claudster — agent-agnostic dev harness: lean subagents, TDD commands, a core dev skill set, loop hooks, and a CLAUDE.md generator."},
-          {"name": "claudster-extras", "source": "./plugin-extras", "description": "claudster-extras — the full claudster skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."}
+          {"name": "caddis", "source": "./plugin", "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, a core dev skill set, loop hooks, and a CLAUDE.md generator."},
+          {"name": "caddis-extras", "source": "./plugin-extras", "description": "caddis-extras — the full caddis skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."}
         ]
       },
       "files": [
@@ -559,6 +484,8 @@
         {"root": "scriptsrc", "source": "setup_project_ai.py", "destination": "scripts/setup_project_ai.py"},
         {"root": "scriptsrc", "source": "usage_review.py",     "destination": "scripts/usage_review.py"},
         {"root": "scriptsrc", "source": "claudster_init.py",   "destination": "scripts/claudster_init.py"},
+        {"root": "scriptsrc", "source": "claudster_migrate_rules.py", "destination": "scripts/claudster_migrate_rules.py"},
+        {"root": "scriptsrc", "source": "claudster_doctor.py", "destination": "scripts/claudster_doctor.py"},
         {"root": "harness",   "source": "scripts/check_doc_coverage.py", "destination": "scripts/check_doc_coverage.py"},
         {"root": "harness",   "source": "scripts/dream_memory.py",     "destination": "scripts/dream_memory.py"},
         {"root": "harness",   "source": "scripts/dream_capture.py",    "destination": "scripts/dream_capture.py"},
@@ -612,14 +539,14 @@
       "_comment_private": "No include_private / no purge: the private vmie/ category (golden-workflow, vm-ppt) is globally excluded, so none of these proprietary skills ship to extras. New non-vmie pool skills still join extras automatically via the everything-minus-core denylist.",
       "workspace_root": "plugin-extras",
       "plugin": {
-        "name": "claudster-extras",
+        "name": "caddis-extras",
         "version": "1.3.9",
-        "description": "claudster-extras — the full claudster skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
+        "description": "caddis-extras — the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/junai" },
         "homepage": "https://github.com/saajunaid/junai",
         "repository": "https://github.com/saajunaid/junai",
         "license": "MIT",
-        "keywords": ["claudster", "skills", "extras", "claude-code"]
+        "keywords": ["caddis", "skills", "extras", "claude-code"]
       },
       "copies": [
         {

@@ -108,7 +108,7 @@ def oversize_rules_files(dest: Path, budget: int = AGENTS_MD_BUDGET) -> list[tup
 
 
 def docmap_dangling(dest: Path) -> list[str]:
-    """Dangling `.md` links in .claudster/kb/DOC-MAP.md (the '/claudster:kb' signal)."""
+    """Dangling `.md` links in .claudster/kb/DOC-MAP.md (the '/caddis:kb' signal)."""
     dm = Path(dest) / ".claudster" / "kb" / "DOC-MAP.md"
     if not dm.is_file():
         return []

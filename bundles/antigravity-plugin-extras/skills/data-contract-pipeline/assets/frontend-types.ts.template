@@ -1,0 +1,38 @@
+/**
+ * {{SOURCE_NAME}} TypeScript Types
+ *
+ * TypeScript interfaces mirroring the backend display DTO.
+ * Field names match the DTO's camelCase aliases exactly.
+ *
+ * Part of the data contract pipeline:
+ *   Backend Display DTO → **Frontend Types** → Frontend Service
+ *
+ * IMPORTANT: When adding/removing fields in the Python DTO,
+ * update this file in the same PR.
+ */
+
+// --- Replace with actual interface matching the display DTO ---
+
+export interface {{ClassName}}Response {
+  // Each property name matches the Python Field(alias="...") value.
+  // Types follow the Python→TypeScript mapping:
+  //   str → string
+  //   int/float → number
+  //   bool → boolean
+  //   list[T] → T[]
+  //   dict[str, T] → Record<string, T>
+  //   Optional[T] → T | null
+
+  // Example fields (delete and replace):
+  // recordId: string;
+  // score: number;
+  // totalResponses: number;
+  // categories: string[];
+  {{FIELDS}}
+}
+
+// --- Nested interfaces (if the DTO has nested objects) ---
+
+// export interface {{NestedName}} {
+//   nestedField: string;
+// }

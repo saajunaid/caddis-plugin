@@ -1,0 +1,42 @@
+"""
+{{SOURCE_NAME}} Ingestion Model
+
+1:1 Pydantic model matching the raw {{source_name}} payload shape.
+This model exists to validate raw data structure — no business logic.
+
+Part of the data contract pipeline:
+  Source → [Adapter] → **Ingestion Model** → [Normalizer] → Display DTO
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+# Shared config for all data-ingest DTOs.  extra="allow" means unknown JSON
+# keys land in model_extra and flow through to .model_dump() output — nothing
+# is silently dropped while the upstream schema is still evolving.
+# Switch individual models to extra="forbid" only AFTER the schema is frozen.
+_FLEX = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class {{ClassName}}Payload(BaseModel):
+    """
+    1:1 representation of the raw {{source_name}} payload.
+
+    - Every key in the source payload has a corresponding field here.
+    - Field types match the source data types exactly.
+    - Uses _FLEX (extra="allow") so new upstream keys pass through
+      via model_extra instead of being silently dropped.
+    - When the schema is frozen, swap _FLEX → ConfigDict(extra="forbid").
+    """
+
+    model_config = _FLEX
+
+    # --- Replace these with actual fields from the source payload ---
+    # Example fields (delete and replace):
+    # record_id: str
+    # score: float
+    # responses: int
+    # categories: list[str] = Field(default_factory=list)
+    # metadata: dict | None = None
+    {{FIELDS}}

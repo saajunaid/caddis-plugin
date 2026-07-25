@@ -1,0 +1,48 @@
+"""
+{{SOURCE_NAME}} Normalizer
+
+Transforms the raw ingestion model into the display DTO.
+Business logic (renaming, computing, filtering) lives here — not in the adapter or DTO.
+
+Part of the data contract pipeline:
+  Source → Adapter → Ingestion Model → **Normalizer** → Display DTO → API Router
+"""
+
+from loguru import logger
+
+from src.models.ingestion.{{source_slug}} import {{ClassName}}Payload
+from src.models.responses.{{source_slug}} import {{ClassName}}Response
+
+
+def normalize(raw: {{ClassName}}Payload) -> {{ClassName}}Response:
+    """
+    Transform raw {{source_name}} payload into display DTO.
+
+    Every field mapping is explicit. If a field is intentionally dropped
+    from the display DTO, document WHY with a comment.
+
+    Args:
+        raw: Validated ingestion model instance.
+
+    Returns:
+        Frozen display DTO ready for API serialization.
+    """
+    return {{ClassName}}Response(
+        # --- Direct mappings ---
+        # record_id=raw.record_id,
+        # score=raw.score,
+
+        # --- Computed fields ---
+        # total_responses=_compute_total(raw),
+
+        # --- Intentionally dropped fields ---
+        # raw.internal_id — not exposed to frontend (internal tracking only)
+        {{FIELD_MAPPINGS}}
+    )
+
+
+# --- Helper functions for computed fields ---
+
+# def _compute_total(raw: {{ClassName}}Payload) -> int:
+#     """Compute total from raw components."""
+#     return sum(raw.component_counts)

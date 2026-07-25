@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "claudster": {
+      "command": "python",
+      "args": ["mcp_ping_server.py"]
+    }
+  }
+}

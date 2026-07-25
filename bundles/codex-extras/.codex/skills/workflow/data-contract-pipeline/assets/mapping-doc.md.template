@@ -1,0 +1,46 @@
+# {{SOURCE_NAME}} — UI ↔ JSON Data Mapping
+
+> **Auto-generated reference** — do not hand-edit.
+> Regenerate with: `python scripts/generate_mapping_doc.py`
+> Source of truth: contract tests in `tests/unit/test_contract_{{source_slug}}.py`
+
+---
+
+## Data Source
+
+| Property | Value |
+|----------|-------|
+| Source Type | {{source_type}} |
+| Source Location | {{source_location}} |
+| Golden Sample | `tests/fixtures/payloads/{{source_slug}}/sample.json` |
+| Ingestion Model | `src/models/ingestion/{{source_slug}}.py` |
+| Display DTO | `src/models/responses/{{source_slug}}.py` |
+| API Endpoint | `GET /api/{{url-slug}}` |
+| Frontend Types | `frontend/src/types/{{source-slug}}.ts` |
+| Frontend Service | `frontend/src/services/{{source-slug}}.ts` |
+
+---
+
+## Field Mapping
+
+| JSON Key | Python Field | DTO Alias | TypeScript Property | Type | Notes |
+|----------|-------------|-----------|--------------------:|------|-------|
+{{FIELD_ROWS}}
+
+---
+
+## Intentionally Dropped Fields
+
+Fields present in the source but NOT exposed to the frontend:
+
+| JSON Key | Reason |
+|----------|--------|
+{{DROPPED_ROWS}}
+
+---
+
+## Changelog
+
+| Date | Change | Author |
+|------|--------|--------|
+| {{DATE}} | Initial mapping generated | {{AGENT}} |

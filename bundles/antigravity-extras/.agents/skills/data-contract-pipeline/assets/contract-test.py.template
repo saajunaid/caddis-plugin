@@ -1,0 +1,384 @@
+"""
+{{SOURCE_NAME}} Contract Tests
+
+Validates alignment between the golden sample payload, ingestion model,
+display DTO, and (optionally) TypeScript types.
+
+Supports two modes for schema drift detection:
+  - SOFT (default while schema evolves): warnings.warn — CI passes
+  - HARD (after schema freeze): assert — CI blocks on drift
+
+Freeze mode resolution precedence:
+    1) CONTRACT_SCHEMA_FROZEN env var (explicit override)
+    2) Marker file tests/fixtures/payloads/{{source_slug}}/_contract_state.json
+    3) CI fallback (if CI=true and sample exists): HARD mode
+    4) Default: SOFT mode
+
+Accepted explicit values: 1/true/yes/on/frozen and 0/false/no/off/evolving.
+
+Run: pytest tests/unit/test_contract_{{source_slug}}.py -v
+
+Part of the data contract pipeline — these tests ARE the contract.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import warnings
+from fnmatch import fnmatch
+from pathlib import Path
+from typing import Union, get_args, get_origin, get_type_hints
+
+import pytest
+from pydantic import BaseModel
+
+# --- Update these imports to match your project ---
+# from src.models.ingestion.{{source_slug}} import {{ClassName}}Payload
+# from src.models.responses.{{source_slug}} import {{ClassName}}Response
+# from src.services.normalizers.{{source_slug}} import normalize
+
+PAYLOAD_DIR = Path(__file__).parent.parent / "fixtures" / "payloads"
+SAMPLE_PATH = PAYLOAD_DIR / "{{source_slug}}" / "sample.json"
+STATE_PATH = PAYLOAD_DIR / "{{source_slug}}" / "_contract_state.json"
+
+# ---------------------------------------------------------------------------
+# Schema evolution toggle
+# ---------------------------------------------------------------------------
+# Set to True once the upstream schema is stable. While False, drift
+# detection emits warnings; when True, drift causes hard test failures.
+#
+# Prefer explicit env override in CI:
+#   CONTRACT_SCHEMA_FROZEN=1   -> hard mode
+#   CONTRACT_SCHEMA_FROZEN=0   -> soft mode
+#
+# If env is missing, _resolve_schema_frozen() applies fallback logic.
+
+
+def _truthy_env(value: str) -> bool | None:
+    """Parse common truthy/falsey strings; return None if unknown."""
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on", "frozen", "hard"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "evolving", "soft"}:
+        return False
+    return None
+
+
+def _load_state_file_flag() -> bool | None:
+    """Read optional schema-frozen flag from _contract_state.json.
+
+    Expected shape:
+    {
+      "schema_frozen": true,
+      "source": "agent",
+      "note": "optional"
+    }
+    """
+    if not STATE_PATH.exists():
+        return None
+    try:
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        value = state.get("schema_frozen")
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return _truthy_env(value)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        warnings.warn(
+            f"Could not parse contract state file {STATE_PATH}: {exc}. "
+            "Falling back to next freeze resolution rule.",
+            stacklevel=2,
+        )
+    return None
+
+
+def _resolve_schema_frozen() -> bool:
+    """Resolve drift mode using explicit override + deterministic fallbacks."""
+    env_value = os.getenv("CONTRACT_SCHEMA_FROZEN")
+    if env_value is not None:
+        parsed = _truthy_env(env_value)
+        if parsed is not None:
+            return parsed
+        warnings.warn(
+            "CONTRACT_SCHEMA_FROZEN has unrecognized value "
+            f"'{env_value}'. Expected one of: 1/0, true/false, frozen/evolving. "
+            "Continuing with fallback resolution.",
+            stacklevel=2,
+        )
+
+    state_flag = _load_state_file_flag()
+    if state_flag is not None:
+        return state_flag
+
+    ci_value = os.getenv("CI", "")
+    ci_mode = _truthy_env(ci_value) is True
+    if ci_mode and SAMPLE_PATH.exists():
+        warnings.warn(
+            "Auto-freeze fallback enabled (CI=true, sample.json present, no explicit "
+            "CONTRACT_SCHEMA_FROZEN/state flag). Running HARD drift mode. "
+            "Set CONTRACT_SCHEMA_FROZEN explicitly to override.",
+            stacklevel=2,
+        )
+        return True
+
+    return False
+
+
+SCHEMA_FROZEN = _resolve_schema_frozen()
+
+# ---------------------------------------------------------------------------
+# Exclusion allow-list  (Layer 3 of the three-layer defence)
+# ---------------------------------------------------------------------------
+# Keys that are intentionally NOT typed in the DTO.  Use dot-path globs
+# (fnmatch syntax).  Always add a comment with a ticket ref or justification.
+# Review periodically — remove entries once the key is typed or removed upstream.
+KNOWN_EXCLUDED_KEYS: dict[str, set[str]] = {
+    # Example entries (delete and replace with real ones):
+    # "root.section.*": {"experimental_field"},  # TICKET-123: upstream experiment
+    # "surveys.*": {"internal_metadata"},         # TICKET-456: not consumer-facing
+}
+
+
+# ====================== helpers =============================================
+
+def _unwrap_optional(tp):
+    """Extract T from Optional[T] / T | None."""
+    origin = get_origin(tp)
+    if origin is Union:
+        args = [a for a in get_args(tp) if a is not type(None)]
+        return args[0] if len(args) == 1 else tp
+    return tp
+
+
+def _resolve_child(tp):
+    """If tp is list[X] return X; if BaseModel subclass, return it; else None."""
+    tp = _unwrap_optional(tp)
+    if isinstance(tp, type) and issubclass(tp, BaseModel):
+        return tp
+    origin = get_origin(tp)
+    if origin is list:
+        inner = get_args(tp)[0]
+        inner = _unwrap_optional(inner)
+        if isinstance(inner, type) and issubclass(inner, BaseModel):
+            return inner
+    return None
+
+
+def _collect_dropped_keys(
+    data,
+    model_cls: type[BaseModel],
+    prefix: str = "",
+    dropped: list[str] | None = None,
+) -> list[str]:
+    """Recursively walk JSON data vs model fields; return unmatched key paths.
+
+    Walks nested dicts and lists-of-dicts at every depth level, not just
+    top-level keys.  Keys matching KNOWN_EXCLUDED_KEYS are silently skipped.
+    """
+    if dropped is None:
+        dropped = []
+
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                _collect_dropped_keys(item, model_cls, prefix, dropped)
+        return dropped
+
+    if not isinstance(data, dict):
+        return dropped
+
+    hints = get_type_hints(model_cls, include_extras=True)
+    alias_map: dict[str, tuple[str, type | None]] = {}
+    for field_name, field_info in model_cls.model_fields.items():
+        alias = field_info.alias or field_name
+        alias_map[alias] = (field_name, hints.get(field_name))
+
+    for key in data:
+        full_path = f"{prefix}.{key}" if prefix else key
+
+        # Check exclusion allow-list
+        if any(
+            fnmatch(full_path, pattern) and key in excl
+            for pattern, excl in KNOWN_EXCLUDED_KEYS.items()
+        ):
+            continue
+
+        if key not in alias_map:
+            dropped.append(full_path)
+        else:
+            _field_name, type_hint = alias_map[key]
+            if type_hint is not None:
+                child_model = _resolve_child(type_hint)
+                if child_model is not None:
+                    _collect_dropped_keys(
+                        data[key], child_model, full_path, dropped,
+                    )
+
+    return dropped
+
+
+def _report_drift(dropped: list[str], context: str) -> None:
+    """Emit soft warning or hard assertion depending on SCHEMA_FROZEN."""
+    if not dropped:
+        return
+
+    msg = (
+        f"Coverage gap in {context} — "
+        f"{len(dropped)} key(s) forwarded via model_extra:\n"
+        + "\n".join(f"  - {k}" for k in dropped)
+        + "\nData is NOT lost (extra='allow'), but typed fields "
+        "give IDE support and validation."
+    )
+
+    if SCHEMA_FROZEN:
+        raise AssertionError(msg)
+    else:
+        warnings.warn(msg, stacklevel=2)
+
+
+# ====================== fixtures ============================================
+
+@pytest.fixture
+def golden_sample() -> dict:
+    """Load the golden sample payload."""
+    assert SAMPLE_PATH.exists(), (
+        f"Golden sample missing: {SAMPLE_PATH}\n"
+        "Create one by copying a real payload and sanitizing PII."
+    )
+    return json.loads(SAMPLE_PATH.read_text(encoding="utf-8"))
+
+
+# ============================================================
+# D8 — Golden Sample Exists
+# ============================================================
+
+class TestGoldenSampleExists:
+    """Verify the golden sample fixture is present and loadable."""
+
+    def test_sample_file_exists(self):
+        assert SAMPLE_PATH.exists(), f"Golden sample not found: {SAMPLE_PATH}"
+
+    def test_sample_is_valid_json(self):
+        data = json.loads(SAMPLE_PATH.read_text(encoding="utf-8"))
+        assert isinstance(data, (dict, list)), "Golden sample must be a JSON object or array"
+
+
+# ============================================================
+# D1 — Payload Keys Covered by Ingestion Model (Recursive)
+# ============================================================
+
+class TestPayloadToIngestionModel:
+    """Every key in the golden sample must map to an ingestion model field.
+
+    Uses _collect_dropped_keys for recursive depth comparison, not just
+    top-level set difference.
+    """
+
+    @pytest.mark.skip(reason="Uncomment imports and remove skip to activate")
+    def test_all_payload_keys_covered(self, golden_sample):
+        """No payload key should be missing from the ingestion model."""
+        # from src.models.ingestion.{{source_slug}} import {{ClassName}}Payload
+
+        dropped = _collect_dropped_keys(golden_sample, {{ClassName}}Payload)
+        _report_drift(dropped, "payload → ingestion model")
+
+    @pytest.mark.skip(reason="Uncomment imports and remove skip to activate")
+    def test_payload_validates_against_ingestion_model(self, golden_sample):
+        """Golden sample must parse into the ingestion model without error."""
+        # from src.models.ingestion.{{source_slug}} import {{ClassName}}Payload
+
+        result = {{ClassName}}Payload.model_validate(golden_sample)
+        assert result is not None
+
+
+# ============================================================
+# D3 — Display DTO Extra Config
+# ============================================================
+
+class TestDtoConfig:
+    """Display DTO must not use extra='ignore'."""
+
+    @pytest.mark.skip(reason="Uncomment imports and remove skip to activate")
+    def test_dto_does_not_ignore_extras(self):
+        """extra='ignore' silently drops fields — use 'forbid' or 'allow'."""
+        # from src.models.responses.{{source_slug}} import {{ClassName}}Response
+
+        extra_config = {{ClassName}}Response.model_config.get("extra", "ignore")
+        assert extra_config != "ignore", (
+            f"Display DTO uses extra='ignore' — this silently drops fields. "
+            f"Use extra='forbid' (strict) or extra='allow' (migration)."
+        )
+
+
+# ============================================================
+# D2 — Display DTO Covers Ingestion Fields (Recursive)
+# ============================================================
+
+class TestIngestionToDto:
+    """Ingestion model fields should map to display DTO fields.
+
+    Uses _collect_dropped_keys for recursive depth comparison.
+    """
+
+    @pytest.mark.skip(reason="Uncomment imports and remove skip to activate")
+    def test_golden_sample_validates_against_dto(self, golden_sample):
+        """Golden sample must parse into the display DTO without error."""
+        # from src.models.responses.{{source_slug}} import {{ClassName}}Response
+
+        result = {{ClassName}}Response.model_validate(golden_sample)
+        assert result is not None
+
+    @pytest.mark.skip(reason="Uncomment imports and remove skip to activate")
+    def test_no_uncovered_payload_keys_in_dto(self, golden_sample):
+        """Every payload key must have a corresponding DTO field."""
+        # from src.models.responses.{{source_slug}} import {{ClassName}}Response
+
+        dropped = _collect_dropped_keys(golden_sample, {{ClassName}}Response)
+        _report_drift(dropped, "payload → display DTO")
+
+
+# ============================================================
+# D10 — Normalizer Produces Valid DTO
+# ============================================================
+
+class TestNormalizer:
+    """Normalizer output must validate against the display DTO."""
+
+    @pytest.mark.skip(reason="Uncomment imports and remove skip to activate")
+    def test_normalizer_output_is_valid_dto(self, golden_sample):
+        """Pass golden sample through normalizer → must produce valid DTO."""
+        # from src.models.ingestion.{{source_slug}} import {{ClassName}}Payload
+        # from src.services.normalizers.{{source_slug}} import normalize
+
+        ingestion = {{ClassName}}Payload.model_validate(golden_sample)
+        dto = normalize(ingestion)
+        assert dto is not None
+        # Verify it's actually the right type
+        # assert isinstance(dto, {{ClassName}}Response)
+
+
+# ============================================================
+# D4 — DTO Aliases Match TypeScript (Manual Check)
+# ============================================================
+
+class TestTypeScriptAlignment:
+    """
+    Cross-layer check: DTO aliases should match TypeScript interface properties.
+
+    This is a structural reminder test. For automated checking,
+    use the ts_dto_compare.py script.
+    """
+
+    @pytest.mark.skip(reason="Run scripts/ts_dto_compare.py for automated check")
+    def test_dto_aliases_documented(self):
+        """Ensure DTO aliases are listed for manual comparison."""
+        # from src.models.responses.{{source_slug}} import {{ClassName}}Response
+
+        aliases = {
+            info.alias or name
+            for name, info in {{ClassName}}Response.model_fields.items()
+        }
+        # Print for manual comparison with TypeScript interface
+        print(f"DTO aliases: {sorted(aliases)}")
+        assert len(aliases) > 0, "DTO has no fields"

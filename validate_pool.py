@@ -294,6 +294,57 @@ def check_manifest_contract() -> CheckResult:
     return r
 
 
+def check_agy_plugin_target() -> CheckResult:
+    """Lint the antigravity-plugin (agy) export target so the shipped agy plugin stays valid:
+    an `agy_plugin` block with a name, and a skills roster that resolves (via `included_skills_from`
+    to a real sibling target, or an inline `included_skills`) — else the bundle would ship empty or
+    name a phantom skill. Source-level (reads .github/runtime-targets.json); runs by default."""
+    r = CheckResult(name="Antigravity plugin target — agy plugin.json + roster")
+    rt = GITHUB_DIR / "runtime-targets.json"
+    try:
+        manifest = json.loads(rt.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive
+        r.passed = False
+        r.failures.append(f"could not load runtime-targets.json: {exc}")
+        return r
+    targets = {t["name"]: t for t in manifest.get("targets", [])}
+    agy = targets.get("antigravity-plugin")
+    if agy is None:
+        r.info.append("no antigravity-plugin target — skipped")
+        return r
+    if not (agy.get("agy_plugin") or {}).get("name"):
+        r.failures.append("antigravity-plugin: agy_plugin.name is required (agy plugin.json needs a name)")
+    skills_copy = next((c for c in agy.get("copies", []) if c.get("source", "").replace("\\", "/").strip("/") == "skills"), None)
+    if skills_copy is None:
+        r.failures.append("antigravity-plugin: no skills copy — the plugin would ship no skills")
+    else:
+        roster = skills_copy.get("included_skills")
+        if not roster:
+            ref = skills_copy.get("included_skills_from")
+            ref_t = targets.get(ref) if ref else None
+            if ref_t is None:
+                r.failures.append(f"antigravity-plugin: included_skills_from '{ref}' is not a known target")
+            else:
+                ref_copy = next((c for c in ref_t.get("copies", []) if c.get("source", "").replace("\\", "/").strip("/") == "skills"), None)
+                roster = (ref_copy or {}).get("included_skills")
+                if not roster:
+                    r.failures.append(f"antigravity-plugin: included_skills_from '{ref}' has no skills roster to reuse")
+        if roster:
+            skills_root = GITHUB_DIR / "skills"
+            for cat, names in roster.items():
+                cat_dir = skills_root / cat
+                if not cat_dir.is_dir():
+                    r.failures.append(f"antigravity-plugin roster: category '{cat}' does not exist under skills/")
+                    continue
+                present = {p.name for p in cat_dir.iterdir() if p.is_dir()}
+                for sk in names:
+                    if sk not in present:
+                        r.failures.append(f"antigravity-plugin roster: skill '{cat}/{sk}' does not exist")
+            r.info.append(f"roster categories: {len(roster)}")
+    r.passed = not r.failures
+    return r
+
+
 # ---------------------------------------------------------------------------
 # (Checks 2–3 — pipeline-runner registry + gate-consistency — removed 2026-07-20
 #  when the Copilot-era pipeline-runner was retired; superseded by docket.)
@@ -1224,6 +1275,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         results = [
             check_manifest_contract(),
+            check_agy_plugin_target(),
             check_privacy_scan(roots),
             check_generated_artifacts(roots),
             check_prompts(),

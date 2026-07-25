@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -344,6 +345,62 @@ def write_plugin_manifests(bundle_root: Path, plugin_dir: Path, target: dict[str
         )
 
 
+def _canonical_plugin_version(manifest: dict[str, Any]) -> str:
+    """The single-source plugin version — the `claude` plugin's version (bumped by sync.ps1).
+    The agy plugin follows it so one manifest bump propagates to every plugin-shaped target."""
+    for t in manifest.get("targets", []):
+        ver = (t.get("plugin") or {}).get("version")
+        if ver:
+            return ver
+    return "0.0.0"
+
+
+_AGY_DROP_AGENT_KEYS = re.compile(r"^\s*(tools|model|color)\s*:", re.IGNORECASE)
+
+
+def strip_agent_frontmatter_for_agy(agents_dir: Path) -> int:
+    """agy lists a custom agent by name+description; Claude-only frontmatter keys (`tools`, `model`,
+    `color`) make `agy agents` silently skip it. Strip those keys from the plugin's agent files so the
+    agents register (keep name/description + the body). Returns the count adjusted. Verified: an agent
+    with only name+description lists; one with `tools:`/`model:` does not."""
+    if not agents_dir.is_dir():
+        return 0
+    n = 0
+    for md in sorted(agents_dir.glob("*.md")):
+        lines = md.read_text(encoding="utf-8").splitlines(keepends=True)
+        if not lines or lines[0].strip() != "---":
+            continue
+        end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+        if end is None:
+            continue
+        kept = [lines[0]] + [ln for ln in lines[1:end] if not _AGY_DROP_AGENT_KEYS.match(ln)] + lines[end:]
+        if len(kept) != len(lines):
+            md.write_text("".join(kept), encoding="utf-8")
+            n += 1
+    return n
+
+
+def write_agy_plugin_manifest(
+    workspace_root: Path, target: dict[str, Any], manifest: dict[str, Any]
+) -> None:
+    """Emit an Antigravity (`agy`) plugin.json at the plugin ROOT (agy 1.1.5 contract — NOT the
+    Claude `.claude-plugin/` layout). Required keys: name, version. See
+    docs/analysis/antigravity-plugin-contract.md. Version single-sourced from the claude plugin."""
+    spec = target.get("agy_plugin")
+    if not spec:
+        return
+    plugin = {
+        "name": spec["name"],
+        "version": spec.get("version") or _canonical_plugin_version(manifest),
+    }
+    if spec.get("description"):
+        plugin["description"] = spec["description"]
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    (workspace_root / "plugin.json").write_text(
+        json.dumps(plugin, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+
 def write_bundle_registry(skills_dir: Path, category_map: dict[str, str] | None = None) -> int:
     """Regenerate _registry.md from the skills actually present in the bundle.
 
@@ -472,9 +529,36 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
         if source_rel == "skills":
             excluded_names |= skill_exclusions
             raw_skill_roster = copy_spec.get("included_skills")
+            # A plugin target may reuse another target's roster (single source, no duplication):
+            # `included_skills_from: <target-name>` pulls that target's skills-copy included_skills.
+            if not raw_skill_roster and copy_spec.get("included_skills_from"):
+                ref = copy_spec["included_skills_from"]
+                ref_target = next((t for t in manifest.get("targets", []) if t["name"] == ref), None)
+                if ref_target:
+                    for cs in ref_target.get("copies", []):
+                        if cs.get("source", "").replace("\\", "/").strip("/") == "skills" and cs.get("included_skills"):
+                            raw_skill_roster = cs["included_skills"]
+                            break
+                if not raw_skill_roster:
+                    stats.add_error(f"included_skills_from '{ref}' resolved no roster")
+                    print(f"[FAIL] {target['name']}: included_skills_from '{ref}' resolved no roster")
             if raw_skill_roster:
                 depth2_included = {cat: set(skills) for cat, skills in raw_skill_roster.items()}
             excluded_skills = set(copy_spec.get("excluded_skills", []))
+            # An extras bundle may reuse another target's denylist (single source): the tail =
+            # every pool skill EXCEPT the core. `excluded_skills_from: <target>` pulls that target's
+            # excluded_skills (e.g. claude-extras' denylist) so core/extras stays one split.
+            if not excluded_skills and copy_spec.get("excluded_skills_from"):
+                ref = copy_spec["excluded_skills_from"]
+                ref_target = next((t for t in manifest.get("targets", []) if t["name"] == ref), None)
+                if ref_target:
+                    for cs in ref_target.get("copies", []):
+                        if cs.get("source", "").replace("\\", "/").strip("/") == "skills" and cs.get("excluded_skills"):
+                            excluded_skills = set(cs["excluded_skills"])
+                            break
+                if not excluded_skills:
+                    stats.add_error(f"excluded_skills_from '{ref}' resolved no denylist")
+                    print(f"[FAIL] {target['name']}: excluded_skills_from '{ref}' resolved no denylist")
             if excluded_skills:
                 depth2_excluded = excluded_skills
         excluded_names |= set(copy_spec.get("excluded_names", []))
@@ -540,6 +624,22 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
         # Build a full skill→category map from the source pool so the flattened registry
         # keeps real categories (works for both allowlist and denylist rosters).
         cat_map: dict[str, str] = {}
+        canonical_skills = canonical_root / "skills"
+        if canonical_skills.exists():
+            for cat_dir in canonical_skills.iterdir():
+                if cat_dir.is_dir():
+                    for sk in cat_dir.iterdir():
+                        if sk.is_dir():
+                            cat_map[sk.name] = cat_dir.name
+        rows = write_bundle_registry(workspace_root / "skills", cat_map or None)
+        if rows:
+            stats.bump_skip("registry_rows_written", rows)
+
+    # Antigravity (agy) plugin packaging: plugin.json at the plugin ROOT + a bundle-scoped registry.
+    if target.get("agy_plugin"):
+        write_agy_plugin_manifest(workspace_root, target, manifest)
+        strip_agent_frontmatter_for_agy(workspace_root / "agents")  # drop Claude-only tools/model keys
+        cat_map = {}
         canonical_skills = canonical_root / "skills"
         if canonical_skills.exists():
             for cat_dir in canonical_skills.iterdir():

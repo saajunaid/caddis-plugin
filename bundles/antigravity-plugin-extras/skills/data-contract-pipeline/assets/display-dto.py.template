@@ -1,0 +1,39 @@
+"""
+{{SOURCE_NAME}} Display DTO
+
+Frozen Pydantic model defining the API boundary contract for {{source_name}} data.
+This is what the frontend receives — changes here require frontend coordination.
+
+Part of the data contract pipeline:
+  Source → Adapter → Ingestion Model → Normalizer → **Display DTO** → API Router
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class {{ClassName}}Response(BaseModel):
+    """
+    API response DTO for {{source_name}}.
+
+    Rules:
+    - frozen=True: immutable after construction
+    - populate_by_name=True: can construct with Python names or aliases
+    - extra="forbid": unknown fields cause ValidationError (no silent drops)
+    - Every field has Field(alias="camelCaseName") for frontend consumption
+    """
+
+    model_config = ConfigDict(
+        frozen=True,
+        populate_by_name=True,
+        extra="forbid",
+    )
+
+    # --- Replace these with actual display fields ---
+    # Example fields (delete and replace):
+    # record_id: str = Field(alias="recordId")
+    # score: float = Field(alias="score")
+    # total_responses: int = Field(alias="totalResponses")
+    # categories: list[str] = Field(default_factory=list, alias="categories")
+    {{FIELDS}}

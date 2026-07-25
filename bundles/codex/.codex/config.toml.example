@@ -1,0 +1,36 @@
+# Codex CLI configuration example
+# Copy to ~/.codex/config.toml  (user-level, all projects)
+#       or <project>/.codex/config.toml  (project-level; project must be trusted)
+#
+# Add a server interactively: codex mcp add <name> -- <command> [args...]
+# Verify loaded servers:      codex mcp list
+
+# ── Model (adjust to your OpenAI tier) ───────────────────────────────────────
+# model = "codex-mini-latest"
+
+# ── Skills ────────────────────────────────────────────────────────────────────
+# Project skills:  <project>/.codex/skills/<category>/<name>/SKILL.md
+# User skills:     ~/.codex/skills/<name>/SKILL.md  (no category subdir)
+# (Paths probed from codex 0.137 — see docs/analysis/codex-cli-contract.md.
+#  .agents/ is codex's PLUGINS root, not a skills root.)
+#
+# Disable a skill without deleting it:
+# [[skills.config]]
+# path = ".codex/skills/devops/windows-deployment"
+# enabled = false
+
+# ── junai MCP (pipeline state + project context) ─────────────────────────────
+# OFF by default. The junai MCP server tracks pipeline stage and project state
+# across sessions. Enable when the server is available locally.
+#
+# Prerequisites:
+#   pip install junai-mcp   (or: uv tool install junai-mcp)
+#   codex mcp add junai -- python -m junai_mcp --project-root .
+#
+# Or add the block below manually and run `codex mcp list` to confirm:
+#
+# [[mcp_servers]]
+# name = "junai"
+# command = "python"
+# args = ["-m", "junai_mcp", "--project-root", "."]
+# env = {}

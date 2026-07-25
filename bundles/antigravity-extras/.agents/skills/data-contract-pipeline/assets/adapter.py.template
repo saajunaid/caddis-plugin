@@ -1,0 +1,44 @@
+"""
+{{SOURCE_NAME}} Source Adapter
+
+Fetches raw {{source_name}} data from {{source_type}}.
+Part of the data contract pipeline — this adapter returns raw dict/list,
+validated downstream by the ingestion model.
+"""
+
+from pathlib import Path
+
+from loguru import logger
+
+
+class {{ClassName}}Adapter:
+    """Fetches raw {{source_name}} data from {{source_type}}."""
+
+    def __init__(self, source_path: Path) -> None:
+        self._source_path = source_path
+
+    def fetch(self) -> dict:
+        """
+        Load raw payload from source.
+
+        Returns unvalidated dict — the ingestion model validates the shape.
+
+        Raises:
+            FileNotFoundError: If the source file does not exist.
+            json.JSONDecodeError: If the source file is not valid JSON.
+        """
+        import json
+
+        logger.debug(f"Fetching {{source_name}} from {self._source_path}")
+
+        if not self._source_path.exists():
+            raise FileNotFoundError(
+                f"{{source_name}} source not found: {self._source_path}"
+            )
+
+        raw = json.loads(self._source_path.read_text(encoding="utf-8"))
+        logger.info(
+            f"Loaded {{source_name}} payload "
+            f"({len(raw) if isinstance(raw, list) else 'object'})"
+        )
+        return raw
