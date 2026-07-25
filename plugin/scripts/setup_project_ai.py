@@ -31,7 +31,7 @@ def _resolve_harness_dir() -> Path:
     """Locate the harness resource root (templates, settings template, stack map).
 
     Two supported layouts:
-      • claudster-source dev:  scripts/setup_project_ai.py  → ../claude-harness/
+      • caddis dev:            scripts/setup_project_ai.py  → ../claude-harness/
       • bundled in plugin:  plugin/scripts/setup_project_ai.py → ../  (claude-md/ et al.
         sit directly at the plugin root, with no claude-harness/ subdir).
     Pick the first candidate that actually carries the templates.
@@ -697,9 +697,9 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
     Moves each source only when it exists AND the destination does not — never
     clobbers an already-migrated file (logs a skip instead). Idempotent: a second
     run finds no sources and is a no-op. Also migrates .github/plans/*.md into
-    .claudster/plans/ — EXCEPT on the caddis authoring source (claudster-source,
+    .claudster/plans/ — EXCEPT on the caddis authoring source (the caddis repo,
     detected by a claude-harness/ dir), where .github/plans is pool-synced to the
-    public junai mirror and must stay put (migration decision 5).
+    public caddis-plugin mirror and must stay put (migration decision 5).
     """
     moves = [
         ("relay.md", ".claudster/relay.md"),
@@ -722,8 +722,8 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
         notes.append(f"migrate: {src_rel} → {dst_rel}")
 
     # .github/plans/*.md → .claudster/plans/ — per-file (the dir may already exist from the
-    # scaffold step), clobber-safe. SKIPPED for the caddis authoring source (claudster-source),
-    # where .github/plans is pool-synced to the public junai mirror (migration decision 5).
+    # scaffold step), clobber-safe. SKIPPED for the caddis authoring source (the caddis repo),
+    # where .github/plans is pool-synced to the public caddis-plugin mirror (migration decision 5).
     # Detected by the presence of a claude-harness/ dir in the target.
     gh_plans = target / ".github" / "plans"
     if gh_plans.is_dir():

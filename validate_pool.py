@@ -1,5 +1,5 @@
 """
-validate_pool.py  —  Companion pool validator for the junai resource pool.
+validate_pool.py  —  Companion pool validator for the caddis resource pool.
 
 Complements validate_agents.py (which checks agent-file structure). This validator
 checks the broader pool: registry consistency, gate consistency, public-resource
@@ -1212,7 +1212,7 @@ def _resolve_scan_roots(args: argparse.Namespace) -> list[Path]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="junai pool validator")
+    parser = argparse.ArgumentParser(description="caddis pool validator")
     parser.add_argument(
         "--include-dist",
         action="store_true",
@@ -1221,7 +1221,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--include-external",
         action="store_true",
-        help="Also scan junai-vscode/pool and junai/.github mirrors.",
+        help="Also scan junai-vscode/pool and caddis-plugin/.github mirrors.",
     )
     parser.add_argument(
         "--profile",
@@ -1243,7 +1243,7 @@ def main(argv: list[str] | None = None) -> int:
         roots = [cast(Path, profile_root)]
 
     print("=" * 70)
-    print("  validate_pool.py — junai pool validator")
+    print("  validate_pool.py — caddis pool validator")
     print("=" * 70)
     print(f"  scope: {[str(p) for p in roots]}")
     print("-" * 70)

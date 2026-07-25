@@ -1,4 +1,4 @@
-# LiteLLM proxy config — example for running the junai harness on local models.
+# LiteLLM proxy config — example for running the caddis harness on local models.
 # Fill in VLLM_BASE_URL (and ANTHROPIC_API_KEY for the hybrid profile), then:
 #   pip install 'litellm[proxy]'
 #   litellm --config litellm.config.example.yaml      # serves an Anthropic-compatible endpoint

@@ -12,7 +12,7 @@ apply config changes in one step. Data stays on-machine — no telemetry, no ser
 
 Resolve the script path:
 - Plugin install: `${CLAUDE_PLUGIN_ROOT}/scripts/usage_review.py`
-- harness (claudster-source) checkout: `scripts/usage_review.py`
+- harness (caddis) checkout: `scripts/usage_review.py`
 
 Run it:
 ```

@@ -210,7 +210,7 @@ def load_agent_config(cwd: str) -> list[dict]:
     Checks paths in priority order:
       1. $CLAUDE_PLUGIN_ROOT/agents/   — plugin install
       2. <cwd>/.claude/agents/         — user's project agents
-      3. <cwd>/claude-harness/agents/  — claudster-source dev checkout
+      3. <cwd>/claude-harness/agents/  — caddis dev checkout
     """
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     candidates = []
@@ -1125,7 +1125,7 @@ def render_html(metrics: dict, findings: list[dict], days: int,
   {action_section}
   {advisory_section}
 
-  <footer>Generated {generated} &middot; <code>.claudster/usage-log.jsonl</code> + session transcripts &middot; Estimates only — all data stays local. &middot; <a href="https://github.com/saajunaid/junai" style="color:var(--ink-4)">caddis</a></footer>
+  <footer>Generated {generated} &middot; <code>.claudster/usage-log.jsonl</code> + session transcripts &middot; Estimates only — all data stays local. &middot; <a href="https://github.com/saajunaid/caddis-plugin" style="color:var(--ink-4)">caddis</a></footer>
 </div>
 </body>
 </html>"""

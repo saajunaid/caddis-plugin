@@ -617,7 +617,7 @@
         </mxCell>
 
         <mxCell id="cr_c3"
-          value="&lt;font face='Courier New' size='2'&gt;&lt;b&gt;Update Agent Pool&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font style='font-size:10px' color='#555555'&gt;Sync latest agents/skills from claudster-source pool. Preserves all existing project files.&lt;br&gt;&lt;b&gt;Any already-initialized project — safe for mid-flight&lt;/b&gt;&lt;/font&gt;"
+          value="&lt;font face='Courier New' size='2'&gt;&lt;b&gt;Update Agent Pool&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font style='font-size:10px' color='#555555'&gt;Sync latest agents/skills from caddis pool. Preserves all existing project files.&lt;br&gt;&lt;b&gt;Any already-initialized project — safe for mid-flight&lt;/b&gt;&lt;/font&gt;"
           style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;strokeWidth=1.5;fontSize=12;fontFamily=Arial;align=left;spacingLeft=8;spacingTop=5;verticalAlign=top;"
           vertex="1" parent="1">
           <mxGeometry x="720" y="140" width="320" height="80" as="geometry"/>

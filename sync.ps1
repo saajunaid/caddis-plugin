@@ -1,5 +1,5 @@
-﻿# JUNAI Sync - bidirectional pool sync
-# Dot-sourced by PowerShell profile. Provides junai-pull and junai-push globally.
+﻿# CADDIS Sync - bidirectional pool sync
+# Dot-sourced by PowerShell profile. Provides caddis-pull and caddis-push globally.
 #
 # One-time setup (run once per machine):
 #   Add-Content $PROFILE "`n. 'E:\Projects\claudster-source\sync.ps1'"
@@ -9,44 +9,44 @@
 #   New:  . 'E:\Projects\claudster-source\sync.ps1'
 #
 # Usage from any project root:
-#   junai-pull                    pull latest pool from junai --> current project
-#   junai-push                    push pool from current project --> junai + commit + push (mirror sync only; publish is opt-in)
-#   junai-push -Publish           also release MCP (PyPI) + VS Code extension (content-diff gated; PyPI is PERMANENT)
-#   junai-push -NoPublish         DEPRECATED no-op (publish is now off by default; flag kept for back-compat)
-#   junai-smoke-release           run fresh-shell smoke checks for release automation
-#   junai-ship                    commit source, cascade mirrors/profiles, optionally publish selected lanes
-#   junai-release                 publish MCP + VS Code extension using keyfiles
-#   junai-release -SkipMcp        extension only
-#   junai-release -SkipExtension  MCP only
-#   junai-revert [-Last N] [-Sha SHA[,SHA...]]  revert commits + cascade to all repos
-#   junai-export [OutputPath]     export pool to a local folder or zip (no GitHub needed)
-#   junai-import SourcePath        import pool from a local folder or zip into current project
+#   caddis-pull                    pull latest pool from caddis-plugin --> current project
+#   caddis-push                    push pool from current project --> caddis-plugin + commit + push (mirror sync only; publish is opt-in)
+#   caddis-push -Publish           also release MCP (PyPI) + VS Code extension (content-diff gated; PyPI is PERMANENT)
+#   caddis-push -NoPublish         DEPRECATED no-op (publish is now off by default; flag kept for back-compat)
+#   caddis-smoke-release           run fresh-shell smoke checks for release automation
+#   caddis-ship                    commit source, cascade mirrors/profiles, optionally publish selected lanes
+#   caddis-release                 publish MCP + VS Code extension using keyfiles
+#   caddis-release -SkipMcp        extension only
+#   caddis-release -SkipExtension  MCP only
+#   caddis-revert [-Last N] [-Sha SHA[,SHA...]]  revert commits + cascade to all repos
+#   caddis-export [OutputPath]     export pool to a local folder or zip (no GitHub needed)
+#   caddis-import SourcePath        import pool from a local folder or zip into current project
 
 $REPO_ROOT = $PSScriptRoot
 $EXT_REPOS_ROOT = Join-Path $REPO_ROOT "vscode-extensions"
-$JUNO_POOL = Join-Path $EXT_REPOS_ROOT "junai"
-$JUNO_GITHUB = "$JUNO_POOL\.github"
-$JUNAI_VSCODE = Join-Path $EXT_REPOS_ROOT "junai-vscode"
+$CADDIS_POOL = Join-Path $EXT_REPOS_ROOT "caddis-plugin"
+$CADDIS_GITHUB = "$CADDIS_POOL\.github"
+$CADDIS_VSCODE = Join-Path $EXT_REPOS_ROOT "junai-vscode"
 $PTARMIGAN_REPO = Join-Path $EXT_REPOS_ROOT "ptarmigan"
 $LIFFEY_REPO = Join-Path $EXT_REPOS_ROOT "liffey"
-$JUNAI_ENV_FILE = Join-Path $REPO_ROOT ".env"
-$PYPI_KEY_FILE = Join-Path $JUNO_POOL "pypimcp.key"
-$VSCE_PAT_FILE = Join-Path $JUNAI_VSCODE "vscode.pat"
+$CADDIS_ENV_FILE = Join-Path $REPO_ROOT ".env"
+$PYPI_KEY_FILE = Join-Path $CADDIS_POOL "pypimcp.key"
+$VSCE_PAT_FILE = Join-Path $CADDIS_VSCODE "vscode.pat"
 $PTARMIGAN_PAT_FILE = Join-Path $PTARMIGAN_REPO "ptarmigan.pat"
-$script:JunaiEnvLoaded = $false
-$script:JunaiEnv = @{}
+$script:CaddisEnvLoaded = $false
+$script:CaddisEnv = @{}
 $LOCAL_ONLY_POOL_FILES = @(
-    "prompts\junai-ship.prompt.md"
+    "prompts\caddis-ship.prompt.md"
 )
 # NOTE: "plans" intentionally REMOVED from $POOL_FOLDERS as of 2026-04-27 (Phase 1.0
-# stop-the-bleed). Plans are tracked in claudster-source only; they never sync to the
+# stop-the-bleed). Plans are tracked in caddis only; they never sync to the
 # public mirror. Do not re-add without explicit privacy review.
 $POOL_FOLDERS = @("agents", "skills", "prompts", "instructions", "hooks", "diagrams", "tools", "recipes", "agent-docs", "handoffs")
 $POOL_FILES = @("runtime-targets.json")
 $ROOT_PUSH_FILES = @("export_runtime_resources.py", "validate_agents.py", "validate_pool.py", "sync.ps1", ".env.example")
-# PRIVACY IS NOW STRUCTURAL. This repo (claudster-source) holds ONLY public, publishable source -
+# PRIVACY IS NOW STRUCTURAL. This repo (caddis) holds ONLY public, publishable source -
 # there is no private vmie/ root and no vmie skill category to purge (they live in the separate,
-# private claudster-source repo and never came across in the extraction). These arrays are therefore
+# private caddis repo and never came across in the extraction). These arrays are therefore
 # EMPTY: the post-copy purge loops below iterate over nothing. Keeping the machinery (empty) rather
 # than ripping it out means a future accidental re-introduction of a private category can be
 # re-gated by simply naming it here - but the intent is that nothing private ever lives in this repo.
@@ -82,7 +82,7 @@ function Remove-ItemRobust {
     }
 }
 
-function Remove-JunaiCacheDirs {
+function Remove-CaddisCacheDirs {
     param(
         [Parameter(Mandatory)][string]$RootPath,
         [string]$Label = ""
@@ -104,12 +104,12 @@ function Remove-JunaiCacheDirs {
     }
 }
 
-function Initialize-JunaiEnv {
-    if ($script:JunaiEnvLoaded) { return }
+function Initialize-CaddisEnv {
+    if ($script:CaddisEnvLoaded) { return }
 
-    $script:JunaiEnv = @{}
-    if (Test-Path $JUNAI_ENV_FILE) {
-        foreach ($line in Get-Content $JUNAI_ENV_FILE) {
+    $script:CaddisEnv = @{}
+    if (Test-Path $CADDIS_ENV_FILE) {
+        foreach ($line in Get-Content $CADDIS_ENV_FILE) {
             $trimmed = $line.Trim()
             if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) {
                 continue
@@ -132,17 +132,17 @@ function Initialize-JunaiEnv {
                 }
             }
 
-            $script:JunaiEnv[$name] = $value
+            $script:CaddisEnv[$name] = $value
         }
     }
 
-    $script:JunaiEnvLoaded = $true
+    $script:CaddisEnvLoaded = $true
 }
 
-function Get-JunaiEnvValue {
+function Get-CaddisEnvValue {
     param([Parameter(Mandatory)][string]$Name)
 
-    Initialize-JunaiEnv
+    Initialize-CaddisEnv
 
     foreach ($scope in @("Process", "User", "Machine")) {
         $value = [Environment]::GetEnvironmentVariable($Name, $scope)
@@ -151,20 +151,20 @@ function Get-JunaiEnvValue {
         }
     }
 
-    if ($script:JunaiEnv.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace($script:JunaiEnv[$Name])) {
-        return $script:JunaiEnv[$Name].Trim()
+    if ($script:CaddisEnv.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace($script:CaddisEnv[$Name])) {
+        return $script:CaddisEnv[$Name].Trim()
     }
 
     return ""
 }
 
-function Get-JunaiSecretValue {
+function Get-CaddisSecretValue {
     param(
         [Parameter(Mandatory)][string]$EnvName,
         [string]$LegacyFilePath = ""
     )
 
-    $value = Get-JunaiEnvValue -Name $EnvName
+    $value = Get-CaddisEnvValue -Name $EnvName
     if (-not [string]::IsNullOrWhiteSpace($value)) {
         return $value
     }
@@ -176,7 +176,7 @@ function Get-JunaiSecretValue {
     return ""
 }
 
-function Get-JunaiPythonCommand {
+function Get-CaddisPythonCommand {
     $venvPython = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
     if (Test-Path $venvPython) {
         return @{
@@ -205,12 +205,12 @@ function Get-JunaiPythonCommand {
     return $null
 }
 
-function Invoke-JunaiPoolDeploy {
+function Invoke-CaddisPoolDeploy {
     param(
         [Parameter(Mandatory)][string]$ProjectRoot
     )
 
-    $python = Get-JunaiPythonCommand
+    $python = Get-CaddisPythonCommand
     if (-not $python) {
         throw "No Python interpreter available for pool deployment."
     }
@@ -857,7 +857,7 @@ function Test-ManagedExtensionStaging {
 
     $sentinelEnv = Join-Path $RepoPath ".env"
     $sentinelDistDir = Join-Path $RepoPath "dist"
-    $sentinelVsix = Join-Path $sentinelDistDir "junai-smoke-sentinel.vsix"
+    $sentinelVsix = Join-Path $sentinelDistDir "caddis-smoke-sentinel.vsix"
     $createdEnv = $false
     $createdDistDir = $false
     $createdVsix = $false
@@ -884,7 +884,7 @@ function Test-ManagedExtensionStaging {
         }
 
         $unexpected = @($dryRunOutput | Where-Object {
-            $_ -match 'junai-smoke-sentinel\.vsix' -or $_ -match '(^|[\\/])\.env($|\s)'
+            $_ -match 'caddis-smoke-sentinel\.vsix' -or $_ -match '(^|[\\/])\.env($|\s)'
         })
 
         if ($unexpected.Count -gt 0) {
@@ -909,13 +909,13 @@ function Test-ManagedExtensionStaging {
     return $result
 }
 
-function Invoke-JunaiFreshShell {
+function Invoke-CaddisFreshShell {
     param(
         [Parameter(Mandatory)][string]$ScriptText,
         [string]$WorkingDirectory = $REPO_ROOT
     )
 
-    $tempScript = Join-Path ([System.IO.Path]::GetTempPath()) ("junai-smoke-" + [guid]::NewGuid().ToString() + ".ps1")
+    $tempScript = Join-Path ([System.IO.Path]::GetTempPath()) ("caddis-smoke-" + [guid]::NewGuid().ToString() + ".ps1")
     $scriptContent = @"
 Set-Location '$WorkingDirectory'
 . '$REPO_ROOT\sync.ps1'
@@ -941,9 +941,9 @@ function Publish-PtarmiganExtension {
         return $false
     }
 
-    $pat = Get-JunaiSecretValue -EnvName "PTARMIGAN_VSCE_PAT" -LegacyFilePath $PTARMIGAN_PAT_FILE
+    $pat = Get-CaddisSecretValue -EnvName "PTARMIGAN_VSCE_PAT" -LegacyFilePath $PTARMIGAN_PAT_FILE
     if ([string]::IsNullOrWhiteSpace($pat)) {
-        Write-Host "  [ERROR] Missing Ptarmigan PAT. Set PTARMIGAN_VSCE_PAT in $JUNAI_ENV_FILE or keep $PTARMIGAN_PAT_FILE." -ForegroundColor Red
+        Write-Host "  [ERROR] Missing Ptarmigan PAT. Set PTARMIGAN_VSCE_PAT in $CADDIS_ENV_FILE or keep $PTARMIGAN_PAT_FILE." -ForegroundColor Red
         return $false
     }
 
@@ -992,7 +992,7 @@ function Package-LiffeyExtension {
     }
 }
 
-function junai-pull {
+function caddis-pull {
     param([string]$ProjectRoot = (Get-Location).Path)
 
     $target = Join-Path $ProjectRoot ".github"
@@ -1005,13 +1005,13 @@ function junai-pull {
     }
 
     Write-Host ""
-    Write-Host "  JUNAI PULL  junai --> $(Split-Path $ProjectRoot -Leaf)" -ForegroundColor Cyan
+    Write-Host "  CADDIS PULL  caddis-plugin --> $(Split-Path $ProjectRoot -Leaf)" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     # Pre-sync hygiene: drop generated caches in canonical pool + target project .github
-    Remove-JunaiCacheDirs -RootPath (Join-Path $REPO_ROOT ".github") -Label "pool"
-    Remove-JunaiCacheDirs -RootPath $target -Label "project"
-    $deployResult = Invoke-JunaiPoolDeploy -ProjectRoot $ProjectRoot
+    Remove-CaddisCacheDirs -RootPath (Join-Path $REPO_ROOT ".github") -Label "pool"
+    Remove-CaddisCacheDirs -RootPath $target -Label "project"
+    $deployResult = Invoke-CaddisPoolDeploy -ProjectRoot $ProjectRoot
     foreach ($folder in @($deployResult.copied_directories)) {
         Write-Host "  [OK]  $folder" -ForegroundColor Green
     }
@@ -1027,7 +1027,7 @@ function junai-pull {
     Write-Host "  [OK]  .pool-version" -ForegroundColor Green
 
     # Deploy .vscode/mcp.json (pre-configured with ${workspaceFolder} - profile-agnostic)
-    $mcpSrc = Join-Path $JUNO_POOL ".vscode\mcp.json"
+    $mcpSrc = Join-Path $CADDIS_POOL ".vscode\mcp.json"
     if (Test-Path $mcpSrc) {
         $vscodeTarget = Join-Path $ProjectRoot ".vscode"
         if (-not (Test-Path $vscodeTarget)) { New-Item -ItemType Directory -Path $vscodeTarget | Out-Null }
@@ -1042,7 +1042,7 @@ function junai-pull {
     Write-Host ""
 }
 
-function junai-push {
+function caddis-push {
     param(
         [string]$ProjectRoot = (Get-Location).Path,
         [string]$Message = "",
@@ -1069,36 +1069,40 @@ function junai-push {
     }
 
     # Nested-mirror guard (Phase 0 hygiene, 2026-07): the pool/mirror must NEVER contain a
-    # self-nested checkout of itself at vscode-extensions/junai. A stray copy there means a
+    # self-nested checkout of itself under vscode-extensions/. A stray copy there means a
     # prior sync mirrored the pool into itself; a find/replace or publish over that tree would
     # touch two inconsistent copies and can leak the whole mirror twice. Fail hard so it is
-    # fixed (git rm -r vscode-extensions/junai in the mirror), never silently shipped.
-    $nestedMirror = Join-Path $JUNO_POOL "vscode-extensions\junai"
-    if (Test-Path $nestedMirror) {
-        Write-Host "  [FAIL]  nested self-copy of the mirror detected at:" -ForegroundColor Red
-        Write-Host "          $nestedMirror" -ForegroundColor Red
-        throw "junai mirror hygiene: a nested vscode-extensions/junai checkout is present inside the pool. Remove it (in the mirror: git rm -r vscode-extensions/junai && commit) before pushing. The mirror must not contain a checkout of itself."
+    # fixed (git rm -r the nested dir in the mirror), never silently shipped.
+    # Both the current folder name and the pre-rename one are checked: a mirror committed
+    # before the caddis rename can still carry a stale vscode-extensions/junai copy.
+    foreach ($nestedName in @("caddis-plugin", "junai")) {
+        $nestedMirror = Join-Path $CADDIS_POOL "vscode-extensions\$nestedName"
+        if (Test-Path $nestedMirror) {
+            Write-Host "  [FAIL]  nested self-copy of the mirror detected at:" -ForegroundColor Red
+            Write-Host "          $nestedMirror" -ForegroundColor Red
+            throw "caddis-plugin mirror hygiene: a nested vscode-extensions/$nestedName checkout is present inside the pool. Remove it (in the mirror: git rm -r vscode-extensions/$nestedName && commit) before pushing. The mirror must not contain a checkout of itself."
+        }
     }
 
     Write-Host ""
-    Write-Host "  JUNAI PUSH  $(Split-Path $ProjectRoot -Leaf) --> junai" -ForegroundColor Magenta
+    Write-Host "  CADDIS PUSH  $(Split-Path $ProjectRoot -Leaf) --> caddis-plugin" -ForegroundColor Magenta
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     # Pre-sync hygiene: remove generated caches on both sides so they never leak
     # into the public mirror or get reintroduced by additive copies.
-    Remove-JunaiCacheDirs -RootPath $source -Label "source"
-    Remove-JunaiCacheDirs -RootPath $JUNO_GITHUB -Label "mirror"
+    Remove-CaddisCacheDirs -RootPath $source -Label "source"
+    Remove-CaddisCacheDirs -RootPath $CADDIS_GITHUB -Label "mirror"
 
     foreach ($folder in $POOL_FOLDERS) {
         $src = Join-Path $source $folder
-        $dest = Join-Path $JUNO_GITHUB $folder
+        $dest = Join-Path $CADDIS_GITHUB $folder
         if (Test-Path $src) {
             # Clean destination first to prevent nested folder copies (e.g. diagrams/diagrams)
             # and to ensure moved/deleted files are mirrored correctly.
             if (Test-Path $dest) {
                 Remove-ItemRobust $dest
             }
-            Copy-Item $src $JUNO_GITHUB -Recurse -Force
+            Copy-Item $src $CADDIS_GITHUB -Recurse -Force
             Write-Host "  [OK]  $folder" -ForegroundColor Green
         } else {
             # Source no longer has this folder: remove stale mirror copy.
@@ -1116,14 +1120,14 @@ function junai-push {
     # (vmie = vm-ppt + golden-workflow, proprietary) here, plus any private root folder that slipped
     # in. This makes $PRIVATE_ROOT_FOLDERS actually enforced (it was declared but never applied).
     foreach ($cat in $PRIVATE_SKILL_CATEGORIES) {
-        $privCat = Join-Path $JUNO_GITHUB "skills\$cat"
+        $privCat = Join-Path $CADDIS_GITHUB "skills\$cat"
         if (Test-Path $privCat) {
             Remove-ItemRobust $privCat
             Write-Host "  [OK]  privacy: purged skills/$cat from public mirror" -ForegroundColor Green
         }
     }
     foreach ($rootFolder in $PRIVATE_ROOT_FOLDERS) {
-        $privRoot = Join-Path $JUNO_GITHUB $rootFolder
+        $privRoot = Join-Path $CADDIS_GITHUB $rootFolder
         if (Test-Path $privRoot) {
             Remove-ItemRobust $privRoot
             Write-Host "  [OK]  privacy: purged $rootFolder/ from public mirror" -ForegroundColor Green
@@ -1132,7 +1136,7 @@ function junai-push {
 
     foreach ($file in $POOL_FILES) {
         $src = Join-Path $source $file
-        $dest = Join-Path $JUNO_GITHUB $file
+        $dest = Join-Path $CADDIS_GITHUB $file
         if (Test-Path $src) {
             Copy-Item $src $dest -Force
             Write-Host "  [OK]  $file" -ForegroundColor Green
@@ -1143,7 +1147,7 @@ function junai-push {
 
     foreach ($file in $ROOT_PUSH_FILES) {
         $src = Join-Path $ProjectRoot $file
-        $dest = Join-Path $JUNO_POOL $file
+        $dest = Join-Path $CADDIS_POOL $file
         if (Test-Path $src) {
             Copy-Item $src $dest -Force
             Write-Host "  [OK]  $file" -ForegroundColor Green
@@ -1153,7 +1157,7 @@ function junai-push {
     }
 
     # -- Claude Code plugin bundle (Phase 4) -----------------------------------
-    # Export the `claude` target and place it in the junai repo so it ships in the
+    # Export the `claude` target and place it in the caddis-plugin repo so it ships in the
     # same commit: marketplace.json at the repo root (.claude-plugin/), the plugin
     # under plugin/. Repo is PUBLIC - vmie/ and any private skill categories are
     # purged from the plugin bundle after copy.
@@ -1163,7 +1167,7 @@ function junai-push {
     # (devops/, docs/) and now ship in the public bundles. Add a name here only to hold a
     # skill back from publish while keeping it in the pool.
     $PLUGIN_PRIVATE_SKILLS = @()
-    $claudePython = Get-JunaiPythonCommand
+    $claudePython = Get-CaddisPythonCommand
     if ($claudePython) {
         Push-Location $ProjectRoot
         & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude", "--profile", "claude-extras"))
@@ -1175,17 +1179,17 @@ function junai-push {
         $haveExtras = $claudeExportOk -and (Test-Path (Join-Path $extrasBundle "plugin-extras"))
         if ($haveCore -and $haveExtras) {
             # marketplace.json (lists both plugins) ships from the core bundle root
-            $destMarket = Join-Path $JUNO_POOL ".claude-plugin"
+            $destMarket = Join-Path $CADDIS_POOL ".claude-plugin"
             if (Test-Path $destMarket) { Remove-ItemRobust $destMarket }
-            Copy-Item (Join-Path $claudeBundle ".claude-plugin") $JUNO_POOL -Recurse -Force
+            Copy-Item (Join-Path $claudeBundle ".claude-plugin") $CADDIS_POOL -Recurse -Force
 
-            # core plugin -> junai/plugin ; extras plugin -> junai/plugin-extras
-            $destPlugin = Join-Path $JUNO_POOL "plugin"
+            # core plugin -> caddis-plugin/plugin ; extras plugin -> caddis-plugin/plugin-extras
+            $destPlugin = Join-Path $CADDIS_POOL "plugin"
             if (Test-Path $destPlugin) { Remove-ItemRobust $destPlugin }
-            Copy-Item (Join-Path $claudeBundle "plugin") $JUNO_POOL -Recurse -Force
-            $destExtras = Join-Path $JUNO_POOL "plugin-extras"
+            Copy-Item (Join-Path $claudeBundle "plugin") $CADDIS_POOL -Recurse -Force
+            $destExtras = Join-Path $CADDIS_POOL "plugin-extras"
             if (Test-Path $destExtras) { Remove-ItemRobust $destExtras }
-            Copy-Item (Join-Path $extrasBundle "plugin-extras") $JUNO_POOL -Recurse -Force
+            Copy-Item (Join-Path $extrasBundle "plugin-extras") $CADDIS_POOL -Recurse -Force
 
             # Purge private skills from both public bundles
             foreach ($dest in @($destPlugin, $destExtras)) {
@@ -1209,7 +1213,7 @@ function junai-push {
     # Ship the non-Claude bundles at bundles/<target>/ so `caddis-init --target <t>` (GitHub
     # tarball mode, no --from) resolves them (claudster_init.py BUNDLE_ROOTS = bundles, then
     # dist/runtime-resources; dist/ is gitignored in the mirror so bundles/ is the published home),
-    # and so `agy plugin install <junai-checkout>/bundles/antigravity-plugin` works from a checkout.
+    # and so `agy plugin install <caddis-plugin-checkout>/bundles/antigravity-plugin` works from a checkout.
     $BUNDLE_TARGETS = @("codex", "codex-extras", "antigravity", "antigravity-extras",
                         "antigravity-plugin", "antigravity-plugin-extras")
     if ($claudePython) {
@@ -1220,7 +1224,7 @@ function junai-push {
         $bundleExportOk = ($LASTEXITCODE -eq 0)
         Pop-Location
         if ($bundleExportOk) {
-            $bundlesRoot = Join-Path $JUNO_POOL "bundles"
+            $bundlesRoot = Join-Path $CADDIS_POOL "bundles"
             New-Item -ItemType Directory -Force $bundlesRoot | Out-Null
             foreach ($t in $BUNDLE_TARGETS) {
                 $srcBundle = Join-Path $ProjectRoot "dist\runtime-resources\$t"
@@ -1238,15 +1242,15 @@ function junai-push {
         }
     }
 
-    Remove-LocalOnlyPoolFiles -GithubRoot $JUNO_GITHUB
+    Remove-LocalOnlyPoolFiles -GithubRoot $CADDIS_GITHUB
 
-    # Commit and push junai
-    Push-Location $JUNO_POOL
+    # Commit and push caddis-plugin
+    Push-Location $CADDIS_POOL
 
     $hasChanges = (git status --porcelain) -ne $null
     if (-not $hasChanges) {
         Write-Host ""
-        Write-Host "  No changes detected in junai. Nothing to commit." -ForegroundColor DarkGray
+        Write-Host "  No changes detected in caddis-plugin. Nothing to commit." -ForegroundColor DarkGray
         Pop-Location
         return [pscustomobject]$pushResult
     }
@@ -1269,14 +1273,14 @@ function junai-push {
             $manifestSrc = Join-Path $ProjectRoot ".github/runtime-targets.json"
             $bumpedCaddis = Bump-RuntimeTargetsPluginVersion -ManifestPath $manifestSrc -PluginName "caddis"
             if (-not [string]::IsNullOrWhiteSpace($bumpedCaddis)) {
-                Copy-Item $manifestSrc (Join-Path $JUNO_GITHUB "runtime-targets.json") -Force
+                Copy-Item $manifestSrc (Join-Path $CADDIS_GITHUB "runtime-targets.json") -Force
                 Push-Location $ProjectRoot
                 & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude"))
                 $reExportOk = ($LASTEXITCODE -eq 0)
                 Pop-Location
                 $rebuiltPlugin = Join-Path $claudeBundle "plugin\.claude-plugin\plugin.json"
                 if ($reExportOk -and (Test-Path $rebuiltPlugin)) {
-                    Copy-Item $rebuiltPlugin (Join-Path $JUNO_POOL "plugin\.claude-plugin\plugin.json") -Force
+                    Copy-Item $rebuiltPlugin (Join-Path $CADDIS_POOL "plugin\.claude-plugin\plugin.json") -Force
                     Write-Host "  [OK]  caddis bundle changed -> bumped manifest + plugin.json to $bumpedCaddis" -ForegroundColor Green
                 } else {
                     Write-Host "  [WARN]  claude re-export failed; plugin.json may lag the $bumpedCaddis bump." -ForegroundColor Yellow
@@ -1297,14 +1301,14 @@ function junai-push {
             $manifestSrc = Join-Path $ProjectRoot ".github/runtime-targets.json"
             $bumpedExtras = Bump-RuntimeTargetsPluginVersion -ManifestPath $manifestSrc -PluginName "caddis-extras"
             if (-not [string]::IsNullOrWhiteSpace($bumpedExtras)) {
-                Copy-Item $manifestSrc (Join-Path $JUNO_GITHUB "runtime-targets.json") -Force
+                Copy-Item $manifestSrc (Join-Path $CADDIS_GITHUB "runtime-targets.json") -Force
                 Push-Location $ProjectRoot
                 & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude-extras"))
                 $reExportExtrasOk = ($LASTEXITCODE -eq 0)
                 Pop-Location
                 $rebuiltExtras = Join-Path $extrasBundle "plugin-extras\.claude-plugin\plugin.json"
                 if ($reExportExtrasOk -and (Test-Path $rebuiltExtras)) {
-                    Copy-Item $rebuiltExtras (Join-Path $JUNO_POOL "plugin-extras\.claude-plugin\plugin.json") -Force
+                    Copy-Item $rebuiltExtras (Join-Path $CADDIS_POOL "plugin-extras\.claude-plugin\plugin.json") -Force
                     Write-Host "  [OK]  caddis-extras bundle changed -> bumped manifest + plugin.json to $bumpedExtras" -ForegroundColor Green
                 } else {
                     Write-Host "  [WARN]  claude-extras re-export failed; plugin.json may lag the $bumpedExtras bump." -ForegroundColor Yellow
@@ -1313,7 +1317,7 @@ function junai-push {
         }
     }
 
-    # Stage all tracked/untracked/deleted files in junai so source deletions and
+    # Stage all tracked/untracked/deleted files in caddis-plugin so source deletions and
     # folder moves are guaranteed to propagate.
     git add -A | Out-Null
 
@@ -1326,12 +1330,12 @@ function junai-push {
     git commit -m $Message | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
-        throw "junai mirror: git commit failed (exit $LASTEXITCODE) - mirror NOT updated."
+        throw "caddis-plugin mirror: git commit failed (exit $LASTEXITCODE) - mirror NOT updated."
     }
     git push | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
-        throw "junai mirror: git push failed (exit $LASTEXITCODE) - the commit is local only and was NOT pushed. Fix the remote/auth and re-run."
+        throw "caddis-plugin mirror: git push failed (exit $LASTEXITCODE) - the commit is local only and was NOT pushed. Fix the remote/auth and re-run."
     }
 
     $pushResult.MirrorChanged = $true
@@ -1339,7 +1343,7 @@ function junai-push {
     Pop-Location
 
     Write-Host ""
-    Write-Host "  Committed and pushed to junai." -ForegroundColor Magenta
+    Write-Host "  Committed and pushed to caddis-plugin." -ForegroundColor Magenta
     Write-Host ""
 
     # Persist the auto-bump in the SOURCE repo - runtime-targets.json is the export's source of
@@ -1370,7 +1374,7 @@ function junai-push {
     } else {
         # Build only the selected profile exports used by downstream sync lanes.
         Push-Location $ProjectRoot
-        $pythonCommand = Get-JunaiPythonCommand
+        $pythonCommand = Get-CaddisPythonCommand
         if ($pythonCommand) {
             $exportArgs = @("export_runtime_resources.py")
             foreach ($profile in $selectedProfiles) {
@@ -1401,14 +1405,14 @@ function junai-push {
     }
 
     # -- Publish gating (INVERTED default: release is opt-in via -Publish) ------
-    # SAFETY (Track 0, 2026-07): historically junai-push auto-published whenever a
+    # SAFETY (Track 0, 2026-07): historically caddis-push auto-published whenever a
     # PyPI/VS Code key was merely present in .env - one keystroke from a PERMANENT,
     # un-undoable PyPI upload, even for a plugin-only session. The default is now
     # inverted: a release fires ONLY when -Publish is explicitly passed. -NoPublish is
     # retained as a DEPRECATED silent no-op (its behaviour is now the default). The
     # mirror sync above still runs unconditionally; only the MCP/VS Code release is gated.
-    $pypiToken = Get-JunaiSecretValue -EnvName "JUNAI_PYPI_TOKEN" -LegacyFilePath $PYPI_KEY_FILE
-    $vscePat = Get-JunaiSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
+    $pypiToken = Get-CaddisSecretValue -EnvName "JUNAI_PYPI_TOKEN" -LegacyFilePath $PYPI_KEY_FILE
+    $vscePat = Get-CaddisSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
     $hasPypiKey = -not [string]::IsNullOrWhiteSpace($pypiToken)
     $hasVscePat = -not [string]::IsNullOrWhiteSpace($vscePat)
     $shouldPublish = [bool]$Publish
@@ -1419,13 +1423,13 @@ function junai-push {
 
     if (-not $shouldPublish) {
         Write-Host "  [--]  Mirror synced; release NOT triggered (publish is opt-in)." -ForegroundColor DarkGray
-        Write-Host "       Re-run 'junai-push -Publish' to release the MCP (PyPI) / VS Code extension." -ForegroundColor DarkGray
+        Write-Host "       Re-run 'caddis-push -Publish' to release the MCP (PyPI) / VS Code extension." -ForegroundColor DarkGray
         return [pscustomobject]$pushResult
     }
 
     if (-not ($hasPypiKey -or $hasVscePat)) {
         Write-Host "  [--]  -Publish set but no keys found; nothing to release." -ForegroundColor DarkGray
-        Write-Host "       Set JUNAI_PYPI_TOKEN and/or JUNAI_VSCE_PAT in $JUNAI_ENV_FILE (legacy key files still work)." -ForegroundColor DarkGray
+        Write-Host "       Set JUNAI_PYPI_TOKEN and/or JUNAI_VSCE_PAT in $CADDIS_ENV_FILE (legacy key files still work)." -ForegroundColor DarkGray
         return [pscustomobject]$pushResult
     }
 
@@ -1437,11 +1441,11 @@ function junai-push {
     }
 
     $pushResult.ReleaseTriggered = $true
-    junai-release -McpVersion $McpVersion -SkipMcp:(-not $hasPypiKey) -SkipExtension:(-not $hasVscePat)
+    caddis-release -McpVersion $McpVersion -SkipMcp:(-not $hasPypiKey) -SkipExtension:(-not $hasVscePat)
     return [pscustomobject]$pushResult
 }
 
-function Sync-JunaiProfileRepo {
+function Sync-CaddisProfileRepo {
     param(
         [Parameter(Mandatory)][string]$Profile,
         [Parameter(Mandatory)][string]$ProjectRoot,
@@ -1477,7 +1481,7 @@ function Sync-JunaiProfileRepo {
 
     if ([string]::IsNullOrWhiteSpace($Message)) {
         $today = Get-Date -Format "yyyy-MM-dd"
-        $Message = "feat: sync $Profile profile from claudster-source - $today"
+        $Message = "feat: sync $Profile profile from caddis - $today"
     }
 
     git commit -m $Message | Out-Null
@@ -1500,7 +1504,7 @@ function Sync-JunaiProfileRepo {
 
 function Sync-ExtensionRepo {
     # Shared helper for ptarmigan and liffey.
-    # Runs bundle-pool.js in the repo (populates pool/ from the junai mirror),
+    # Runs bundle-pool.js in the repo (populates pool/ from the caddis-plugin mirror),
     # then copies the pre-built out/extension.js from junai-vscode, commits, and
     # optionally pushes.  Returns $true if a commit was made, $false otherwise.
     param(
@@ -1519,7 +1523,7 @@ function Sync-ExtensionRepo {
 
     # 1. Refresh pool/ via the repo's own bundle-pool.js
     Push-Location $RepoPath
-    $prevJunaiSource = $env:JUNAI_SOURCE
+    $prevCaddisSource = $env:JUNAI_SOURCE
     try {
         if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
             $env:JUNAI_SOURCE = $ProjectRoot
@@ -1531,11 +1535,11 @@ function Sync-ExtensionRepo {
             return $false
         }
     } finally {
-        $env:JUNAI_SOURCE = $prevJunaiSource
+        $env:JUNAI_SOURCE = $prevCaddisSource
     }
 
     # 2. Refresh out/ from the canonical junai-vscode build
-    $outSrc = Join-Path $JUNAI_VSCODE "out"
+    $outSrc = Join-Path $CADDIS_VSCODE "out"
     if (Test-Path $outSrc) {
         Copy-Item $outSrc $RepoPath -Recurse -Force
     }
@@ -1552,7 +1556,7 @@ function Sync-ExtensionRepo {
     if ($AutoBumpVersion) {
         $null = Bump-PackageJsonPatchVersion -RepoPath $RepoPath -Label $Label
 
-        $prevJunaiSource = $env:JUNAI_SOURCE
+        $prevCaddisSource = $env:JUNAI_SOURCE
         try {
             if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
                 $env:JUNAI_SOURCE = $ProjectRoot
@@ -1564,7 +1568,7 @@ function Sync-ExtensionRepo {
                 return $false
             }
         } finally {
-            $env:JUNAI_SOURCE = $prevJunaiSource
+            $env:JUNAI_SOURCE = $prevCaddisSource
         }
     }
 
@@ -1572,7 +1576,7 @@ function Sync-ExtensionRepo {
 
     if ([string]::IsNullOrWhiteSpace($Message)) {
         $today = Get-Date -Format "yyyy-MM-dd"
-        $Message = "feat: sync $($Label.ToLower()) pool from claudster-source - $today"
+        $Message = "feat: sync $($Label.ToLower()) pool from caddis - $today"
     }
     git commit -m $Message | Out-Null
 
@@ -1602,7 +1606,7 @@ function sync-ptarmigan {
         [switch]$Publish
     )
 
-    Write-Host "  PTARMIGAN SYNC  junai mirror --> $PTARMIGAN_REPO (pool/)" -ForegroundColor Cyan
+    Write-Host "  PTARMIGAN SYNC  caddis-plugin mirror --> $PTARMIGAN_REPO (pool/)" -ForegroundColor Cyan
     $changed = Sync-ExtensionRepo -RepoPath $PTARMIGAN_REPO -Label "Ptarmigan" -ProjectRoot $ProjectRoot -Message $Message -NoPush:$NoPush -AutoBumpVersion
     if (-not $changed -or $NoPush -or -not $Publish) {
         return $changed
@@ -1620,7 +1624,7 @@ function sync-liffey {
         [switch]$Package
     )
 
-    Write-Host "  LIFFEY SYNC   junai mirror --> $LIFFEY_REPO (pool/)" -ForegroundColor Cyan
+    Write-Host "  LIFFEY SYNC   caddis-plugin mirror --> $LIFFEY_REPO (pool/)" -ForegroundColor Cyan
     $changed = Sync-ExtensionRepo -RepoPath $LIFFEY_REPO -Label "Liffey" -ProjectRoot $ProjectRoot -Message $Message -NoPush:$NoPush -AutoBumpVersion
     if (-not $changed -or -not $Package) {
         return $changed
@@ -1630,20 +1634,20 @@ function sync-liffey {
     return $changed
 }
 
-function junai-publish-mcp {
+function caddis-publish-mcp {
     # Bumps the version in pyproject.toml and publishes junai-mcp to PyPI.
     # Requires: pip install build twine (once per machine), PyPI credentials configured.
     #
     # Usage:
-    #   junai-publish-mcp           # prompts for new version
-    #   junai-publish-mcp -Version 0.1.2
+    #   caddis-publish-mcp           # prompts for new version
+    #   caddis-publish-mcp -Version 0.1.2
     param([string]$Version = "")
 
-    Push-Location $JUNO_POOL
+    Push-Location $CADDIS_POOL
 
-    $pyproject = Join-Path $JUNO_POOL "pyproject.toml"
+    $pyproject = Join-Path $CADDIS_POOL "pyproject.toml"
     if (-not (Test-Path $pyproject)) {
-        Write-Host "  pyproject.toml not found at $JUNO_POOL" -ForegroundColor Red
+        Write-Host "  pyproject.toml not found at $CADDIS_POOL" -ForegroundColor Red
         Pop-Location
         return $false
     }
@@ -1656,7 +1660,7 @@ function junai-publish-mcp {
     }
 
     Write-Host ""
-    Write-Host "  JUNAI PUBLISH MCP  junai-mcp --> PyPI" -ForegroundColor Cyan
+    Write-Host "  CADDIS PUBLISH MCP  junai-mcp --> PyPI" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
     Write-Host "  Current version: $currentVer" -ForegroundColor DarkGray
 
@@ -1677,11 +1681,11 @@ function junai-publish-mcp {
     }
 
     # Clean old dist/
-    $dist = Join-Path $JUNO_POOL "dist"
+    $dist = Join-Path $CADDIS_POOL "dist"
     if (Test-Path $dist) { Remove-ItemRobust $dist }
 
     Write-Host "  Building..." -ForegroundColor DarkGray
-    $pythonCommand = Get-JunaiPythonCommand
+    $pythonCommand = Get-CaddisPythonCommand
     if (-not $pythonCommand) {
         Pop-Location
         return $false
@@ -1735,7 +1739,7 @@ function junai-publish-mcp {
     return $true
 }
 
-function Get-JunaiSourceHash {
+function Get-CaddisSourceHash {
     # Deterministic SHA256 over a package's SOURCE files (code only). Backs the
     # publish content-diff gate: an unchanged package is never re-uploaded to a
     # permanent registry (PyPI) / marketplace. Version-bearing files (pyproject.toml,
@@ -1775,7 +1779,7 @@ function Get-JunaiSourceHash {
     return (([System.BitConverter]::ToString($hashBytes)) -replace '-', '').ToLowerInvariant()
 }
 
-function Test-JunaiPublishNeeded {
+function Test-CaddisPublishNeeded {
     # Returns @{ Needed = <bool>; Hash = <string> }. Needed=$true when the source
     # hash differs from the marker written by the last successful publish. FAILS OPEN:
     # if the source can't be hashed (missing dir), Needed=$true so a real publish is
@@ -1786,7 +1790,7 @@ function Test-JunaiPublishNeeded {
         [string[]]$IncludeExt = @(".py"),
         [switch]$Force
     )
-    $current = Get-JunaiSourceHash -RootPath $SourceRoot -IncludeExt $IncludeExt
+    $current = Get-CaddisSourceHash -RootPath $SourceRoot -IncludeExt $IncludeExt
     if ($Force -or [string]::IsNullOrWhiteSpace($current)) {
         return @{ Needed = $true; Hash = $current }
     }
@@ -1795,7 +1799,7 @@ function Test-JunaiPublishNeeded {
     return @{ Needed = ($current -ne $previous); Hash = $current }
 }
 
-function Save-JunaiPublishMarker {
+function Save-CaddisPublishMarker {
     param(
         [Parameter(Mandatory)][string]$MarkerPath,
         [Parameter(Mandatory)][string]$Hash
@@ -1804,7 +1808,7 @@ function Save-JunaiPublishMarker {
     Set-Content -Path $MarkerPath -Value $Hash -Encoding UTF8
 }
 
-function junai-release {
+function caddis-release {
     # Publishes MCP package and VS Code extension using .env secrets first,
     # with legacy key files as fallback.
     #
@@ -1814,12 +1818,12 @@ function junai-release {
     # bypasses the gate.
     #
     # Usage:
-    #   junai-release                        # publish both MCP + extension (content-diff gated)
-    #   junai-release -SkipMcp               # extension only
-    #   junai-release -SkipExtension         # MCP only
-    #   junai-release -McpVersion "0.2.2"    # bump MCP version before publish
-    #   junai-release -ExtensionVersion "1.2.3"
-    #   junai-release -Force                 # ignore the content-diff gate
+    #   caddis-release                        # publish both MCP + extension (content-diff gated)
+    #   caddis-release -SkipMcp               # extension only
+    #   caddis-release -SkipExtension         # MCP only
+    #   caddis-release -McpVersion "0.2.2"    # bump MCP version before publish
+    #   caddis-release -ExtensionVersion "1.2.3"
+    #   caddis-release -Force                 # ignore the content-diff gate
     param(
         [string]$McpVersion = "",
         [string]$ExtensionVersion = "",
@@ -1829,13 +1833,13 @@ function junai-release {
     )
 
     Write-Host ""
-    Write-Host "  JUNAI RELEASE  MCP + VS Code" -ForegroundColor Cyan
+    Write-Host "  CADDIS RELEASE  MCP + VS Code" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     # -- Pre-publish agent validation gate --
     $validatorScript = Join-Path $REPO_ROOT "validate_agents.py"
     $poolValidatorScript = Join-Path $REPO_ROOT "validate_pool.py"
-    $pythonCommand = Get-JunaiPythonCommand
+    $pythonCommand = Get-CaddisPythonCommand
     if (-not $pythonCommand) {
         return $false
     }
@@ -1861,15 +1865,15 @@ function junai-release {
         # Content-diff gate: SHA256 of the MCP source (src\ *.py - excludes the
         # version-bearing pyproject.toml) vs the last-published marker. PyPI is
         # permanent, so skip the upload entirely when the code is byte-identical.
-        $mcpSourceRoot = Join-Path $JUNO_POOL "src"
-        $mcpMarker = Join-Path $JUNO_POOL ".last-published-mcp.sha256"
-        $mcpGate = Test-JunaiPublishNeeded -SourceRoot $mcpSourceRoot -MarkerPath $mcpMarker -IncludeExt @(".py") -Force:$Force
+        $mcpSourceRoot = Join-Path $CADDIS_POOL "src"
+        $mcpMarker = Join-Path $CADDIS_POOL ".last-published-mcp.sha256"
+        $mcpGate = Test-CaddisPublishNeeded -SourceRoot $mcpSourceRoot -MarkerPath $mcpMarker -IncludeExt @(".py") -Force:$Force
         if (-not $mcpGate.Needed) {
             Write-Host "  [--]  MCP source unchanged since last publish (SHA256 match); skipping PyPI upload." -ForegroundColor DarkGray
         } else {
-            $pypiToken = Get-JunaiSecretValue -EnvName "JUNAI_PYPI_TOKEN" -LegacyFilePath $PYPI_KEY_FILE
+            $pypiToken = Get-CaddisSecretValue -EnvName "JUNAI_PYPI_TOKEN" -LegacyFilePath $PYPI_KEY_FILE
             if ([string]::IsNullOrWhiteSpace($pypiToken)) {
-                Write-Host "  [ERROR] Missing PyPI token. Set JUNAI_PYPI_TOKEN in $JUNAI_ENV_FILE or keep $PYPI_KEY_FILE." -ForegroundColor Red
+                Write-Host "  [ERROR] Missing PyPI token. Set JUNAI_PYPI_TOKEN in $CADDIS_ENV_FILE or keep $PYPI_KEY_FILE." -ForegroundColor Red
                 return $false
             }
 
@@ -1878,7 +1882,7 @@ function junai-release {
             try {
                 $env:TWINE_USERNAME = "__token__"
                 $env:TWINE_PASSWORD = $pypiToken
-                $mcpPublished = [bool](junai-publish-mcp -Version $McpVersion | Get-LastOutputValue)
+                $mcpPublished = [bool](caddis-publish-mcp -Version $McpVersion | Get-LastOutputValue)
                 if (-not $mcpPublished) {
                     return $false
                 }
@@ -1886,16 +1890,16 @@ function junai-release {
                 $env:TWINE_USERNAME = $prevTwineUser
                 $env:TWINE_PASSWORD = $prevTwinePass
             }
-            Save-JunaiPublishMarker -MarkerPath $mcpMarker -Hash $mcpGate.Hash
+            Save-CaddisPublishMarker -MarkerPath $mcpMarker -Hash $mcpGate.Hash
         }
     }
 
     # Content-diff gate for the extension: SHA256 of the source (src\ *.ts/*.js +
     # esbuild.mjs - excludes version-bearing package.json) vs the last-published marker.
-    $extMarker = Join-Path $JUNAI_VSCODE ".last-published-ext.sha256"
+    $extMarker = Join-Path $CADDIS_VSCODE ".last-published-ext.sha256"
     $extGate = $null
     if (-not $SkipExtension) {
-        $extGate = Test-JunaiPublishNeeded -SourceRoot $JUNAI_VSCODE -MarkerPath $extMarker -IncludeExt @(".ts", ".js", ".mjs") -Force:$Force
+        $extGate = Test-CaddisPublishNeeded -SourceRoot $CADDIS_VSCODE -MarkerPath $extMarker -IncludeExt @(".ts", ".js", ".mjs") -Force:$Force
         if (-not $extGate.Needed) {
             Write-Host "  [--]  Extension source unchanged since last publish (SHA256 match); skipping Marketplace publish." -ForegroundColor DarkGray
             $SkipExtension = $true
@@ -1903,22 +1907,22 @@ function junai-release {
     }
 
     if (-not $SkipExtension) {
-        $vscePat = Get-JunaiSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
+        $vscePat = Get-CaddisSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
         if ([string]::IsNullOrWhiteSpace($vscePat)) {
-            Write-Host "  [ERROR] Missing VS Code PAT. Set JUNAI_VSCE_PAT in $JUNAI_ENV_FILE or keep $VSCE_PAT_FILE." -ForegroundColor Red
+            Write-Host "  [ERROR] Missing VS Code PAT. Set JUNAI_VSCE_PAT in $CADDIS_ENV_FILE or keep $VSCE_PAT_FILE." -ForegroundColor Red
             return $false
         }
 
-        if (-not (Test-Path (Join-Path $JUNAI_VSCODE "package.json"))) {
-            Write-Host "  [ERROR] junai-vscode repo not found at $JUNAI_VSCODE" -ForegroundColor Red
+        if (-not (Test-Path (Join-Path $CADDIS_VSCODE "package.json"))) {
+            Write-Host "  [ERROR] junai-vscode repo not found at $CADDIS_VSCODE" -ForegroundColor Red
             return $false
         }
 
         $prevVscePat = $env:VSCE_PAT
         try {
             $env:VSCE_PAT = $vscePat
-            Push-Location $JUNAI_VSCODE
-            $packageJsonPath = Join-Path $JUNAI_VSCODE "package.json"
+            Push-Location $CADDIS_VSCODE
+            $packageJsonPath = Join-Path $CADDIS_VSCODE "package.json"
             $currentExtensionVersion = Get-PackageJsonVersion -PackageJsonPath $packageJsonPath
             if ([string]::IsNullOrWhiteSpace($currentExtensionVersion)) {
                 Write-Host "  [ERROR] Could not read junai-vscode package version." -ForegroundColor Red
@@ -1955,7 +1959,7 @@ function junai-release {
             }
 
             Confirm-VscePublishedVersion -ExtensionId "junai-labs.junai" -ExpectedVersion $ExtensionVersion | Out-Null
-            if ($extGate) { Save-JunaiPublishMarker -MarkerPath $extMarker -Hash $extGate.Hash }
+            if ($extGate) { Save-CaddisPublishMarker -MarkerPath $extMarker -Hash $extGate.Hash }
         } finally {
             Pop-Location
             $env:VSCE_PAT = $prevVscePat
@@ -1967,24 +1971,24 @@ function junai-release {
     return $true
 }
 
-function junai-smoke-release {
+function caddis-smoke-release {
     param([string]$ProjectRoot = $REPO_ROOT)
 
     Write-Host ""
-    Write-Host "  JUNAI RELEASE SMOKE TEST" -ForegroundColor Cyan
+    Write-Host "  CADDIS RELEASE SMOKE TEST" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     $escapedPtarmigan = $PTARMIGAN_REPO.Replace("'", "''")
     $escapedLiffey = $LIFFEY_REPO.Replace("'", "''")
     $scriptText = @"
-`$pythonCommand = Get-JunaiPythonCommand
+`$pythonCommand = Get-CaddisPythonCommand
 if (-not `$pythonCommand) { throw 'Python resolution failed' }
 Write-Host "[OK] python: `$(`$pythonCommand.Path)"
 
-`$mcpVersion = Get-PyprojectVersion -PyprojectPath (Join-Path `$JUNO_POOL 'pyproject.toml')
-if ([string]::IsNullOrWhiteSpace(`$mcpVersion)) { throw 'junai pyproject.toml version is missing or invalid' }
-if ([string]::IsNullOrWhiteSpace((Try-GetNextPatchVersion -VersionString `$mcpVersion))) { throw ('junai pyproject.toml version is not semver: ' + `$mcpVersion) }
-Write-Host ('[OK] junai pyproject.toml version: ' + `$mcpVersion)
+`$mcpVersion = Get-PyprojectVersion -PyprojectPath (Join-Path `$CADDIS_POOL 'pyproject.toml')
+if ([string]::IsNullOrWhiteSpace(`$mcpVersion)) { throw 'caddis-plugin pyproject.toml version is missing or invalid' }
+if ([string]::IsNullOrWhiteSpace((Try-GetNextPatchVersion -VersionString `$mcpVersion))) { throw ('caddis-plugin pyproject.toml version is not semver: ' + `$mcpVersion) }
+Write-Host ('[OK] caddis-plugin pyproject.toml version: ' + `$mcpVersion)
 
 & `$pythonCommand.Path @(`$pythonCommand.PrefixArgs + @('validate_agents.py'))
 if (`$LASTEXITCODE -ne 0) { throw 'validate_agents.py failed' }
@@ -2011,7 +2015,7 @@ if (-not `$liffeyStage.Passed) {
 Write-Host '[OK] Liffey managed staging'
 "@
 
-    $exitCode = Invoke-JunaiFreshShell -ScriptText $scriptText -WorkingDirectory $ProjectRoot
+    $exitCode = Invoke-CaddisFreshShell -ScriptText $scriptText -WorkingDirectory $ProjectRoot
     if ($exitCode -ne 0) {
         Write-Host "  [FAIL] Release smoke test failed." -ForegroundColor Red
         return $false
@@ -2022,16 +2026,16 @@ Write-Host '[OK] Liffey managed staging'
     return $true
 }
 
-function junai-ship {
+function caddis-ship {
     param(
         [string]$ProjectRoot = $REPO_ROOT,
         [string]$Message = "",
         [string]$McpVersion = "",
-        [string]$JunaiExtensionVersion = "",
+        [string]$CaddisExtensionVersion = "",
         [string[]]$Lanes = @("auto"),
         [string[]]$Profiles = @("auto"),
         [switch]$PublishMcp,
-        [switch]$PublishJunaiExtension,
+        [switch]$PublishCaddisExtension,
         [switch]$PublishPtarmigan,
         [switch]$PackageLiffey,
         [switch]$PublishAll,
@@ -2040,18 +2044,18 @@ function junai-ship {
 
     if ($PublishAll) {
         $PublishMcp = $true
-        $PublishJunaiExtension = $true
+        $PublishCaddisExtension = $true
         $PublishPtarmigan = $true
         $PackageLiffey = $true
     }
 
     Write-Host ""
-    Write-Host "  JUNAI SHIP" -ForegroundColor Magenta
+    Write-Host "  CADDIS SHIP" -ForegroundColor Magenta
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     $smokeStatus = if ($SkipSmokeTest) { "skipped" } else { "pending" }
     if (-not $SkipSmokeTest) {
-        if (-not (junai-smoke-release -ProjectRoot $ProjectRoot)) {
+        if (-not (caddis-smoke-release -ProjectRoot $ProjectRoot)) {
             Write-Host "  [ABORT]  Ship halted because the release smoke test failed." -ForegroundColor Red
             return $false
         }
@@ -2074,25 +2078,25 @@ function junai-ship {
     }
 
     $sourceChangedPaths = @(Get-RepoChangedPaths -RepoPath $ProjectRoot)
-    $junaiChangedPaths = @(Get-RepoChangedPaths -RepoPath $JUNO_POOL)
-    $junaiVscodeChangedPaths = @(Get-RepoChangedPaths -RepoPath $JUNAI_VSCODE)
+    $caddisChangedPaths = @(Get-RepoChangedPaths -RepoPath $CADDIS_POOL)
+    $caddisVscodeChangedPaths = @(Get-RepoChangedPaths -RepoPath $CADDIS_VSCODE)
     $ptarmiganChangedPaths = @(Get-RepoChangedPaths -RepoPath $PTARMIGAN_REPO)
     $liffeyChangedPaths = @(Get-RepoChangedPaths -RepoPath $LIFFEY_REPO)
 
     $sourceReleaseTargets = @(Get-AffectedReleaseTargetsFromSourcePaths -ChangedPaths $sourceChangedPaths)
-    $junaiVscodeDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "junai-vscode" -ChangedPaths $junaiVscodeChangedPaths)
+    $caddisVscodeDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "junai-vscode" -ChangedPaths $caddisVscodeChangedPaths)
     $ptarmiganDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "ptarmigan" -ChangedPaths $ptarmiganChangedPaths)
     $liffeyDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "liffey" -ChangedPaths $liffeyChangedPaths)
-    $mcpDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "mcp" -ChangedPaths $junaiChangedPaths)
+    $mcpDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "mcp" -ChangedPaths $caddisChangedPaths)
 
     $sourceDirty = $sourceChangedPaths.Count -gt 0
-    $junaiVscodeDirty = $junaiVscodeChangedPaths.Count -gt 0
+    $caddisVscodeDirty = $caddisVscodeChangedPaths.Count -gt 0
     $ptarmiganDirty = $ptarmiganChangedPaths.Count -gt 0
     $liffeyDirty = $liffeyChangedPaths.Count -gt 0
 
     $autoLaneMode = $normalizedLanes -contains "auto"
     $runSourceLane = if ($autoLaneMode) { $sourceDirty } else { $normalizedLanes -contains "source" }
-    $runJunaiVscodeLane = if ($autoLaneMode) { $junaiVscodeDirty } else { $normalizedLanes -contains "junai-vscode" }
+    $runCaddisVscodeLane = if ($autoLaneMode) { $caddisVscodeDirty } else { $normalizedLanes -contains "junai-vscode" }
     $runPtarmiganLane = if ($autoLaneMode) { $ptarmiganDirty } else { $normalizedLanes -contains "ptarmigan" }
     $runLiffeyLane = if ($autoLaneMode) { $liffeyDirty } else { $normalizedLanes -contains "liffey" }
 
@@ -2116,8 +2120,8 @@ function junai-ship {
         ReleaseTriggered = $false
     }
 
-    if ($runJunaiVscodeLane) {
-        $null = Commit-RepoIfDirty -RepoPath $JUNAI_VSCODE -Label "junai-vscode" -Message "$Message (junai-vscode)" -Push
+    if ($runCaddisVscodeLane) {
+        $null = Commit-RepoIfDirty -RepoPath $CADDIS_VSCODE -Label "junai-vscode" -Message "$Message (junai-vscode)" -Push
     }
     if ($runPtarmiganLane) {
         $null = Commit-RepoIfDirty -RepoPath $PTARMIGAN_REPO -Label "Ptarmigan" -Message "$Message (ptarmigan)" -Push
@@ -2148,7 +2152,7 @@ function junai-ship {
         }
 
         $skipProfileSync = ($sourceProfiles.Count -eq 0)
-        $sourcePushResult = junai-push -ProjectRoot $ProjectRoot -Message $Message -NoPublish -Profiles $sourceProfiles -SkipProfileSync:$skipProfileSync | Get-LastOutputValue
+        $sourcePushResult = caddis-push -ProjectRoot $ProjectRoot -Message $Message -NoPublish -Profiles $sourceProfiles -SkipProfileSync:$skipProfileSync | Get-LastOutputValue
     } else {
         Write-Host "  [--]  Source lane not selected; skipping canonical mirror sync." -ForegroundColor DarkGray
     }
@@ -2157,33 +2161,33 @@ function junai-ship {
     $ptarmiganProfileChanged = [bool]$sourcePushResult.ProfileResults["ptarmigan"]
     $liffeyProfileChanged = [bool]$sourcePushResult.ProfileResults["liffey"]
 
-    $junaiExtensionReleaseStatus = "not requested"
+    $caddisExtensionReleaseStatus = "not requested"
     $mcpReleaseStatus = "not requested"
     $ptarmiganReleaseStatus = "not requested"
     $liffeyPackageStatus = "not requested"
 
-    $shouldPublishJunaiExtension = $false
+    $shouldPublishCaddisExtension = $false
     $shouldPublishMcp = $false
     $shouldPublishPtarmigan = $false
     $shouldPackageLiffey = $false
 
-    if ($PublishJunaiExtension) {
-        $junaiExtensionChanged = (($sourceMirrorChanged -and ($sourceReleaseTargets -contains "junai-vscode")) -or $junaiVscodeDirectReleasePaths.Count -gt 0)
-        if (-not $junaiExtensionChanged) {
-            $junaiExtensionReleaseStatus = "skipped - unchanged"
+    if ($PublishCaddisExtension) {
+        $caddisExtensionChanged = (($sourceMirrorChanged -and ($sourceReleaseTargets -contains "junai-vscode")) -or $caddisVscodeDirectReleasePaths.Count -gt 0)
+        if (-not $caddisExtensionChanged) {
+            $caddisExtensionReleaseStatus = "skipped - unchanged"
         } else {
-            $resolvedJunaiVersion = if ([string]::IsNullOrWhiteSpace($JunaiExtensionVersion)) {
-                Try-GetNextPatchVersion -VersionString (Get-PackageJsonVersion -PackageJsonPath (Join-Path $JUNAI_VSCODE "package.json"))
+            $resolvedCaddisVersion = if ([string]::IsNullOrWhiteSpace($CaddisExtensionVersion)) {
+                Try-GetNextPatchVersion -VersionString (Get-PackageJsonVersion -PackageJsonPath (Join-Path $CADDIS_VSCODE "package.json"))
             } else {
-                $JunaiExtensionVersion
+                $CaddisExtensionVersion
             }
 
-            if ([string]::IsNullOrWhiteSpace($resolvedJunaiVersion)) {
-                $junaiExtensionReleaseStatus = "skipped - no version bump path"
+            if ([string]::IsNullOrWhiteSpace($resolvedCaddisVersion)) {
+                $caddisExtensionReleaseStatus = "skipped - no version bump path"
             } else {
-                $JunaiExtensionVersion = $resolvedJunaiVersion
-                $shouldPublishJunaiExtension = $true
-                $junaiExtensionReleaseStatus = "pending"
+                $CaddisExtensionVersion = $resolvedCaddisVersion
+                $shouldPublishCaddisExtension = $true
+                $caddisExtensionReleaseStatus = "pending"
             }
         }
     }
@@ -2194,7 +2198,7 @@ function junai-ship {
             $mcpReleaseStatus = "skipped - unchanged"
         } else {
             $resolvedMcpVersion = if ([string]::IsNullOrWhiteSpace($McpVersion)) {
-                Try-GetNextPatchVersion -VersionString (Get-PyprojectVersion -PyprojectPath (Join-Path $JUNO_POOL "pyproject.toml"))
+                Try-GetNextPatchVersion -VersionString (Get-PyprojectVersion -PyprojectPath (Join-Path $CADDIS_POOL "pyproject.toml"))
             } else {
                 $McpVersion
             }
@@ -2251,17 +2255,17 @@ function junai-ship {
         }
     }
 
-    if ($shouldPublishMcp -or $shouldPublishJunaiExtension) {
-        $releaseOk = [bool](junai-release -McpVersion $McpVersion -ExtensionVersion $JunaiExtensionVersion -SkipMcp:(-not $shouldPublishMcp) -SkipExtension:(-not $shouldPublishJunaiExtension) | Get-LastOutputValue)
+    if ($shouldPublishMcp -or $shouldPublishCaddisExtension) {
+        $releaseOk = [bool](caddis-release -McpVersion $McpVersion -ExtensionVersion $CaddisExtensionVersion -SkipMcp:(-not $shouldPublishMcp) -SkipExtension:(-not $shouldPublishCaddisExtension) | Get-LastOutputValue)
         if (-not $releaseOk) {
-            Write-Host "  [ABORT]  junai release failed." -ForegroundColor Red
+            Write-Host "  [ABORT]  caddis-plugin release failed." -ForegroundColor Red
             return $false
         }
         if ($shouldPublishMcp) {
             $mcpReleaseStatus = "published"
         }
-        if ($shouldPublishJunaiExtension) {
-            $junaiExtensionReleaseStatus = "published"
+        if ($shouldPublishCaddisExtension) {
+            $caddisExtensionReleaseStatus = "published"
         }
     }
 
@@ -2286,21 +2290,21 @@ function junai-ship {
     $liffeyVsix = if ([string]::IsNullOrWhiteSpace($liffeyVersion)) { $null } else { Join-Path $LIFFEY_REPO "dist\liffey-$liffeyVersion.vsix" }
 
     Write-Host ""
-    Write-Host "  JUNAI SHIP SUMMARY" -ForegroundColor Cyan
+    Write-Host "  CADDIS SHIP SUMMARY" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  lanes requested      : $([string]::Join(', ', $normalizedLanes))" -ForegroundColor DarkGray
-    Write-Host "  source profiles      : $(if ($sourceProfiles.Count -gt 0) { [string]::Join(', ', $sourceProfiles) } else { 'none' })" -ForegroundColor DarkGray
-    Write-Host "  smoke test          : $smokeStatus" -ForegroundColor DarkGray
-    Write-Host "  source committed    : $sourceCommitted" -ForegroundColor DarkGray
-    Write-Host "  mcp release         : $mcpReleaseStatus" -ForegroundColor DarkGray
-    Write-Host "  junai release       : $junaiExtensionReleaseStatus" -ForegroundColor DarkGray
-    Write-Host "  ptarmigan release   : $ptarmiganReleaseStatus" -ForegroundColor DarkGray
-    Write-Host "  liffey package      : $liffeyPackageStatus" -ForegroundColor DarkGray
-    Write-Host "  source HEAD         : $(Get-RepoHeadLine -RepoPath $ProjectRoot)" -ForegroundColor DarkGray
-    Write-Host "  junai HEAD          : $(Get-RepoHeadLine -RepoPath $JUNO_POOL)" -ForegroundColor DarkGray
-    Write-Host "  junai-vscode HEAD   : $(Get-RepoHeadLine -RepoPath $JUNAI_VSCODE)" -ForegroundColor DarkGray
-    Write-Host "  ptarmigan HEAD      : $(Get-RepoHeadLine -RepoPath $PTARMIGAN_REPO)" -ForegroundColor DarkGray
-    Write-Host "  liffey HEAD         : $(Get-RepoHeadLine -RepoPath $LIFFEY_REPO)" -ForegroundColor DarkGray
+    Write-Host "  lanes requested       : $([string]::Join(', ', $normalizedLanes))" -ForegroundColor DarkGray
+    Write-Host "  source profiles       : $(if ($sourceProfiles.Count -gt 0) { [string]::Join(', ', $sourceProfiles) } else { 'none' })" -ForegroundColor DarkGray
+    Write-Host "  smoke test            : $smokeStatus" -ForegroundColor DarkGray
+    Write-Host "  source committed      : $sourceCommitted" -ForegroundColor DarkGray
+    Write-Host "  mcp release           : $mcpReleaseStatus" -ForegroundColor DarkGray
+    Write-Host "  caddis-plugin release : $caddisExtensionReleaseStatus" -ForegroundColor DarkGray
+    Write-Host "  ptarmigan release     : $ptarmiganReleaseStatus" -ForegroundColor DarkGray
+    Write-Host "  liffey package        : $liffeyPackageStatus" -ForegroundColor DarkGray
+    Write-Host "  source HEAD           : $(Get-RepoHeadLine -RepoPath $ProjectRoot)" -ForegroundColor DarkGray
+    Write-Host "  caddis-plugin HEAD    : $(Get-RepoHeadLine -RepoPath $CADDIS_POOL)" -ForegroundColor DarkGray
+    Write-Host "  junai-vscode HEAD     : $(Get-RepoHeadLine -RepoPath $CADDIS_VSCODE)" -ForegroundColor DarkGray
+    Write-Host "  ptarmigan HEAD        : $(Get-RepoHeadLine -RepoPath $PTARMIGAN_REPO)" -ForegroundColor DarkGray
+    Write-Host "  liffey HEAD           : $(Get-RepoHeadLine -RepoPath $LIFFEY_REPO)" -ForegroundColor DarkGray
     if ($liffeyVsix) {
         $vsixState = if (Test-Path $liffeyVsix) { $liffeyVsix } else { "missing ($liffeyVsix)" }
         Write-Host "  liffey VSIX         : $vsixState" -ForegroundColor DarkGray
@@ -2309,20 +2313,20 @@ function junai-ship {
     return $true
 }
 
-function junai-revert {
-    # Reverts one or more commits in claudster-source and cascades to all downstream
-    # repos (junai, junai-vscode, and any explicit project repos).
+function caddis-revert {
+    # Reverts one or more commits in caddis and cascades to all downstream
+    # repos (caddis-plugin, junai-vscode, and any explicit project repos).
     # Safe -- new revert commits, no history rewrite.
     #
     # Usage:
-    #   junai-revert                                         # revert HEAD (last commit)
-    #   junai-revert -Last 3                                 # revert last 3 commits
-    #   junai-revert -Sha abc123                             # revert one specific commit
-    #   junai-revert -Sha abc123,def456,ghi789               # revert multiple commits
-    #   junai-revert -Last 2 -NoCascade                      # revert claudster-source only
-    #   junai-revert -Last 3 -Force                          # skip confirmation (chat / CI use)
-    #   junai-revert -Last 3 -Projects "E:\Projects\Foo"     # also restore pool in project repo
-    #   junai-revert -Last 3 -Projects "E:\P\Foo,E:\P\Bar"  # multiple project repos
+    #   caddis-revert                                         # revert HEAD (last commit)
+    #   caddis-revert -Last 3                                 # revert last 3 commits
+    #   caddis-revert -Sha abc123                             # revert one specific commit
+    #   caddis-revert -Sha abc123,def456,ghi789               # revert multiple commits
+    #   caddis-revert -Last 2 -NoCascade                      # revert caddis only
+    #   caddis-revert -Last 3 -Force                          # skip confirmation (chat / CI use)
+    #   caddis-revert -Last 3 -Projects "E:\Projects\Foo"     # also restore pool in project repo
+    #   caddis-revert -Last 3 -Projects "E:\P\Foo,E:\P\Bar"  # multiple project repos
     param(
         [string[]]$Sha       = @(),
         [int]$Last           = 0,
@@ -2375,7 +2379,7 @@ function junai-revert {
 
     # -- Show plan -------------------------------------------------------------
     Write-Host ""
-    Write-Host "  JUNAI REVERT" -ForegroundColor Yellow
+    Write-Host "  CADDIS REVERT" -ForegroundColor Yellow
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
     Write-Host "  Commits to revert (newest first):" -ForegroundColor Yellow
     $n = 1
@@ -2386,11 +2390,11 @@ function junai-revert {
     }
     Write-Host ""
     if ($NoCascade) {
-        Write-Host "  Cascade   : claudster-source only (-NoCascade)" -ForegroundColor DarkGray
+        Write-Host "  Cascade   : caddis only (-NoCascade)" -ForegroundColor DarkGray
     } else {
-        Write-Host "  Cascade   : claudster-source --> junai --> junai-vscode (at next publish)" -ForegroundColor DarkGray
+        Write-Host "  Cascade   : caddis --> caddis-plugin --> junai-vscode (at next publish)" -ForegroundColor DarkGray
         foreach ($proj in $projectList) {
-            Write-Host "              --> $(Split-Path $proj -Leaf)  (junai-pull + commit)" -ForegroundColor DarkGray
+            Write-Host "              --> $(Split-Path $proj -Leaf)  (caddis-pull + commit)" -ForegroundColor DarkGray
         }
     }
     Write-Host ""
@@ -2421,48 +2425,48 @@ function junai-revert {
     git push | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
-        throw "junai-revert: git push failed (exit $LASTEXITCODE) - the revert commit is local only; cascade aborted. Fix the remote/auth and re-run."
+        throw "caddis-revert: git push failed (exit $LASTEXITCODE) - the revert commit is local only; cascade aborted. Fix the remote/auth and re-run."
     }
-    Write-Host "  [OK]  claudster-source pushed" -ForegroundColor Green
+    Write-Host "  [OK]  caddis pushed" -ForegroundColor Green
 
     Pop-Location
 
     # -- Cascade to downstream repos -------------------------------------------
     if (-not $NoCascade) {
-        $revertMsg = "revert: undo $($resolved.Count) commit(s) from claudster-source"
+        $revertMsg = "revert: undo $($resolved.Count) commit(s) from caddis"
         if (-not [string]::IsNullOrWhiteSpace($Message)) { $revertMsg = $Message }
 
-        # 1. junai -- pool folders + server.py SHA check (handled inside junai-push)
-        junai-push -Message $revertMsg
+        # 1. caddis-plugin -- pool folders + server.py SHA check (handled inside caddis-push)
+        caddis-push -Message $revertMsg
 
-        # 2. junai root sync.ps1 -- not inside pool folders, synced separately
+        # 2. caddis-plugin root sync.ps1 -- not inside pool folders, synced separately
         $srcSync = Join-Path $agentSandbox "sync.ps1"
-        $dstSync = Join-Path $JUNO_POOL    "sync.ps1"
+        $dstSync = Join-Path $CADDIS_POOL    "sync.ps1"
         if (Test-Path $srcSync) {
             $srcHash = (Get-FileHash $srcSync -Algorithm SHA256).Hash
             $dstHash = (Get-FileHash $dstSync -Algorithm SHA256).Hash
             if ($srcHash -ne $dstHash) {
                 Copy-Item $srcSync $dstSync -Force
-                Push-Location $JUNO_POOL
+                Push-Location $CADDIS_POOL
                 git add sync.ps1
                 $dirty = (git status --porcelain) -ne $null
                 if ($dirty) {
                     git commit -m "$revertMsg (sync.ps1)" | Out-Null
                     git push | Out-Null
                     if ($LASTEXITCODE -ne 0) {
-                        Write-Host "  [WARN]  junai sync.ps1 revert push failed - commit is local only in the junai mirror." -ForegroundColor Yellow
+                        Write-Host "  [WARN]  caddis-plugin sync.ps1 revert push failed - commit is local only in the caddis-plugin mirror." -ForegroundColor Yellow
                     } else {
-                        Write-Host "  [OK]  junai sync.ps1 reverted" -ForegroundColor Green
+                        Write-Host "  [OK]  caddis-plugin sync.ps1 reverted" -ForegroundColor Green
                     }
                 }
                 Pop-Location
             }
         }
 
-        # 3. junai-vscode -- pool/ is gitignored, rebuilt from claudster-source at publish
+        # 3. junai-vscode -- pool/ is gitignored, rebuilt from caddis at publish
         Write-Host "  [--]  junai-vscode pool/ is gitignored -- auto-updates at next publish" -ForegroundColor DarkGray
 
-        # 4. Project repos -- restore reverted pool via junai-pull + commit + push
+        # 4. Project repos -- restore reverted pool via caddis-pull + commit + push
         foreach ($proj in $projectList) {
             $githubDir = Join-Path $proj ".github"
             if (-not (Test-Path $githubDir)) {
@@ -2470,7 +2474,7 @@ function junai-revert {
                 continue
             }
             Write-Host "  Restoring pool in $(Split-Path $proj -Leaf) ..." -ForegroundColor DarkGray
-            junai-pull -ProjectRoot $proj
+            caddis-pull -ProjectRoot $proj
             Push-Location $proj
             $dirty = (git status --porcelain) -ne $null
             if ($dirty) {
@@ -2494,16 +2498,16 @@ function junai-revert {
     Write-Host ""
 }
 
-function junai-export {
+function caddis-export {
     # Exports the AI resource pool to a self-contained local folder or zip.
     # Use this when the target machine has no GitHub access.
     #
     # Usage:
-    #   junai-export                          # exports to .\junai-pool-export\
-    #   junai-export -OutputPath C:\USB\junai  # exports to specific path
-    #   junai-export -Zip                     # exports to .\junai-pool-export.zip
+    #   caddis-export                          # exports to .\caddis-pool-export\
+    #   caddis-export -OutputPath C:\USB\caddis-plugin  # exports to specific path
+    #   caddis-export -Zip                     # exports to .\caddis-pool-export.zip
     param(
-        [string]$OutputPath = (Join-Path (Get-Location).Path "junai-pool-export"),
+        [string]$OutputPath = (Join-Path (Get-Location).Path "caddis-pool-export"),
         [switch]$Zip
     )
 
@@ -2511,20 +2515,20 @@ function junai-export {
     $zipPath = "$OutputPath-$date.zip"
 
     if ($Zip) {
-        $OutputPath = Join-Path ([System.IO.Path]::GetTempPath()) "junai-pool-export-tmp"
+        $OutputPath = Join-Path ([System.IO.Path]::GetTempPath()) "caddis-pool-export-tmp"
     }
     New-Item -ItemType Directory -Path $OutputPath | Out-Null
 
     Write-Host ""
-    Write-Host "  JUNAI EXPORT  junai --> $OutputPath" -ForegroundColor Cyan
+    Write-Host "  CADDIS EXPORT  caddis-plugin --> $OutputPath" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     # Pre-export hygiene: remove generated caches from source + export target.
-    Remove-JunaiCacheDirs -RootPath $JUNO_GITHUB -Label "pool"
-    Remove-JunaiCacheDirs -RootPath $OutputPath -Label "export"
+    Remove-CaddisCacheDirs -RootPath $CADDIS_GITHUB -Label "pool"
+    Remove-CaddisCacheDirs -RootPath $OutputPath -Label "export"
 
     foreach ($folder in $POOL_FOLDERS) {
-        $src = Join-Path $JUNO_GITHUB $folder
+        $src = Join-Path $CADDIS_GITHUB $folder
         $dest = Join-Path $OutputPath $folder
         if (Test-Path $src) {
             if (Test-Path $dest) {
@@ -2538,7 +2542,7 @@ function junai-export {
     }
 
     # Include .vscode/mcp.json
-    $mcpSrc = Join-Path $JUNO_POOL ".vscode\mcp.json"
+    $mcpSrc = Join-Path $CADDIS_POOL ".vscode\mcp.json"
     if (Test-Path $mcpSrc) {
         $vscodeDst = Join-Path $OutputPath ".vscode"
         if (-not (Test-Path $vscodeDst)) { New-Item -ItemType Directory -Path $vscodeDst | Out-Null }
@@ -2547,7 +2551,7 @@ function junai-export {
     }
 
     # Include the sync script itself so the target can dot-source it
-    Copy-Item (Join-Path $JUNO_POOL "sync.ps1") $OutputPath -Force
+    Copy-Item (Join-Path $CADDIS_POOL "sync.ps1") $OutputPath -Force
     Write-Host "  [OK]  sync.ps1" -ForegroundColor Green
 
     if ($Zip) {
@@ -2561,17 +2565,17 @@ function junai-export {
     }
 
     Write-Host "  On the target machine, run:" -ForegroundColor DarkGray
-    Write-Host "    junai-import PATH-TO-EXPORT-FOLDER   # from any project root" -ForegroundColor DarkGray
+    Write-Host "    caddis-import PATH-TO-EXPORT-FOLDER   # from any project root" -ForegroundColor DarkGray
     Write-Host ""
 }
 
-function junai-import {
-    # Imports AI resource pool from a local export folder (created by juno-export).
+function caddis-import {
+    # Imports AI resource pool from a local export folder (created by caddis-export).
     # Use this on machines with no GitHub access.
     #
     # Usage (run from the target project root):
-    #   junai-import C:\USB\junai-pool-export
-    #   junai-import C:\USB\junai-pool-export-2026-02-20.zip
+    #   caddis-import C:\USB\caddis-pool-export
+    #   caddis-import C:\USB\caddis-pool-export-2026-02-20.zip
     param(
         [Parameter(Mandatory)][string]$SourcePath,
         [string]$ProjectRoot = (Get-Location).Path
@@ -2589,7 +2593,7 @@ function junai-import {
     # Handle zip input
     $tmpExtract = $null
     if ($SourcePath -match '\.zip$') {
-        $tmpExtract = Join-Path ([System.IO.Path]::GetTempPath()) "junai-import-tmp"
+        $tmpExtract = Join-Path ([System.IO.Path]::GetTempPath()) "caddis-import-tmp"
         if (Test-Path $tmpExtract) { Remove-Item $tmpExtract -Recurse -Force }
         Expand-Archive -Path $SourcePath -DestinationPath $tmpExtract
         $SourcePath = $tmpExtract
@@ -2601,12 +2605,12 @@ function junai-import {
     }
 
     Write-Host ""
-    Write-Host "  JUNAI IMPORT  $SourcePath --> $(Split-Path $ProjectRoot -Leaf)" -ForegroundColor Cyan
+    Write-Host "  CADDIS IMPORT  $SourcePath --> $(Split-Path $ProjectRoot -Leaf)" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     # Pre-import hygiene: remove generated caches in import source + target.
-    Remove-JunaiCacheDirs -RootPath $SourcePath -Label "import source"
-    Remove-JunaiCacheDirs -RootPath $target -Label "project"
+    Remove-CaddisCacheDirs -RootPath $SourcePath -Label "import source"
+    Remove-CaddisCacheDirs -RootPath $target -Label "project"
 
     foreach ($folder in $POOL_FOLDERS) {
         $src = Join-Path $SourcePath $folder
@@ -2649,3 +2653,18 @@ function junai-import {
     Write-Host "  Remember to create/update copilot-instructions.md for this project." -ForegroundColor DarkGray
     Write-Host ""
 }
+
+# ---------------------------------------------------------------------------
+# Back-compat aliases (repo rename, 2026-07: junai -> caddis-plugin).
+# The verbs were renamed junai-* -> caddis-*. These aliases keep muscle memory
+# and any un-updated script working for ONE version, then they are dropped.
+# ---------------------------------------------------------------------------
+Set-Alias junai-pull         caddis-pull
+Set-Alias junai-push         caddis-push
+Set-Alias junai-publish-mcp  caddis-publish-mcp
+Set-Alias junai-release      caddis-release
+Set-Alias junai-smoke-release caddis-smoke-release
+Set-Alias junai-ship         caddis-ship
+Set-Alias junai-revert       caddis-revert
+Set-Alias junai-export       caddis-export
+Set-Alias junai-import       caddis-import

@@ -35,7 +35,7 @@ so the rules are single-sourced. Codex and Antigravity (`agy`) read the `AGENTS.
 - **Installed as the caddis plugin (the common case):** `<harness-root>` = `${CLAUDE_PLUGIN_ROOT}`,
   so the script is `${CLAUDE_PLUGIN_ROOT}/scripts/setup_project_ai.py`. Templates (`claude-md/`,
   `settings.template.json`, `stack-map.json`) sit at the plugin root and are auto-located.
-- **harness dev checkout:** `<harness-root>` = the claudster-source repo root; the script is
+- **harness dev checkout:** `<harness-root>` = the caddis repo root; the script is
   `scripts/setup_project_ai.py` with templates in the sibling `claude-harness/`.
 
 Run a dry-run first to see stack detection and unresolved placeholders:

@@ -1,13 +1,13 @@
 {
   "name": "caddis-extras",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "description": "caddis-extras — the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
   "author": {
     "name": "junaid",
-    "url": "https://github.com/saajunaid/junai"
+    "url": "https://github.com/saajunaid/caddis-plugin"
   },
-  "homepage": "https://github.com/saajunaid/junai",
-  "repository": "https://github.com/saajunaid/junai",
+  "homepage": "https://github.com/saajunaid/caddis-plugin",
+  "repository": "https://github.com/saajunaid/caddis-plugin",
   "license": "MIT",
   "keywords": [
     "caddis",

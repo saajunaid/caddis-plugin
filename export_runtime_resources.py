@@ -308,7 +308,7 @@ def write_plugin_manifests(bundle_root: Path, plugin_dir: Path, target: dict[str
     Two-level layout: `marketplace.json` lives at the bundle root (which becomes the host
     repo root after publish), and the plugin itself — including `plugin.json` — lives in a
     subdirectory (`plugin/`). The marketplace's `plugin_source` points at that subdir. This
-    is required because the host repo (junai) carries other content, so the plugin cannot
+    is required because the host repo (caddis-plugin) carries other content, so the plugin cannot
     occupy the repo root with `source: "."`.
     """
     plugin = target.get("plugin")

@@ -12,12 +12,12 @@ them all, `--uninstall` removes only the unmodified files it wrote, and `claudst
 
 Usage:
     python claudster_init.py --target codex                 # fetch from GitHub (published bundles)
-    python claudster_init.py --target antigravity --from E:\\path\\to\\claudster-source
+    python claudster_init.py --target antigravity --from E:\\path\\to\\caddis
     python claudster_init.py --target codex --from repo.tar.gz --dest C:\\proj
 
 Source resolution (--from may be):
-    • a published junai checkout       → <src>/bundles/<target>/
-    • a claudster-source checkout      → <src>/dist/runtime-resources/<target>/
+    • a published caddis-plugin checkout → <src>/bundles/<target>/
+    • a caddis checkout                  → <src>/dist/runtime-resources/<target>/
     • a .tar.gz (GitHub codeload shape, single top-level dir) → same roots inside it
     • omitted → download DEFAULT_TARBALL_URL and proceed as tarball
 
@@ -47,7 +47,7 @@ from pathlib import Path
 
 MANIFEST_NAME = ".claudster-init.json"
 DEFAULT_TARBALL_URL = (
-    "https://codeload.github.com/saajunaid/junai/tar.gz/refs/heads/main"
+    "https://codeload.github.com/saajunaid/caddis-plugin/tar.gz/refs/heads/main"
 )
 # Roots (relative to a source checkout) that may hold bundles, in preference order.
 BUNDLE_ROOTS = ("bundles", "dist/runtime-resources")

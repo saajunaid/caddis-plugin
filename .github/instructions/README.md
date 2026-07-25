@@ -84,7 +84,7 @@ Instructions are **IDE-agnostic**. Use them in any tool that accepts file-based 
 | **VS Code (other extensions)** | Include in system/context via extension settings, or paste the relevant instruction when working on matching file types. |
 | **Claude / other chat** | Use project-local `.claude/rules/` exports, or paste/attach the relevant instruction file when editing matching code. |
 
-In junai, `.github/` is the canonical source. Packaging/export then creates runtime-native project-local folders like `.claude/` and `.codex/` from that source.
+In caddis, `.github/` is the canonical source. Packaging/export then creates runtime-native project-local folders like `.claude/` and `.codex/` from that source.
 
 ## Portability & Precedence
 
@@ -94,9 +94,9 @@ When moving AI resources between projects or machines, use this model:
 2. **Project overlay:** Keep project-specific constraints in each project's `copilot-instructions.md`.
 3. **Runtime exports:** Build project-local `.claude/` and `.codex/` folders from `.github/` rather than hand-authoring them independently.
 4. **No user-level default:** Do not deploy equivalent instructions, agents, or skills to user-level folders by default; project-local resources take precedence and avoid duplicate loading.
-5. **Sync direction:** Use `junai-push` to publish canonical `.github/` updates from a project to `junai`; use `junai-pull` to bring latest canonical `.github/` source into another project.
-6. **Important:** `junai-pull`/`junai-push` sync the canonical source, not generated runtime export folders and not project-local files like `copilot-instructions.md` or `.github/pipeline/*` unless your sync script is extended.
-7. **First run on new machine:** clone/open project → load `sync.ps1` → run `junai-pull` → run the runtime export step → verify expected `.github/`, `.claude/`, and `.codex/` folders are present for the target IDEs.
+5. **Sync direction:** Use `caddis-push` to publish canonical `.github/` updates from a project to `caddis-plugin`; use `caddis-pull` to bring latest canonical `.github/` source into another project.
+6. **Important:** `caddis-pull`/`caddis-push` sync the canonical source, not generated runtime export folders and not project-local files like `copilot-instructions.md` or `.github/pipeline/*` unless your sync script is extended.
+7. **First run on new machine:** clone/open project → load `sync.ps1` → run `caddis-pull` → run the runtime export step → verify expected `.github/`, `.claude/`, and `.codex/` folders are present for the target IDEs.
 
 ## Adding New Instructions
 

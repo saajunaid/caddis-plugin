@@ -1,6 +1,6 @@
 # Recipe System — Runbook
 
-> **Audience**: Developers and AI agents working with the junai portable resource pool.
+> **Audience**: Developers and AI agents working with the caddis portable resource pool.
 > **Last updated**: 2026-04-04
 
 ---
@@ -57,7 +57,7 @@ junai extension (auto) ──▶ new-project/.github/
 
 ### 3b. Existing Project Mid-Flight
 
-1. Run `junai-pull` to get latest pool (including `recipes/` folder)
+1. Run `caddis-pull` to get latest pool (including `recipes/` folder)
 2. Edit `project-config.md` — add the `recipe` field to the Step 1 table:
    ```markdown
    | **recipe** | enterprise-dashboard |
@@ -76,12 +76,12 @@ No action needed. When `project-config.md` has no `recipe` field (or it's blank)
 
 When you have a **repeatable project archetype** that differs from existing recipes:
 
-1. Create `.github/recipes/{name}.recipe.md` in `claudster-source`
+1. Create `.github/recipes/{name}.recipe.md` in `caddis`
 2. Use `enterprise-dashboard.recipe.md` as a structural template
 3. Define your delivery pipeline phases (can be fewer or more than 9)
 4. Map each phase to existing skills in the Mandatory Skill Composition table
 5. Add any cross-skill conventions unique to your archetype
-6. Run `junai-push` to commit to the pool
+6. Run `caddis-push` to commit to the pool
 7. In target projects, set `recipe` in `project-config.md` to your recipe name
 
 **When to create a new recipe vs. reuse existing:**
@@ -219,4 +219,4 @@ A: Not currently. The `recipe` field takes a single value. If you need to compos
 
 ## 7. Architecture Diagram
 
-See `.github/diagrams/recipe-system-architecture.drawio` for the full visual representation of the recipe system flow — from claudster-source source of truth through project bootstrap to agent execution.
+See `.github/diagrams/recipe-system-architecture.drawio` for the full visual representation of the recipe system flow — from caddis source of truth through project bootstrap to agent execution.

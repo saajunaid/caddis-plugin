@@ -1,14 +1,14 @@
 # Investigation: .github Pool Files Polluting Downstream Project Git Trees
 
 **Date:** 2026-04-15  
-**Affected repos:** `<org>/project-a`, `<org>/project-b` (and any other project using `junai-pull`)  
+**Affected repos:** `<org>/project-a`, `<org>/project-b` (and any other project using `caddis-pull`)  
 **Status:** Mitigated in affected repos. Extension fix required (see § Recommended Fix).
 
 ---
 
 ## 1. Symptom
 
-After running `junai-pull` (or "Update Agent Pool" in VS Code), downstream project repos showed
+After running `caddis-pull` (or "Update Agent Pool" in VS Code), downstream project repos showed
 40–670 modified/deleted files in their git working tree. Most were inside `.github/` — agents,
 skills, instructions, etc. that are pool-managed and not meaningful to the project's own source
 history.
@@ -17,7 +17,7 @@ history.
 
 ## 2. Root Causes (three compounding changes)
 
-### 2a — `b717e27` (2026-03-24): `junai-pull` switched from overwrite to wipe-then-copy
+### 2a — `b717e27` (2026-03-24): `caddis-pull` switched from overwrite to wipe-then-copy
 
 **Before:**
 ```powershell
@@ -58,7 +58,7 @@ $POOL_FOLDERS = @("agents", "skills", "prompts", "instructions", "diagrams", "to
 **Intent:** Correct — these folders contain reference content the pipeline agents rely on
 (`agent-docs/ARTIFACTS.md`, `plans/backlog/`, etc.) and need to be kept in sync.
 
-**Side-effect:** `junai-pull` now overwrites project-specific pipeline artefacts in those
+**Side-effect:** `caddis-pull` now overwrites project-specific pipeline artefacts in those
 folders (e.g. `plans/backlog/project-b-v4-mockup.md`). Files that don't exist in the pool
 survive, but any pool-side README or placeholder gets written unconditionally. These folders
 were previously "yours only" — they never changed after initial install.
@@ -82,7 +82,7 @@ In the preceding 12 days, ~10 pool commits landed:
 | `2d13f5a` | terse-response instruction added |
 
 **Before this period, pool updates were incremental (a few files at a time).** The April
-burst was the largest single growth wave the pool had ever seen. When `junai-pull` ran in
+burst was the largest single growth wave the pool had ever seen. When `caddis-pull` ran in
 a downstream repo immediately after pulling this batch, all three factors hit simultaneously:
 wipe-copy semantics × more folders touched × many new/changed files = 40–670 dirty files.
 
@@ -135,7 +135,7 @@ git push origin main
 ```
 
 **Result:** Pool files (`agents/`, `skills/`, `instructions/`, `tools/`, `recipes/`, etc.)
-are ignored by git permanently. `junai-pull` can still update them locally for Copilot to
+are ignored by git permanently. `caddis-pull` can still update them locally for Copilot to
 use — they just never show up as dirty in the git tree again.
 
 **Rollback branches** exist on both repos at
@@ -234,8 +234,8 @@ in place first.
 | Copilot agents / skills / instructions in VS Code | ✅ No change — files present locally, Copilot reads from filesystem not git |
 | MCP server workspace discovery | ✅ No change — looks for `.github/` directory on disk, not in git index |
 | `pipeline-state.json` read by MCP | ✅ Tracked — explicitly kept as git exception |
-| `.github/tools/` (pipeline-runner, MCP server) | ⚠️ No longer tracked in git — but deployed fresh by `junai-pull`/extension on every machine. Acceptable if every dev machine runs `Update Agent Pool` before using the pipeline |
-| `junai-pull` (sync.ps1) wipe semantics | ✅ Unchanged — pool still overwrites managed folders; git just stops caring |
+| `.github/tools/` (pipeline-runner, MCP server) | ⚠️ No longer tracked in git — but deployed fresh by `caddis-pull`/extension on every machine. Acceptable if every dev machine runs `Update Agent Pool` before using the pipeline |
+| `caddis-pull` (sync.ps1) wipe semantics | ✅ Unchanged — pool still overwrites managed folders; git just stops caring |
 | Downstream repo CI/deploy (Gitea Actions) | ✅ Confirmed zero `.github` references in both `ci.yml` and `deploy.ps1` |
 
 ---

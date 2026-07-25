@@ -4,7 +4,7 @@ Creation Date: 2026-06-08T09:16:59Z
 Creating Model: claude-opus-4-8
 ---
 
-# Running the junai harness on local models
+# Running the caddis harness on local models
 
 Status: **supported in principle, unproven in our harness.** The seam is wired and the models are known;
 the live validation (below) runs once the vLLM endpoint exists. This file is the enablement checklist —

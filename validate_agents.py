@@ -1,8 +1,8 @@
 """
-validate_agents.py  —  Pre-publish gate for the junai agent pool.
+validate_agents.py  —  Pre-publish gate for the caddis agent pool.
 
 Checks every .agent.md in .github/agents/ for structural compliance.
-Called automatically by junai-release before publishing to the marketplace.
+Called automatically by caddis-release before publishing to the marketplace.
 
 Exit codes:
   0  all checks passed
@@ -478,7 +478,7 @@ def main() -> None:
     # Pre-build the set of known agent slugs for handoff cross-checks
     all_agent_slugs = {f.stem.replace(".agent", "").lower() for f in agent_files}
 
-    print(f"\n  JUNAI AGENT VALIDATOR  ({len(agent_files)} agents)")
+    print(f"\n  CADDIS AGENT VALIDATOR  ({len(agent_files)} agents)")
     print("  -----------------------------------------")
 
     results: dict[Path, list[str]] = {}
