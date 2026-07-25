@@ -697,7 +697,7 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
     Moves each source only when it exists AND the destination does not — never
     clobbers an already-migrated file (logs a skip instead). Idempotent: a second
     run finds no sources and is a no-op. Also migrates .github/plans/*.md into
-    .claudster/plans/ — EXCEPT on the claudster authoring source (claudster-source,
+    .claudster/plans/ — EXCEPT on the caddis authoring source (claudster-source,
     detected by a claude-harness/ dir), where .github/plans is pool-synced to the
     public junai mirror and must stay put (migration decision 5).
     """
@@ -722,7 +722,7 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
         notes.append(f"migrate: {src_rel} → {dst_rel}")
 
     # .github/plans/*.md → .claudster/plans/ — per-file (the dir may already exist from the
-    # scaffold step), clobber-safe. SKIPPED for the claudster authoring source (claudster-source),
+    # scaffold step), clobber-safe. SKIPPED for the caddis authoring source (claudster-source),
     # where .github/plans is pool-synced to the public junai mirror (migration decision 5).
     # Detected by the presence of a claude-harness/ dir in the target.
     gh_plans = target / ".github" / "plans"

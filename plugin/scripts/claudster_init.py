@@ -1,4 +1,4 @@
-"""claudster-init — install a claudster toolbox bundle into a project, for any harness.
+"""caddis-init — install a caddis toolbox bundle into a project, for any harness.
 
 One canonical toolbox, many harnesses: Claude Code gets the plugin/marketplace; every other
 harness (codex, antigravity, copilot, …) gets a per-harness bundle laid into the project by
@@ -87,7 +87,7 @@ def _now() -> str:
 
 
 def _bundle_version(bundle: Path, src_root: Path | None) -> str:
-    """Best-effort claudster version for stamping: the bundle's own plugin.json, else the source
+    """Best-effort caddis version for stamping: the bundle's own plugin.json, else the source
     checkout's canonical claude-plugin version, else 'unknown'."""
     pj = bundle / "plugin.json"
     if pj.is_file():
@@ -238,10 +238,10 @@ def _install(bundle: Path, dest: Path, target: str, force: bool, version: str = 
 
 def _uninstall(dest: Path, target: str) -> int:
     """Remove manifest-tracked UNMODIFIED files (+ the registry entry). Modified/pre-existing files
-    the user changed are listed and left. Makes trying claudster risk-free."""
+    the user changed are listed and left. Makes trying caddis risk-free."""
     manifest_path = dest / MANIFEST_NAME
     if not manifest_path.exists():
-        print(f"[FAIL] no {MANIFEST_NAME} at {dest} — nothing claudster-init installed here.", file=sys.stderr)
+        print(f"[FAIL] no {MANIFEST_NAME} at {dest} — nothing caddis-init installed here.", file=sys.stderr)
         return 2
     files = json.loads(manifest_path.read_text(encoding="utf-8")).get("files", {})
     removed, kept = [], []
@@ -319,7 +319,7 @@ def _apply(src_root: Path, target: str, dest: Path, force: bool, extras: bool, u
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="claudster-init", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        prog="caddis-init", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--target", help="Harness bundle to install (e.g. codex, antigravity).")
     parser.add_argument("--from", dest="from_", metavar="SRC",
@@ -344,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         if not installs:
             print("No installs recorded — nothing to update.")
             return 0
-        with tempfile.TemporaryDirectory(prefix="claudster-init-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="caddis-init-") as tmp:
             try:
                 src_root = _resolve_source(args.from_, Path(tmp))
             except Exception as exc:
@@ -382,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[FAIL] --dest is not a directory: {dest}", file=sys.stderr)
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="claudster-init-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="caddis-init-") as tmp:
         try:
             src_root = _resolve_source(args.from_, Path(tmp))
         except Exception as exc:  # download/extract failure — actionable, fail-closed

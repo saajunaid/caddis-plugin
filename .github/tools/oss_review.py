@@ -98,7 +98,7 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, 
             f"({known}) or set REVIEW_BASE_URL and REVIEW_MODEL explicitly."
         )
     # Key precedence: REVIEW_API_KEY > provider env (DEEPSEEK_API_KEY, …) > OSS_API_KEY >
-    # the claudster keys file — same resolution chain as the claude-oss launcher, so wiring
+    # the caddis keys file — same resolution chain as the claude-oss launcher, so wiring
     # a provider once (in ~/.claudster/keys.env) lights up both lanes.
     key_env = f"{provider.upper()}_API_KEY"
     api_key = ""

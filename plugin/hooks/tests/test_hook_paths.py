@@ -1,4 +1,4 @@
-"""Subprocess tests for claudster hook path resolution (.claudster + legacy fallback).
+"""Subprocess tests for caddis hook path resolution (.claudster + legacy fallback).
 
 The hooks run top-level code and call sys.exit() on import, so they CANNOT be
 imported — each test invokes the hook as a subprocess with a crafted stdin payload

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "claudster": {
+    "caddis": {
       "command": "python",
       "args": ["mcp_ping_server.py"]
     }

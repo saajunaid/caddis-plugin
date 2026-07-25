@@ -314,7 +314,7 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
 _CHEAP_AGENTS = {"preflight", "tester", "codebase-audit", "ui-design-reviewer", "data-engineer",
                  "sql-expert", "claude-md-curator", "debug"}
 _HEAVY_AGENTS = {"anchor", "security-analyst"}
-# Core skill identity is the caddis plugin's; the pre-rename "claudster:" prefix is also listed so
+# Core skill identity is the caddis plugin's; the pre-rename "caddis:" prefix is also listed so
 # legacy usage-log entries (recorded before the caddis rename) still categorize correctly.
 _CORE_SKILL_NAMES = ("feature-plan", "handoff", "prd", "ship", "tdd", "ui-brief")
 _CORE_SKILLS  = {f"{p}:{n}" for p in ("caddis", "claudster") for n in _CORE_SKILL_NAMES}

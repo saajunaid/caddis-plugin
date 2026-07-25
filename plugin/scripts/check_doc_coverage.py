@@ -1,4 +1,4 @@
-"""Generic doc-discipline checker for claudster-managed repos.
+"""Generic doc-discipline checker for caddis-managed repos.
 
 Ported from an internal project and made harness-generic: the same route-drift /
 doc-map-integrity / rules-file-budget checks, but every check **auto-skips** when its inputs
@@ -223,7 +223,7 @@ def _rules_md_lengths(root: Path) -> dict[str, int]:
 
 def _repo_root() -> Path:
     """Resolve the repo root: git top-level if available, else cwd. Location-independent, so it
-    works wherever setup-project-ai copies the checker (and matches the claudster hooks)."""
+    works wherever setup-project-ai copies the checker (and matches the caddis hooks)."""
     try:
         import subprocess
         out = subprocess.run(

@@ -4,7 +4,7 @@ One place to parse the optional config so the doc-coverage checker and Dream Mem
 reimplement it (the guard hook keeps its own tiny reader — it lives under hooks/ and is
 safety-critical, so it stays self-contained). Every function returns a safe default rather than
 raising: a missing file, a parse error, a missing section, or a wrong-typed value all degrade to
-the caller's default. This mirrors the "degrade gracefully, never block" bar of the rest of claudster.
+the caller's default. This mirrors the "degrade gracefully, never block" bar of the rest of caddis.
 
 Config schema (see ``.claudster/config.toml.example``)::
 

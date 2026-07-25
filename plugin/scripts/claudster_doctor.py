@@ -1,4 +1,4 @@
-"""claudster_doctor — read-only health + maintenance report for a claudster install, any harness.
+"""claudster_doctor — read-only health + maintenance report for a caddis install, any harness.
 
 Diagnoses the things that silently break a cross-harness setup: a harness binary missing from PATH
 (the Windows "new terminal" gotcha), a harness version that has drifted past the probed contract,

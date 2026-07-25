@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claudster status line. Deployed by setup-project-ai to .claude/statusline-command.sh
+# caddis status line. Deployed by setup-project-ai to .claude/statusline-command.sh
 # and referenced from .claude/settings.json. Reads the Claude Code status JSON on stdin
 # and prints one compact, colorized line: dir · repo:branch[worktree] ±dirty · model vN ·
 # ctx% (color-coded) · effort · style · thinking · rate limits · PR · vim · relay.

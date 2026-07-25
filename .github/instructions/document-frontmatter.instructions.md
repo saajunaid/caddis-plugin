@@ -26,7 +26,7 @@ When creating a **new** document, add YAML frontmatter at the top and include:
 type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt
 status: draft|current|done|superseded
 feature: <feature-slug or chain_id that owns this document>
-creation-agent: claudster
+creation-agent: caddis
 Original Author: <active author or agent name>
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
 Creating Model: <exact runtime model identifier or display name>
@@ -57,7 +57,7 @@ work a document describes is complete; use `superseded` when a newer document re
   `done/` folder by `claudster_tidy` (invoked from `/handoff` and `/implement`). Flip the status
   when the work completes; the move is mechanical and follows the status.
 - `feature` — the feature slug or chain ID that this document belongs to (e.g. `feat-2026-0609-auth-rework`). Use `standalone` if the document is not tied to a feature.
-- `creation-agent` — the plugin or tool that created the document. Use `claudster` for documents produced by the claudster Claude Code plugin; use `github-copilot` for documents produced by the GitHub Copilot junai-vscode extension; use `human` for manually authored documents.
+- `creation-agent` — the plugin or tool that created the document. Use `caddis` for documents produced by the caddis Claude Code plugin; use `github-copilot` for documents produced by the GitHub Copilot junai-vscode extension; use `human` for manually authored documents.
 
 ## Merge rules
 
@@ -79,14 +79,14 @@ work a document describes is complete; use `superseded` when a newer document re
 
 ## Examples
 
-### New planning document (claudster / Claude Code)
+### New planning document (caddis / Claude Code)
 
 ```yaml
 ---
 type: plan
 status: draft
 feature: feat-2026-0609-auth-rework
-creation-agent: claudster
+creation-agent: caddis
 Original Author: Claude Code
 Creation Date: 2026-06-09T14:30:00Z
 Creating Model: claude-sonnet-4-6
@@ -114,7 +114,7 @@ Creating Model: Claude Sonnet 4.6
 type: runbook
 status: current
 feature: standalone
-creation-agent: claudster
+creation-agent: caddis
 Original Author: Claude Code
 Creation Date: 2026-05-18T09:14:32Z
 Creating Model: claude-sonnet-4-6

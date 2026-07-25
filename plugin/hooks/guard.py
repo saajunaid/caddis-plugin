@@ -260,7 +260,7 @@ def main() -> None:
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": tier,
-                "permissionDecisionReason": f"[claudster guard] {reason}.{tail}",
+                "permissionDecisionReason": f"[caddis guard] {reason}.{tail}",
             }
         }
         print(json.dumps(out))

@@ -1,7 +1,7 @@
-"""Dream Memory — claudster's short-term, self-maintaining per-repo fact store (fann Phase 5a).
+"""Dream Memory — caddis's short-term, self-maintaining per-repo fact store (fann Phase 5a).
 
 Ports the dedupe / reinforce / prune / conflict logic of fann-core's
-``src/memory/consolidator.ts`` into claudster's hooks-and-scripts world. This module is the
+``src/memory/consolidator.ts`` into caddis's hooks-and-scripts world. This module is the
 **pure consolidation engine** — the genuinely portable, fully-testable core. It owns the fact
 schema and the four pure functions the design names (``merge`` / ``prune`` / ``conflicts`` /
 ``rank_for_surfacing``), plus thin, fail-open filesystem glue to load/save the JSONL store.
@@ -354,7 +354,7 @@ def load_tunables(root) -> dict:
 
 
 def _repo_root() -> Path:
-    """Git top-level if available, else cwd — location-independent (matches the claudster hooks)."""
+    """Git top-level if available, else cwd — location-independent (matches the caddis hooks)."""
     try:
         import subprocess
         out = subprocess.run(

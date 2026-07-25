@@ -146,7 +146,7 @@ data = _read_input()
 
 # Anchor all session state (usage log + Dream Memory store) to the repo the SESSION
 # is operating in — the payload's cwd — not the hook process's launch cwd. Without
-# this, a session launched in one repo but working in another (e.g. claudster ↔
+# this, a session launched in one repo but working in another (e.g. caddis ↔
 # docket) leaks the second repo's facts into the first's store. Mirrors guard.py.
 _session_cwd = data.get("cwd") or os.getcwd()
 

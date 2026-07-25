@@ -350,7 +350,7 @@
     },
     {
       "name": "codex-extras",
-      "_comment": "Codex EXTRAS tier — the long tail (all pool skills MINUS the ~41 core). Laid over the core codex bundle by `claudster-init --target codex --extras`. Denylist single-sourced from claude-extras (one core/extras split; no third tier).",
+      "_comment": "Codex EXTRAS tier — the long tail (all pool skills MINUS the ~41 core). Laid over the core codex bundle by `caddis-init --target codex --extras`. Denylist single-sourced from claude-extras (one core/extras split; no third tier).",
       "workspace_root": ".",
       "copies": [
         {
@@ -381,7 +381,7 @@
     },
     {
       "name": "antigravity-plugin",
-      "_comment": "Installable agy plugin (agy 1.1.5 contract — docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (code-reviewer, preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (claudster_ping MCP tool).",
+      "_comment": "Installable agy plugin (agy 1.1.5 contract — docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (code-reviewer, preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (caddis_ping MCP tool).",
       "workspace_root": ".",
       "extra_roots": {
         "harness": "claude-harness"
@@ -418,7 +418,7 @@
     },
     {
       "name": "antigravity-extras",
-      "_comment": "Antigravity (CLI) EXTRAS tier — the long tail over the core .agents/skills bundle (claudster-init --target antigravity --extras). Denylist single-sourced from claude-extras.",
+      "_comment": "Antigravity (CLI) EXTRAS tier — the long tail over the core .agents/skills bundle (caddis-init --target antigravity --extras). Denylist single-sourced from claude-extras.",
       "workspace_root": ".",
       "copies": [
         {
@@ -432,7 +432,7 @@
     },
     {
       "name": "antigravity-plugin-extras",
-      "_comment": "The claudster-extras agy PLUGIN — the long-tail skills as a SECOND installable plugin (mirrors claude/claude-extras). `agy plugin install` it alongside the core claudster plugin. plugin.json at root; denylist single-sourced from claude-extras.",
+      "_comment": "The caddis-extras agy PLUGIN — the long-tail skills as a SECOND installable plugin (mirrors claude/claude-extras). `agy plugin install` it alongside the core caddis plugin. plugin.json at root; denylist single-sourced from claude-extras.",
       "workspace_root": ".",
       "agy_plugin": {
         "name": "caddis-extras",
@@ -457,7 +457,7 @@
       "extra_roots": { "harness": "claude-harness", "scriptsrc": "scripts" },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.30",
+        "version": "1.3.31",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/junai" },
         "homepage": "https://github.com/saajunaid/junai",
@@ -535,7 +535,7 @@
     },
     {
       "name": "claude-extras",
-      "_comment": "EXTRAS tier — the full skill library MINUS the core (and minus the proprietary document-skills bundle). Ships as a second plugin (claudster-extras) under plugin-extras/, listed in the same marketplace. Disabled by default; users enable it on demand so the long tail costs zero always-on context. Skills-only: agents/commands/hooks live in the core plugin. Uses excluded_skills (denylist) rather than an allowlist so new pool skills join extras automatically.",
+      "_comment": "EXTRAS tier — the full skill library MINUS the core (and minus the proprietary document-skills bundle). Ships as a second plugin (caddis-extras) under plugin-extras/, listed in the same marketplace. Disabled by default; users enable it on demand so the long tail costs zero always-on context. Skills-only: agents/commands/hooks live in the core plugin. Uses excluded_skills (denylist) rather than an allowlist so new pool skills join extras automatically.",
       "_comment_private": "No include_private / no purge: the private vmie/ category (golden-workflow, vm-ppt) is globally excluded, so none of these proprietary skills ship to extras. New non-vmie pool skills still join extras automatically via the everything-minus-core denylist.",
       "workspace_root": "plugin-extras",
       "plugin": {
