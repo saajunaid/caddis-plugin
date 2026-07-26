@@ -15,8 +15,8 @@ user just asked for).
 
 ## Step 1 — identify the CURRENT workstream (the thing being parked)
 Determine the active plan, in this order:
-1. The `.claudster/plans/*.md` this session has been executing.
-2. Else the plan named in `.claudster/relay.md`'s `## Next step`.
+1. The `.caddis/plans/*.md` this session has been executing.
+2. Else the plan named in `.caddis/relay.md`'s `## Next step`.
 3. Else — and ONLY if still ambiguous — ask the user which plan to park. This is the **single permitted
    question**; do not ask anything else.
 
@@ -27,13 +27,13 @@ next-not-started one).
 The single next concrete action for the parked task — copy it from the plan's Tracker or from relay.md's
 `## Next step`. Example: `next: wire the parser to the staging table (see plan Tracker row 2)`.
 
-## Step 3 — push the frame onto `.claudster/workstreams.json`
+## Step 3 — push the frame onto `.caddis/workstreams.json`
 The state file is a JSON object `{"version": 1, "stack": [ … ]}`; `stack` is LIFO (last element = most
 recently parked). Each frame has exactly these fields:
 
 ```json
 {
-  "plan": ".claudster/plans/<slug>.md",
+  "plan": ".caddis/plans/<slug>.md",
   "phase": "<current phase>",
   "resumePointer": "<the one-line next action from Step 2>",
   "reason": "<$ARGUMENTS or your derived one-liner>",

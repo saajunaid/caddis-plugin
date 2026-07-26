@@ -43,6 +43,37 @@ def _resolve_harness_dir() -> Path:
     return here.parent / "claude-harness"  # dev default; missing-template error surfaced later
 
 
+def _load_artifact_helpers():
+    """`(ARTIFACT_DIRS, artifact_root)` from the shared reader, with an inline fallback.
+
+    The artifact dir name lives in ONE place (claude-harness/scripts/claudster_config.py). This
+    generator runs from both layouts above, so the helper is imported off whichever scripts/ dir
+    carries it; the fallback re-states the same rule rather than letting a bootstrap crash.
+    """
+    here = Path(__file__).resolve().parent
+    for cand in (here.parent / "claude-harness" / "scripts", here):
+        if (cand / "claudster_config.py").is_file():
+            if str(cand) not in sys.path:
+                sys.path.insert(0, str(cand))
+            break
+    try:
+        from claudster_config import ARTIFACT_DIRS, artifact_root
+        return ARTIFACT_DIRS, artifact_root
+    except Exception:  # pragma: no cover — defensive
+        dirs = (".caddis", ".claudster")
+
+        def _artifact_root(root):
+            for name in dirs:
+                if (Path(root) / name).is_dir():
+                    return Path(root) / name
+            return Path(root) / dirs[0]
+
+        return dirs, _artifact_root
+
+
+ARTIFACT_DIRS, artifact_root = _load_artifact_helpers()
+
+
 HARNESS_DIR = _resolve_harness_dir()
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
@@ -411,7 +442,7 @@ def deploy_statusline(target: Path, force: bool, dry: bool) -> list[str]:
 
 def emit_doc_discipline(target: Path, ident: dict[str, str], force: bool, dry: bool) -> list[str]:
     """Scaffold the doc-coverage discipline into the target:
-      • `.claudster/kb/DOC-MAP.md` — reference-doc index (always);
+      • `<artifact-dir>/kb/DOC-MAP.md` — reference-doc index (always);
       • `UI_PAGE_GUIDE.md` — page→endpoints→DB stub (frontend repos only, i.e. a `frontend/` dir);
       • copy `scripts/check_doc_coverage.py` into the target (mirrors deploy_statusline).
     Idempotent: never clobbers an edited file unless --force. The scaffolded DOC-MAP carries no
@@ -439,8 +470,8 @@ def emit_doc_discipline(target: Path, ident: dict[str, str], force: bool, dry: b
     # docs/…) and any existing KB notes, so a fresh repo starts with a *useful* index instead of an
     # empty placeholder. Reuses check_doc_coverage's helpers (one implementation of the link logic).
     # Idempotent: an existing (possibly edited) map is kept untouched unless --force.
-    dm_rel = ".claudster/kb/DOC-MAP.md"
-    dm_dest = target / dm_rel
+    dm_dest = artifact_root(target) / "kb" / "DOC-MAP.md"
+    dm_rel = dm_dest.relative_to(target).as_posix()
     if not (cm / "doc-map.md.tmpl").is_file():
         notes.append("doc-map: template missing — skipped")
     elif dm_dest.exists() and not force:
@@ -564,7 +595,7 @@ def extract_project_facts(target: Path, stack: dict) -> dict:
 
 
 def write_project_facts(target: Path, facts: dict, dry: bool) -> list[str]:
-    """Seed .claude/PROJECT-FACTS.md so the AI enrichment step starts from real data."""
+    """Seed <artifact-dir>/PROJECT-FACTS.md so the AI enrichment step starts from real data."""
     if not any(facts.values()):
         return ["project facts: nothing auto-extractable — skipped"]
     out = [
@@ -584,15 +615,16 @@ def write_project_facts(target: Path, facts: dict, dry: bool) -> list[str]:
     out += sec("Environment variables (names only — values live in your real .env)", facts["env"])
     out += sec("CI / deploy workflows", facts["workflows"])
     out += sec("Entry points / key folders", facts["entry"])
-    dest = target / ".claudster" / "PROJECT-FACTS.md"
+    dest = artifact_root(target) / "PROJECT-FACTS.md"
     if not dry:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text("\n".join(out), encoding="utf-8")
     n = sum(len(v) for v in facts.values())
-    return [f"project facts: wrote .claudster/PROJECT-FACTS.md ({n} facts — fold into the hierarchy, then delete)"]
+    rel = dest.relative_to(target).as_posix()
+    return [f"project facts: wrote {rel} ({n} facts — fold into the hierarchy, then delete)"]
 
 
-CLAUDSTER_GITIGNORE = """\
+ARTIFACT_GITIGNORE = """\
 # caddis artifacts — commit plans/handoffs/agent-docs/prd; ignore transient state
 reviews/*.html
 usage-log.jsonl
@@ -604,13 +636,14 @@ memory.jsonl
 """
 
 
-CLAUDSTER_CONFIG_EXAMPLE = """\
+ARTIFACT_CONFIG_EXAMPLE = """\
 # caddis per-repo configuration — a documented template.
 #
-# Nothing here takes effect until you copy this file to `.claudster/config.toml` (same directory)
-# and uncomment the keys you want. The caddis hooks/scripts read `config.toml` (never this
-# `.example`) from the repo root's `.claudster/`. Unknown sections/keys are ignored, so a section
-# that a given caddis version doesn't yet honor is harmless to leave in place.
+# Nothing here takes effect until you copy this file to `config.toml` (same directory) and
+# uncomment the keys you want. The caddis hooks/scripts read `config.toml` (never this `.example`)
+# from the repo root's `.caddis/` — or, in a repo that predates the rename and still has one,
+# `.claudster/` (run `/caddis:migrate-dir` to convert it). Unknown sections/keys are ignored, so a
+# section that a given caddis version doesn't yet honor is harmless to leave in place.
 #
 # All three sections below are honored. Every key falls back to a baked-in default, so uncomment
 # only the ones you want to change.
@@ -652,61 +685,71 @@ allow = [
 """
 
 
-def scaffold_claudster(target: Path, dry: bool) -> list[str]:
-    """Create the harness-owned .claudster/ artifact tree + a default .gitignore + a config example.
+def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
+    """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
     Committed subdirs: plans, handoffs, agent-docs, prd, kb, prompts. Transient state
     (reviews/*.html, usage-log.jsonl, .last-usage-review, relay*, PROJECT-FACTS.md, memory.jsonl)
-    is gitignored. .claudster/ is the default home for every working-artifact kind (Track A
+    is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
     Phase A3) — kb/ and prompts/ round out plans/prd/agent-docs/reviews so nothing has to
     scatter to the repo root or .github/. Also drops a documented `config.toml.example`
     (guard/doc_coverage/dream_memory). Idempotent; never clobbers an existing .gitignore or
     config example.
+
+    Writes where the repo lives: a NEW repo gets `.caddis/`, but a repo that predates the rename
+    and still has `.claudster/` is scaffolded IN PLACE — a bootstrap must not silently split a
+    project's artifacts across two dirs. `/caddis:migrate-dir` is how such a repo converts.
     """
     notes: list[str] = []
-    root = target / ".claudster"
+    root = artifact_root(target)
+    label = root.name
     for sub in ("plans", "handoffs", "agent-docs", "reviews", "prd", "kb", "prompts"):
         d = root / sub
         if d.is_dir():
             continue
         if not dry:
             d.mkdir(parents=True, exist_ok=True)
-        notes.append(f"scaffold: .claudster/{sub}/")
+        notes.append(f"scaffold: {label}/{sub}/")
     gi = root / ".gitignore"
     if gi.exists():
-        notes.append("scaffold: .claudster/.gitignore present — kept")
+        notes.append(f"scaffold: {label}/.gitignore present — kept")
     else:
         if not dry:
             root.mkdir(parents=True, exist_ok=True)
-            gi.write_text(CLAUDSTER_GITIGNORE, encoding="utf-8")
-        notes.append("scaffold: wrote .claudster/.gitignore")
+            gi.write_text(ARTIFACT_GITIGNORE, encoding="utf-8")
+        notes.append(f"scaffold: wrote {label}/.gitignore")
     cfg = root / "config.toml.example"
     if cfg.exists():
-        notes.append("scaffold: .claudster/config.toml.example present — kept")
+        notes.append(f"scaffold: {label}/config.toml.example present — kept")
     else:
         if not dry:
             root.mkdir(parents=True, exist_ok=True)
-            cfg.write_text(CLAUDSTER_CONFIG_EXAMPLE, encoding="utf-8")
-        notes.append("scaffold: wrote .claudster/config.toml.example")
+            cfg.write_text(ARTIFACT_CONFIG_EXAMPLE, encoding="utf-8")
+        notes.append(f"scaffold: wrote {label}/config.toml.example")
     return notes
 
 
 def relocate_legacy(target: Path, dry: bool) -> list[str]:
-    """One-way relocate of pre-.claudster harness files into .claudster/.
+    """One-way relocate of pre-artifact-dir harness files into the repo's artifact dir.
 
     Moves each source only when it exists AND the destination does not — never
     clobbers an already-migrated file (logs a skip instead). Idempotent: a second
     run finds no sources and is a no-op. Also migrates .github/plans/*.md into
-    .claudster/plans/ — EXCEPT on the caddis authoring source (the caddis repo,
+    <artifact-dir>/plans/ — EXCEPT on the caddis authoring source (the caddis repo,
     detected by a claude-harness/ dir), where .github/plans is pool-synced to the
     public caddis-plugin mirror and must stay put (migration decision 5).
+
+    The destination is `.caddis/` for a fresh repo and the repo's existing `.claudster/` for one
+    that predates the rename — this relocation is about the OLD `.claude/`+root layout, not about
+    renaming a repo's artifact dir (that is `/caddis:migrate-dir`, opt-in).
     """
+    art = artifact_root(target).name
     moves = [
-        ("relay.md", ".claudster/relay.md"),
-        (".claude/usage-log.jsonl", ".claudster/usage-log.jsonl"),
-        (".claude/.last-usage-review", ".claudster/.last-usage-review"),
-        (".claude/PROJECT-FACTS.md", ".claudster/PROJECT-FACTS.md"),
-        (".claude/relay", ".claudster/relay"),
+        ("relay.md", f"{art}/relay.md"),
+        (".claude/usage-log.jsonl", f"{art}/usage-log.jsonl"),
+        (".claude/.last-usage-review", f"{art}/.last-usage-review"),
+        (".claude/PROJECT-FACTS.md", f"{art}/PROJECT-FACTS.md"),
+        (".claude/relay", f"{art}/relay"),
     ]
     notes: list[str] = []
     for src_rel, dst_rel in moves:
@@ -721,7 +764,7 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
             shutil.move(str(src), str(dst))
         notes.append(f"migrate: {src_rel} → {dst_rel}")
 
-    # .github/plans/*.md → .claudster/plans/ — per-file (the dir may already exist from the
+    # .github/plans/*.md → <artifact-dir>/plans/ — per-file (the dir may already exist from the
     # scaffold step), clobber-safe. SKIPPED for the caddis authoring source (the caddis repo),
     # where .github/plans is pool-synced to the public caddis-plugin mirror (migration decision 5).
     # Detected by the presence of a claude-harness/ dir in the target.
@@ -730,16 +773,16 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
         if (target / "claude-harness").is_dir():
             notes.append("migrate: .github/plans/ kept (authoring source — pool-synced)")
         else:
-            dest_dir = target / ".claudster" / "plans"
+            dest_dir = target / art / "plans"
             for src in sorted(gh_plans.glob("*.md")):
                 dst = dest_dir / src.name
                 if dst.exists():
-                    notes.append(f"migrate: skip (already at .claudster/plans/{src.name})")
+                    notes.append(f"migrate: skip (already at {art}/plans/{src.name})")
                     continue
                 if not dry:
                     dest_dir.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src), str(dst))
-                notes.append(f"migrate: .github/plans/{src.name} → .claudster/plans/{src.name}")
+                notes.append(f"migrate: .github/plans/{src.name} → {art}/plans/{src.name}")
 
     if not notes:
         notes.append("migrate: no legacy files to relocate")
@@ -824,7 +867,7 @@ def main() -> int:
     for line in compose_claude_md(target, stack, ident, args.force, args.dry_run):
         print(f"   {line}")
 
-    print("-- migrate legacy state → .claudster")
+    print(f"-- migrate legacy state → {artifact_root(target).name}")
     for line in relocate_legacy(target, args.dry_run):
         print(f"   {line}")
 
@@ -832,8 +875,8 @@ def main() -> int:
     for line in write_project_facts(target, extract_project_facts(target, stack), args.dry_run):
         print(f"   {line}")
 
-    print("-- .claudster artifact tree")
-    for line in scaffold_claudster(target, args.dry_run):
+    print(f"-- {artifact_root(target).name} artifact tree")
+    for line in scaffold_artifact_dir(target, args.dry_run):
         print(f"   {line}")
 
     print("-- doc-coverage discipline (DOC-MAP + page guide + checker)")

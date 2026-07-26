@@ -76,7 +76,7 @@ Confirm zero runtime placeholders remain: the runtime files (`settings.py`, `vit
 
 ### Step 3 — Enrich the AGENTS.md hierarchy (the AI step — this is the value-add)
 The generator writes **generic** fragments and pre-extracts real facts into
-`.claudster/PROJECT-FACTS.md` (run/test/build commands, env-var names, CI/deploy workflows, entry
+`.caddis/PROJECT-FACTS.md` (run/test/build commands, env-var names, CI/deploy workflows, entry
 points). **Start there** — fold each fact into the *right* `AGENTS.md` (root vs `src/` vs
 `frontend/` vs `tests/`) — the **canonical** rules file, never the `CLAUDE.md` shim — then delete
 `PROJECT-FACTS.md`. Then read `STACK.md` (if present), `project-config.md`, and skim the actual code to

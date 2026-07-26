@@ -6,10 +6,10 @@ Ports the dedupe / reinforce / prune / conflict logic of fann-core's
 schema and the four pure functions the design names (``merge`` / ``prune`` / ``conflicts`` /
 ``rank_for_surfacing``), plus thin, fail-open filesystem glue to load/save the JSONL store.
 
-Mental model (see ``.claudster/plans/dream-memory-design.md``): Dream Memory is *short-term working
+Mental model (see ``.caddis/plans/dream-memory-design.md``): Dream Memory is *short-term working
 memory* — automatic, structured facts that get **reinforced** when they recur and **decay** when
 they don't. It complements (never replaces) the curated layers: ``relay.md`` (session handoff),
-``.claudster/kb/*.md`` (curated code docs), and the central ``.claude`` MEMORY.md (cross-repo
+``.caddis/kb/*.md`` (curated code docs), and the central ``.claude`` MEMORY.md (cross-repo
 durable facts). A fact that proves durable is *promoted* up into a curated store and then allowed
 to decay out here.
 
@@ -18,7 +18,7 @@ dicts out, unit-tested without a tree) and a small glue layer (``load_facts`` / 
 the CLI) that does all I/O and **fails open & silent** — Dream Memory must never block or slow a
 turn.
 
-A fact (one JSON object per line in ``.claudster/memory.jsonl``)::
+A fact (one JSON object per line in ``.caddis/memory.jsonl`` — legacy ``.claudster/`` still read)::
 
     {
       "kind":     "failure-mode | rejected-approach | repo-fact | workflow-success",
@@ -44,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
-# Schema constants. Tunables live here (a per-repo ``.claudster/config.toml``
+# Schema constants. Tunables live here (a per-repo ``.caddis/config.toml``
 # override is a deliberate fast-follow, matching check_doc_coverage / guard).
 # --------------------------------------------------------------------------- #
 KINDS: tuple[str, ...] = ("failure-mode", "rejected-approach", "repo-fact", "workflow-success")
@@ -57,10 +57,33 @@ PRUNE_AGE_DAYS = 14          # single-hit facts older than this decay out
 MAX_FACTS = 200              # hard cap on the store; oldest-by-recency overflow drops first
 SURFACE_LIMIT = 5            # SessionStart shows at most this many (context-economy-safe)
 
-DEFAULT_STORE = ".claudster/memory.jsonl"
+STORE_NAME = "memory.jsonl"
+DEFAULT_STORE = f".caddis/{STORE_NAME}"      # nominal path; resolve per-repo via store_path()
+LEGACY_STORE = f".claudster/{STORE_NAME}"    # pre-rename location, still read
 
 _REQUIRED_FIELDS = ("kind", "key", "summary", "hitCount", "firstSeen", "lastSeen", "source")
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def store_path(root) -> Path:
+    """This repo's fact store — an existing one wins, else the dir the repo lives in.
+
+    Both a read and a write target: an unmigrated repo keeps appending to its `.claudster/`
+    store instead of silently starting an empty second one beside it.
+    """
+    try:
+        from claudster_config import artifact_read
+        return artifact_read(root, STORE_NAME)
+    except Exception:
+        base = Path(root)
+        for rel in (DEFAULT_STORE, LEGACY_STORE):
+            cand = base / rel
+            if cand.exists():
+                return cand
+        legacy_dir = base / ".claudster"
+        if legacy_dir.is_dir() and not (base / ".caddis").is_dir():
+            return legacy_dir / STORE_NAME
+        return base / DEFAULT_STORE
 
 
 # --------------------------------------------------------------------------- #
@@ -335,7 +358,7 @@ def save_facts(path: Path, facts: list[dict]) -> bool:
 
 
 def load_tunables(root) -> dict:
-    """Read ``[dream_memory]`` overrides from ``<root>/.claudster/config.toml``; defaults otherwise.
+    """Read ``[dream_memory]`` overrides from the repo's ``config.toml``; defaults otherwise.
 
     Returns ``{"prune_age_days", "max_facts", "surface_limit"}``. Fail-open — a missing config, a
     missing helper, or a bad value degrades to the baked-in default, never raising into a hook.
@@ -383,7 +406,7 @@ def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")  # Windows cp1252 can't encode ⚠/× glyphs
     parser = argparse.ArgumentParser(
-        description="Inspect / consolidate the Dream Memory fact store (.claudster/memory.jsonl).",
+        description="Inspect / consolidate the Dream Memory fact store (.caddis/memory.jsonl).",
     )
     parser.add_argument(
         "--consolidate",
@@ -399,7 +422,7 @@ def main() -> None:
 
     now = args.now or datetime.now(timezone.utc).isoformat()
     root = _repo_root()
-    store = root / DEFAULT_STORE
+    store = store_path(root)
     tune = load_tunables(root)
     facts = load_facts(store)
 

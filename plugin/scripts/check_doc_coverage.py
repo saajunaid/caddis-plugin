@@ -9,8 +9,8 @@ Three checks (all relative to a passed-in repo root — no module-level ROOT):
 1. **Page-guide route coverage** — every live route in ``frontend/src/routeTree.gen.ts`` has an
    entry in ``UI_PAGE_GUIDE.md``. A missing entry is a hard failure. Absent route tree OR page
    guide → skip **silently** (a backend repo must not be nagged to "run npm run build").
-2. **Doc-map integrity** — every link in ``.claudster/kb/DOC-MAP.md`` resolves (dangling = hard
-   failure), and every KB note (``.claudster/kb/*.md``) is indexed in it (orphan = warning). Only the
+2. **Doc-map integrity** — every link in ``<artifact-dir>/kb/DOC-MAP.md`` resolves (dangling = hard
+   failure), and every KB note (``<artifact-dir>/kb/*.md``) is indexed in it (orphan = warning). Only the
    curated KB is governed — the wider ``docs/`` folder is NOT policed. Absent doc-map → **skip**.
 3. **Rules-file budget** — the always-loaded rules file stays lean (warning only). Post-migration
    that is ``AGENTS.md`` (canonical) plus its tiny ``CLAUDE.md`` @import shim; a pre-migration repo has
@@ -24,7 +24,7 @@ Usage::
 Enforcement is tiered: only *missing routes* and *dangling doc-map links* fail the gate (they are
 unambiguous and rare). Everything else warns. In --check mode a clean repo prints nothing.
 
-Defaults are baked in as module constants; a per-repo ``.claudster/config.toml [doc_coverage]``
+Defaults are baked in as module constants; a per-repo ``<artifact-dir>/config.toml [doc_coverage]``
 override is a deliberate fast-follow, not part of this version.
 """
 
@@ -36,11 +36,27 @@ import re
 import sys
 from pathlib import Path
 
-# Shared per-repo config reader (fail-open). Fall back to no-op shims if it's ever absent, so the
-# gate degrades to baked-in defaults rather than crashing.
+# Shared per-repo config reader + artifact-dir resolution (fail-open). Fall back to shims if it's
+# ever absent, so the gate degrades to baked-in defaults rather than crashing.
 try:
-    from claudster_config import get_int, get_str, get_str_list, load_config
+    from claudster_config import (ARTIFACT_DIRS, artifact_read, artifact_root, get_int, get_str,
+                                  get_str_list, load_config)
 except Exception:  # pragma: no cover - defensive shim
+    ARTIFACT_DIRS = (".caddis", ".claudster")  # type: ignore
+
+    def artifact_root(root):  # type: ignore
+        for _n in ARTIFACT_DIRS:
+            if (Path(root) / _n).is_dir():
+                return Path(root) / _n
+        return Path(root) / ARTIFACT_DIRS[0]
+
+    def artifact_read(root, *parts):  # type: ignore
+        for _n in ARTIFACT_DIRS:
+            cand = Path(root).joinpath(_n, *parts)
+            if cand.exists():
+                return cand
+        return artifact_root(root).joinpath(*parts)
+
     def load_config(root, section):  # type: ignore
         return {}
 
@@ -61,7 +77,10 @@ _SKIP_DIRS = {".venv", "venv", "node_modules", ".git", "__pycache__", ".mypy_cac
 # Default locations, relative to the repo root passed into run(). Generic — no repo-specific names.
 DEFAULT_ROUTE_TREE = "frontend/src/routeTree.gen.ts"
 DEFAULT_PAGE_GUIDE = "UI_PAGE_GUIDE.md"
-DEFAULT_DOC_MAP = ".claudster/kb/DOC-MAP.md"
+# Nominal doc-map path. The real one is resolved per-repo by doc_map_path() so an unmigrated
+# `.claudster/` repo is still gated (and never grows a second, empty `.caddis/kb/`).
+DOC_MAP_REL = "kb/DOC-MAP.md"
+DEFAULT_DOC_MAP = f".caddis/{DOC_MAP_REL}"
 
 # Routes intentionally undocumented in the page guide (pure framework/internal paths). Keep tiny.
 IGNORE_ROUTES: frozenset[str] = frozenset()
@@ -72,13 +91,23 @@ IGNORE_ROUTES: frozenset[str] = frozenset()
 CLAUDE_MD_BUDGET = 200
 AGENTS_MD_BUDGET = CLAUDE_MD_BUDGET
 
-# The doc-map governs ONLY the curated KB it indexes (.claudster/kb/). The wider docs/ folder is the
-# project's own documentation and is intentionally NOT policed — the KB is the code-relevant set the
-# team curates. Orphan = a KB note that isn't indexed in the doc-map (warning only). Scoping this to
-# the KB means zero assumptions about any project's docs/ layout, and no noise.
-GOVERNED_GLOBS: tuple[str, ...] = (
-    ".claudster/kb/*.md",
-)
+# The doc-map governs ONLY the curated KB it indexes (<artifact-dir>/kb/). The wider docs/ folder is
+# the project's own documentation and is intentionally NOT policed — the KB is the code-relevant set
+# the team curates. Orphan = a KB note that isn't indexed in the doc-map (warning only). Scoping this
+# to the KB means zero assumptions about any project's docs/ layout, and no noise.
+# Both dir names are globbed so a half-migrated repo's stragglers are still governed.
+GOVERNED_GLOBS: tuple[str, ...] = tuple(f"{name}/kb/*.md" for name in ARTIFACT_DIRS)
+
+
+def doc_map_path(root) -> Path:
+    """This repo's DOC-MAP — an existing one wins (`.caddis` then `.claudster`), else the dir the
+    repo lives in. Both the read target for the gate and the write target for ``reindex``."""
+    return artifact_read(root, *DOC_MAP_REL.split("/"))
+
+
+def kb_dir(root) -> Path:
+    """This repo's KB folder — beside its DOC-MAP, so notes and index never split across dirs."""
+    return doc_map_path(root).parent
 
 
 # --------------------------------------------------------------------------- #
@@ -264,17 +293,17 @@ _DOCMAP_SCAFFOLD = """\
 
 > **What this is:** the curated index of the docs that matter for understanding *this codebase* —
 > one line each: what it is and when to read it. A router, not a summary; detail lives in the linked
-> docs. KB notes live beside this file in `.claudster/kb/`.
+> docs. KB notes live beside this file in `{artifact_dir}/kb/`.
 >
 > **Discipline:** kept honest by [`check_doc_coverage.py`](../../scripts/check_doc_coverage.py) —
 > every link here must resolve (a link to a missing file is a **hard failure**), and a KB note
-> (`.claudster/kb/*.md`) not indexed here **warns**. Only `.claudster/kb/*.md` is governed.
+> (`{artifact_dir}/kb/*.md`) not indexed here **warns**. Only `{artifact_dir}/kb/*.md` is governed.
 
 ## Read first
 1. `CLAUDE.md` — project laws + the dev harness (if the repo has one).
 2. The entries below, by area.
 
-## Knowledge base (`.claudster/kb/`)
+## Knowledge base (`{artifact_dir}/kb/`)
 
 | Doc | What / when to read |
 |---|---|
@@ -288,7 +317,7 @@ _DOCMAP_SCAFFOLD = """\
 
 ---
 
-*Governed = `.claudster/kb/*.md` only (must be indexed here). The wider repo docs are not policed.*
+*Governed = `{artifact_dir}/kb/*.md` only (must be indexed here). The wider repo docs are not policed.*
 """
 
 
@@ -351,22 +380,29 @@ def _is_placeholder_row(row: str) -> bool:
 def reference_rows(root: Path) -> list[str]:
     """Table rows for every discovered reference doc, its link written relative to the doc-map dir.
 
-    The doc-map lives two levels deep (`.claudster/kb/`), so a repo-root path is reached via `../../`.
+    The doc-map lives two levels deep (`<artifact-dir>/kb/`), so a repo-root path is reached via `../../`.
     """
     return [_row("../../" + rel, rel, desc) for rel, desc in discover_reference_docs(root)]
 
 
 def kb_note_rows(root: Path, indexed: set[str] = frozenset()) -> list[str]:
-    """Rows for `.claudster/kb/*.md` notes (excluding DOC-MAP), skipping already-indexed ones.
+    """Rows for `<artifact-dir>/kb/*.md` notes (excluding DOC-MAP), skipping already-indexed ones.
 
     ``indexed`` holds repo-root-relative paths already linked in the map. The description is a plain
     nudge (NOT an ``_(…)_`` placeholder, so a later reindex won't drop it) for the agent/human to fill.
+    A half-migrated repo (both dirs present) has BOTH scanned, so a straggler note left in the legacy
+    dir is still indexed — its link is written relative to the doc-map, like any other row.
     """
     root = Path(root)
+    home = kb_dir(root)
+    notes = {p.resolve(): p for name in ARTIFACT_DIRS for p in (root / name / "kb").glob("*.md")}
     rows: list[str] = []
-    for p in sorted((root / ".claudster" / "kb").glob("*.md")):
+    for p in sorted(notes.values()):
         rel = p.relative_to(root).as_posix()
         if p.name == "DOC-MAP.md" or rel in indexed:
+            continue
+        if p.parent.resolve() != home.resolve():
+            rows.append(_row("../../" + rel, rel, "auto-indexed — add a one-line 'when to read'."))
             continue
         rows.append(_row(p.name, p.name, "auto-indexed — add a one-line 'when to read'."))
     return rows
@@ -407,8 +443,12 @@ def insert_table_rows(text: str, heading_contains: str, rows: list[str]) -> str:
 
 
 def build_docmap(root: Path, project_name: str = "project") -> str:
-    """Full DOC-MAP text for a fresh repo: scaffold + discovered reference docs + existing KB notes."""
+    """Full DOC-MAP text for a fresh repo: scaffold + discovered reference docs + existing KB notes.
+
+    The scaffold names the artifact dir this repo actually uses, so an unmigrated repo's map doesn't
+    tell readers to look in a `.caddis/kb/` that isn't there."""
     text = _DOCMAP_SCAFFOLD.replace("{name}", project_name)
+    text = text.replace("{artifact_dir}", artifact_root(root).name)
     text = insert_table_rows(text, "Knowledge base", kb_note_rows(root))
     text = insert_table_rows(text, "Other key", reference_rows(root))
     return text
@@ -486,12 +526,13 @@ def reindex(
     are only *reported*.
     """
     root = Path(root)
-    doc_map = root / DEFAULT_DOC_MAP
+    doc_map = doc_map_path(root)
+    doc_map_rel = doc_map.relative_to(root).as_posix()
     if not doc_map.exists():
         text = build_docmap(root, project_name)
         if write and not _atomic_write(doc_map, text):
-            return False, [f"could not create {DEFAULT_DOC_MAP} (target locked?) — no changes made"]
-        return True, [f"created {DEFAULT_DOC_MAP} ({text.count('](')} link(s) pre-indexed)"]
+            return False, [f"could not create {doc_map_rel} (target locked?) — no changes made"]
+        return True, [f"created {doc_map_rel} ({text.count('](')} link(s) pre-indexed)"]
 
     original = doc_map.read_text(encoding="utf-8")
     entries = {_to_root_relative(t, doc_map, root) for t in extract_docmap_entries(original)}
@@ -539,11 +580,11 @@ def reindex(
 
 def run(root: Path, check: bool) -> int:
     root = Path(root)
-    # Optional per-repo overrides ([doc_coverage] in .claudster/config.toml); baked-in defaults otherwise.
+    # Optional per-repo overrides ([doc_coverage] in <artifact-dir>/config.toml); defaults otherwise.
     cfg = load_config(root, "doc_coverage")
     route_tree = root / get_str(cfg, "route_tree", DEFAULT_ROUTE_TREE)
     page_guide = root / get_str(cfg, "page_guide", DEFAULT_PAGE_GUIDE)
-    doc_map = root / DEFAULT_DOC_MAP
+    doc_map = doc_map_path(root)
     # agents_md_budget is the current key; claude_md_budget is the accepted back-compat alias.
     budget = get_int(cfg, "agents_md_budget", get_int(cfg, "claude_md_budget", CLAUDE_MD_BUDGET))
     ignore = frozenset(get_str_list(cfg, "ignore_routes", list(IGNORE_ROUTES)))

@@ -4,7 +4,7 @@ description: End-of-session handoff — capture exact state so the next session 
 
 # /handoff — stop cleanly, write the resume doc
 
-You are ending a work session. Produce/refresh the resume doc (`.claudster/relay.md`) so the next session
+You are ending a work session. Produce/refresh the resume doc (`.caddis/relay.md`) so the next session
 (you, a future you, or another agent on any tool) can resume immediately. This is the anti-context-rot checkpoint.
 
 ## Step 1 — capture learnings FIRST (knowledge-transfer)
@@ -26,7 +26,7 @@ git status --short
 git branch --show-current
 git log --oneline -5
 ```
-Then read the active plan in `.claudster/plans/` (falling back to legacy `.github/plans/` if present) and its tracker.
+Then read the active plan in `.caddis/plans/` (falling back to legacy `.github/plans/` if present) and its tracker.
 
 **Crash / interrupted-work check.** Cross-check the tracker against `git status` + `git log`: if a phase is
 marked in-progress but has **uncommitted changes** (work left mid-flight), or a phase is marked done with
@@ -39,11 +39,14 @@ tracker shows plan A in progress, but the work moved to plan B), suggest the use
 plan A on the workstream stack — so its exact resume point survives and `/resume` can pop it back later.
 
 ## Step 3 — write the resume doc (overwrite) with exactly these sections
-> **Where to write:** solo / single active branch → `.claudster/relay.md` (default).
-> **Team / parallel branches** → write `.claudster/relay/<current-branch>.md` instead, so two
+> **Where to write:** solo / single active branch → `.caddis/relay.md` (default).
+> **Team / parallel branches** → write `.caddis/relay/<current-branch>.md` instead, so two
 > developers never merge-conflict on one shared relay doc. The SessionStart hook prefers the
-> per-branch file automatically when it exists, then `.claudster/relay.md`, then the legacy
+> per-branch file automatically when it exists, then `.caddis/relay.md`, then the legacy
 > `.claude/relay/<branch>.md` and root `relay.md` (back-compat during the migration).
+>
+> **Write where the repo lives:** if this repo still has a `.claudster/` (and no `.caddis/`), write
+> the relay THERE — don't create a second artifact dir. `/caddis:migrate-dir` converts the repo.
 
 ```markdown
 # Relay — <feature>
@@ -60,7 +63,7 @@ plan A on the workstream stack — so its exact resume point survives and `/resu
 
 ## Read first on resume
 - `<path>` — why it matters
-- `.claudster/plans/<feature>.md` — the plan + tracker
+- `.caddis/plans/<feature>.md` — the plan + tracker
 
 ## Validation state
 <Commands run this session and their result: pass / fail / not-run. Be honest.>

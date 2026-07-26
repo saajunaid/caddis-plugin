@@ -259,8 +259,8 @@ class TestHookIO:
         assert r.stdout.strip() == ""
 
     def test_config_allow_escape_hatch(self, tmp_path):
-        (tmp_path / ".claudster").mkdir()
-        (tmp_path / ".claudster" / "config.toml").write_text(
+        (tmp_path / ".caddis").mkdir()
+        (tmp_path / ".caddis" / "config.toml").write_text(
             '[guard]\nallow = ["rm -rf build"]\n', encoding="utf-8")
         r = _run_hook({"tool_name": "Bash", "tool_input": {"command": "rm -rf build"},
                        "cwd": str(tmp_path)})
@@ -288,16 +288,16 @@ class TestKillSwitch:
         assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_config_enabled_false_disables(self, tmp_path):
-        (tmp_path / ".claudster").mkdir()
-        (tmp_path / ".claudster" / "config.toml").write_text(
+        (tmp_path / ".caddis").mkdir()
+        (tmp_path / ".caddis" / "config.toml").write_text(
             "[guard]\nenabled = false\n", encoding="utf-8")
         r = _run_hook({"tool_name": "Write", "tool_input": {"file_path": "/r/.env"},
                        "cwd": str(tmp_path)})
         assert r.stdout.strip() == ""
 
     def test_config_mode_off_disables(self, tmp_path):
-        (tmp_path / ".claudster").mkdir()
-        (tmp_path / ".claudster" / "config.toml").write_text(
+        (tmp_path / ".caddis").mkdir()
+        (tmp_path / ".caddis" / "config.toml").write_text(
             '[guard]\nmode = "off"\n', encoding="utf-8")
         r = _run_hook({"tool_name": "Bash", "tool_input": {"command": "git push --force"},
                        "cwd": str(tmp_path)})
@@ -306,10 +306,10 @@ class TestKillSwitch:
     def test_guard_disabled_helper(self, tmp_path, monkeypatch):
         monkeypatch.delenv("CLAUDSTER_GUARD_DISABLED", raising=False)  # isolate from ambient env
         assert guard.guard_disabled(str(tmp_path)) is False
-        (tmp_path / ".claudster").mkdir()
-        (tmp_path / ".claudster" / "config.toml").write_text(
+        (tmp_path / ".caddis").mkdir()
+        (tmp_path / ".caddis" / "config.toml").write_text(
             "[guard]\nenabled = true\n", encoding="utf-8")
         assert guard.guard_disabled(str(tmp_path)) is False
-        (tmp_path / ".claudster" / "config.toml").write_text(
+        (tmp_path / ".caddis" / "config.toml").write_text(
             "[guard]\nenabled = false\n", encoding="utf-8")
         assert guard.guard_disabled(str(tmp_path)) is True

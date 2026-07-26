@@ -1,5 +1,5 @@
 {
-  "description": "caddis harness loop, auto-activated on install: relay.md session-resume injection (SessionStart + PreCompact), a session-end nudge + token-usage digest (Stop), a subagent dispatch/verdict log for agent-eval (SubagentStop -> .claudster/agent-log.jsonl), post-edit lint (PostToolUse on Edit/Write), and a deterministic safety guard (PreToolUse on Bash/Edit/Write/MultiEdit) that blocks secret/catastrophic writes and asks before destructive shell/lockfile/CI changes (escape hatch: .claudster/config.toml [guard] allow). All handlers are pure-Python and cross-platform; they require `python` on PATH.",
+  "description": "caddis harness loop, auto-activated on install: relay.md session-resume injection (SessionStart + PreCompact), a session-end nudge + token-usage digest (Stop), a subagent dispatch/verdict log for agent-eval (SubagentStop -> .caddis/agent-log.jsonl), post-edit lint (PostToolUse on Edit/Write), and a deterministic safety guard (PreToolUse on Bash/Edit/Write/MultiEdit) that blocks secret/catastrophic writes and asks before destructive shell/lockfile/CI changes (escape hatch: .caddis/config.toml [guard] allow). All handlers are pure-Python and cross-platform; they require `python` on PATH.",
   "hooks": {
     "PreToolUse": [
       {

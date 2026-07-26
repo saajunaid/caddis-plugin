@@ -45,16 +45,23 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-MANIFEST_NAME = ".claudster-init.json"
-DEFAULT_TARBALL_URL = (
-    "https://codeload.github.com/saajunaid/caddis-plugin/tar.gz/refs/heads/main"
-)
+MANIFEST_NAME = ".claudster-init.json"   # hidden tool-internal; deliberately NOT renamed this round
+
+# Functional identity in one place — every URL below derives from REPO_SLUG, and every env var from
+# ENV_PREFIX, so a future rename is a constant edit. (Mirrored from claudster_config.py rather than
+# imported: this script is downloadable standalone and must stay import-free.)
+REPO_SLUG = "saajunaid/caddis-plugin"
+REPO_URL = f"https://github.com/{REPO_SLUG}"
+DEFAULT_TARBALL_URL = f"https://codeload.github.com/{REPO_SLUG}/tar.gz/refs/heads/main"
+ENV_PREFIX = "CADDIS"
+LEGACY_ENV_PREFIX = "CLAUDSTER"
 # Roots (relative to a source checkout) that may hold bundles, in preference order.
 BUNDLE_ROOTS = ("bundles", "dist/runtime-resources")
 
 def _home() -> Path:
     """User home — overridable via CADDIS_FAKE_HOME (fallback CLAUDSTER_FAKE_HOME) so tests never touch the real ~/.claudster etc."""
-    return Path(os.environ.get("CADDIS_FAKE_HOME") or os.environ.get("CLAUDSTER_FAKE_HOME") or Path.home())
+    return Path(os.environ.get(f"{ENV_PREFIX}_FAKE_HOME")
+                or os.environ.get(f"{LEGACY_ENV_PREFIX}_FAKE_HOME") or Path.home())
 
 
 def _registry_path() -> Path:

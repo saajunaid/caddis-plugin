@@ -1,4 +1,4 @@
-"""SubagentStop → append one line to `.claudster/agent-log.jsonl`.
+"""SubagentStop → append one line to `<artifact-dir>/agent-log.jsonl`.
 
 Signal 1 of the agent-eval runbook (`.github/agent-docs/agent-eval.md`): an always-on
 log of subagent dispatches + verdicts, so verdict distribution per agent is reviewable
@@ -8,6 +8,9 @@ Non-blocking by construction: prints nothing, exits 0 on every path — a broken
 must never fail a subagent's turn. Anchors to the SESSION repo (payload `cwd`, same
 convention as session_end.py/inject_relay.py), not the hook process's launch cwd.
 Cross-platform, stdlib only.
+
+Writes where the repo lives: `.caddis/` normally, but an unmigrated repo that still has
+`.claudster/` keeps getting its log there — appending to a second dir would split the history.
 """
 import json
 import os
@@ -15,6 +18,20 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+
+# Shared artifact-dir resolution (scripts/claudster_config.py) with an inline fallback, so a
+# SubagentStop can never die on an import problem. Same rule either way: write where the repo lives.
+try:
+    _SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _SCRIPTS not in sys.path:
+        sys.path.insert(0, _SCRIPTS)
+    from claudster_config import artifact_root  # noqa: E402
+except Exception:  # pragma: no cover — defensive
+    def artifact_root(root):
+        for _n in (".caddis", ".claudster"):
+            if os.path.isdir(os.path.join(str(root), _n)):
+                return os.path.join(str(root), _n)
+        return os.path.join(str(root), ".caddis")
 
 
 def _read_input() -> dict:
@@ -115,7 +132,7 @@ def main() -> int:
         "session_id": data.get("session_id", ""),
     }
     try:
-        log_dir = os.path.join(root, ".claudster")
+        log_dir = str(artifact_root(root))
         os.makedirs(log_dir, exist_ok=True)
         with open(os.path.join(log_dir, "agent-log.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")

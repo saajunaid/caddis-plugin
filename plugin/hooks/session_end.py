@@ -3,18 +3,35 @@
 Two jobs, both non-blocking (prints, exits 0; never fails a turn):
   1. Remind the operator to persist what survives context death (relay.md + lessons).
   2. Summarise this session's token usage from the transcript, print a digest, and
-     append one line to `.claude/usage-log.jsonl` so spend is trackable over time.
+     append one line to `<artifact-dir>/usage-log.jsonl` so spend is trackable over time.
 
 The usage parse is fully defensive: any missing/odd field just drops the digest and
 still prints the nudge. Cost is a rough ESTIMATE from an editable per-model rate table —
 adjust PRICING_PER_MTOK to your actual plan/rates (or ignore cost and read the tokens).
 Cross-platform (pure Python, stdlib only).
+
+Writes where the repo lives: `.caddis/` normally, but an unmigrated repo that still has
+`.claudster/` keeps its state there rather than growing a second dir.
 """
 import json
 import os
 import subprocess
 import sys
 from datetime import datetime, timezone
+
+# Shared artifact-dir resolution (scripts/claudster_config.py) with an inline fallback — a Stop
+# hook must never die on an import problem. Same rule either way: write where the repo lives.
+try:
+    _CFG_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _CFG_SCRIPTS not in sys.path:
+        sys.path.insert(0, _CFG_SCRIPTS)
+    from claudster_config import artifact_root  # noqa: E402
+except Exception:  # pragma: no cover — defensive
+    def artifact_root(root):
+        for _n in (".caddis", ".claudster"):
+            if os.path.isdir(os.path.join(str(root), _n)):
+                return os.path.join(str(root), _n)
+        return os.path.join(str(root), ".caddis")
 
 _reconfig = getattr(sys.stdout, "reconfigure", None)
 if _reconfig:
@@ -126,7 +143,7 @@ def _repo_root(start: str) -> str:
     """Git repo root for `start`, or `start` itself when not a git repo.
 
     State anchors to the repo root so a session launched from a subfolder appends
-    to the one shared log instead of scattering a `.claudster/` into every cwd.
+    to the one shared log instead of scattering a `.caddis/` into every cwd.
     Best-effort: any git failure (not a repo / git missing) falls back to `start`.
     """
     try:
@@ -167,8 +184,8 @@ if u:
         f"(estimate — edit rates in session_end.py)"
     )
     try:
-        claudster_dir = os.path.join(_repo_root(_session_cwd), ".claudster")
-        os.makedirs(claudster_dir, exist_ok=True)
+        caddis_dir = str(artifact_root(_repo_root(_session_cwd)))
+        os.makedirs(caddis_dir, exist_ok=True)
         rec = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "session": data.get("session_id", ""),
@@ -176,7 +193,7 @@ if u:
             "cache_write": u["cache_write"], "cache_read": u["cache_read"],
             "est_cost_usd": u["est_cost_usd"], "models": u["models"],
         }
-        with open(os.path.join(claudster_dir, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
+        with open(os.path.join(caddis_dir, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
     except Exception:
         pass
@@ -212,7 +229,7 @@ try:
     # self-compact (apply decay/cap, and dedup any facts the knowledge-transfer agent appended
     # out-of-band). No store and no candidates → nothing written (no noise).
     _root = _repo_root(_session_cwd)
-    _store = os.path.join(_root, *_dm.DEFAULT_STORE.split("/"))
+    _store = _dm.store_path(_root)
     _existing = _dm.load_facts(_store)
     if _candidates or _existing:
         _t = _dm.load_tunables(_root)

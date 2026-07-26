@@ -39,7 +39,7 @@ Absolute rules in this mode (they override everything above):
 - **Every gap becomes an `## Open questions` bullet** (or `[TECH-DECISION OPEN]` inline). This section
   may be long — that is good, not a problem. It is where all the things you would have asked go.
 - **Honor the caller's output path and slug.** Write to the `artifact_dir`/`feature` slug the caller
-  specifies (falling back to `.claudster/prd/<feature-slug>.md`); set `feature: <slug>` in the
+  specifies (falling back to `.caddis/prd/<feature-slug>.md`); set `feature: <slug>` in the
   frontmatter to that same slug. The frontmatter shape is unchanged from the interactive flow.
 - **Also emit a visual companion** — a self-contained, scannable HTML page at `<artifact_dir>/<slug>.html`
   presenting the PRD visually (a goal/success card, an FR/NFR table, edge cases, and open questions as
@@ -59,7 +59,7 @@ The only acceptable final output in this mode is the written artifact plus its h
 questions. Everything else — the PRD template, frontmatter, and section structure below — is identical in
 both modes; only the interview is skipped.
 
-## Write to `.claudster/prd/<feature-slug>.md`
+## Write to `.caddis/prd/<feature-slug>.md`
 ```markdown
 ---
 type: prd
@@ -104,4 +104,4 @@ Creating Model: <model-id>
 Output the PRD path and the FR list. Suggest: *"Next: `/feature-plan <feature>`."* Don't design the
 implementation here — PRD is the *what*, the plan is the *how*.
 
-Create `.claudster/prd/` if it doesn't exist.
+Create `.caddis/prd/` if it doesn't exist.

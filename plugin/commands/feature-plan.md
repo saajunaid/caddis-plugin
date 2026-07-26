@@ -28,7 +28,7 @@ Absolute rules in this mode (they override everything below):
   lack information, **write an assumption and continue** — never ask.
 - **Every unresolved decision becomes an `[TECH-DECISION OPEN]` note** (inline in the relevant phase) or
   a bullet under `## Constraints & decisions` — never a question to the user.
-- **Honor the caller's output path and slug** (falling back to `.claudster/plans/<feature-slug>.md`);
+- **Honor the caller's output path and slug** (falling back to `.caddis/plans/<feature-slug>.md`);
   set `feature: <slug>` in the frontmatter to that slug.
 - **Also emit a visual companion** — a self-contained, scannable HTML page at `<artifact_dir>/<slug>.html`
   presenting the plan visually (a goal card, phases as cards with their steps, an affected-files table,
@@ -47,7 +47,7 @@ The only acceptable final output in this mode is the written plan plus its highl
 questions. Everything below applies in both modes; only the interview/scope questions are skipped.
 
 ## Step 1 — Scope check
-Read the relevant code first (don't guess). **Ground in the workspace scan:** if `.claudster/PROJECT-FACTS.md`
+Read the relevant code first (don't guess). **Ground in the workspace scan:** if `.caddis/PROJECT-FACTS.md`
 exists (setup-project-ai extracts it — run/test/build commands, env-var names, CI/deploy workflows, entry
 points), read it first. It's a free, token-zero project fingerprint that anchors the plan in what actually
 exists instead of assumed. If the work fits comfortably in one session, say so and offer to just do it
@@ -80,7 +80,7 @@ escalation, never a planned default.
 
 ### Assign an execution LANE per phase (which harness runs it — not just which model)
 A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
-`docs/guide/multi-model-workflow.md`; wiring: `.claudster/plans/model-access.md`):
+`docs/guide/multi-model-workflow.md`; wiring: the caddis repo's `.claudster/plans/model-access.md`):
 - **claude** (default) — this session, `/model <alias>` as above. Required for judgment-heavy,
   security-sensitive, or novel-architecture phases.
 - **glm-headless** — mechanical, fully-specced phases run on GLM without touching Claude quota:
@@ -92,9 +92,9 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
   work). Never same-vendor.
 
-## Step 3 — Write the plan to `.claudster/plans/<feature-slug>.md`
+## Step 3 — Write the plan to `.caddis/plans/<feature-slug>.md`
 
-Create `.claudster/plans/` if it doesn't exist.
+Create `.caddis/plans/` if it doesn't exist.
 
 ```markdown
 ---
@@ -189,7 +189,7 @@ done:
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
 
 ## Step 4 — Report
-Output the plan path (`.claudster/plans/<feature-slug>.md`), the phase list (one line each, with each
+Output the plan path (`.caddis/plans/<feature-slug>.md`), the phase list (one line each, with each
 phase's model tier + lane), confirm the local-coder gate passed (or list the phases that need
 tightening), and: *"To start: `read the plan and implement Phase 1`. To resume later: `/handoff` at
 session end, then `read relay.md` next time. The plan's Execution protocol carries every command —

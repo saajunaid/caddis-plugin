@@ -457,7 +457,7 @@
       "extra_roots": { "harness": "claude-harness", "scriptsrc": "scripts" },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.32",
+        "version": "1.3.33",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/caddis-plugin" },
         "homepage": "https://github.com/saajunaid/caddis-plugin",
@@ -485,6 +485,7 @@
         {"root": "scriptsrc", "source": "usage_review.py",     "destination": "scripts/usage_review.py"},
         {"root": "scriptsrc", "source": "claudster_init.py",   "destination": "scripts/claudster_init.py"},
         {"root": "scriptsrc", "source": "claudster_migrate_rules.py", "destination": "scripts/claudster_migrate_rules.py"},
+        {"root": "scriptsrc", "source": "caddis_migrate_dir.py", "destination": "scripts/caddis_migrate_dir.py"},
         {"root": "scriptsrc", "source": "claudster_doctor.py", "destination": "scripts/claudster_doctor.py"},
         {"root": "harness",   "source": "scripts/check_doc_coverage.py", "destination": "scripts/check_doc_coverage.py"},
         {"root": "harness",   "source": "scripts/dream_memory.py",     "destination": "scripts/dream_memory.py"},
@@ -540,7 +541,7 @@
       "workspace_root": "plugin-extras",
       "plugin": {
         "name": "caddis-extras",
-        "version": "1.3.10",
+        "version": "1.3.11",
         "description": "caddis-extras — the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/caddis-plugin" },
         "homepage": "https://github.com/saajunaid/caddis-plugin",

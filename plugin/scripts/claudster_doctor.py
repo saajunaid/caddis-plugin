@@ -28,10 +28,17 @@ from pathlib import Path
 PROBED_VERSIONS = {"codex": "0.137", "agy": "1.1.5"}
 AGENTS_MD_BUDGET = 200  # always-loaded rules file line budget (mirrors check_doc_coverage)
 
+# Per-repo artifact dir + env prefix, mirrored from claude-harness/scripts/claudster_config.py —
+# the doctor is a standalone, import-free diagnostic that must run from a bare checkout.
+ARTIFACT_DIRS = (".caddis", ".claudster")
+ENV_PREFIX = "CADDIS"
+LEGACY_ENV_PREFIX = "CLAUDSTER"
+
 
 def _home() -> Path:
     # CADDIS_FAKE_HOME is current; CLAUDSTER_FAKE_HOME is read as a one-version fallback.
-    return Path(os.environ.get("CADDIS_FAKE_HOME") or os.environ.get("CLAUDSTER_FAKE_HOME") or Path.home())
+    return Path(os.environ.get(f"{ENV_PREFIX}_FAKE_HOME")
+                or os.environ.get(f"{LEGACY_ENV_PREFIX}_FAKE_HOME") or Path.home())
 
 
 def _now() -> datetime:
@@ -108,9 +115,12 @@ def oversize_rules_files(dest: Path, budget: int = AGENTS_MD_BUDGET) -> list[tup
 
 
 def docmap_dangling(dest: Path) -> list[str]:
-    """Dangling `.md` links in .claudster/kb/DOC-MAP.md (the '/caddis:kb' signal)."""
-    dm = Path(dest) / ".claudster" / "kb" / "DOC-MAP.md"
-    if not dm.is_file():
+    """Dangling `.md` links in <artifact-dir>/kb/DOC-MAP.md (the '/caddis:kb' signal).
+
+    Dual-read: `.caddis/` wins, the pre-rename `.claudster/` is the one-version fallback, so an
+    unmigrated repo still gets the signal."""
+    dm = next((p for p in (Path(dest) / n / "kb" / "DOC-MAP.md" for n in ARTIFACT_DIRS) if p.is_file()), None)
+    if dm is None:
         return []
     import re
     text = dm.read_text(encoding="utf-8", errors="replace")

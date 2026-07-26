@@ -40,18 +40,18 @@ Code (a subagent/skill/statusline specifics) may go in the root `CLAUDE.md` shim
 
 ## Keep the reference docs honest (page guide + doc-map)
 If this session added, renamed, or removed a **route**, a **router/endpoint**, or a **curated reference
-doc**, the project's `UI_PAGE_GUIDE.md` and `.claudster/kb/DOC-MAP.md` must be brought current in the same
+doc**, the project's `UI_PAGE_GUIDE.md` and `.caddis/kb/DOC-MAP.md` must be brought current in the same
 session. The pre-push gate runs `scripts/check_doc_coverage.py`, which **blocks** on a live route missing
 from the page guide or a doc-map link pointing at a deleted file — so a stale guide fails the next push.
 Pre-empt it before writing the relay (use Grep/Read — you don't run the checker):
 - If `frontend/src/routeTree.gen.ts` exists, Grep it for `path:` and confirm every route appears in
   `UI_PAGE_GUIDE.md`; add a row (route → endpoints → DB) for any page that's missing.
-- `.claudster/kb/DOC-MAP.md` is the KB index. If it's **absent** but this repo has (or you just wrote) a
-  `.claudster/kb/*.md` note, create it — a minimal map indexing that note — so the KB layer lights up
+- `.caddis/kb/DOC-MAP.md` is the KB index. If it's **absent** but this repo has (or you just wrote) a
+  `.caddis/kb/*.md` note, create it — a minimal map indexing that note — so the KB layer lights up
   (the main thread can also run `check_doc_coverage.py --reindex` to scaffold it). If it exists, confirm each
   reference doc you created/touched is indexed there as a markdown link, and that no indexed link points at a
   file you deleted/renamed.
-- **KB-note content freshness:** if this session changed code that an existing `.claudster/kb/*.md` note
+- **KB-note content freshness:** if this session changed code that an existing `.caddis/kb/*.md` note
   *describes* (its subject — a module, contract, or behaviour you altered), refresh that note's content too.
   The gate only catches structural drift (broken links); a note that still describes the old behaviour is
   stale in a way no automated check detects — this targeted refresh is the one freshness pass that is yours.
@@ -59,7 +59,7 @@ Pre-empt it before writing the relay (use Grep/Read — you don't run the checke
   edits under `live_writes` in your return block.
 
 ## Feed Dream Memory (the short-term fact store)
-Dream Memory (`.claudster/memory.jsonl`, one JSON fact per line) is caddis's automatic, **decaying
+Dream Memory (`.caddis/memory.jsonl`, one JSON fact per line) is caddis's automatic, **decaying
 short-term** memory — reinforced when a fact recurs, pruned when it doesn't. The Stop hook already
 captures the *mechanical* kinds (a command that failed, a build that went red→green). You are the only
 place that can capture the **reasoned** kinds, so add them as a byproduct — cheap insurance that a
@@ -68,7 +68,7 @@ hard-won "don't do that" resurfaces next session even before it graduates into a
 
 **Append** — for each `rejected-approach` (an approach tried and abandoned, so no one retries it) or
 `repo-fact` (a non-obvious, durable truth about how this repo works) from this session, append ONE line
-to `.claudster/memory.jsonl` (create it if absent; never rewrite or reorder existing lines — the next
+to `.caddis/memory.jsonl` (create it if absent; never rewrite or reorder existing lines — the next
 Stop consolidates and dedups). Every field is required:
 ```
 {"kind":"rejected-approach","key":"poll-api-for-status","summary":"don't poll the API for status — use the SSE stream","hitCount":1,"firstSeen":"2026-07-01T00:00:00Z","lastSeen":"2026-07-01T00:00:00Z","source":"knowledge-transfer"}
@@ -83,8 +83,8 @@ Stop consolidates and dedups). Every field is required:
 
 **Promote (the boundary — do this when you see it):** if the store already holds a fact with
 `hitCount >= 3` (it has recurred across sessions), it has earned a permanent home. Write it into the
-right curated doc — a `.claudster/kb/*.md` note or the most specific live `AGENTS.md` (same routing as
-above) — then **delete that one fact's line** from `.claudster/memory.jsonl` so it doesn't double-surface.
+right curated doc — a `.caddis/kb/*.md` note or the most specific live `AGENTS.md` (same routing as
+above) — then **delete that one fact's line** from `.caddis/memory.jsonl` so it doesn't double-surface.
 Promotion is one-way and one-at-a-time: the curated docs hold what survived; Dream Memory holds what's
 still proving itself. (Dream Memory is gitignored/local; promotion is how a repeatedly-useful fact
 becomes durable and shareable.)
@@ -97,7 +97,7 @@ knowledge_transfer:
   secondary_writes:
     - <session-log entry, or "none">
   dream_memory:
-    - <kind + key of each fact appended to .claudster/memory.jsonl, or "none">
+    - <kind + key of each fact appended to .caddis/memory.jsonl, or "none">
   promotions:
     - <fact key promoted to <curated doc> and removed from the store, or "none">
   adr_flag:
@@ -110,7 +110,7 @@ primary write.
 
 ## KB note format (OKF-lite — mandatory for every new note)
 
-Every new `.claudster/kb/*.md` note starts with this frontmatter block (`type` is required;
+Every new `.caddis/kb/*.md` note starts with this frontmatter block (`type` is required;
 the rest recommended). `DOC-MAP.md` is the index, not a note — it stays frontmatter-free:
 
 ```yaml

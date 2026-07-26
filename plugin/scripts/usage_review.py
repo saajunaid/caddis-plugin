@@ -2,13 +2,14 @@
 """caddis /usage-review: local usage analysis + harness self-tuning recommendations.
 
 Reads:
-  .claudster/usage-log.jsonl      per-session digest (Stop hook); legacy .claude/usage-log.jsonl fallback
+  <artifact-dir>/usage-log.jsonl  per-session digest (Stop hook). Tries `.caddis/`, then legacy
+                                  `.claudster/`, then the older `.claude/usage-log.jsonl`.
   ~/.claude/projects/<slug>/      session transcripts (agent dispatches, context size)
   claude-harness/agents/*.md      agent model tiers (frontmatter)
 
-Writes:
-  <output-dir>/usage-review.html  graph-first HTML dashboard (default: .claudster/reviews)
-  .claudster/.last-usage-review   timestamp for cadence nudge (updated on each run)
+Writes (into the dir the repo lives in — `.caddis/` unless the repo still uses `.claudster/`):
+  <output-dir>/usage-review.html  graph-first HTML dashboard (default: <artifact-dir>/reviews)
+  <artifact-dir>/.last-usage-review   timestamp for cadence nudge (updated on each run)
 
 Prints: markdown report to stdout.
 
@@ -24,6 +25,23 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# Shared artifact-dir resolution (claude-harness/scripts/claudster_config.py). usage_review ships
+# from scripts/ but the helper lives with the harness, so add it to the path; the inline fallback
+# keeps a standalone copy of this script working.
+try:
+    _HARNESS_SCRIPTS = str(Path(__file__).resolve().parent.parent / "claude-harness" / "scripts")
+    if _HARNESS_SCRIPTS not in sys.path:
+        sys.path.insert(0, _HARNESS_SCRIPTS)
+    from claudster_config import ARTIFACT_DIRS, artifact_root
+except Exception:  # pragma: no cover — defensive
+    ARTIFACT_DIRS = (".caddis", ".claudster")
+
+    def artifact_root(root):
+        for _n in ARTIFACT_DIRS:
+            if (Path(root) / _n).is_dir():
+                return Path(root) / _n
+        return Path(root) / ARTIFACT_DIRS[0]
+
 _reconfig = getattr(sys.stdout, "reconfigure", None)
 if _reconfig:
     try:
@@ -36,7 +54,7 @@ if _reconfig:
 def _repo_root(start: str) -> str:
     """Git repo root for `start`, or `start` when not a git repo (best-effort).
 
-    The Stop hook writes the usage log to the repo root's `.claudster/`, so the
+    The Stop hook writes the usage log to the repo root's artifact dir, so the
     review anchors there too — otherwise running it from a subfolder reads an
     empty/partial log. Non-git projects fall back to `start` unchanged.
     """
@@ -90,13 +108,25 @@ def _transcript_dir(cwd: str) -> Path | None:
 
 # ── data loading ───────────────────────────────────────────────────────────────
 
+def _usage_log_path(cwd: str) -> str:
+    """The usage log to read: `.caddis/`, then legacy `.claudster/`, then the older `.claude/`.
+
+    Returns the write-side path (under the dir the repo lives in) when none exists yet, so the
+    caller's `isfile` guard and the "no data" message both name the right place.
+    """
+    for name in ARTIFACT_DIRS:
+        cand = os.path.join(cwd, name, "usage-log.jsonl")
+        if os.path.isfile(cand):
+            return cand
+    legacy = os.path.join(cwd, ".claude", "usage-log.jsonl")
+    if os.path.isfile(legacy):
+        return legacy
+    return os.path.join(str(artifact_root(cwd)), "usage-log.jsonl")
+
+
 def _load_log_window(cwd: str, start: datetime, end: datetime) -> list[dict]:
     """Return one record per session with ts = first entry, metrics = last entry."""
-    path = os.path.join(cwd, ".claudster", "usage-log.jsonl")
-    if not os.path.isfile(path):
-        legacy = os.path.join(cwd, ".claude", "usage-log.jsonl")
-        if os.path.isfile(legacy):
-            path = legacy
+    path = _usage_log_path(cwd)
     if not os.path.isfile(path):
         return []
     first_ts: dict[str, datetime] = {}
@@ -969,7 +999,10 @@ def _card_html(f: dict) -> str:
 
 
 def render_html(metrics: dict, findings: list[dict], days: int,
-                ws: str, we: str, generated: str) -> str:
+                ws: str, we: str, generated: str,
+                log_path: str = ".caddis/usage-log.jsonl") -> str:
+    # log_path is shown in the footer so the dashboard names the dir this repo actually uses
+    # (`.caddis/` normally, legacy `.claudster/` in an unmigrated repo).
     mm       = metrics.get("model_mix", {})
     tot_out  = metrics.get("output") or 1
     sessions = metrics.get("sessions", 0)
@@ -1125,7 +1158,7 @@ def render_html(metrics: dict, findings: list[dict], days: int,
   {action_section}
   {advisory_section}
 
-  <footer>Generated {generated} &middot; <code>.claudster/usage-log.jsonl</code> + session transcripts &middot; Estimates only — all data stays local. &middot; <a href="https://github.com/saajunaid/caddis-plugin" style="color:var(--ink-4)">caddis</a></footer>
+  <footer>Generated {generated} &middot; <code>{log_path}</code> + session transcripts &middot; Estimates only — all data stays local. &middot; <a href="https://github.com/saajunaid/caddis-plugin" style="color:var(--ink-4)">caddis</a></footer>
 </div>
 </body>
 </html>"""
@@ -1141,7 +1174,7 @@ def main() -> None:
     ap.add_argument("--no-html", action="store_true", help="Skip HTML dashboard generation")
     ap.add_argument(
         "--output-dir", default=None,
-        help="Directory for HTML output relative to cwd. Defaults to .claudster/reviews.",
+        help="Directory for HTML output relative to cwd. Defaults to <artifact-dir>/reviews.",
     )
     args = ap.parse_args()
 
@@ -1151,11 +1184,12 @@ def main() -> None:
     ws   = (now - timedelta(days=days)).strftime("%Y-%m-%d")
     we   = now.strftime("%Y-%m-%d")
 
-    # Resolve output directory: HTML dashboard lives under .claudster/reviews
+    # Resolve output directory: the HTML dashboard lives under <artifact-dir>/reviews — the dir
+    # this repo actually uses, so an unmigrated repo doesn't sprout a second one.
     if args.output_dir is not None:
         out_subdir = args.output_dir
     else:
-        out_subdir = os.path.join(".claudster", "reviews")
+        out_subdir = os.path.join(artifact_root(cwd).name, "reviews")
 
     # Load data
     current_sessions, prev_sessions = load_usage_log(cwd, days)
@@ -1165,7 +1199,7 @@ def main() -> None:
             f"# /usage-review\n\n"
             f"No sessions found in the last {days} days.\n"
             f"Run a few sessions to build up data, then re-run `/usage-review`.\n\n"
-            f"(Data file: {os.path.join(cwd, '.claudster', 'usage-log.jsonl')})"
+            f"(Data file: {_usage_log_path(cwd)})"
         )
         return
 
@@ -1182,7 +1216,8 @@ def main() -> None:
     # HTML dashboard
     if not args.no_html:
         generated = now.strftime("%Y-%m-%d %H:%M UTC")
-        html = render_html(metrics, findings, days, ws, we, generated)
+        html = render_html(metrics, findings, days, ws, we, generated,
+                           log_path=os.path.relpath(_usage_log_path(cwd), cwd).replace(os.sep, "/"))
         out_dir = os.path.join(cwd, out_subdir)
         os.makedirs(out_dir, exist_ok=True)
         html_path = os.path.join(out_dir, "usage-review.html")
@@ -1190,10 +1225,10 @@ def main() -> None:
             fh.write(html)
         print(f"\n→ HTML dashboard: {html_path}")
 
-    # Update last-review timestamp — in .claudster so inject_relay.py finds it
-    claudster_dir = os.path.join(cwd, ".claudster")
-    os.makedirs(claudster_dir, exist_ok=True)
-    stamp_path = os.path.join(claudster_dir, ".last-usage-review")
+    # Update last-review timestamp — in the repo's artifact dir so inject_relay.py finds it
+    caddis_dir = str(artifact_root(cwd))
+    os.makedirs(caddis_dir, exist_ok=True)
+    stamp_path = os.path.join(caddis_dir, ".last-usage-review")
     try:
         with open(stamp_path, "w", encoding="utf-8") as fh:
             fh.write(now.isoformat(timespec="seconds"))

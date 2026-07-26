@@ -1,4 +1,4 @@
-"""Subprocess tests for agent_log.py (SubagentStop → .claudster/agent-log.jsonl).
+"""Subprocess tests for agent_log.py (SubagentStop → .caddis/agent-log.jsonl).
 
 The agent-eval runbook's Signal 1 (verdict distribution per subagent) needs an
 always-on dispatch log. The hook must: append one JSONL line per SubagentStop,
@@ -44,7 +44,7 @@ def _transcript(path: Path, final_text: str) -> str:
 
 
 def _log_lines(root: Path) -> list[dict]:
-    log = root / ".claudster" / "agent-log.jsonl"
+    log = root / ".caddis" / "agent-log.jsonl"
     assert log.is_file(), "agent-log.jsonl not written"
     return [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
 
@@ -95,7 +95,7 @@ def test_anchors_to_session_cwd_not_process_cwd(tmp_path):
     r = _run(elsewhere, json.dumps(payload))  # process cwd is NOT the session repo
     assert r.returncode == 0, r.stderr
     assert _log_lines(repo)[-1]["agent"] == "tester"
-    assert not (elsewhere / ".claudster" / "agent-log.jsonl").exists()
+    assert not (elsewhere / ".caddis" / "agent-log.jsonl").exists()
 
 
 def test_appends_not_overwrites(tmp_path):

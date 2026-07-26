@@ -46,7 +46,7 @@ Run through the checklist below. For each item, determine its tier:
 - **WARNING** - Plan can proceed but the affected phases will have noted assumptions. Inform the user what you are assuming.
 - **OPTIONAL** - Nice to have. Note its absence but proceed.
 
-**Free head-start (workspace scan):** if `.claudster/PROJECT-FACTS.md` exists (setup-project-ai extracts it), read it first — it pre-fills E4 (scaffold inventory) plus the run/test/build commands, env-var names, and CI/deploy workflows at zero token cost. Also use it to ground risks rather than guess them: no test setup → regression risk; no CI workflow → local-only gate; auth/migration in scope → security/structural risk.
+**Free head-start (workspace scan):** if `.caddis/PROJECT-FACTS.md` exists (setup-project-ai extracts it), read it first — it pre-fills E4 (scaffold inventory) plus the run/test/build commands, env-var names, and CI/deploy workflows at zero token cost. Also use it to ground risks rather than guess them: no test setup → regression risk; no CI workflow → local-only gate; auth/migration in scope → security/structural risk.
 
 ### Evidence Checklist
 

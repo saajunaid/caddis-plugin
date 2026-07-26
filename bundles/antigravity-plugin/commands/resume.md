@@ -9,7 +9,7 @@ workstream stack, restates where you were, realigns `relay.md`, and immediately 
 user should not have to remember or re-state anything.
 
 ## Step 1 — read the stack
-Read `.claudster/workstreams.json`. If it is **absent, unparseable, `version != 1`, or `stack` is empty**,
+Read `.caddis/workstreams.json`. If it is **absent, unparseable, `version != 1`, or `stack` is empty**,
 say exactly `Nothing is parked.` and stop. Do nothing else.
 
 ## Step 2 — pop the top frame
@@ -19,7 +19,7 @@ this command makes to the state file.
 
 ## Step 3 — restate + realign relay.md
 Restate the popped frame to the user: its `plan`, `phase`, and `resumePointer` (and `repo` if set — the
-parked task lives in another repo, so say which). Then edit `.claudster/relay.md`'s `## Next step` section
+parked task lives in another repo, so say which). Then edit `.caddis/relay.md`'s `## Next step` section
 **in place** so it matches the popped frame's `resumePointer` — preserve every other section of relay.md
 untouched. (If relay.md or that section is absent, skip this edit silently; the restatement above is enough.)
 

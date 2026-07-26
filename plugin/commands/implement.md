@@ -1,6 +1,6 @@
 ---
 description: Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase
-argument-hint: <path to .claudster/plans/<slug>.md>
+argument-hint: <path to .caddis/plans/<slug>.md>
 ---
 
 # /caddis:implement — execute an approved plan (headless driver)
@@ -24,7 +24,7 @@ depend on them:
   a commit on the default branch fails the run.
 - **NEVER touch git remotes.** No `git push`, `git pull`, `git fetch`, `git remote`, no PR, no merge. The
   runner never pushes; neither do you.
-- **NEVER edit your own success criteria.** Do not modify `.claudster/PROJECT-FACTS.md`, and do not change
+- **NEVER edit your own success criteria.** Do not modify `.caddis/PROJECT-FACTS.md`, and do not change
   the project's test command anywhere (config, CI, package scripts). The runner treats any such edit as
   tampering and fails the run. If the plan asks you to touch these, skip that step and note it in the
   review file instead.
@@ -40,7 +40,7 @@ depend on them:
 **1. Read the plan.** Load the plan file (`$ARGUMENTS` / `DOCKET_PLAN`). Read its `## Phases`, `## Affected
 files`, `## Constraints & decisions`, and `## Tracker`. Read the `AGENTS.md` at the repo root and in each
 folder you will touch (the canonical rules; `CLAUDE.md` is an `@AGENTS.md` shim), and
-`.claudster/PROJECT-FACTS.md` if present (for the real run/test commands) —
+`.caddis/PROJECT-FACTS.md` if present (for the real run/test commands) —
 **read it, never edit it**. Identify the test command the plan/facts specify so you can run it yourself.
 
 **2. Determine where to resume.** The `## Tracker` table is the resume signal. Start at the first phase whose
@@ -73,7 +73,7 @@ you run it too so your reported `"tests"` value is truthful, not assumed. Never 
 suite you did not see go green.
 
 **5. Write a concise review file** to the path in the `DOCKET_REVIEW` env var (falls back to
-`.claudster/reviews/<slug>.md`, where `<slug>` is `DOCKET_SLUG`). Create `.claudster/reviews/` if needed.
+`.caddis/reviews/<slug>.md`, where `<slug>` is `DOCKET_SLUG`). Create `.caddis/reviews/` if needed.
 Keep it short and scannable — this is what the human reviewer reads before merging the branch:
 
 ```markdown
@@ -105,7 +105,7 @@ count of phases you actually completed (Tracker rows now `done`); `tests` is wha
 showed; `review` is the review-file path you wrote:
 
 ```json
-{"implemented":true,"phases_done":<int>,"tests":"passed|failed","review":".claudster/reviews/<slug>.md"}
+{"implemented":true,"phases_done":<int>,"tests":"passed|failed","review":".caddis/reviews/<slug>.md"}
 ```
 
 If you had to stop before implementing anything (e.g. you were on the default branch, or the plan was

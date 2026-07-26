@@ -68,10 +68,10 @@ declines, skip silently — the SessionStart nudge in `inject_relay.py` already 
 
 ## Notes
 
-- HTML dashboard written to `.claudster/reviews/usage-review.html`. Override the directory with
-  `--output-dir <dir>` if needed. The usage log is read from `.claudster/usage-log.jsonl`, falling
+- HTML dashboard written to `.caddis/reviews/usage-review.html`. Override the directory with
+  `--output-dir <dir>` if needed. The usage log is read from `.caddis/usage-log.jsonl`, falling
   back to the legacy `.claude/usage-log.jsonl` during the migration.
-- `.claudster/.last-usage-review` is updated on each run — the SessionStart hook uses it to nudge
+- `.caddis/.last-usage-review` is updated on each run — the SessionStart hook uses it to nudge
   users who haven't reviewed in 7+ days.
 - `est_cost_usd` is an estimate from token counts, not actual billing. The Max plan is rate-limited,
   not charged per token — treat it as a relative signal, not an invoice.

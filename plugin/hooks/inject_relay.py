@@ -8,6 +8,11 @@ Cross-platform (pure Python) — works the same on Windows, Linux, and macOS.
 Team/parallel-branch mode: a per-branch file at `.claude/relay/<branch>.md` is preferred
 when present, so two developers on two branches never collide on a single committed
 relay.md. Solo/default stays exactly `relay.md` at the repo root — fully backward-compatible.
+
+Artifact dir: every lookup here is a READ, so it tries `.caddis/` first and falls back to the
+legacy `.claudster/` (and then to the older `.claude/` locations already handled). A repo that
+still has only `.claudster/` gets a one-line nudge to run `/caddis:migrate-dir` — never a
+silent rename (that would move files under a concurrent session's feet).
 """
 import json
 import os
@@ -66,18 +71,45 @@ def _repo_root(start: str) -> str:
 
 ROOT = _repo_root(_session_cwd)
 
+# Artifact-dir resolution comes from the one shared helper (scripts/claudster_config.py) so the
+# dir name lives in a single place. The inline fallback keeps a SessionStart hook from ever dying
+# on an import problem — it re-states the same read order (`.caddis`, then legacy `.claudster`).
+try:
+    _cfg_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _cfg_scripts not in sys.path:
+        sys.path.insert(0, _cfg_scripts)
+    from claudster_config import ARTIFACT_DIRS, artifact_root  # noqa: E402
+except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
+    ARTIFACT_DIRS = (".caddis", ".claudster")
+
+    def artifact_root(root):
+        for _n in ARTIFACT_DIRS:
+            if os.path.isdir(os.path.join(str(root), _n)):
+                return os.path.join(str(root), _n)
+        return os.path.join(str(root), ARTIFACT_DIRS[0])
+
+
+def _art(*parts: str) -> list[str]:
+    """Candidate paths for `<artifact-dir>/<parts>` across both dir names, preferred first."""
+    return [os.path.join(ROOT, name, *parts) for name in ARTIFACT_DIRS]
+
+
+def _art_default(*parts: str) -> str:
+    """The path to use when none exists — under the dir this repo actually lives in."""
+    return os.path.join(str(artifact_root(ROOT)), *parts)
+
 
 def _resolve_relay() -> str:
-    """Prefer the new `.claudster` location; fall back to every legacy location.
+    """Prefer the current artifact dir; fall back to the legacy dir, then every legacy location.
 
     Preference order (first existing wins):
-      1. .claudster/relay/<branch>.md   (new — per-branch team mode)
-      2. .claudster/relay.md            (new — solo/default)
-      3. .claude/relay/<branch>.md      (legacy per-branch)
-      4. relay.md                       (legacy repo root)
-    When none exist yet, return the new canonical default (`.claudster/relay.md`); the
-    isfile() guard at the call site then no-ops cleanly. Team mode keeps each branch's
-    resume state in its own file so parallel developers never merge-conflict on relay.md.
+      1. <artifact-dir>/relay/<branch>.md   (per-branch team mode — `.caddis`, then `.claudster`)
+      2. <artifact-dir>/relay.md            (solo/default — `.caddis`, then `.claudster`)
+      3. .claude/relay/<branch>.md          (legacy per-branch)
+      4. relay.md                           (legacy repo root)
+    When none exist yet, return the default under the dir this repo lives in; the isfile()
+    guard at the call site then no-ops cleanly. Team mode keeps each branch's resume state in
+    its own file so parallel developers never merge-conflict on relay.md.
     Branch lookup is best-effort; any failure → skip the per-branch candidates.
     """
     try:
@@ -92,12 +124,12 @@ def _resolve_relay() -> str:
         slug = "".join(c if (c.isalnum() or c in "-_.") else "-" for c in branch)
     candidates: list[str] = []
     if slug:
-        candidates.append(os.path.join(ROOT, ".claudster", "relay", f"{slug}.md"))
-    candidates.append(os.path.join(ROOT, ".claudster", "relay.md"))
+        candidates += _art("relay", f"{slug}.md")
+    candidates += _art("relay.md")
     if slug:
         candidates.append(os.path.join(ROOT, ".claude", "relay", f"{slug}.md"))
     candidates.append(os.path.join(ROOT, "relay.md"))
-    return _first_existing(candidates, os.path.join(ROOT, ".claudster", "relay.md"))
+    return _first_existing(candidates, _art_default("relay.md"))
 
 
 RELAY = _resolve_relay()
@@ -137,11 +169,12 @@ def _truncate_relay(text: str) -> str:
 
 
 # Workstream stack (digression tracker): surface any PARKED workstreams BEFORE the relay, so a session
-# that digressed from its original task never silently loses it. State lives at .claudster/workstreams.json
-# (root-anchored, like relay). Fail-open & silent: a missing / unparseable / wrong-version / empty stack
-# injects nothing and NEVER raises — a partially-written stack must not break session start.
+# that digressed from its original task never silently loses it. State lives at
+# <artifact-dir>/workstreams.json (root-anchored, like relay). Fail-open & silent: a missing /
+# unparseable / wrong-version / empty stack injects nothing and NEVER raises — a partially-written
+# stack must not break session start.
 try:
-    _ws = os.path.join(ROOT, ".claudster", "workstreams.json")
+    _ws = _first_existing(_art("workstreams.json"), _art_default("workstreams.json"))
     if os.path.isfile(_ws):
         _data = json.load(open(_ws, encoding="utf-8"))
         _stack = _data.get("stack") if isinstance(_data, dict) and _data.get("version") == 1 else None
@@ -174,10 +207,12 @@ if os.path.isfile(RELAY):
         print(_truncate_relay(text))
 
 # Reference-doc index pointer: when the repo keeps a DOC-MAP (the meta-KB), make "read the KB
-# first" deterministic. One line only, so it never crowds the relay or the usage nudge.
-if os.path.isfile(os.path.join(ROOT, ".claudster", "kb", "DOC-MAP.md")):
-    print("\n[DOC-MAP] reference index available — read .claudster/kb/DOC-MAP.md first to find the "
-          "right doc, then read it on demand (dispatch a subagent for heavy reads).")
+# first" deterministic. One line only, so it never crowds the relay or the usage nudge. The path
+# is printed as-written so the agent reads the dir this repo actually uses.
+_DOC_MAP = _first_existing(_art("kb", "DOC-MAP.md"), "")
+if _DOC_MAP:
+    print(f"\n[DOC-MAP] reference index available — read {os.path.relpath(_DOC_MAP, ROOT).replace(os.sep, '/')} "
+          "first to find the right doc, then read it on demand (dispatch a subagent for heavy reads).")
 
 # Dream Memory (fann Phase 5): surface the top reinforced facts for this repo — the
 # "don't step on the same rake twice" nudge. ≤5 lines, weighted/capped by the engine.
@@ -189,7 +224,7 @@ try:
         sys.path.insert(0, _scripts)
     import dream_memory as _dm  # noqa: E402
 
-    _store = os.path.join(ROOT, *_dm.DEFAULT_STORE.split("/"))
+    _store = _dm.store_path(ROOT)
     _facts = _dm.load_facts(_store)
     if _facts:
         from datetime import datetime as _dtm, timezone as _tzm
@@ -217,15 +252,26 @@ try:
 except Exception:
     pass
 
+# Artifact-dir migration nudge: ONE line when the repo still carries the pre-rename `.claudster/`.
+# Everything keeps working (all reads dual-path), so this is an invitation, not a warning — and the
+# rename is never automatic: `git mv`-ing a dir under a concurrent session would clobber its
+# in-flight writes. Suppressed once `.caddis/` exists (a half-migrated repo is the command's job).
+try:
+    if os.path.isdir(os.path.join(ROOT, ".claudster")) and not os.path.isdir(os.path.join(ROOT, ".caddis")):
+        print("\n[caddis] legacy `.claudster/` detected — everything still works (dual-path reads); "
+              "run `/caddis:migrate-dir` when convenient to rename it to `.caddis/`.")
+except Exception:
+    pass
+
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
-# Prefer the new .claudster location; fall back to the legacy .claude path during transition.
+# Prefer the current artifact dir, then the legacy one, then the older .claude path.
 _STAMP = _first_existing(
-    [os.path.join(ROOT, ".claudster", ".last-usage-review"), os.path.join(ROOT, ".claude", ".last-usage-review")],
-    os.path.join(ROOT, ".claudster", ".last-usage-review"),
+    _art(".last-usage-review") + [os.path.join(ROOT, ".claude", ".last-usage-review")],
+    _art_default(".last-usage-review"),
 )
 _LOG = _first_existing(
-    [os.path.join(ROOT, ".claudster", "usage-log.jsonl"), os.path.join(ROOT, ".claude", "usage-log.jsonl")],
-    os.path.join(ROOT, ".claudster", "usage-log.jsonl"),
+    _art("usage-log.jsonl") + [os.path.join(ROOT, ".claude", "usage-log.jsonl")],
+    _art_default("usage-log.jsonl"),
 )
 
 try:

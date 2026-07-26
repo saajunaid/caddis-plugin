@@ -1,10 +1,10 @@
 ---
-description: Rebuild the KB index (.claudster/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links
+description: Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links
 ---
 
 # /kb — bring the knowledge-base index up to date
 
-Reconcile `.claudster/kb/DOC-MAP.md` (the KB index) with the notes on disk. Use this in a repo that
+Reconcile `.caddis/kb/DOC-MAP.md` (the KB index) with the notes on disk. Use this in a repo that
 has the harness but no KB yet (the KB was introduced recently), or after adding/removing KB notes.
 
 ## Step 1 — locate the checker
@@ -17,8 +17,8 @@ It ships with the harness. Try, in order:
 python <path>/check_doc_coverage.py --reindex
 ```
 It is **additive and safe** — never deletes your rows:
-- **Missing map** → creates `.claudster/kb/DOC-MAP.md` from a scaffold, pre-linking the repo's obvious
-  reference docs (README, `docs/…`) and any existing `.claudster/kb/*.md` notes.
+- **Missing map** → creates `.caddis/kb/DOC-MAP.md` from a scaffold, pre-linking the repo's obvious
+  reference docs (README, `docs/…`) and any existing `.caddis/kb/*.md` notes.
 - **Existing map** → indexes any KB note that isn't yet linked (adds a row with a placeholder description).
 - **Dangling links** (a linked file that's gone) → **reported, not removed** — handle them in Step 3.
 
@@ -45,7 +45,7 @@ surface the `[DOC-MAP]` "read the index first" pointer for future sessions in th
 
 ## KB note format (OKF-lite — mandatory for every new note)
 
-Every new `.claudster/kb/*.md` note starts with this frontmatter block (`type` is required;
+Every new `.caddis/kb/*.md` note starts with this frontmatter block (`type` is required;
 the rest recommended). `DOC-MAP.md` is the index, not a note — it stays frontmatter-free:
 
 ```yaml
