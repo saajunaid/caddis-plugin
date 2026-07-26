@@ -449,7 +449,8 @@ def emit_doc_discipline(target: Path, ident: dict[str, str], force: bool, dry: b
     `.md` links so a fresh repo is gate-clean (no dangling-link hard failure)."""
     notes: list[str] = []
     cm = HARNESS_DIR / "claude-md"
-    mapping = {"PROJECT_NAME": ident["name"], "PROJECT_DESCRIPTION": ident["desc"]}
+    mapping = {"PROJECT_NAME": ident["name"], "PROJECT_DESCRIPTION": ident["desc"],
+               "ARTIFACT_DIR": artifact_root(target).name}
 
     def _emit(rel: str, tmpl: str, label: str):
         src = cm / tmpl

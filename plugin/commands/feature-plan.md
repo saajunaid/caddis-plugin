@@ -80,7 +80,7 @@ escalation, never a planned default.
 
 ### Assign an execution LANE per phase (which harness runs it — not just which model)
 A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
-`docs/guide/multi-model-workflow.md`; wiring: the caddis repo's `.claudster/plans/model-access.md`):
+`docs/guide/multi-model-workflow.md`; wiring: the caddis repo's `.caddis/plans/model-access.md`):
 - **claude** (default) — this session, `/model <alias>` as above. Required for judgment-heavy,
   security-sensitive, or novel-architecture phases.
 - **glm-headless** — mechanical, fully-specced phases run on GLM without touching Claude quota:

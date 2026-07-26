@@ -2,7 +2,7 @@
 
 > **What this is:** the curated index of the docs that matter for understanding *this codebase* — one
 > line each: what it is and when to read it. A router, not a summary; detail lives in the linked docs.
-> The knowledge base itself lives beside this file in `.caddis/kb/`. You may also link any other
+> The knowledge base itself lives beside this file in `{{ARTIFACT_DIR}}/kb/`. You may also link any other
 > code-relevant doc from here (a key design doc, an API contract) — but this is for **code-relevant**
 > docs, not your whole `docs/` folder.
 >
@@ -22,15 +22,15 @@
 MAINTAINING THIS FILE
 - Add a row per code-relevant doc as a MARKDOWN LINK whose target is relative to this file, e.g.:
       | [domain-model.md](domain-model.md) | The core domain model. |
-  KB notes live beside this file in .caddis/kb/. You can also link a doc elsewhere in the repo
+  KB notes live beside this file in {{ARTIFACT_DIR}}/kb/. You can also link a doc elsewhere in the repo
   (e.g. ../../docs/architecture/overview.md) — the checker just verifies the link resolves.
-- Only .caddis/kb/*.md is "governed": a KB note not linked here warns (a nudge to index it). Your
+- Only {{ARTIFACT_DIR}}/kb/*.md is "governed": a KB note not linked here warns (a nudge to index it). Your
   wider docs/ folder is the project's own documentation and is NOT checked.
 - Remove a row when you delete its doc — a link to a missing file is a HARD failure at the gate.
 - The placeholder rows below carry no links on purpose, so a fresh repo passes the gate. Replace them.
 -->
 
-## Knowledge base (`.caddis/kb/`)
+## Knowledge base (`{{ARTIFACT_DIR}}/kb/`)
 
 | Doc | What / when to read |
 |---|---|
@@ -44,7 +44,7 @@ MAINTAINING THIS FILE
 
 ---
 
-*Governed = `.caddis/kb/*.md` only (must be indexed here). The wider `docs/` tree is the project's
+*Governed = `{{ARTIFACT_DIR}}/kb/*.md` only (must be indexed here). The wider `docs/` tree is the project's
 own documentation and is intentionally not policed.*
 
 *KB notes carry OKF-lite frontmatter (`type:` required — note | runbook | design | reference);

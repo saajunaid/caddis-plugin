@@ -52,7 +52,6 @@
 | Deploy Local | `deploy-local/` | End-to-end local deployment loop for Gitea-hosted projects. Use when the user wants to commit on dev, push to remote, monitor the golden CI/build/deploy workflow, validate prod on the configured prod host, and fix lint/test/pipeline failures until deployment is healthy. |
 | Monorepo | `monorepo/` | Monorepo management with Turborepo and pnpm workspaces. Use for Turborepo setup, turbo.json task dependencies, remote caching, pnpm workspace protocol, shared packages (ui-library, config, types), affected-only CI/CD builds, or monorepo structure (apps/ vs packages/). Covers pitfalls like circular deps, version drift, and hoisting issues. |
 | Update Readme | `update-readme/` | Detect feature commits and update README sections (Features, API, Usage) with accurate repo-aware changes, then stage only README for a docs commit. Use when users add features/routes/components and want README maintained automatically. |
-| Windows Deployment | `windows-deployment/` | Deploy FastAPI + React/Vite apps to Windows Server with NSSM services, reverse proxy (IIS or nginx), and git-pull workflow. Use when deploying any web app to a Windows prod server, setting up NSSM services, configuring IIS or nginx reverse proxy, making code environment-aware for dev/prod, or troubleshooting prod deployment issues. |
 
 ### Docs
 

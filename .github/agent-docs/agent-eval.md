@@ -21,7 +21,7 @@ The right amount of scaffolding is a function of model capability. Running heter
 ## Three signals (in priority order)
 
 ### Signal 1 — agent-log.jsonl (runtime, always-on)
-The `.claudster/agent-log.jsonl` written by the SubagentStop hook
+The `.caddis/agent-log.jsonl` written by the SubagentStop hook
 (`claude-harness/hooks/agent_log.py`, wired 2026-07-20 — one JSONL line per subagent
 dispatch: ts, agent, best-effort verdict, session id) is the primary live signal.
 Watch verdict distribution per agent over time:
@@ -32,7 +32,7 @@ Watch verdict distribution per agent over time:
 | `FAIL` / `changes-requested` > 60% | Miscalibrated method or wrong scope; too strict or too noisy |
 | Missing runs for weeks | Subagent not being dispatched — trigger condition needs checking |
 
-**How to read:** `cat .claudster/agent-log.jsonl | python -c "import sys,json; [print(r['agent'],r['verdict']) for r in (json.loads(l) for l in sys.stdin)]"`
+**How to read:** `cat .caddis/agent-log.jsonl | python -c "import sys,json; [print(r['agent'],r['verdict']) for r in (json.loads(l) for l in sys.stdin)]"`
 
 ### Signal 2 — golden task set (per-subagent, 3–5 tasks each)
 A small set of representative inputs stored in `.github/agent-docs/eval/tasks/<agent>/`.
