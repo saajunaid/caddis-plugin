@@ -1,10 +1,38 @@
 # Changelog
 
-All notable changes to claudster are documented here.
+All notable changes to **caddis** are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> Naming note: caddis was published as **claudster** through 1.3.29. Entries below keep the name
+> that was current when they shipped — that history is provenance, not an oversight.
+
 ---
+
+## [1.3.34] — 2026-07-26
+
+### Fixed
+
+- **Migration-audit remediation (source lane).** The antigravity hook fixture now logs
+  `CADDIS-HOOK-FIRED` → `~/.caddis-agy-hook.log` (was still claudster-named); the scaffolded
+  `DOC-MAP.md` names the artifact dir the repo actually uses (`{{ARTIFACT_DIR}}` placeholder —
+  an unmigrated `.claudster/` repo no longer gets a map pointing at `.caddis/kb/`);
+  `windows-deployment` no longer ships in both the core and extras plugins; and a shipped
+  instruction file no longer cites the never-built `claudster_tidy` tool.
+- **Repo-root docs de-branded.** `README.md` / `USERGUIDE.md` / this changelog rewritten from the
+  legacy junai product pages to caddis — what browsers of this mirror actually get.
+
+## [1.3.30 – 1.3.33] — 2026-07-24
+
+### Changed
+
+- **claudster → caddis rename.** The plugin, marketplace, and commands are now `caddis` /
+  `/caddis:*`; the per-repo artifact dir is `.caddis/` (with a `.claudster/` read-fallback so
+  pre-rename repos keep working — run `/caddis:migrate-dir` to convert a repo, opt-in).
+  Deliberately frozen under the old names: the `~/.claudster/` user scope (keys, install records),
+  `claudster_*.py` script filenames, and historical provenance in docs.
+- **1.3.31 – 1.3.33** — post-rename prose sweeps, `caddis_ping` MCP fixture rename, and dual-ref
+  fixes across the pool.
 
 ## [1.3.11] — 2026-07-01
 

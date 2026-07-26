@@ -1,420 +1,114 @@
-# junai — Let AI Think. Let Code Route.
+# caddis — a Claude Code harness
 
-[![PyPI](https://img.shields.io/pypi/v/junai-mcp?label=MCP%20Server&color=3776AB&logo=python)](https://pypi.org/project/junai-mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-<!-- mcp-name: io.github.saajunaid/junai-mcp -->
+**caddis** is a Claude Code harness — a plugin (plus a shared pool of skills, subagents,
+slash-commands, and hooks) that makes a single Claude Code session dramatically more capable and much
+harder to derail. It's *agent-agnostic*: the same pool is exported to other AI CLIs (Codex,
+Antigravity, Copilot), and `CLAUDE.md`↔`AGENTS.md` are mirrors so every agent reads the same
+conventions.
 
-> 25 specialised AI agents. A 9-stage deterministic pipeline. Zero hallucinated routing.  
-> *"Trust the LLM to pick the right agent"* — worked great, right up until it didn't.
-
-**junai is Un-AI routing with full AI power.**  
-Your agents stay smart. Your pipeline stays predictable.
-
-- **No hallucinated routing** — a Python state machine owns all transitions; git-blameable, auditable
-- **Deterministic gates** — key decisions require explicit approval; the pipeline cannot guess past them
-- **Predictable output** — 9 stages, 23 agents, 0 surprises
-
----
-
-## What It Is
-
-junai is a portable agent framework for VS Code + GitHub Copilot. It gives you:
-
-- **25 specialised agents** — Architect, Implement, Tester, Code Reviewer, Debug, Security Analyst, Anchor, and more
-- **A deterministic pipeline** — a Python state machine owns all routing logic; the LLM cannot hallucinate the wrong next step
-- **Three pipeline modes** — supervised (you approve everything), assisted (agents route, you approve gates), and autopilot ⚠️ *(beta — agents route, smart gates, only intent requires approval)*
-- **121 reusable skills, 30 prompts, 24 instruction files** — loaded dynamically by agents as needed
-- **Chat-first UX** — init, reset, mode switch, gate approval all from the Copilot chat window
+This repository is the **published marketplace mirror**: it hosts the `caddis` and `caddis-extras`
+Claude Code plugins, the portable per-harness bundles under `bundles/`, and the shared pool. It is
+generated and pushed by the caddis authoring repo's exporter — issues are welcome here, but code
+changes land upstream and are synced in.
 
 ---
 
-## Prerequisites
+## Install (Claude Code)
 
-| Requirement | Notes |
+```bash
+# 1. Register this repo as a plugin marketplace (once)
+claude plugin marketplace add saajunaid/caddis-plugin
+
+# 2. Install the core plugin (always-on, lean context)
+claude plugin install caddis@caddis
+
+# 3. (optional) Add the long-tail skill library — cloud/data/media/etc. Disabled by default,
+#    so it costs zero always-on context until you enable it.
+claude plugin install caddis-extras@caddis
+```
+
+Then, in any repo:
+
+```
+/caddis:setup-project-ai     # deploy the harness into the project
+```
+
+A normal working loop looks like:
+
+```
+/feature-plan      # (or /prd first) → writes .caddis/plans/<slug>.md, the durable spine
+/implement         # executes the plan phase-by-phase, TDD, commit per phase
+/ship              # express lane: commit → push → CI (hotfixes); feature work: /ship-pr then /ship-merge
+/handoff           # ALWAYS end a session with this — writes the resume doc
+```
+
+**The one habit that matters most: end every session with `/handoff`.** It writes
+`.caddis/relay.md`, which is re-injected automatically at the next session start — you resume with
+zero re-discovery instead of a cold, forgetful session.
+
+See [USERGUIDE.md](./USERGUIDE.md) for the full command/skill/hook reference and the mental models.
+
+---
+
+## What you get
+
+- **Slash-commands** — `/feature-plan`, `/prd`, `/implement`, `/tdd`, `/ship` · `/ship-pr` ·
+  `/ship-merge`, `/handoff`, `/kb`, `/digress` · `/resume`, `/cross-review`, `/usage-review`,
+  `/mermaid-db` · `/excalidraw-db`, `/setup-project-ai`, `/migrate-dir`.
+- **Subagents** — lean, own-context helpers: `anchor` (evidence-first verification),
+  `code-reviewer`, `preflight` (plan-vs-codebase validation), `tester`, `debug`, `codebase-audit`,
+  `security-analyst`, `data-engineer`, `sql-expert`, `knowledge-transfer`.
+- **A four-layer memory model** — session relay (`relay.md`), automatic Dream Memory
+  (`memory.jsonl`), a per-repo knowledge base (`.caddis/kb/` + `DOC-MAP.md`), and cross-repo memory.
+- **Hooks & safety** — a PreToolUse guard for secret/destructive writes, auto-lint on edit, and the
+  SessionStart/Stop hooks behind relay + memory.
+- **Tiered skills** — the core dev set ships in `caddis`; the long tail (cloud, data, media,
+  productivity) lives in `caddis-extras`, off by default.
+
+---
+
+## Installing outside Claude Code (Codex, Antigravity, …)
+
+The knowledge layer (skills + `AGENTS.md` conventions) works in any harness. Per-harness bundles are
+published under [`bundles/`](./bundles/) and installed with `caddis-init`:
+
+```bash
+# from a checkout of this repo (the installer ships in plugin/scripts/)
+python plugin/scripts/claudster_init.py --target codex        --dest /path/to/project
+python plugin/scripts/claudster_init.py --target antigravity  --dest /path/to/project
+```
+
+Safe by design: a sha256 manifest tracks what the installer wrote; re-runs update only unmodified
+files, and anything you edited locally is reported as a conflict, never overwritten.
+
+---
+
+## Repo layout
+
+| Path | What it is |
 |---|---|
-| VS Code | Any recent version |
-| GitHub Copilot | Agent mode must be enabled in Copilot Chat settings |
-| Python 3.11+ | Must be on PATH |
-| Git | For pipeline commits |
-| PowerShell 5.1+ | Windows built-in; required for `sync.ps1` |
+| `.claude-plugin/marketplace.json` | The marketplace manifest (`caddis` + `caddis-extras`) |
+| `plugin/` | The core `caddis` Claude Code plugin (agents, commands, hooks, core skills) |
+| `plugin-extras/` | The `caddis-extras` skill library (disabled by default) |
+| `bundles/` | Portable per-harness exports (codex, antigravity) for `caddis-init` |
+| `.github/` | The shared pool: skills, agents, prompts, instructions, tools |
+| `sync.ps1`, `export_runtime_resources.py`, `validate_pool.py` | The build/sync machinery |
 
 ---
 
-## Setup — Path A: New Project (Fastest) ⚡
-> **Fastest of all:** Install the [junai — Agent Pipeline](https://marketplace.visualstudio.com/items?itemName=junai-labs.junai) VS Code extension, open any project, run **`junai: Initialize Agent Pipeline`** from the command palette, and skip straight to step 3 below. No cloning, no PowerShell needed.
-1. Click **"Use this template"** → **"Create a new repository"** on this page
-2. Clone your new repo, open it in VS Code
-3. One-time venv setup (30 seconds — we timed it):
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\pip install -r .github/tools/mcp-server/requirements.txt -r .github/tools/pipeline-runner/requirements.txt
-   ```
-4. Reload VS Code — the 8 junai MCP tools appear in the Copilot Chat tools icon (⚙)
-5. Edit `.github/project-config.md` — set your project name and stack
-6. Edit `.github/copilot-instructions.md` — the extension creates this with a managed section; add your architecture overview, DB names, and key file paths outside the `<!-- junai:start -->` markers
-7. Open Copilot Chat → **select Orchestrator from the agent dropdown** → describe what you want to build
-
-> **VS Code note:** Custom agents aren't invoked via `@AgentName` mentions in chat. Click the agent icon in Copilot Chat and select **Orchestrator** from the list to activate it.
-
----
-
-## Setup — Path B: Existing Project
-
-1. Clone junai anywhere on your machine:
-   ```powershell
-   git clone https://github.com/saajunaid/junai
-   ```
-2. Add to your PowerShell `$PROFILE` (once per machine):
-   ```powershell
-   . 'C:\Path\To\junai\sync.ps1'
-   ```
-3. From your existing project root:
-   ```powershell
-   junai-pull
-   ```
-   Deploys `.github/` (agents, skills, prompts, instructions, diagrams, **tools**) into your project.
-4. Create venv (same as Path A step 3), reload VS Code
-5. Configure `project-config.md` and add your project context to `copilot-instructions.md` (outside the `<!-- junai:start -->` managed section), then open Copilot Chat → **select Orchestrator from the agent dropdown**
-
----
-
-## Your First Pipeline — Chat Commands
-
-No terminal needed after setup. Everything runs from Copilot Chat (with **Orchestrator** selected):
-
-| Say this | What happens |
-|---|---|
-| *"Start a new pipeline for feature: dark mode"* | `pipeline_init` creates state, Orchestrator classifies and routes |
-| *"Switch to assisted mode"* | Agents route automatically, gates still require your approval |
-| *"Switch to autopilot mode"* | Agents route + gates auto-satisfied (beta) |
-| *"Approve plan_approved"* | Satisfies a gate — gates are never bypassed in any mode |
-| *"What stage are we at?"* | Returns current stage, mode, blocked_by |
-| *"Reset pipeline for next feature: X"* | Wipes state and starts fresh |
-
-### Pipeline stages
-
-```
-intent → prd → architect → plan → implement → tester → review → closed
-```
-
-Hotfix fast-track: `intent → implement → tester → closed`
-
----
-
-## Pipeline Modes
-
-| Mode | Handoffs | Gates | Notes |
-|---|---|---|---|
-| **`supervised`** *(default)* | You click every handoff button | You approve every gate | Maximum control |
-| **`assisted`** | Orchestrator routes automatically | You approve every gate | Recommended for most work |
-| **`autopilot`** | Orchestrator routes automatically | Only `intent_approved` requires your approval — all others auto-satisfied, with smart review gate | ⚠️ *Beta — not fully tested. Monitor `PIPELINE_HALT.md` for silent halts.* |
-
-> **`autopilot` caveats:**
-> 1. If a blocking escalation occurs, the pipeline writes `PIPELINE_HALT.md` to your project root and fires a desktop notification — but only if you’re watching VS Code. Check the file after long runs.
-> 2. Architecture decisions (`adr_approved`) are auto-approved: a poor architecture is silently accepted and built on. Use `supervised` or `assisted` for complex or unfamiliar features.
-
-Switch at any time in chat (Orchestrator selected): *"Switch to assisted mode"* / *"Switch to autopilot mode"* / *"Switch to supervised mode"*
-
----
-
-## Agents at a Glance
-
-| Layer | Agents |
-|---|---|
-| Deep Reasoning | Architect, Plan, Debug, Security Analyst |
-| Structured Thinking | PRD, Code Reviewer, Data Engineer, Tester, SQL Expert, UI/UX Designer, UX Designer, Prompt Engineer, Accessibility, Mentor |
-| Execution | Implement, Streamlit Developer, Frontend Developer, DevOps, Janitor |
-| Specialist | Mermaid Diagram, SVG Diagram, Project Manager |
-
----
-
-## MCP Tools (9 total)
-
-Available via natural language in Copilot Chat — or directly in the tools panel:
-
-| Tool | Purpose |
-|---|---|
-| `pipeline_init` | Start a new pipeline (confirm=true required) |
-| `pipeline_reset` | Reset for next feature (confirm=true required) |
-| `set_pipeline_mode` | Switch between supervised / assisted / autopilot |
-| `satisfy_gate` | Approve a supervision gate |
-| `skip_stage` | Skip the current stage with auto-gate satisfaction (blocked on `implement`, `anchor`, `tester`) |
-| `get_pipeline_status` | Current stage, mode, blocked_by, next transition, and formatted `progress_line` |
-| `notify_orchestrator` | Record stage completion + compute next transition |
-| `validate_deferred_paths` | Verify deferred item file paths before pipeline close |
-| `run_command` | Execute any shell command (tests, lint, format) — enables hands-free test runs |
-
----
-
-## Keeping Your Pool Updated
-
-```powershell
-junai-pull               # pull latest agents/skills/prompts → your project
-junai-push               # push improvements from your project → junai pool (+ auto-publishes if keys exist)
-junai-release            # publish MCP to PyPI + extension to VS Code marketplace
-junai-export             # bundle to folder or .zip (offline/air-gapped)
-junai-import <path>      # restore from export bundle
-```
-
-> Store `pypimcp.key` (PyPI token) in the junai repo root and `vscode.pat` (Azure DevOps PAT) in the junai-vscode repo root to enable `junai-push` auto-publish. Both files are gitignored.
-
-> `project-config.md`, `copilot-instructions.md`, `pipeline-state.json`, and `agent-docs/` are **never synced** — project-specific. The extension manages only a sentinel-delimited section in `copilot-instructions.md`; your content is never touched.
-
----
-
-## Pipeline CLI (terminal / scripting)
-
-```powershell
-python .github/tools/pipeline-runner/pipeline_runner.py status
-python .github/tools/pipeline-runner/pipeline_runner.py init --project <name> --feature <slug> --type feature|hotfix --force
-python .github/tools/pipeline-runner/pipeline_runner.py mode --value supervised|assisted|autopilot
-python .github/tools/pipeline-runner/pipeline_runner.py gate --name <gate_name>
-python .github/tools/pipeline-runner/pipeline_runner.py next
-python .github/tools/pipeline-runner/pipeline_runner.py transitions
-```
-
-See `.github/pipeline/cheatsheet.md` for the full reference.
-
----
-
-## Extending the Pipeline With Your Own Agents
-
-The pipeline is plug-and-play — no Python changes, no restarts. There are two kinds of extension:
-
-### Pipeline-integrated agent (routed by the Orchestrator)
-
-Your agent becomes a first-class pipeline citizen: the state machine routes to it, tracks its completion, and advances to the next stage automatically.
-
-**3 steps:**
-
-**1. Add a `stages` entry in `agents.registry.json`**
-```json
-"my_stage": {
-  "agent": "my-agent",
-  "agent_file": ".github/agents/my-agent.agent.md",
-  "description": "Does the thing",
-  "required_artefacts": ["agent-docs/my-stage/"],
-  "completion_event": "my_stage_complete"
-}
-```
-
-**2. Add `transitions` entries pointing to/from your stage**
-```json
-{ "id": "T-28", "from": "plan", "to": "my_stage", "event": "plan_approved", "guard": null },
-{ "id": "T-29", "from": "my_stage", "to": "implement", "event": "my_stage_complete", "guard": null }
-```
-
-**3. Write your `.agent.md` with the §8 Completion Reporting Protocol**
-
-Every pipeline-integrated agent must end its work by calling `notify_orchestrator` and then HARD STOP — this is how the state machine knows the stage is done.
-
-Copy the §8 block from any existing agent (e.g., `.github/agents/implement.agent.md`) and adapt the `stage_completed` and `artefact_path` values. The critical lines:
-```
-notify_orchestrator(stage_completed="my_stage", result_status="success", artefact_path="agent-docs/my-stage/")
-HARD STOP — do not continue after calling notify_orchestrator.
-```
-
-That's it. Run `pipeline transitions` to verify your new T-28 and T-29 appear correctly.
-
----
-
-### Ad-hoc agent (called by you, not the Orchestrator)
-
-No registry. No transitions. Just create a `.github/agents/my-agent.agent.md` and call it directly by selecting it from the agent dropdown in Copilot Chat.
-
-Use this for specialist work that doesn't belong in the main pipeline sequence — a SQL Expert you call on demand, a diagram generator, a one-off security scan. The §8 protocol is optional for ad-hoc agents (but worth including if you ever want to pipeline-promote the agent later).
-
----
-
-## Distribution
-
-Three ways to get junai — pick the one that fits your workflow:
-
-### Option 1 — VS Code Extension (zero setup) ⚡
-
-Install [junai — Agent Pipeline](https://marketplace.visualstudio.com/items?itemName=junai-labs.junai) from the VS Code Marketplace, then run **`junai: Initialize Agent Pipeline`** from the command palette.
-
-That's it. The extension:
-- Deploys all 1322 pool files (`.github/agents/`, `.github/skills/`, `.github/tools/`, etc.) into your workspace
-- Scaffolds `pipeline-state.json`
-- Automatically writes `.vscode/mcp.json` with the `uvx junai-mcp` entry
-
-VS Code will prompt to start the MCP server — accept it, and the 8 pipeline tools appear in the Copilot Chat tools panel (⚙) immediately. **No terminal, no venv, no manual config required.** Requires [uv](https://docs.astral.sh/uv/) on your PATH (`winget install astral-sh.uv` / `brew install uv` / `pip install uv`).
-
-### Option 2 — Manual MCP config (if you already have pool files)
-
-If you deployed pool files via `junai-pull` or the GitHub template, add this to `.vscode/mcp.json` manually:
-```json
-{
-  "servers": {
-    "junai": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": ["junai-mcp"]
-    }
-  }
-}
-```
-
-> **PyPI package:** [`junai-mcp`](https://pypi.org/project/junai-mcp/) · **MCP Registry:** `io.github.saajunaid/junai-mcp`
-
-### Option 3 — Local venv (no uv, air-gapped, or offline)
-
-After deploying pool files, create a venv and point `.vscode/mcp.json` at the local server:
-```powershell
-python -m venv .venv
-.venv\Scripts\pip install -r .github/tools/mcp-server/requirements.txt -r .github/tools/pipeline-runner/requirements.txt
-```
-```json
-{
-  "servers": {
-    "junai": {
-      "type": "stdio",
-      "command": "${workspaceFolder}\\.venv\\Scripts\\python",
-      "args": ["${workspaceFolder}\\.github\\tools\\mcp-server\\server.py"]
-    }
-  }
-}
-```
-
----
-
-## What's Coming
-
-junai is a living project. Things on the near-term roadmap:
-
-- ~~**VS Code Extension**~~ ✅ **Shipped** — [`junai-labs.junai`](https://marketplace.visualstudio.com/items?itemName=junai-labs.junai) on the VS Code Marketplace. One-click pool install, no `sync.ps1` needed.
-- ~~**MCP Server registry listing**~~ ✅ **Shipped** — [`junai-mcp 0.2.0`](https://pypi.org/project/junai-mcp/) on PyPI; registered as `io.github.saajunaid/junai-mcp` on `registry.modelcontextprotocol.io`.
-- ~~**skip_stage MCP tool**~~ ✅ **Shipped** — skip any non-critical stage with auto-gate satisfaction and safety guards.
-- ~~**Anchor agent + adversarial review skill**~~ ✅ **Shipped** — 3-lens adversarial review (correctness, security, performance) with confidence scoring.
-- ~~**Cross-artifact drift protection**~~ ✅ **Shipped** — scope change declarations in Plan/Architect, handoff reconciliation in Implement/Anchor.
-- **IDE agnostic** — `.github/` is universal; Cursor, JetBrains, and CLI support planned
-- **And more** — autopilot mode hardening, a proper user guide, and potentially a self-contained binary for the pipeline runner
-
----
-
-## Credits & Inspiration
-
-junai's agents, skills, prompts, and instruction files were built from scratch, battle-tested, and adapted over months. The following open resources were genuinely useful along the way — if junai helps you, these deserve credit too:
-
-| Resource | What we took from it |
-|---|---|
-| [github/awesome-copilot](https://github.com/github/awesome-copilot) | Copilot instruction patterns and `.github/copilot-instructions.md` conventions |
-| [anthropics/skills](https://github.com/anthropics/skills) | Claude-style skill composition and context injection patterns |
-| [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) | Agent skill structure and capability registry approach |
-| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | Comprehensive agent patterns and tool-use examples |
-
----
-
-## The Origin Story
-
-This wasn't built in a weekend.
-
-Months of trial and error, dead-end architectures, broken routing logic, and a painful number of "why did it just skip straight to implement?!" moments went into making junai feel boring and predictable — which is exactly the point. Every design decision you see here (deterministic state machine, `confirm=True` safeguards, gate-first approvals, pool-based portability) came from real pain building real projects.
-
-If you find it useful, give it a star. If you find a bug, open an issue. If you build something with it, we'd genuinely love to hear about it.
-
----
-
-## What's Inside
-
-```
-.github/
-├── agents/          23 specialised AI agents (Architect, Implement, Debug, etc.)
-├── skills/          70+ reusable skills (coding, data, frontend, workflow, devops)
-├── prompts/         30 prompt templates (advisory-hub, plan, code-review, etc.)
-├── instructions/    23 instruction files (python, fastapi, streamlit, security, etc.)
-├── diagrams/        Agent workflow reference cards and design docs
-├── tools/
-│   ├── mcp-server/      8 MCP tools (pipeline_init, pipeline_reset, status, etc.)
-│   └── pipeline-runner/ Python state machine — the deterministic routing engine
-└── project-config.md  ← The only file you edit per project
-```
+## A note on names
+
+caddis was previously published as **claudster** (and, before that, this repo hosted the **junai**
+Copilot pipeline — see the pre-1.2 entries in [CHANGELOG.md](./CHANGELOG.md)). Repos set up under
+the old name have a `.claudster/` artifact dir; everything reads both `.caddis/` and `.claudster/`
+and **writes where the repo already lives**, so nothing breaks. Run `/caddis:migrate-dir` when you
+want a repo converted. The `~/.claudster/` user scope (keys, install records) is permanent.
 
 ---
 
 ## License
 
-MIT — free to use, fork, and adapt. See [LICENSE](LICENSE) for the full text.
-
-If you build something cool on top of junai, attribution is appreciated but not required. A shoutout would make our day though.
-
-Agents read `project-config.md` for brand/stack config and `copilot-instructions.md` for project architecture context. The extension manages a small sentinel block in `copilot-instructions.md` — your content outside the `<!-- junai:start -->` / `<!-- junai:end -->` markers is never modified.
-
----
-
-## Agent Overview
-
-| Layer | Agents | Model |
-|-------|--------|-------|
-| Deep Reasoning | Architect, Security Analyst, Plan, Debug | Claude Opus 4.6 |
-| Structured Thinking | PRD, Code Reviewer, Data Engineer, Tester, SQL Expert, UI/UX Designer, UX Designer, Prompt Engineer, Accessibility, Mentor, Mermaid, SVG | Claude Sonnet 4.6 |
-| Orchestration | Orchestrator, Anchor | Claude Sonnet 4.6 |
-| Execution | Implement, Streamlit Developer, Frontend Developer, DevOps, Janitor | Claude Sonnet 4.6 |
-
----
-
-## Pipeline Methodology
-
-JUNAI uses a **deterministic 9-stage pipeline** with a state machine runner:
-
-```
-intent → prd → architect → plan → implement → tester → review → deploy → closed
-```
-
-Hotfix fast-track: `intent → implement → tester → closed`
-
-### junai CLI (agent-sandbox projects)
-
-```powershell
-junai pipeline status                        # current stage, mode, blocked_by
-junai pipeline next                          # dry-run: what would advance?
-junai pipeline advance --event <stage>_complete
-junai pipeline mode --value supervised|assisted|autopilot  # supervised=gated, assisted=auto-route+gates, autopilot=fully autonomous
-junai pipeline gate  --name <gate_name>      # satisfy a supervision gate
-
-junai agent list                             # compliance table for all agents
-junai agent make     --name <xyz> [--role executing|advisory]
-junai agent validate --name <xyz>
-junai agent onboard  --name <xyz> [--yes]
-```
-
-See `.github/pipeline/cheatsheet.md` for the full reference.
-
-For the Advisory Hub flow (non-pipeline projects), load `.github/skills/workflow/agent-orchestration/SKILL.md` and start with `.github/prompts/advisory-hub.prompt.md`.
-
----
-
-## Syncing Updates
-
-All sync operations are handled by `sync.ps1`. Dot-source it once in your `$PROFILE`:
-
-```powershell
-. 'E:\Projects\junai\sync.ps1'
-```
-
-| Command | What it does |
-|---|---|
-| `junai-pull` | Pool → project: copies agents, skills, prompts, instructions, diagrams into `.github/` |
-| `junai-push` | Project → pool: commits improvements from a project back into this repo; auto-publishes MCP + extension when key files are present |
-| `junai-release` | Publish `junai-mcp` to PyPI and the VS Code extension to the marketplace in one command |
-| `junai-export` | Creates a self-contained folder or `.zip` for offline/air-gapped machines |
-| `junai-import` | Restores a pool from an export folder or zip on a machine without GitHub access |
-
-> `project-config.md` and `copilot-instructions.md` are intentionally **never** synced — they are project-specific. The extension manages only a `<!-- junai:start -->` … `<!-- junai:end -->` section in `copilot-instructions.md`.
-
----
-
-## What Stays in Your Project (Not in This Pool)
-
-| File/Folder | Why It Stays |
-|-------------|-------------|
-| `.github/copilot-instructions.md` | Project architecture, DB names, stack details (extension manages only sentinel section) |
-| `.github/project-config.md` | Your filled-in profile and project values |
-| `.github/plans/` | Phased execution plans for active features |
-| `.github/handoffs/` | Emergency context handoffs |
-| `.github/agent-docs/` | PRDs, architecture docs, artefact manifests |
-
----
-
-*Built by Junaid — because copy-pasting agent prompts between projects was getting old.*
+[MIT](./LICENSE). The published plugin bundles (`caddis` / `caddis-extras`) carry the same license
+in their manifests.
