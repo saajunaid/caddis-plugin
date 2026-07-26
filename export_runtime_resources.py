@@ -345,14 +345,23 @@ def write_plugin_manifests(bundle_root: Path, plugin_dir: Path, target: dict[str
         )
 
 
-def _canonical_plugin_version(manifest: dict[str, Any]) -> str:
-    """The single-source plugin version — the `claude` plugin's version (bumped by sync.ps1).
-    The agy plugin follows it so one manifest bump propagates to every plugin-shaped target."""
+def _canonical_plugin_version(manifest: dict[str, Any], plugin_name: str | None = None) -> str:
+    """The single-source plugin version — the SAME-NAMED Claude plugin's version (bumped by
+    sync.ps1), so one manifest bump propagates to every plugin-shaped target: `caddis` follows
+    the `claude` target, `caddis-extras` follows `claude-extras`. Without the name match the
+    extras agy plugin would wrongly inherit the core version (the first versioned target).
+    Falls back to the first versioned target when no name matches."""
+    fallback = ""
     for t in manifest.get("targets", []):
-        ver = (t.get("plugin") or {}).get("version")
-        if ver:
+        plugin = t.get("plugin") or {}
+        ver = plugin.get("version")
+        if not ver:
+            continue
+        if plugin_name and plugin.get("name") == plugin_name:
             return ver
-    return "0.0.0"
+        if not fallback:
+            fallback = ver
+    return fallback or "0.0.0"
 
 
 _AGY_DROP_AGENT_KEYS = re.compile(r"^\s*(tools|model|color)\s*:", re.IGNORECASE)
@@ -391,7 +400,7 @@ def write_agy_plugin_manifest(
         return
     plugin = {
         "name": spec["name"],
-        "version": spec.get("version") or _canonical_plugin_version(manifest),
+        "version": spec.get("version") or _canonical_plugin_version(manifest, spec["name"]),
     }
     if spec.get("description"):
         plugin["description"] = spec["description"]

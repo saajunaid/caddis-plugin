@@ -1317,6 +1317,31 @@ function caddis-push {
         }
     }
 
+    # -- Propagate a bump into the published agy bundle manifests --
+    # bundles/ was exported and copied BEFORE the bump blocks above, so its generated plugin.json
+    # files would otherwise lag the new version by one patch forever (the 1.3.32-vs-1.3.33 M4
+    # finding). Re-export the two agy plugin profiles against the bumped manifest and refresh ONLY
+    # their plugin.json in the mirror (bundle content itself was already synced pre-bump and the
+    # bump changes nothing but the version).
+    if ($claudePython -and ((-not [string]::IsNullOrWhiteSpace($bumpedCaddis)) -or (-not [string]::IsNullOrWhiteSpace($bumpedExtras)))) {
+        Push-Location $ProjectRoot
+        & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "antigravity-plugin", "--profile", "antigravity-plugin-extras"))
+        $agyReExportOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+        if ($agyReExportOk) {
+            foreach ($t in @("antigravity-plugin", "antigravity-plugin-extras")) {
+                $srcManifest = Join-Path $ProjectRoot "dist\runtime-resources\$t\plugin.json"
+                $dstManifest = Join-Path $CADDIS_POOL "bundles\$t\plugin.json"
+                if ((Test-Path $srcManifest) -and (Test-Path (Split-Path $dstManifest -Parent))) {
+                    Copy-Item $srcManifest $dstManifest -Force
+                    Write-Host "  [OK]  bundles/$t/plugin.json refreshed to the bumped version" -ForegroundColor Green
+                }
+            }
+        } else {
+            Write-Host "  [WARN]  agy bundle re-export failed; bundles/*/plugin.json may lag the bump." -ForegroundColor Yellow
+        }
+    }
+
     # Stage all tracked/untracked/deleted files in caddis-plugin so source deletions and
     # folder moves are guaranteed to propagate.
     git add -A | Out-Null
