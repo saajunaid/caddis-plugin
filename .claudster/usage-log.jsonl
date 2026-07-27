@@ -11,3 +11,4 @@
 {"ts": "2026-07-01T01:38:47+00:00", "session": "d9c33c72-4b46-446b-95f6-d77e173b422a", "input": 69660, "output": 396006, "cache_write": 778617, "cache_read": 59725060, "est_cost_usd": 134.932, "models": ["claude-opus-4-8"]}
 {"ts": "2026-07-15T11:35:54+00:00", "session": "89777608-b491-4e23-bca6-9641217fd43d", "input": 87061, "output": 299514, "cache_write": 1434103, "cache_read": 27054482, "est_cost_usd": 91.2406, "models": ["claude-opus-4-8"]}
 {"ts": "2026-07-21T00:44:47+00:00", "session": "86906b66-1b91-4b5c-a376-1a68063319be", "input": 2947, "output": 1439008, "cache_write": 13523484, "cache_read": 646493788, "est_cost_usd": 740.6407, "models": ["<synthetic>", "claude-opus-4-8", "claude-sonnet-5"]}
+{"ts": "2026-07-27T20:03:26+00:00", "session": "9d71ce87-e063-43ca-a330-823d3d1e20db", "input": 500, "output": 311179, "cache_write": 503372, "cache_read": 40793067, "est_cost_usd": 93.9738, "models": ["claude-opus-5"]}

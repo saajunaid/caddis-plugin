@@ -56,9 +56,16 @@ jobs:
     environment: npm-publish
 
     steps:
-      - uses: actions/checkout@v4
+      # v7 majors: GitHub deprecated Node 20, and v4 of both actions was being
+      # force-migrated to Node 24 with a warning on every run. Node 24 landed in
+      # v5.0.0 of each; v7 is the current major, so this skips two re-bumps.
+      # Usage here is the most stable part of both APIs (bare checkout;
+      # setup-node with node-version + registry-url), so the jump is safe.
+      # v5's "minimum compatible runner" note applies to SELF-HOSTED runners
+      # only — this job runs on ubuntu-latest.
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Latest 22.x, not a pinned patch: npm's own `engines` field moves
           # (npm 12 already requires node ^22.22.2 || ^24.15.0 || >=26), and a

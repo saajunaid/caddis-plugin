@@ -31,10 +31,27 @@ the workflow; the mirror's Action publishes on a tag.
 | Pre-publish scrub | ✅ done (shipped 1.3.39) |
 | CLI build + tests | ✅ green |
 | `caddis-push` syncs `cli/` | ✅ wired (`sync.ps1`) |
-| Publish workflow | ✅ authored, **never triggered** |
-| **npm bootstrap publish** | ❌ **human step 2 below** |
-| **npm trusted publisher** | ❌ **human step 3 below** |
-| **First OIDC release** | ❌ **human step 5 below** |
+| Publish workflow | ✅ live in the mirror |
+| npm bootstrap publish | ✅ `0.0.0` placeholder published + deprecated 2026-07-27 |
+| npm trusted publisher | ✅ configured (`saajunaid/caddis-plugin` · `npm-publish.yml` · env `npm-publish`) |
+| **First OIDC release** | ✅ **`@caddis/cli@0.1.0` published 2026-07-27, provenance signed** |
+
+**Steps 1–3 below are DONE and never repeat.** For a new version, jump to
+[Releasing a new version](#releasing-a-new-version-steps-13-are-never-repeated) — bump, `caddis-push`,
+tag. They are kept here as the record of how the package was bootstrapped.
+
+### v0.1.0 release evidence
+
+- Run [30308306628](https://github.com/saajunaid/caddis-plugin/actions/runs/30308306628) — all steps green in 25 s
+- `npm notice publish Signed provenance statement with source and build information from GitHub Actions`
+- Sigstore transparency log: <https://search.sigstore.dev/?logIndex=2261751228>
+- `npx @caddis/cli@0.1.0 doctor` verified from the public registry
+
+### Known follow-up (non-blocking)
+
+`actions/checkout@v4` and `actions/setup-node@v4` target Node 20, which GitHub has deprecated — runs
+are force-migrated to Node 24 and emit a warning. Bump both to `@v5` with the next release; it needs a
+`caddis-push` + dry run, so it was deliberately not done mid-release.
 
 ---
 
