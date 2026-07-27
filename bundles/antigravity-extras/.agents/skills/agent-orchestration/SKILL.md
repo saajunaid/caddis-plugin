@@ -500,7 +500,7 @@ A well-orchestrated session should produce:
 
 ## Reference: Real-World Example
 
-The methodology in this document was extracted from the delivery of **Juno UX Polish v2** for the ServeSight dashboard:
+The methodology in this document was extracted from a real multi-agent UI-polish delivery:
 
 | Stage | Artefact | Outcome |
 |-------|----------|---------|

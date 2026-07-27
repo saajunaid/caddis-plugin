@@ -25,6 +25,8 @@ def _clean_env() -> dict:
     e = dict(os.environ)
     e.pop("CADDIS_GUARD_DISABLED", None)
     e.pop("CLAUDSTER_GUARD_DISABLED", None)
+    e.pop("CADDIS_GUARD_MODE", None)  # a real deny-only User env var must not leak into ask-tier tests
+    e.pop("CLAUDSTER_GUARD_MODE", None)
     return e
 
 

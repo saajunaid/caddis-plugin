@@ -37,25 +37,25 @@ Resolve `<path-to>` per the same plugin-vs-source rule as the generator itself (
 for a plugin install, the harness checkout path for caddis). Also set `CADDIS_KEYS_FILE`
 (default `~/.claudster/keys.env`) with the provider keys — see `docs/guide/providers-and-keys.md`.
 
-## After the deterministic step — deploy vmie skills (optional, personal)
+## After the deterministic step — deploy private harness skills (optional)
 
-`vmie` skills (deploy-local, golden-workflow, windows-deployment) are **private** and are not shipped
-in the public plugin. This step is for a local harness author who keeps a vmie source on disk; it is a
-no-op for everyone else. Point `CADDIS_HARNESS_SRC` at your harness root (the folder containing
-`skills/vmie/`) and run:
+Some harness authors keep **private** skills on disk (organization-specific deploy/workflow skills, for
+example) that are **not** shipped in the public plugin. This step is for a local harness author who keeps
+such a source on disk; it is a no-op for everyone else. Point `CADDIS_HARNESS_SRC` at your harness root
+(the folder containing your private `skills/private/`) and run:
 
 ```powershell
 # CADDIS_HARNESS_SRC is current; CLAUDSTER_HARNESS_SRC is read as a one-version fallback.
 $harnessSrc = if ($env:CADDIS_HARNESS_SRC) { $env:CADDIS_HARNESS_SRC } else { $env:CLAUDSTER_HARNESS_SRC }
-$src = if ($harnessSrc) { Join-Path $harnessSrc "skills\vmie" } else { $null }
-$dest = ".github\skills\vmie"
+$src = if ($harnessSrc) { Join-Path $harnessSrc "skills\private" } else { $null }
+$dest = ".github\skills\private"
 if ($src -and (Test-Path $src)) {
     New-Item -ItemType Directory -Force $dest | Out-Null
     Copy-Item "$src\*" $dest -Recurse -Force
-    Write-Host "vmie skills deployed to $dest"
+    Write-Host "private skills deployed to $dest"
 } else {
-    Write-Host "vmie source not found (set CADDIS_HARNESS_SRC) — skipping; public installs have no vmie."
+    Write-Host "private harness source not found (set CADDIS_HARNESS_SRC) — skipping; public installs have none."
 }
 ```
 
-Do not commit the vmie skills to the project repo — they are private harness resources.
+Do not commit these private skills to the project repo — they are private harness resources.
