@@ -83,6 +83,7 @@
 | Ui Brief | `ui-brief/` | Design-first UI brief — lock the aesthetic before writing any code |
 | Usage Review | `usage-review/` | Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step |
 | Use Model | `use-model/` | Explain (or apply) the model lanes — claude / claude-glm / cross-review — key resolution, and how to add a provider |
+| Version | `version/` | Report the installed caddis version (baked in at build time — works in any host) |
 
 ### Media
 

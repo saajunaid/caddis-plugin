@@ -653,6 +653,15 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
         else:
             raise ValueError(f"Unsupported transform type: {transform_spec['type']}")
 
+    # Bake the caddis version into /version (deterministic — no runtime file read; works in every host).
+    # Runs before plugin/agy packaging so both bundles (and the agy command→skill conversion) get it.
+    version_cmd = workspace_root / "commands" / "version.md"
+    if version_cmd.exists():
+        ver = _canonical_plugin_version(manifest, (target.get("agy_plugin") or target.get("plugin") or {}).get("name"))
+        version_cmd.write_text(
+            version_cmd.read_text(encoding="utf-8").replace("{{CADDIS_VERSION}}", ver), encoding="utf-8"
+        )
+
     # Plugin packaging (Phase 4): emit .claude-plugin manifests + a bundle-scoped skill registry.
     # marketplace.json at the bundle root (output_root); plugin.json + content under workspace_root.
     if target.get("plugin"):
