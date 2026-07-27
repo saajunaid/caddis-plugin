@@ -1242,6 +1242,56 @@ function caddis-push {
         }
     }
 
+    # -- npm CLI source (@caddis/cli) -------------------------------------------
+    # The CLI SOURCE lives here in claudster-source (cli/), versioned in lockstep
+    # with the pool; it is PUBLISHED FROM THE MIRROR, which is where the npm
+    # Trusted-Publishing workflow runs. Same shape as the bundles above: source
+    # of truth here, artefact fanned out there. Nothing is published by this
+    # sync -- publishing is a `cli-v<semver>` tag in the mirror.
+    #
+    # dist/, bundles/ and node_modules/ are deliberately NOT copied: the CI job
+    # runs `npm ci` + `npm run build`, and copy-bundles.mjs resolves the mirror's
+    # own root-level bundles/ tree (exported immediately above this block).
+    $cliSource = Join-Path $ProjectRoot "cli"
+    if (Test-Path $cliSource) {
+        $cliDest = Join-Path $CADDIS_POOL "cli"
+        $CLI_SYNC_DIRS  = @("src", "test", "scripts")
+        $CLI_SYNC_FILES = @("package.json", "package-lock.json", "tsconfig.json", "tsup.config.ts",
+                            "vitest.config.ts", "README.md", "PUBLISHING.md", "LICENSE", ".gitignore")
+
+        New-Item -ItemType Directory -Force $cliDest | Out-Null
+        foreach ($d in $CLI_SYNC_DIRS) {
+            $src = Join-Path $cliSource $d
+            $dst = Join-Path $cliDest $d
+            if (Test-Path $src) {
+                if (Test-Path $dst) { Remove-ItemRobust $dst }
+                Copy-Item $src $cliDest -Recurse -Force
+            } elseif (Test-Path $dst) {
+                Remove-ItemRobust $dst
+            }
+        }
+        foreach ($f in $CLI_SYNC_FILES) {
+            $src = Join-Path $cliSource $f
+            if (Test-Path $src) { Copy-Item $src (Join-Path $cliDest $f) -Force }
+        }
+        Write-Host "  [OK]  cli/ (npm @caddis/cli source)" -ForegroundColor Green
+
+        # GitHub only reads workflows from the REPO ROOT .github/workflows, and
+        # .github/workflows is not a $POOL_FOLDERS entry, so the pool copy above
+        # never carries it. Install it explicitly. (It is inert in this source
+        # repo -- cli/.github is not a root .github -- and only ever runs in the
+        # mirror.)
+        $cliWorkflow = Join-Path $cliSource ".github\workflows\npm-publish.yml"
+        if (Test-Path $cliWorkflow) {
+            $workflowDir = Join-Path $CADDIS_POOL ".github\workflows"
+            New-Item -ItemType Directory -Force $workflowDir | Out-Null
+            Copy-Item $cliWorkflow (Join-Path $workflowDir "npm-publish.yml") -Force
+            Write-Host "  [OK]  .github/workflows/npm-publish.yml (npm OIDC publish)" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "  [--]  cli/ - not in project, skipped" -ForegroundColor DarkGray
+    }
+
     Remove-LocalOnlyPoolFiles -GithubRoot $CADDIS_GITHUB
 
     # Commit and push caddis-plugin

@@ -1,0 +1,67 @@
+{
+  "name": "@caddis/cli",
+  "version": "0.1.0",
+  "description": "Install, update and diagnose the caddis dev harness across every coding agent you use (Claude Code, agy/Antigravity, and more).",
+  "keywords": [
+    "caddis",
+    "claude-code",
+    "antigravity",
+    "agy",
+    "ai-agent",
+    "cli",
+    "plugin-manager",
+    "developer-tools"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "bin": {
+    "caddis": "./dist/cli.js",
+    "caddis-cli": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "bundles",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saajunaid/caddis-plugin.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/saajunaid/caddis-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/saajunaid/caddis-plugin/issues"
+  },
+  "scripts": {
+    "bundles": "node scripts/copy-bundles.mjs",
+    "build": "npm run bundles && tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "commander": "^14.0.0",
+    "execa": "^9.5.2",
+    "picocolors": "^1.1.1",
+    "update-notifier": "^7.3.1",
+    "which": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/which": "^3.0.4",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

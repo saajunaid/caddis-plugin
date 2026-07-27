@@ -1,0 +1,10 @@
+# Build output
+dist/
+
+# Bundles are COPIED IN at build time from the exported runtime resources
+# (scripts/copy-bundles.mjs). They are generated artefacts, never source —
+# the source of truth is .github/ + export_runtime_resources.py.
+bundles/
+
+node_modules/
+*.tsbuildinfo

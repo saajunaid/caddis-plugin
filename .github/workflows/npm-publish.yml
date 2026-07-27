@@ -1,0 +1,132 @@
+# Publish @caddis/cli to npm via Trusted Publishing (OIDC).
+#
+# ── WHERE THIS RUNS ────────────────────────────────────────────────────────────
+# This file is AUTHORED in claudster-source at `cli/.github/workflows/` and is
+# INSTALLED BY `caddis-push` into the public mirror (saajunaid/caddis-plugin) at
+# `.github/workflows/npm-publish.yml`. It only ever executes in the MIRROR — that
+# is the public distribution repo, and it already receives the exported bundles.
+# Do not move it to the source repo's `.github/`: that directory is the agent
+# POOL and is exported into agent bundles.
+#
+# ── WHY NO NPM_TOKEN ──────────────────────────────────────────────────────────
+# Classic npm automation tokens were revoked 2025-12-09. Trusted Publishing
+# mints a short-lived credential from this workflow's OIDC identity, so there is
+# no secret to store, leak or rotate. It requires the trusted publisher to be
+# configured ON npmjs.com first, PER PACKAGE, at
+#   https://www.npmjs.com/package/@caddis/cli/access
+# and npm will not accept that configuration until the package already exists —
+# so a one-off manual 0.0.0 bootstrap publish comes first. Full runbook:
+# cli/PUBLISHING.md. Until that is done this workflow fails at the publish step
+# by design.
+#
+# ── TRIGGER ───────────────────────────────────────────────────────────────────
+# A `cli-v<semver>` tag in the mirror. The prefix is deliberate: the mirror also
+# carries the Claude Code plugin, and a bare `v*` tag would fire this on a
+# plugin release. `workflow_dispatch` gives the human a manual run.
+name: npm-publish
+
+on:
+  push:
+    tags:
+      - 'cli-v[0-9]+.[0-9]+.[0-9]+'
+      - 'cli-v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Pack and validate only — do not publish'
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write # REQUIRED: mints the OIDC token Trusted Publishing exchanges
+  contents: read
+
+defaults:
+  run:
+    working-directory: cli
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Doubles as a human approval gate when the mirror defines this environment
+    # with a required reviewer. IT MUST MATCH the "Environment name" field of the
+    # npm trusted-publisher config EXACTLY — a mismatch fails the OIDC claim
+    # check at publish time. To drop it, delete this line AND clear that npm
+    # field; change one without the other and publishing breaks.
+    environment: npm-publish
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Latest 22.x, not a pinned patch: npm's own `engines` field moves
+          # (npm 12 already requires node ^22.22.2 || ^24.15.0 || >=26), and a
+          # pinned 22.14 runner would fail to install a modern npm.
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Pinned to the 11.x line ON PURPOSE — `npm@latest` is a moving target
+      # whose node requirement can outrun the runner overnight, which turns a
+      # release into a red build for no reason. 11.15+ covers everything needed
+      # here: Trusted Publishing (>= 11.5.1) and `npm trust` (>= 11.15.0).
+      # Raise this deliberately, not automatically.
+      - name: Install a Trusted-Publishing-capable npm
+        run: npm install -g npm@^11.15.0
+
+      - name: Show toolchain and assert npm is new enough
+        run: |
+          node -v && npm -v
+          NPM_VERSION="$(npm -v)"
+          MAJOR="${NPM_VERSION%%.*}"
+          REST="${NPM_VERSION#*.}"
+          MINOR="${REST%%.*}"
+          if [ "$MAJOR" -lt 11 ] || { [ "$MAJOR" -eq 11 ] && [ "$MINOR" -lt 5 ]; }; then
+            echo "::error::npm $NPM_VERSION is too old for Trusted Publishing (need >= 11.5.1)"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The tag is the release's only source of truth for the version. A
+      # mismatch means someone tagged without bumping package.json — stop
+      # before publishing a version nobody reviewed.
+      - name: Verify the tag matches cli/package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#cli-v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG_VERSION package.json=$PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match cli/package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # `npm run build` copies the exported bundles in from the mirror's
+      # bundles/ tree, then bundles src/ into dist/cli.js.
+      - name: Build
+        run: npm run build
+
+      - name: Verify the shipped bundles are present
+        run: node scripts/copy-bundles.mjs --check
+
+      - name: Smoke-test the built CLI
+        run: |
+          node dist/cli.js --version
+          node dist/cli.js doctor --json
+
+      - name: Pack and show tarball contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true
+        # No NODE_AUTH_TOKEN and no `--provenance`: Trusted Publishing supplies
+        # the credential from the OIDC token and attaches provenance itself.
+        run: npm publish
