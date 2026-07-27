@@ -1,19 +1,17 @@
 ---
-description: Report the installed caddis version (baked in at build time — works in any host)
+description: Report the installed caddis version
 ---
 
 # /version — what caddis am I running?
 
-Report the caddis toolchain version to the user, plainly:
+Report the caddis toolchain version to the user as **caddis &lt;version&gt;**.
 
-> **caddis 1.3.34**
+Get the version by reading the `version` field of the `plugin.json` manifest that ships in THIS install —
+do NOT guess or infer it from anything else. Read whichever path exists:
 
-This string is substituted into this command at **build/export time**, so it reflects the exact
-version of the installed plugin/bundle — no file reading, no host CLI needed, and it works identically
-in Claude Code, agy (Antigravity), and any other agent the pool is exported to.
+- **Claude Code:** `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`
+- **agy (Antigravity):** the caddis plugin install dir — `~/.gemini/config/plugins/caddis/plugin.json`
+- **Otherwise:** the nearest `plugin.json` at/above this skill whose `name` is `caddis`.
 
-If the user asks how to update:
-- **Claude Code:** `claude plugin update caddis@caddis` (then restart the session).
-- **agy (Antigravity):** re-import the bundle — `agy plugin install <caddis-plugin-checkout>/bundles/antigravity-plugin` (then restart the agy session). agy has no version-gated auto-update yet.
-
-Do not guess or infer the version from anything else — the value above is authoritative.
+Read that file, take its `version`, and report `caddis &lt;version&gt;`. This reads the manifest live, so it is
+always the exact installed version. If no manifest is found, say so plainly rather than reporting a guess.
