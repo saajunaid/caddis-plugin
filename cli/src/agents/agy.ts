@@ -16,7 +16,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentAdapter, AgentStatus, Detection, DriveOptions, DriveResult, DriveAction, StepResult } from './types.js';
+import type { AgentAdapter, AgentStatus, Detection, DriveOptions, DriveResult, DriveAction, ExtrasStatus, StepResult } from './types.js';
 import { run, formatCommand } from '../util/exec.js';
 import { findBin } from '../util/which.js';
 import { bundlePath } from '../util/pkg.js';
@@ -25,9 +25,13 @@ const BIN = 'agy';
 const BUNDLE = 'antigravity-plugin';
 const PLUGIN = 'caddis';
 
+/** The optional long-tail plugin. Separate plugin, separate version line. */
+const EXTRAS_BUNDLE = 'antigravity-plugin-extras';
+const EXTRAS_PLUGIN = 'caddis-extras';
+
 /** Where agy records an imported plugin's manifest. Overridable for tests. */
-export function pluginManifestPath(home = os.homedir()): string {
-  return path.join(home, '.gemini', 'config', 'plugins', PLUGIN, 'plugin.json');
+export function pluginManifestPath(home = os.homedir(), plugin: string = PLUGIN): string {
+  return path.join(home, '.gemini', 'config', 'plugins', plugin, 'plugin.json');
 }
 
 async function detect(): Promise<Detection> {
@@ -63,17 +67,34 @@ export function readInstalledVersion(manifestFile: string): string | null {
 export function statusFromHome(home: string): AgentStatus {
   const manifestFile = pluginManifestPath(home);
   const version = readInstalledVersion(manifestFile);
+  const extras = extrasStatusFromHome(home);
+
   if (version) {
-    return { installed: true, version, source: shortenHome(manifestFile) };
+    return { installed: true, version, source: shortenHome(manifestFile), extras };
   }
   if (existsSync(manifestFile)) {
     return {
       installed: true,
       source: shortenHome(manifestFile),
+      extras,
       note: 'manifest present but unreadable / has no version',
     };
   }
-  return { installed: false, source: shortenHome(manifestFile), note: 'caddis plugin not imported into agy' };
+  return {
+    installed: false,
+    source: shortenHome(manifestFile),
+    extras,
+    note: 'caddis plugin not imported into agy',
+  };
+}
+
+/** The `caddis-extras` plugin's own install state. Absent is normal — it is opt-in. */
+export function extrasStatusFromHome(home: string): ExtrasStatus {
+  const manifestFile = pluginManifestPath(home, EXTRAS_PLUGIN);
+  const version = readInstalledVersion(manifestFile);
+  if (version) return { installed: true, version, source: shortenHome(manifestFile) };
+  if (existsSync(manifestFile)) return { installed: true, source: shortenHome(manifestFile) };
+  return { installed: false };
 }
 
 async function status(): Promise<AgentStatus> {
@@ -105,33 +126,62 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
 
   // install is idempotent in agy: re-installing over an existing import is the
   // update path, so `install` and `update` drive the same command.
-  const step = { cmd: BIN, args: ['plugin', 'install', bundle] };
-  const command = formatCommand(step.cmd, step.args);
+  const planned = [{ cmd: BIN, args: ['plugin', 'install', bundle] }];
 
-  if (options.dryRun) {
-    return { ok: true, skipped: true, steps: [{ command, ok: true, code: null }], message: 'dry run — nothing executed' };
+  // Extras is opt-in via --extras, BUT an extras install that already exists is
+  // always kept current: leaving it to rot at an old version because the user
+  // forgot a flag is worse than the 1 extra command. So --extras means "add it",
+  // not "the only way it ever updates".
+  const extrasInstalled = extrasStatusFromHome(os.homedir()).installed;
+  if (options.extras === true || extrasInstalled) {
+    const extrasBundle = bundlePath(EXTRAS_BUNDLE);
+    if (extrasBundle) {
+      planned.push({ cmd: BIN, args: ['plugin', 'install', extrasBundle] });
+    } else if (options.extras === true) {
+      return {
+        ok: false,
+        skipped: false,
+        steps: [],
+        message: `--extras requested but the ${EXTRAS_BUNDLE} bundle is missing from this package — reinstall @caddis/cli`,
+      };
+    }
   }
 
-  const result = await run(step.cmd, step.args);
-  const stepResult: StepResult = {
-    command,
-    ok: result.ok,
-    code: result.code,
-    output: result.ok ? undefined : (result.stderr || result.stdout || result.failure || '').trim().split(/\r?\n/).slice(-3).join('\n'),
-  };
-  return {
-    ok: result.ok,
-    skipped: false,
-    steps: [stepResult],
-    message: result.ok ? undefined : `\`${command}\` failed`,
-  };
+  if (options.dryRun) {
+    return {
+      ok: true,
+      skipped: true,
+      steps: planned.map((s) => ({ command: formatCommand(s.cmd, s.args), ok: true, code: null })),
+      message: 'dry run — nothing executed',
+    };
+  }
+
+  const steps: StepResult[] = [];
+  for (const step of planned) {
+    const command = formatCommand(step.cmd, step.args);
+    const result = await run(step.cmd, step.args);
+    steps.push({
+      command,
+      ok: result.ok,
+      code: result.code,
+      output: result.ok
+        ? undefined
+        : (result.stderr || result.stdout || result.failure || '').trim().split(/\r?\n/).slice(-3).join('\n'),
+    });
+    // Core must succeed before extras is attempted — extras is an add-on to it.
+    if (!result.ok) {
+      return { ok: false, skipped: false, steps, message: `\`${command}\` failed` };
+    }
+  }
+
+  return { ok: true, skipped: false, steps };
 }
 
 export const agyAdapter: AgentAdapter = {
   id: 'agy',
   name: 'agy (Antigravity)',
   supported: true,
-  summary: 'install the caddis bundle shipped in this package',
+  summary: 'install the caddis bundle shipped in this package (--extras adds caddis-extras)',
   detect,
   drive,
   status,

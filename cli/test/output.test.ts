@@ -114,10 +114,10 @@ describe('status', () => {
 
     expect(out).toContain('cli 0.1.0');
     expect(out).toContain('pool 1.3.39');
-    expect(out).toMatch(/AGENT\s+DETECTED\s+CADDIS\s+STATE/);
-    expect(out).toMatch(/Claude Code\s+yes\s+1\.3\.38\s+update available/);
-    expect(out).toMatch(/Codex\s+yes\s+—\s+v0\.2/);
-    expect(out).toMatch(/GitHub Copilot\s+no\s+—/);
+    expect(out).toMatch(/AGENT\s+DETECTED\s+CADDIS\s+EXTRAS\s+STATE/);
+    expect(out).toMatch(/Claude Code\s+yes\s+1\.3\.38\s+—\s+update available/);
+    expect(out).toMatch(/Codex\s+yes\s+—\s+—\s+v0\.2/);
+    expect(out).toMatch(/GitHub Copilot\s+no\s+—\s+—/);
     expect(out).toContain('2 agent(s) behind');
     expect(code).toBe(0);
   });
@@ -142,8 +142,8 @@ describe('update', () => {
     const adapters = realWorldAdapters();
     const code = await update({ adapters, dryRun: false, yes: true });
 
-    expect(adapters[0]?.drive).toHaveBeenCalledWith('update', { dryRun: false });
-    expect(adapters[1]?.drive).toHaveBeenCalledWith('update', { dryRun: false });
+    expect(adapters[0]?.drive).toHaveBeenCalledWith('update', { dryRun: false, extras: false });
+    expect(adapters[1]?.drive).toHaveBeenCalledWith('update', { dryRun: false, extras: false });
     expect(adapters[2]?.drive).not.toHaveBeenCalled(); // codex stub
     expect(adapters[3]?.drive).not.toHaveBeenCalled(); // absent
     expect(code).toBe(0);
@@ -159,7 +159,7 @@ describe('update', () => {
   it('--dry-run changes nothing and says so', async () => {
     const adapters = realWorldAdapters();
     await update({ adapters, dryRun: true, yes: true });
-    expect(adapters[0]?.drive).toHaveBeenCalledWith('update', { dryRun: true });
+    expect(adapters[0]?.drive).toHaveBeenCalledWith('update', { dryRun: true, extras: false });
     expect(capture.output()).toContain('dry run');
   });
 

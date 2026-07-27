@@ -24,12 +24,17 @@ export async function status(options: StatusOptions): Promise<number> {
   }
 
   line('');
-  line(`  ${color.bold('caddis')}  cli ${color.bold(report.cliVersion)}  ·  pool ${color.bold(report.poolVersion)}`);
+  line(
+    `  ${color.bold('caddis')}  cli ${color.bold(report.cliVersion)}  ·  pool ${color.bold(report.poolVersion)}` +
+      (report.extrasVersion ? `  ·  extras ${color.bold(report.extrasVersion)}` : ''),
+  );
   line('');
-  line(renderTable(['AGENT', 'DETECTED', 'CADDIS', 'STATE'], report.agents.map(toRow)));
+  line(renderTable(['AGENT', 'DETECTED', 'CADDIS', 'EXTRAS', 'STATE'], report.agents.map(toRow)));
   line('');
 
-  const stale = report.agents.filter((entry) => entry.drift === 'stale' || entry.drift === 'missing');
+  const stale = report.agents.filter(
+    (entry) => entry.drift === 'stale' || entry.drift === 'missing' || entry.extrasDrift === 'stale',
+  );
   if (stale.length > 0) {
     line(`  ${color.yellow(`${stale.length} agent(s) behind`)} — run ${color.cyan('caddis update')} (or ${color.cyan('caddis doctor')} for detail)`);
     line('');
@@ -47,6 +52,9 @@ function toRow(entry: AgentReport): string[] {
     entry.adapter.name,
     entry.detection.present ? color.green('yes') : color.dim('no'),
     (managed && entry.status.version) || color.dim('—'),
+    // Extras gets its own column rather than being folded into CADDIS: it
+    // versions independently, so showing one number for both would be a lie.
+    (managed && entry.status.extras?.version) || color.dim('—'),
     stateLabel(entry.drift, entry.status.disabled ?? false),
   ];
 }

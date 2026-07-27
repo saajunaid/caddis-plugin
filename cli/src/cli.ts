@@ -57,16 +57,25 @@ withGlobalFlags(program)
 
 withGlobalFlags(program.command('init'))
   .description('first run: detect your agents, confirm, install caddis into each')
-  .action(async (options: GlobalFlags) => {
+  .option('--extras', 'also install the optional caddis-extras long-tail skills', false)
+  .action(async (options: GlobalFlags & { extras?: boolean }) => {
     const flags = mergeFlags(options);
     const { init } = await import('./commands/init.js');
-    finish(await init({ adapters: resolveAdapters(flags), dryRun: flags.dryRun, yes: flags.yes }));
+    finish(
+      await init({
+        adapters: resolveAdapters(flags),
+        dryRun: flags.dryRun,
+        yes: flags.yes,
+        extras: options.extras === true,
+      }),
+    );
   });
 
 withGlobalFlags(program.command('update'))
   .description('update every detected agent to the caddis version shipped in this CLI')
   .option('-f, --force', 're-drive agents that already report the shipped version', false)
-  .action(async (options: GlobalFlags & { force?: boolean }) => {
+  .option('--extras', 'also install the optional caddis-extras long-tail skills', false)
+  .action(async (options: GlobalFlags & { force?: boolean; extras?: boolean }) => {
     const flags = mergeFlags(options);
     const { update } = await import('./commands/update.js');
     finish(
@@ -75,6 +84,7 @@ withGlobalFlags(program.command('update'))
         dryRun: flags.dryRun,
         yes: flags.yes,
         force: options.force === true,
+        extras: options.extras === true,
       }),
     );
   });
@@ -106,11 +116,14 @@ ${color.bold('Examples')}
   $ caddis doctor                   what is installed where, and what to do about it
   $ caddis update --dry-run         preview the exact vendor commands
   $ caddis update --agent agy       update just one agent
+  $ caddis init --extras            add the optional caddis-extras skill library
   $ caddis doctor --strict          exit non-zero on drift (CI)
 
 ${color.bold('Supported agents')}
   claude    Claude Code       via its plugin marketplace
   agy       Antigravity       via the caddis bundle shipped in this package
+                              (--extras adds caddis-extras; already-installed
+                               extras is kept current automatically)
   codex     Codex             detected only — config merge lands in v0.2
   copilot   GitHub Copilot    detected only — config merge lands in v0.2
 `,

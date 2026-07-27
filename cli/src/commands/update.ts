@@ -13,6 +13,8 @@ export interface UpdateOptions {
   yes: boolean;
   /** Drive even agents already reporting the shipped version. */
   force?: boolean;
+  /** Add the optional caddis-extras plugin. */
+  extras?: boolean;
 }
 
 export async function update(options: UpdateOptions): Promise<number> {
@@ -43,6 +45,11 @@ export async function update(options: UpdateOptions): Promise<number> {
   }
 
   line('');
-  const outcome = await driveAgents(targets, { action: 'update', dryRun: options.dryRun, quiet: options.yes });
+  const outcome = await driveAgents(targets, {
+    action: 'update',
+    dryRun: options.dryRun,
+    extras: options.extras,
+    quiet: options.yes,
+  });
   return reportOutcome(outcome, options.dryRun);
 }

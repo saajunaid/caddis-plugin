@@ -13,6 +13,8 @@ import type { AgentReport } from './report.js';
 export interface DriveRunOptions {
   action: DriveAction;
   dryRun: boolean;
+  /** Add the optional caddis-extras plugin where the adapter supports one. */
+  extras?: boolean;
   /** Suppress spinners (non-TTY, CI, --yes piped output). */
   quiet?: boolean;
 }
@@ -32,7 +34,10 @@ export async function driveAgents(entries: AgentReport[], options: DriveRunOptio
     const spinner = useSpinner ? clack.spinner() : null;
     spinner?.start(`${label} — ${entry.adapter.summary}`);
 
-    const result = await entry.adapter.drive(options.action, { dryRun: options.dryRun });
+    const result = await entry.adapter.drive(options.action, {
+      dryRun: options.dryRun,
+      extras: options.extras === true,
+    });
 
     if (result.skipped) {
       outcome.skipped += 1;

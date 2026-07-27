@@ -75,6 +75,9 @@ function renderEnvironment(report: Report, problems: Problem[]): void {
     for (const [name, version] of Object.entries(manifest.bundles)) {
       detail(`bundle ${name} @ ${version}`);
     }
+    if (report.extrasVersion) {
+      detail(`caddis-extras ships at ${report.extrasVersion} (versioned independently of the pool)`);
+    }
   }
 }
 
@@ -90,11 +93,18 @@ function renderAgents(report: Report, problems: Problem[]): void {
     if (status.source) detail(`read from ${status.source}`);
     if (status.note) detail(status.note);
     if (detection.note && detection.note !== status.note) detail(detection.note);
+    if (entry.extrasDrift) detail(describeExtras(entry, report.extrasVersion));
 
     const problem = problemFor(entry, report.poolVersion);
     if (problem) {
       problems.push(problem);
       if (problem.fix) hint(color.bold(problem.fix));
+    }
+
+    const extrasProblem = extrasProblemFor(entry, report.extrasVersion);
+    if (extrasProblem) {
+      problems.push(extrasProblem);
+      if (extrasProblem.fix) hint(color.bold(extrasProblem.fix));
     }
   }
 }
@@ -163,6 +173,45 @@ function describe(entry: AgentReport, poolVersion: string): string {
   }
 }
 
+function describeExtras(entry: AgentReport, extrasVersion: string | undefined): string {
+  const installed = entry.status.extras?.version;
+  switch (entry.extrasDrift) {
+    case 'current':
+      return `caddis-extras ${installed} (current)`;
+    case 'stale':
+      return `caddis-extras ${installed} → ${extrasVersion ?? '?'} available`;
+    case 'unknown':
+      return 'caddis-extras installed, version not reported';
+    case 'missing':
+      return `caddis-extras not installed (optional — add with --extras)`;
+    default:
+      return 'caddis-extras n/a';
+  }
+}
+
+/**
+ * Extras problems are reported ONLY when it is installed and behind. Extras is
+ * opt-in, so "not installed" is a normal state, not a defect — flagging it
+ * would make doctor nag every user who deliberately doesn't want it.
+ */
+function extrasProblemFor(entry: AgentReport, extrasVersion: string | undefined): Problem | null {
+  if (entry.extrasDrift === 'stale') {
+    return {
+      kind: 'problem',
+      text: `${entry.adapter.name} has caddis-extras ${entry.status.extras?.version}, this CLI ships ${extrasVersion}`,
+      fix: `caddis update --agent ${entry.adapter.id}`,
+    };
+  }
+  if (entry.extrasDrift === 'unknown') {
+    return {
+      kind: 'problem',
+      text: `${entry.adapter.name} has caddis-extras but will not report a version`,
+      fix: `caddis update --agent ${entry.adapter.id} --extras`,
+    };
+  }
+  return null;
+}
+
 function problemFor(entry: AgentReport, poolVersion: string): Problem | null {
   const scope = `--agent ${entry.adapter.id}`;
   switch (entry.drift) {
@@ -207,6 +256,7 @@ function toJson(report: Report) {
   return {
     cliVersion: report.cliVersion,
     poolVersion: report.poolVersion,
+    extrasVersion: report.extrasVersion ?? null,
     node: process.versions.node,
     platform: `${process.platform}-${process.arch}`,
     agents: report.agents.map((entry) => ({
@@ -219,6 +269,8 @@ function toJson(report: Report) {
       caddisVersion: entry.status.version ?? null,
       disabled: entry.status.disabled ?? false,
       drift: entry.drift,
+      extrasVersion: entry.status.extras?.version ?? null,
+      extrasDrift: entry.extrasDrift ?? null,
       note: entry.status.note ?? entry.detection.note ?? null,
     })),
   };

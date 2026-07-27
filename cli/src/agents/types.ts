@@ -21,15 +21,30 @@ export interface Detection {
   note?: string;
 }
 
+/**
+ * The optional long-tail skill plugin (`caddis-extras`).
+ *
+ * It is a SEPARATE plugin with its OWN version line — 1.3.13 while core is
+ * 1.3.39 — so it can never be compared against the core pool version. Tracked
+ * apart from `AgentStatus.version` for exactly that reason.
+ */
+export interface ExtrasStatus {
+  installed: boolean;
+  version?: string;
+  source?: string;
+}
+
 /** Which caddis is installed INTO that agent? */
 export interface AgentStatus {
   installed: boolean;
-  /** The caddis version the agent currently has. */
+  /** The caddis CORE version the agent currently has. */
   version?: string;
   /** Where the version was read from — doctor prints it so a wrong answer is debuggable. */
   source?: string;
   /** True when the agent has caddis but it is disabled rather than active. */
   disabled?: boolean;
+  /** Undefined when the adapter does not support an extras plugin at all. */
+  extras?: ExtrasStatus;
   note?: string;
 }
 
@@ -51,6 +66,13 @@ export interface DriveResult {
 
 export interface DriveOptions {
   dryRun: boolean;
+  /**
+   * Add the optional `caddis-extras` long-tail plugin (`--extras`), mirroring
+   * `caddis-init --extras`. Opt-in: extras is a large, always-loaded skill set,
+   * so it is never installed by default. An extras install that ALREADY exists
+   * is kept current regardless of this flag — adapters decide that.
+   */
+  extras?: boolean;
 }
 
 export interface AgentAdapter {

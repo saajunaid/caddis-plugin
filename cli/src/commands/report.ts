@@ -21,11 +21,20 @@ export interface AgentReport {
   detection: Detection;
   status: AgentStatus;
   drift: DriftState;
+  /**
+   * Extras drift, tracked SEPARATELY because `caddis-extras` has its own
+   * version line (1.3.13 vs core 1.3.39). Undefined when the agent has no
+   * extras concept; 'missing' means "supported here, simply not installed" —
+   * which is the normal, non-problem state for an opt-in add-on.
+   */
+  extrasDrift?: DriftState;
 }
 
 export interface Report {
   cliVersion: string;
   poolVersion: string;
+  /** Version of the shipped `caddis-extras` bundle, if this package ships one. */
+  extrasVersion?: string;
   agents: AgentReport[];
 }
 
@@ -39,7 +48,9 @@ function classify(adapter: AgentAdapter, detection: Detection, status: AgentStat
 }
 
 export async function gather(adapters: AgentAdapter[]): Promise<Report> {
-  const { poolVersion } = bundleManifest();
+  const manifest = bundleManifest();
+  const poolVersion = manifest.poolVersion;
+  const extrasVersion = manifest.bundles['antigravity-plugin-extras'];
 
   // Detection and status both shell out; run the agents concurrently so doctor
   // costs one agent's latency, not the sum of them.
@@ -47,19 +58,43 @@ export async function gather(adapters: AgentAdapter[]): Promise<Report> {
     adapters.map(async (adapter): Promise<AgentReport> => {
       const detection = await adapter.detect();
       const status = detection.present ? await adapter.status() : { installed: false, note: 'agent not installed' };
-      return { adapter, detection, status, drift: classify(adapter, detection, status, poolVersion) };
+      return {
+        adapter,
+        detection,
+        status,
+        drift: classify(adapter, detection, status, poolVersion),
+        extrasDrift: classifyExtras(adapter, detection, status, extrasVersion),
+      };
     }),
   );
 
-  return { cliVersion: packageInfo().version, poolVersion, agents };
+  return { cliVersion: packageInfo().version, poolVersion, extrasVersion, agents };
 }
 
-/** Agents this run should actually drive: present, supported, and not already current. */
+function classifyExtras(
+  adapter: AgentAdapter,
+  detection: Detection,
+  status: AgentStatus,
+  extrasVersion: string | undefined,
+): DriftState | undefined {
+  if (!status.extras) return undefined; // adapter has no extras concept
+  if (!detection.present) return 'absent';
+  if (!adapter.supported) return 'unsupported';
+  if (!status.extras.installed) return 'missing'; // normal: extras is opt-in
+  if (!status.extras.version || !extrasVersion) return 'unknown';
+  return status.extras.version === extrasVersion ? 'current' : 'stale';
+}
+
+/**
+ * Agents this run should actually drive: present, supported, and not already
+ * current. An installed-but-stale EXTRAS counts as not-current even when core
+ * is current — otherwise `update` would silently leave extras behind.
+ * A `missing` extras does not, because extras is opt-in (`--extras` handles it).
+ */
 export function actionable(report: Report, includeCurrent = false): AgentReport[] {
-  return report.agents.filter(
-    (entry) =>
-      entry.detection.present &&
-      entry.adapter.supported &&
-      (includeCurrent || entry.drift !== 'current'),
-  );
+  return report.agents.filter((entry) => {
+    if (!entry.detection.present || !entry.adapter.supported) return false;
+    if (includeCurrent) return true;
+    return entry.drift !== 'current' || entry.extrasDrift === 'stale' || entry.extrasDrift === 'unknown';
+  });
 }

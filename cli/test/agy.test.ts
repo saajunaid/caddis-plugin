@@ -13,7 +13,7 @@ vi.mock('../src/util/pkg.js', async (importOriginal) => {
   return { ...actual, bundlePath: vi.fn() };
 });
 
-import { agyAdapter, pluginManifestPath, readInstalledVersion, statusFromHome } from '../src/agents/agy.js';
+import { agyAdapter, extrasStatusFromHome, pluginManifestPath, readInstalledVersion, statusFromHome } from '../src/agents/agy.js';
 import { run } from '../src/util/exec.js';
 import { findBin } from '../src/util/which.js';
 import { bundlePath } from '../src/util/pkg.js';
@@ -33,8 +33,18 @@ beforeEach(() => {
   mockRun.mockReset();
   mockWhich.mockReset();
   mockBundlePath.mockReset();
-  mockBundlePath.mockReturnValue('/pkg/bundles/antigravity-plugin');
+  mockBundlePath.mockImplementation((name: string) => `/pkg/bundles/${name}`);
 });
+
+/** Build a fake agy home with the given plugins installed. */
+function agyHome(label: string, plugins: Record<string, string | null>): string {
+  const home = path.join(scratch, label);
+  for (const [plugin, version] of Object.entries(plugins)) {
+    mkdirSync(path.join(home, '.gemini', 'config', 'plugins', plugin), { recursive: true });
+    writeFileSync(pluginManifestPath(home, plugin), version === null ? '{ broken' : JSON.stringify({ name: plugin, version }));
+  }
+  return home;
+}
 
 describe('pluginManifestPath', () => {
   it('points at agy\'s own plugin manifest under the home dir', () => {
@@ -153,5 +163,82 @@ describe('agy adapter status', () => {
   it('short-circuits to not-installed when agy itself is absent', async () => {
     mockWhich.mockResolvedValue(null);
     expect(await agyAdapter.status()).toMatchObject({ installed: false, note: 'agent not installed' });
+  });
+});
+
+
+describe('agy extras (caddis-extras)', () => {
+  it('reports extras as not-installed when absent — the normal opt-in state', () => {
+    const home = agyHome('extras-none', { caddis: '1.3.39' });
+    expect(statusFromHome(home).extras).toEqual({ installed: false });
+  });
+
+  it('reads the extras version from its OWN manifest, not the core one', () => {
+    // extras versions independently: 1.3.13 while core is 1.3.39. Reading core's
+    // version for extras would report it as current when it is 26 patches behind.
+    const home = agyHome('extras-both', { caddis: '1.3.39', 'caddis-extras': '1.3.13' });
+    const status = statusFromHome(home);
+    expect(status.version).toBe('1.3.39');
+    expect(status.extras).toMatchObject({ installed: true, version: '1.3.13' });
+  });
+
+  it('handles extras installed without core', () => {
+    const home = agyHome('extras-only', { 'caddis-extras': '1.3.13' });
+    const status = statusFromHome(home);
+    expect(status.installed).toBe(false);
+    expect(status.extras?.installed).toBe(true);
+  });
+
+  it('treats a corrupt extras manifest as installed-but-versionless', () => {
+    const home = agyHome('extras-broken', { caddis: '1.3.39', 'caddis-extras': null });
+    const extras = extrasStatusFromHome(home);
+    expect(extras.installed).toBe(true);
+    expect(extras.version).toBeUndefined();
+  });
+
+  it('does NOT install extras by default', async () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    const result = await agyAdapter.drive('install', { dryRun: true });
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]?.command).toContain('antigravity-plugin');
+    expect(result.steps[0]?.command).not.toContain('extras');
+  });
+
+  it('installs extras when --extras is passed', async () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    const result = await agyAdapter.drive('install', { dryRun: true, extras: true });
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]?.command).toBe('agy plugin install /pkg/bundles/antigravity-plugin-extras');
+  });
+
+  it('installs core BEFORE extras', async () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    const result = await agyAdapter.drive('install', { dryRun: true, extras: true });
+    expect(result.steps[0]?.command).toContain('/antigravity-plugin');
+    expect(result.steps[0]?.command).not.toContain('extras');
+  });
+
+  it('does not attempt extras when core install fails', async () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun
+      .mockResolvedValueOnce(ok('1.1.7')) // detect
+      .mockResolvedValueOnce(fail('core exploded'));
+    const result = await agyAdapter.drive('update', { dryRun: false, extras: true });
+    expect(result.ok).toBe(false);
+    expect(result.steps).toHaveLength(1);
+  });
+
+  it('fails with a clear message when --extras is asked for but the bundle was not packed', async () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockBundlePath.mockImplementation((name: string) =>
+      name === 'antigravity-plugin-extras' ? null : `/pkg/bundles/${name}`,
+    );
+    const result = await agyAdapter.drive('update', { dryRun: false, extras: true });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/--extras requested but the antigravity-plugin-extras bundle is missing/);
   });
 });

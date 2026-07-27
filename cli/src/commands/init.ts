@@ -16,6 +16,8 @@ export interface InitOptions {
   adapters: AgentAdapter[];
   dryRun: boolean;
   yes: boolean;
+  /** Add the optional caddis-extras plugin. */
+  extras?: boolean;
 }
 
 export async function init(options: InitOptions): Promise<number> {
@@ -67,7 +69,12 @@ export async function init(options: InitOptions): Promise<number> {
     }
   }
 
-  const outcome = await driveAgents(targets, { action: 'install', dryRun: options.dryRun, quiet: options.yes });
+  const outcome = await driveAgents(targets, {
+    action: 'install',
+    dryRun: options.dryRun,
+    extras: options.extras,
+    quiet: options.yes,
+  });
   const code = reportOutcome(outcome, options.dryRun);
   clack.outro(code === 0 ? `Run ${color.cyan('caddis doctor')} any time to check drift.` : 'Finished with errors.');
   return code;

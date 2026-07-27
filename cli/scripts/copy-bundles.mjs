@@ -50,10 +50,15 @@ const BUNDLE_SOURCES = [
  *   codex                     1.3 MB  ✗  the Codex file-drop (.codex/ + AGENTS.md).
  *                                     The Codex adapter is a v0.2 stub that writes
  *                                     nothing, so this would be dead weight.
- *   antigravity-plugin-extras 9.3 MB  ✗  the SEPARATE `caddis-extras` plugin, not
- *   antigravity-extras        9.3 MB  ✗  core caddis. ~7 MB of the size is two
- *   codex-extras              9.3 MB  ✗  asset-heavy skills (canvas-design 5.6 MB,
- *                                     ui-ux-intelligence 1.5 MB). Out of v0.1 scope.
+ *   antigravity-plugin-extras 9.3 MB  ✅ SHIPPED (v0.2) — the SEPARATE `caddis-extras`
+ *                                     agy plugin, versioned independently of core.
+ *                                     Installed ONLY on `--extras` (or to keep an
+ *                                     existing extras install current), matching
+ *                                     `caddis-init --extras`. ~7 MB of its size is
+ *                                     two asset-heavy skills (canvas-design 5.6 MB,
+ *                                     ui-ux-intelligence 1.5 MB).
+ *   antigravity-extras        9.3 MB  ✗  the same extras as a file-drop, and
+ *   codex-extras              9.3 MB  ✗  the Codex form. No adapter reads either.
  *
  * Claude Code is absent from this list on purpose: it installs caddis from its
  * own marketplace, so its bundle never needs to ride in the tarball at all.
@@ -62,7 +67,14 @@ const BUNDLE_SOURCES = [
  * deliver 1.4 MB of used content (plan risk #4). Add a name here when the
  * adapter that consumes it lands — the size tripwire below will flag the cost.
  */
-const SHIPPED_BUNDLES = ['antigravity-plugin'];
+const SHIPPED_BUNDLES = ['antigravity-plugin', 'antigravity-plugin-extras'];
+
+/**
+ * Bundles whose version is NOT the core pool version. `caddis-extras` ships and
+ * versions independently (1.3.13 while core is 1.3.39), so the staleness warning
+ * below must not compare it against the pool manifest.
+ */
+const INDEPENDENTLY_VERSIONED = new Set(['antigravity-plugin-extras']);
 
 /** Warn if the packed bundles grow past this. Plan risk #4 tripwire. */
 const SIZE_WARN_BYTES = 5 * 1024 * 1024;
@@ -141,6 +153,7 @@ for (const name of SHIPPED_BUNDLES) {
 const poolVersion = (await poolVersionFromManifest()) ?? versions[SHIPPED_BUNDLES[0]] ?? 'unknown';
 
 for (const [name, version] of Object.entries(versions)) {
+  if (INDEPENDENTLY_VERSIONED.has(name)) continue;
   if (version !== poolVersion) {
     console.warn(
       `[copy-bundles] WARN bundle ${name} is ${version} but the pool manifest says ${poolVersion}.\n` +
