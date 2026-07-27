@@ -413,7 +413,8 @@
       "files": [
         {"root": "harness", "source": "agy/hooks.json", "destination": "hooks.json"},
         {"root": "harness", "source": "agy/mcp_config.json", "destination": "mcp_config.json"},
-        {"root": "harness", "source": "agy/mcp_ping_server.py", "destination": "mcp_ping_server.py"}
+        {"root": "harness", "source": "agy/mcp_ping_server.py", "destination": "mcp_ping_server.py"},
+        {"root": "harness", "source": "statusline-command-agy.sh", "destination": "statusline-command-agy.sh"}
       ]
     },
     {

@@ -1,4 +1,5 @@
 ---
+name: resume
 description: Pop the most recently parked workstream off the stack and resume it at its exact resume point
 ---
 

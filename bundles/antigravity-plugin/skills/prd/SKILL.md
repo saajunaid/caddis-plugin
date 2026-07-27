@@ -1,6 +1,6 @@
 ---
+name: prd
 description: Capture requirements through structured discovery and write a PRD
-argument-hint: <feature or problem>
 ---
 
 # /prd — requirements discovery

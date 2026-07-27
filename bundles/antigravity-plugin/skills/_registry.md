@@ -15,6 +15,7 @@
 | Backend Development | `backend-development/` | Backend API design, database architecture, microservices patterns, and test-driven development. Use for designing APIs, database schemas, or backend system architecture. |
 | Code Review | `code-review/` | Automated code review for pull requests using specialized review patterns. Analyzes code for quality, security, performance, and best practices. Use when reviewing code changes, PRs, or doing code audits. |
 | Codebase Audit | `codebase-audit/` | Systematic codebase audit methodology for unfamiliar codebases before architecture or implementation work. Use for new codebase, unfamiliar codebase, pre-implementation audit, codebase review, technical due diligence, or onboarding to an existing project. Produces AUDIT-FINDINGS.md and QUESTIONS.md. Routes to Architect, Planner, or Code Reviewer agents. |
+| Cross Review | `cross-review/` | Cross-vendor code review of the current diff — a second-vendor model (DeepSeek/GLM/any OpenAI-compatible endpoint) reviews your changes to catch bugs a same-vendor reviewer misses |
 | Error Handling | `error-handling/` | Error handling patterns for Python and TypeScript applications. Use when designing error hierarchies, implementing retry logic, building error boundaries, or establishing logging strategies. Covers custom exceptions, result types, circuit breakers, and user-facing error messages. |
 | Fastapi Dev | `fastapi-dev/` | Build FastAPI backends with standard patterns, error handling, and testing |
 | Javascript Typescript | `javascript-typescript/` | JavaScript and TypeScript development with ES6+, Node.js, React, and modern web frameworks. Use for frontend, backend, or full-stack JavaScript/TypeScript projects. |
@@ -60,6 +61,29 @@
 | Ui Review | `ui-review/` | Review UI implementations against design requirements, accessibility standards (WCAG 2.2 AA), and brand guidelines. Use when reviewing designs or validating UI before release. |
 | Warm Editorial Ui | `warm-editorial-ui/` | Apply the "Warm Editorial Refinement" design system — a sophisticated, executive-grade aesthetic with warm cream surfaces (light mode) and warm charcoal surfaces (dark mode), Bahnschrift + Plus Jakarta Sans typography, generous rounded corners, multi-layer shadows, and a warm neutral palette. Supports both light and dark themes via CSS custom properties and the `.dark` class. Use this skill whenever the user wants to build an app, dashboard, component, or web UI using the abc-project visual style. Trigger on phrases like "use our design system", "apply our template", "make it look like abc-project", "use the warm editorial style", "use our brand template", "add dark mode", or any request to build a new tool/app/dashboard for XYZ Brand or similar contexts. This is the canonical design template for all new frontend builds. |
 
+### General
+
+| Skill | Path | When to Use |
+|-------|------|-------------|
+| Add Rules | `add-rules/` | Create canonical rules for ANY folder — write <folder>/AGENTS.md (from the folder template) + a <folder>/CLAUDE.md @import shim. For folders the stack-map generator doesn't cover. |
+| Digress | `digress/` | Park the current workstream on the stack and switch to a new task — without losing the original |
+| Excalidraw Db | `excalidraw-db/` | Turn a SQL artifact into an Excalidraw diagram for a design review / ARB pack / slide — higher-level, drag-the-boxes format |
+| Feature Plan | `feature-plan/` | Create a phased, TDD-structured implementation plan that acts as the durable spine for multi-session work |
+| Handoff | `handoff/` | End-of-session handoff — capture exact state so the next session resumes with zero re-discovery |
+| Implement | `implement/` | Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase |
+| Kb | `kb/` | Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links |
+| Mermaid Db | `mermaid-db/` | Turn a SQL artifact (proc, view, query, .sql file, or table name) into a Mermaid diagram that explains it — git-diffable, saved as .md |
+| Migrate Dir | `migrate-dir/` | Rename this repo's legacy `.claudster/` artifact dir to `.caddis/` — dry-run first, `git mv` to keep history, merges a straggler dir, rewrites live refs. Opt-in, never automatic. |
+| Prd | `prd/` | Capture requirements through structured discovery and write a PRD |
+| Resume | `resume/` | Pop the most recently parked workstream off the stack and resume it at its exact resume point |
+| Ship | `ship/` | Commit, push, and monitor the deploy pipeline (auto-detects Gitea, GitHub Actions, or local-only) |
+| Ship Merge | `ship-merge/` | Merge an already-green, already-reviewed PR behind an explicit deploy-confirm, monitor the deploy, validate prod, then clean up the branch — only on green. |
+| Ship Pr | `ship-pr/` | Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge). |
+| Tdd | `tdd/` | Run a strict red-green-refactor TDD cycle for a unit of behavior |
+| Ui Brief | `ui-brief/` | Design-first UI brief — lock the aesthetic before writing any code |
+| Usage Review | `usage-review/` | Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step |
+| Use Model | `use-model/` | Explain (or apply) the model lanes — claude / claude-glm / cross-review — key resolution, and how to add a provider |
+
 ### Media
 
 | Skill | Path | When to Use |
@@ -86,4 +110,5 @@
 | Context Curator | `context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |
 | Golden Plan | `golden-plan/` | USE THIS SKILL whenever a user asks for a comprehensive implementation plan, a full-stack build plan, a UI+backend plan, or says 'create a plan for building X' where X spans multiple phases or systems. Also activate when the user says 'plan this project', 'I need a detailed plan', 'build plan', 'implementation plan', or attaches a mockup/wireframe and asks how to build it. Produces a zero-ambiguity, evidence-gated plan with self-contained per-phase prompts, exhaustive data binding tables, per-phase validation checklists, and a global quality gate. Evidence-gated: before writing phases, verify required artefacts (mockup, data sample, API contract, scaffold inventory); if any BLOCKER is missing, ask for it and wait before proceeding. Dual-mode: generic by default, junai-pipeline only when explicitly requested. Agent-agnostic - any agent with read/search/edit tools can use this skill. |
 | Preflight | `preflight/` | Plan-vs-codebase validation — verifies API contracts, type names, field accuracy, dependencies, and paths before implementation begins |
+| Setup Project Ai | `setup-project-ai/` | Install or refresh the agent-agnostic dev harness in this project (AGENTS.md-canonical rules hierarchy + CLAUDE.md @import shims, subagents, commands, settings) |
 | Skill Creator | `skill-creator/` | Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. |

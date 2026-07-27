@@ -1,6 +1,6 @@
 ---
+name: migrate-dir
 description: Rename this repo's legacy `.claudster/` artifact dir to `.caddis/` — dry-run first, `git mv` to keep history, merges a straggler dir, rewrites live refs. Opt-in, never automatic.
-argument-hint: [target-repo] [--apply]
 ---
 
 # /migrate-dir — rename `.claudster/` → `.caddis/`

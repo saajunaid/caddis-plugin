@@ -1,6 +1,6 @@
 ---
+name: digress
 description: Park the current workstream on the stack and switch to a new task — without losing the original
-argument-hint: [reason for the detour]
 ---
 
 # /caddis:digress — park the current task, switch, never lose the thread

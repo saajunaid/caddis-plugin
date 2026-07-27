@@ -389,6 +389,33 @@ def strip_agent_frontmatter_for_agy(agents_dir: Path) -> int:
     return n
 
 
+def convert_commands_to_agy_skills(commands_dir: Path, skills_dir: Path) -> int:
+    """agy's runtime only discovers skills at ``skills/<name>/SKILL.md`` (name+description BOTH required);
+    it never ingests ``commands/*.md`` — the install "N converted to skills" line is a count message only,
+    verified empirically on agy 1.1.7 (a command surfaces only once relocated to ``skills/`` AND given a
+    ``name:``; adding ``name:`` while it stays in ``commands/`` does nothing). Reshape each command into
+    ``skills/<stem>/SKILL.md`` with an injected ``name: <stem>`` (agy has no command concept, so caddis
+    commands surface AS skills, like the rest), then drop the now-dead ``commands/`` dir. Runs ONLY on the
+    agy-plugin bundle — Claude Code keeps consuming ``commands/*.md`` unchanged. Fails closed on a name
+    collision with an existing skill. Returns the count converted."""
+    if not commands_dir.is_dir():
+        return 0
+    n = 0
+    for md in sorted(commands_dir.glob("*.md")):
+        frontmatter, body = split_frontmatter(md.read_text(encoding="utf-8"))
+        desc = extract_simple_frontmatter(frontmatter).get("description", "").strip()
+        dest = skills_dir / md.stem / "SKILL.md"
+        if dest.exists():
+            raise ValueError(
+                f"agy command->skill collision: skills/{md.stem}/SKILL.md already exists (command {md.name})"
+            )
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(f"---\nname: {md.stem}\ndescription: {desc}\n---\n\n{body}", encoding="utf-8")
+        n += 1
+    shutil.rmtree(commands_dir)
+    return n
+
+
 def write_agy_plugin_manifest(
     workspace_root: Path, target: dict[str, Any], manifest: dict[str, Any]
 ) -> None:
@@ -648,6 +675,12 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
     if target.get("agy_plugin"):
         write_agy_plugin_manifest(workspace_root, target, manifest)
         strip_agent_frontmatter_for_agy(workspace_root / "agents")  # drop Claude-only tools/model keys
+        # agy discovers skills only under skills/<name>/SKILL.md — reshape commands there so /handoff,
+        # /kb, /ship etc. actually surface (they never do from commands/*.md). Before write_bundle_registry
+        # so the converted command-skills get registered too.
+        converted = convert_commands_to_agy_skills(workspace_root / "commands", workspace_root / "skills")
+        if converted:
+            stats.bump_skip("agy_commands_converted", converted)
         cat_map = {}
         canonical_skills = canonical_root / "skills"
         if canonical_skills.exists():

@@ -1,6 +1,6 @@
 ---
+name: ship
 description: Commit, push, and monitor the deploy pipeline (auto-detects Gitea, GitHub Actions, or local-only)
-argument-hint: "[commit message]"
 ---
 
 # /ship — commit → push → CI → prod

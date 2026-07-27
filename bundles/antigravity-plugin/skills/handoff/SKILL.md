@@ -1,4 +1,5 @@
 ---
+name: handoff
 description: End-of-session handoff — capture exact state so the next session resumes with zero re-discovery
 ---
 

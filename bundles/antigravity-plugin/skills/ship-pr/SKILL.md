@@ -1,6 +1,6 @@
 ---
+name: ship-pr
 description: Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge).
-argument-hint: "[PR title override]"
 ---
 
 # /ship-pr — the reviewed lane, half 1: branch → green PR

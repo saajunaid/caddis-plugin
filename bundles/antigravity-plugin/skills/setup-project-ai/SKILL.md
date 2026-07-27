@@ -1,6 +1,6 @@
 ---
+name: setup-project-ai
 description: Install or refresh the agent-agnostic dev harness in this project (AGENTS.md-canonical rules hierarchy + CLAUDE.md @import shims, subagents, commands, settings)
-argument-hint: [--force] [project description]
 ---
 
 # /setup-project-ai — install the harness

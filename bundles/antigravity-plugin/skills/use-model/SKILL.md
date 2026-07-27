@@ -1,6 +1,6 @@
 ---
+name: use-model
 description: Explain (or apply) the model lanes — claude / claude-glm / cross-review — key resolution, and how to add a provider
-argument-hint: [provider name, e.g. glm | deepseek | openrouter]
 ---
 
 # /caddis:use-model — switch which model backs your session

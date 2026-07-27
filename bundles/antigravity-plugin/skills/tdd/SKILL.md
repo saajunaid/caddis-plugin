@@ -1,6 +1,6 @@
 ---
+name: tdd
 description: Run a strict red-green-refactor TDD cycle for a unit of behavior
-argument-hint: <behavior to build>
 ---
 
 # /tdd — red → green → refactor

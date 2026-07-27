@@ -1,4 +1,5 @@
 ---
+name: kb
 description: Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links
 ---
 
