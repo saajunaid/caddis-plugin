@@ -250,6 +250,23 @@ def guard_disabled(root: str) -> bool:
     return False
 
 
+def deny_only(root: str) -> bool:
+    """True when the guard keeps DENY (silent hard-block of catastrophes) but suppresses the ASK tier
+    (downgrades ask -> allow), so it NEVER prompts. For autonomous / no-prompt workflows that still
+    want a catastrophe net: a big plan runs uninterrupted, only a truly destructive call is blocked.
+
+    Precedence like ``guard_disabled``: env wins, then the per-repo ``[guard]`` table. Env:
+    ``CADDIS_GUARD_MODE=deny-only`` (``CLAUDSTER_GUARD_MODE`` as a one-version fallback); config:
+    ``[guard] mode = "deny-only"``. Read silently (runs on every tool call)."""
+    _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE")
+    if _mode is None:
+        _mode = os.environ.get(f"{_LEGACY_ENV_PREFIX}_GUARD_MODE", "")
+    if _mode.strip().lower() == "deny-only":
+        return True
+    section = _load_guard_config(root)
+    return str(section.get("mode", "")).strip().lower() == "deny-only"
+
+
 def main() -> None:
     _reconfig = getattr(sys.stdout, "reconfigure", None)
     if _reconfig:
@@ -269,6 +286,8 @@ def main() -> None:
         if guard_disabled(root):
             sys.exit(0)  # kill switch: bypass every tier, defer to normal permission handling
         tier, reason = decide(tool_name, tool_input, _load_allow(root))
+        if tier == "ask" and deny_only(root):
+            tier = "allow"  # deny-only: keep catastrophe blocks, never prompt (no plan interruption)
     except Exception:
         sys.exit(0)  # any unexpected shape → fail open, never crash the tool call
 

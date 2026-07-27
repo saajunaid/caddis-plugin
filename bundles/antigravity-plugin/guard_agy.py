@@ -268,6 +268,20 @@ def guard_disabled(root: str) -> bool:
     return False
 
 
+def deny_only(root: str) -> bool:
+    """True when the guard keeps DENY (silent hard-block) but suppresses the ASK tier (ask -> allow =
+    silence), so it NEVER prompts — for autonomous / no-prompt workflows that still want a catastrophe
+    net. Env `CADDIS_GUARD_MODE=deny-only` (`CLAUDSTER_GUARD_MODE` fallback); config `[guard] mode =
+    "deny-only"`. Read silently."""
+    _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE")
+    if _mode is None:
+        _mode = os.environ.get(f"{_LEGACY_ENV_PREFIX}_GUARD_MODE", "")
+    if _mode.strip().lower() == "deny-only":
+        return True
+    section = _load_guard_config(root)
+    return str(section.get("mode", "")).strip().lower() == "deny-only"
+
+
 # ── hook I/O glue (agy envelope) ─────────────────────────────────────────────
 _AGY_DECISION = {"deny": "deny", "ask": "force_ask"}
 
@@ -307,6 +321,8 @@ def main() -> None:
         if guard_disabled(str(root)):
             return  # kill switch: bypass every tier
         tier, reason = decide(str(call.get("name") or ""), call.get("args"), _load_allow(str(root)))
+        if tier == "ask" and deny_only(str(root)):
+            tier = "allow"  # deny-only: keep catastrophe blocks, never force_ask (no plan interruption)
     except Exception:
         return  # ANY unexpected shape/error → no guard, never a crash and never a bad decision
     finally:

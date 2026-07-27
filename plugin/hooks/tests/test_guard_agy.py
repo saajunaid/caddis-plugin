@@ -80,6 +80,19 @@ def test_git_force_push_asks(tmp_path):
     assert _decision(_run(_payload("git push --force origin main", tmp_path)))["decision"] == "force_ask"
 
 
+# ── deny-only mode: keep deny (silent block), suppress force_ask (no prompt/interruption) ─────
+def test_deny_only_silences_ask(tmp_path):
+    env = {**_clean_env(), "CADDIS_GUARD_MODE": "deny-only"}
+    r = _run(_payload("git push --force origin main", tmp_path), env=env)
+    assert r.returncode == 0
+    assert _decision(r) is None  # ask-tier → silence, agy is never prompted
+
+
+def test_deny_only_keeps_deny(tmp_path):
+    env = {**_clean_env(), "CADDIS_GUARD_MODE": "deny-only"}
+    assert _decision(_run(_payload("rm -rf /", tmp_path), env=env))["decision"] == "deny"
+
+
 # ── allow tier: silence, never {"decision":"allow"} ──────────────────────────
 @pytest.mark.parametrize("command", [
     "npm test",

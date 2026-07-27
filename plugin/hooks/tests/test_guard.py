@@ -291,6 +291,24 @@ class TestKillSwitch:
             capture_output=True, text=True, encoding="utf-8", timeout=20, env=env)
         assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
+    def test_deny_only_silences_ask(self):
+        # deny-only mode: an ask-tier call emits NOTHING (no prompt → a running plan never stops).
+        env = {**_clean_env(), "CADDIS_GUARD_MODE": "deny-only"}
+        r = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git reset --hard"}}),
+            capture_output=True, text=True, encoding="utf-8", timeout=20, env=env)
+        assert r.returncode == 0 and r.stdout.strip() == ""
+
+    def test_deny_only_keeps_deny(self):
+        # deny-only mode: a catastrophe is STILL hard-blocked (silent, no prompt).
+        env = {**_clean_env(), "CADDIS_GUARD_MODE": "deny-only"}
+        r = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+            capture_output=True, text=True, encoding="utf-8", timeout=20, env=env)
+        assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
     def test_config_enabled_false_disables(self, tmp_path):
         (tmp_path / ".caddis").mkdir()
         (tmp_path / ".caddis" / "config.toml").write_text(
