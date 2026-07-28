@@ -21,12 +21,11 @@ to `allow` (it can never override a `deny`); it matches the command/path value. 
 Kill switch: for users who run Claude Code with `bypassPermissions` and want zero additional
 gating from caddis, the guard can be turned off entirely (bypasses ALL tiers, deny included) via:
   * env var `CADDIS_GUARD_DISABLED=1` (also 1/true/yes/on) — global, survives plugin updates.
-    (The former `CLAUDSTER_GUARD_DISABLED` is still read as a one-version fallback.)
   * `.caddis/config.toml [guard] enabled = false`  (or `mode = "off"`) — per-repo or user-level.
 When disabled, the hook exits 0 immediately and every call falls through to normal permission handling.
 
-Artifact dir: reads `.caddis/config.toml`, falling back to the legacy `.claudster/config.toml`.
-The names are duplicated from scripts/claudster_config.py ON PURPOSE — this hook runs on EVERY tool
+Artifact dir: reads `.caddis/config.toml`.
+The name is duplicated from scripts/claudster_config.py ON PURPOSE — this hook runs on EVERY tool
 call and is safety-critical, so it stays import-free and self-contained (see the module list above).
 """
 from __future__ import annotations
@@ -36,11 +35,9 @@ import os
 import re
 import sys
 
-# Functional identity, mirrored from scripts/claudster_config.py (see the note above). Read order:
-# the current dir first, the pre-rename dir as a one-version fallback.
-_ARTIFACT_DIRS = (".caddis", ".claudster")
+# Functional identity, mirrored from scripts/claudster_config.py (see the note above).
+_ARTIFACT_DIR = ".caddis"
 _ENV_PREFIX = "CADDIS"
-_LEGACY_ENV_PREFIX = "CLAUDSTER"
 
 # ── protected-path rules (write → deny) ──────────────────────────────────────
 _SECRET_BASENAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials",
@@ -200,12 +197,9 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _config_path(root: str) -> str | None:
-    """The repo's ``config.toml`` — ``.caddis`` preferred, legacy ``.claudster`` as fallback."""
-    for name in _ARTIFACT_DIRS:
-        cfg = os.path.join(root, name, "config.toml")
-        if os.path.isfile(cfg):
-            return cfg
-    return None
+    """The repo's ``.caddis/config.toml``, or ``None`` if it doesn't exist."""
+    cfg = os.path.join(root, _ARTIFACT_DIR, "config.toml")
+    return cfg if os.path.isfile(cfg) else None
 
 
 def _load_guard_config(root: str) -> dict:
@@ -234,12 +228,8 @@ def guard_disabled(root: str) -> bool:
     Precedence: the env var wins (global, survives plugin auto-updates); otherwise the per-repo
     `[guard]` table — `enabled = false` or `mode = "off"`. Any parse problem → not disabled (fail safe).
 
-    Env var: CADDIS_GUARD_DISABLED is the current name. The pre-rename CLAUDSTER_GUARD_DISABLED is
-    read as a one-version fallback ONLY when the new name is unset, so existing global settings keep
-    working across the caddis rename. Read silently (this runs on every tool call — no per-call warn)."""
-    _disabled = os.environ.get(f"{_ENV_PREFIX}_GUARD_DISABLED")
-    if _disabled is None:
-        _disabled = os.environ.get(f"{_LEGACY_ENV_PREFIX}_GUARD_DISABLED", "")
+    Env var: CADDIS_GUARD_DISABLED. Read silently (this runs on every tool call — no per-call warn)."""
+    _disabled = os.environ.get(f"{_ENV_PREFIX}_GUARD_DISABLED", "")
     if _disabled.strip().lower() in _TRUTHY:
         return True
     section = _load_guard_config(root)
@@ -256,11 +246,9 @@ def deny_only(root: str) -> bool:
     want a catastrophe net: a big plan runs uninterrupted, only a truly destructive call is blocked.
 
     Precedence like ``guard_disabled``: env wins, then the per-repo ``[guard]`` table. Env:
-    ``CADDIS_GUARD_MODE=deny-only`` (``CLAUDSTER_GUARD_MODE`` as a one-version fallback); config:
-    ``[guard] mode = "deny-only"``. Read silently (runs on every tool call)."""
-    _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE")
-    if _mode is None:
-        _mode = os.environ.get(f"{_LEGACY_ENV_PREFIX}_GUARD_MODE", "")
+    ``CADDIS_GUARD_MODE=deny-only``; config: ``[guard] mode = "deny-only"``. Read silently (runs on
+    every tool call)."""
+    _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE", "")
     if _mode.strip().lower() == "deny-only":
         return True
     section = _load_guard_config(root)

@@ -30,15 +30,17 @@ AGENTS_MD_BUDGET = 200  # always-loaded rules file line budget (mirrors check_do
 
 # Per-repo artifact dir + env prefix, mirrored from claude-harness/scripts/claudster_config.py —
 # the doctor is a standalone, import-free diagnostic that must run from a bare checkout.
-ARTIFACT_DIRS = (".caddis", ".claudster")
+ARTIFACT_DIRS = (".caddis",)
 ENV_PREFIX = "CADDIS"
-LEGACY_ENV_PREFIX = "CLAUDSTER"
 
 
 def _home() -> Path:
-    # CADDIS_FAKE_HOME is current; CLAUDSTER_FAKE_HOME is read as a one-version fallback.
-    return Path(os.environ.get(f"{ENV_PREFIX}_FAKE_HOME")
-                or os.environ.get(f"{LEGACY_ENV_PREFIX}_FAKE_HOME") or Path.home())
+    return Path(os.environ.get(f"{ENV_PREFIX}_FAKE_HOME") or Path.home())
+
+
+def _user_scope_path(name: str) -> Path:
+    """A ``~/.caddis/<name>`` user-scope file."""
+    return _home() / ".caddis" / name
 
 
 def _now() -> datetime:
@@ -115,10 +117,7 @@ def oversize_rules_files(dest: Path, budget: int = AGENTS_MD_BUDGET) -> list[tup
 
 
 def docmap_dangling(dest: Path) -> list[str]:
-    """Dangling `.md` links in <artifact-dir>/kb/DOC-MAP.md (the '/caddis:kb' signal).
-
-    Dual-read: `.caddis/` wins, the pre-rename `.claudster/` is the one-version fallback, so an
-    unmigrated repo still gets the signal."""
+    """Dangling `.md` links in <artifact-dir>/kb/DOC-MAP.md (the '/caddis:kb' signal)."""
     dm = next((p for p in (Path(dest) / n / "kb" / "DOC-MAP.md" for n in ARTIFACT_DIRS) if p.is_file()), None)
     if dm is None:
         return []
@@ -139,7 +138,7 @@ def docmap_dangling(dest: Path) -> list[str]:
 
 # ── maintenance signals + nudge ──────────────────────────────────────────────
 def _last_doctor_path() -> Path:
-    return _home() / ".claudster" / "last-doctor.json"
+    return _user_scope_path("last-doctor.json")
 
 
 def days_since_last_doctor() -> int | None:
@@ -244,7 +243,7 @@ def run(dest: Path, quiet: bool) -> int:
         print("  none")
 
     print("-- install registry")
-    reg = _home() / ".claudster" / "installs.json"
+    reg = _user_scope_path("installs.json")
     if reg.is_file():
         try:
             installs = json.loads(reg.read_text(encoding="utf-8")).get("installs", [])

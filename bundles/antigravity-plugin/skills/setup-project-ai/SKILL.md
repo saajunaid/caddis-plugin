@@ -35,7 +35,7 @@ alias claude-glm="<path-to>/claude-harness/scripts/claude-oss.sh"
 ```
 Resolve `<path-to>` per the same plugin-vs-source rule as the generator itself (`${CLAUDE_PLUGIN_ROOT}`
 for a plugin install, the harness checkout path for caddis). Also set `CADDIS_KEYS_FILE`
-(default `~/.claudster/keys.env`) with the provider keys — see `docs/guide/providers-and-keys.md`.
+(default `~/.caddis/keys.env`) with the provider keys — see `docs/guide/providers-and-keys.md`.
 
 ## After the deterministic step — deploy private harness skills (optional)
 
@@ -45,9 +45,7 @@ such a source on disk; it is a no-op for everyone else. Point `CADDIS_HARNESS_SR
 (the folder containing your private `skills/private/`) and run:
 
 ```powershell
-# CADDIS_HARNESS_SRC is current; CLAUDSTER_HARNESS_SRC is read as a one-version fallback.
-$harnessSrc = if ($env:CADDIS_HARNESS_SRC) { $env:CADDIS_HARNESS_SRC } else { $env:CLAUDSTER_HARNESS_SRC }
-$src = if ($harnessSrc) { Join-Path $harnessSrc "skills\private" } else { $null }
+$src = if ($env:CADDIS_HARNESS_SRC) { Join-Path $env:CADDIS_HARNESS_SRC "skills\private" } else { $null }
 $dest = ".github\skills\private"
 if ($src -and (Test-Path $src)) {
     New-Item -ItemType Directory -Force $dest | Out-Null

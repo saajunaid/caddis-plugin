@@ -25,7 +25,7 @@ import os
 import subprocess
 import sys
 
-_ARTIFACT_DIRS = (".caddis", ".claudster")
+_ARTIFACT_DIRS = (".caddis",)
 
 INJECT_MAX_LINES = 120      # same budget as the Claude Code hook
 INJECT_MAX_CHARS = 24000    # hard backstop: an ephemeralMessage should never be a context bomb
@@ -59,8 +59,8 @@ def resolve_relay(root: str) -> str:
     """First existing relay doc for `root`, else "".
 
     Preference order mirrors inject_relay.py:
-      1. <artifact-dir>/relay/<branch>.md   (per-branch team mode — .caddis, then .claudster)
-      2. <artifact-dir>/relay.md            (solo/default — .caddis, then .claudster)
+      1. .caddis/relay/<branch>.md          (per-branch team mode)
+      2. .caddis/relay.md                   (solo/default)
       3. .claude/relay/<branch>.md          (legacy per-branch)
       4. relay.md                           (legacy repo root)
     """

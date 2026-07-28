@@ -9,10 +9,8 @@ Team/parallel-branch mode: a per-branch file at `.claude/relay/<branch>.md` is p
 when present, so two developers on two branches never collide on a single committed
 relay.md. Solo/default stays exactly `relay.md` at the repo root — fully backward-compatible.
 
-Artifact dir: every lookup here is a READ, so it tries `.caddis/` first and falls back to the
-legacy `.claudster/` (and then to the older `.claude/` locations already handled). A repo that
-still has only `.claudster/` gets a one-line nudge to run `/caddis:migrate-dir` — never a
-silent rename (that would move files under a concurrent session's feet).
+Artifact dir: every lookup here is a READ under `.caddis/` (falling back to the older `.claude/`
+locations already handled).
 """
 import json
 import os
@@ -54,7 +52,7 @@ def _repo_root(start: str) -> str:
 
     Relay + usage state anchor to the repo root so a session launched from a
     subfolder resolves the same files the root session does, instead of looking
-    for (or scattering) a `.claudster/` in every cwd.
+    for (or scattering) a `.caddis/` in every cwd.
     """
     try:
         out = subprocess.run(
@@ -73,24 +71,21 @@ ROOT = _repo_root(_session_cwd)
 
 # Artifact-dir resolution comes from the one shared helper (scripts/claudster_config.py) so the
 # dir name lives in a single place. The inline fallback keeps a SessionStart hook from ever dying
-# on an import problem — it re-states the same read order (`.caddis`, then legacy `.claudster`).
+# on an import problem — it re-states the same `.caddis` path.
 try:
     _cfg_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
     if _cfg_scripts not in sys.path:
         sys.path.insert(0, _cfg_scripts)
     from claudster_config import ARTIFACT_DIRS, artifact_root  # noqa: E402
 except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
-    ARTIFACT_DIRS = (".caddis", ".claudster")
+    ARTIFACT_DIRS = (".caddis",)
 
     def artifact_root(root):
-        for _n in ARTIFACT_DIRS:
-            if os.path.isdir(os.path.join(str(root), _n)):
-                return os.path.join(str(root), _n)
         return os.path.join(str(root), ARTIFACT_DIRS[0])
 
 
 def _art(*parts: str) -> list[str]:
-    """Candidate paths for `<artifact-dir>/<parts>` across both dir names, preferred first."""
+    """Candidate paths for `<artifact-dir>/<parts>`."""
     return [os.path.join(ROOT, name, *parts) for name in ARTIFACT_DIRS]
 
 
@@ -100,11 +95,11 @@ def _art_default(*parts: str) -> str:
 
 
 def _resolve_relay() -> str:
-    """Prefer the current artifact dir; fall back to the legacy dir, then every legacy location.
+    """Prefer the current artifact dir; fall back to every legacy location.
 
     Preference order (first existing wins):
-      1. <artifact-dir>/relay/<branch>.md   (per-branch team mode — `.caddis`, then `.claudster`)
-      2. <artifact-dir>/relay.md            (solo/default — `.caddis`, then `.claudster`)
+      1. .caddis/relay/<branch>.md          (per-branch team mode)
+      2. .caddis/relay.md                   (solo/default)
       3. .claude/relay/<branch>.md          (legacy per-branch)
       4. relay.md                           (legacy repo root)
     When none exist yet, return the default under the dir this repo lives in; the isfile()
@@ -252,19 +247,8 @@ try:
 except Exception:
     pass
 
-# Artifact-dir migration nudge: ONE line when the repo still carries the pre-rename `.claudster/`.
-# Everything keeps working (all reads dual-path), so this is an invitation, not a warning — and the
-# rename is never automatic: `git mv`-ing a dir under a concurrent session would clobber its
-# in-flight writes. Suppressed once `.caddis/` exists (a half-migrated repo is the command's job).
-try:
-    if os.path.isdir(os.path.join(ROOT, ".claudster")) and not os.path.isdir(os.path.join(ROOT, ".caddis")):
-        print("\n[caddis] legacy `.claudster/` detected — everything still works (dual-path reads); "
-              "run `/caddis:migrate-dir` when convenient to rename it to `.caddis/`.")
-except Exception:
-    pass
-
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
-# Prefer the current artifact dir, then the legacy one, then the older .claude path.
+# Prefer the current artifact dir, then the older .claude path.
 _STAMP = _first_existing(
     _art(".last-usage-review") + [os.path.join(ROOT, ".claude", ".last-usage-review")],
     _art_default(".last-usage-review"),

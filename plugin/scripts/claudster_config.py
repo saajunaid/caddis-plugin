@@ -11,15 +11,10 @@ Two jobs:
    than raising: a missing file, a parse error, a missing section, or a wrong-typed value all
    degrade to the caller's default — the "degrade gracefully, never block" bar of the rest of caddis.
 
-**The dual-path rule** (the ``.claudster`` → ``.caddis`` transition, one version then dropped):
-
-* READS try ``.caddis`` first, then legacy ``.claudster`` — use :func:`artifact_read`.
-* WRITES go **where the repo already lives**: ``.caddis`` if it exists, else ``.claudster`` if
-  *that* exists (an unmigrated repo keeps its dir — we never scatter a second one), else ``.caddis``
-  for a fresh repo — use :func:`artifact_root` / :func:`artifact_write`.
-
-Migrate a repo with ``/caddis:migrate-dir`` (``scripts/caddis_migrate_dir.py``); nothing renames
-a repo's dir behind its back.
+The per-repo artifact dir is always ``.caddis`` — use :func:`artifact_root` / :func:`artifact_read` /
+:func:`artifact_write`. A repo still carrying a pre-rename ``.claudster/`` (there should be none left
+in this fleet) can be converted with ``/caddis:migrate-dir`` (``scripts/caddis_migrate_dir.py``);
+nothing renames a repo's dir behind its back.
 
 Config schema (see ``.caddis/config.toml.example``)::
 
@@ -43,15 +38,12 @@ from pathlib import Path
 # ── functional identity (rename here, not everywhere) ────────────────────────
 #: The per-repo artifact directory caddis writes into.
 ARTIFACT_DIR = ".caddis"
-#: The pre-rename directory, still READ as a one-version fallback (dropped after the fleet soak).
-LEGACY_ARTIFACT_DIR = ".claudster"
-#: Read-preference order for the artifact dir. First hit wins.
-ARTIFACT_DIRS: tuple[str, ...] = (ARTIFACT_DIR, LEGACY_ARTIFACT_DIR)
+#: Read-preference order for the artifact dir. Single-element tuple kept so importers that iterate
+#: this (a future rename adds an element here, not at each call site) don't need to change shape.
+ARTIFACT_DIRS: tuple[str, ...] = (ARTIFACT_DIR,)
 
 #: Environment-variable prefix — every caddis env var is ``<ENV_PREFIX>_<SUFFIX>``.
 ENV_PREFIX = "CADDIS"
-#: The pre-rename prefix, still read as a one-version fallback.
-LEGACY_ENV_PREFIX = "CLAUDSTER"
 
 #: The published plugin repo (mirror). Everything URL-shaped derives from this one slug.
 REPO_SLUG = "saajunaid/caddis-plugin"
@@ -65,45 +57,28 @@ def env_name(suffix: str) -> str:
 
 
 def env_get(suffix: str, default: str | None = None) -> str | None:
-    """``$CADDIS_<suffix>``, falling back to ``$CLAUDSTER_<suffix>`` (one-version back-compat)."""
+    """``$CADDIS_<suffix>``."""
     val = os.environ.get(env_name(suffix))
-    if val is None:
-        val = os.environ.get(f"{LEGACY_ENV_PREFIX}_{suffix}")
     return default if val is None else val
 
 
-# ── artifact-dir resolution (the dual-path rule) ─────────────────────────────
+# ── artifact-dir resolution ───────────────────────────────────────────────────
 def artifact_root(root) -> Path:
-    """The artifact dir to WRITE into for ``root`` — "write where the repo lives".
+    """The artifact dir to WRITE into for ``root`` — always ``.caddis``.
 
-    ``.caddis`` when it exists; else legacy ``.claudster`` when *that* exists (an unmigrated repo
-    keeps using its own dir rather than growing a second one); else ``.caddis`` (fresh repo).
     Returns a path that may not exist yet — callers ``mkdir`` as needed.
     """
-    base = Path(root)
-    for name in ARTIFACT_DIRS:
-        if (base / name).is_dir():
-            return base / name
-    return base / ARTIFACT_DIR
+    return Path(root) / ARTIFACT_DIR
 
 
 def artifact_dir_name(root) -> str:
-    """Just the directory NAME the repo lives in (``".caddis"`` / ``".claudster"``) — for messages."""
+    """Just the directory NAME the repo lives in (``".caddis"``) — for messages."""
     return artifact_root(root).name
 
 
 def artifact_read(root, *parts) -> Path:
-    """First existing of ``.caddis/<parts>`` then ``.claudster/<parts>``; else the write-side path.
-
-    The non-existent fallback keeps callers' ``is_file()`` guards working unchanged, and points at
-    the dir the repo lives in so an error message names the right place.
-    """
-    base = Path(root)
-    for name in ARTIFACT_DIRS:
-        cand = base.joinpath(name, *parts)
-        if cand.exists():
-            return cand
-    return artifact_root(base).joinpath(*parts)
+    """``.caddis/<parts>`` — the path to read an artifact from."""
+    return artifact_root(root).joinpath(*parts)
 
 
 def artifact_write(root, *parts) -> Path:
@@ -111,21 +86,8 @@ def artifact_write(root, *parts) -> Path:
     return artifact_root(root).joinpath(*parts)
 
 
-def legacy_artifact_dir(root) -> Path | None:
-    """``<root>/.claudster`` when the repo still has one AND has already grown a ``.caddis`` — i.e.
-    a half-migrated repo (the straggler case). ``None`` otherwise. Used for nudges/diagnostics."""
-    base = Path(root)
-    legacy = base / LEGACY_ARTIFACT_DIR
-    if legacy.is_dir() and (base / ARTIFACT_DIR).is_dir():
-        return legacy
-    return None
-
-
 def load_config(root, section: str) -> dict:
-    """Return the ``[section]`` table from the repo's ``config.toml``, or ``{}`` on any problem.
-
-    Dual-read: ``.caddis/config.toml`` wins, legacy ``.claudster/config.toml`` is the fallback.
-    """
+    """Return the ``[section]`` table from the repo's ``.caddis/config.toml``, or ``{}`` on any problem."""
     try:
         import tomllib  # Python 3.11+ stdlib
     except Exception:

@@ -10,8 +10,7 @@ still prints the nudge. Cost is a rough ESTIMATE from an editable per-model rate
 adjust PRICING_PER_MTOK to your actual plan/rates (or ignore cost and read the tokens).
 Cross-platform (pure Python, stdlib only).
 
-Writes where the repo lives: `.caddis/` normally, but an unmigrated repo that still has
-`.claudster/` keeps its state there rather than growing a second dir.
+Writes into the repo's `.caddis/` artifact dir.
 """
 import json
 import os
@@ -20,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 
 # Shared artifact-dir resolution (scripts/claudster_config.py) with an inline fallback — a Stop
-# hook must never die on an import problem. Same rule either way: write where the repo lives.
+# hook must never die on an import problem.
 try:
     _CFG_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
     if _CFG_SCRIPTS not in sys.path:
@@ -28,9 +27,6 @@ try:
     from claudster_config import artifact_root  # noqa: E402
 except Exception:  # pragma: no cover — defensive
     def artifact_root(root):
-        for _n in (".caddis", ".claudster"):
-            if os.path.isdir(os.path.join(str(root), _n)):
-                return os.path.join(str(root), _n)
         return os.path.join(str(root), ".caddis")
 
 _reconfig = getattr(sys.stdout, "reconfigure", None)

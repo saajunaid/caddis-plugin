@@ -12,7 +12,7 @@ complement to `/caddis:code-review`, not a replacement.
 
 ## Prerequisite (one-time)
 A provider key must be resolvable. Precedence: `REVIEW_API_KEY` > the provider's own env var
-(`DEEPSEEK_API_KEY` / `GLM_API_KEY`) > `OSS_API_KEY` > the keys file (`~/.claudster/keys.env`,
+(`DEEPSEEK_API_KEY` / `GLM_API_KEY`) > `OSS_API_KEY` > the keys file (`~/.caddis/keys.env`,
 overridable via `CADDIS_KEYS_FILE`). If your keys file is populated, no env setup is needed.
 Details: the `coding/cross-review` skill and the **Providers & keys** guide.
 

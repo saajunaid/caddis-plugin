@@ -58,10 +58,9 @@ if [ -n "$cwd" ]; then
   [ -n "$n" ] && [ "$n" -gt 0 ] 2>/dev/null && dirty="$n"
 fi
 
-# relay present? (context resumes next session) — prefer .caddis, then the pre-rename .claudster,
-# then the legacy repo-root relay.md
+# relay present? (context resumes next session) — prefer .caddis, then the legacy repo-root relay.md
 relay=""
-[ -n "$cwd" ] && { [ -f "$cwd/.caddis/relay.md" ] || [ -f "$cwd/.claudster/relay.md" ] || [ -f "$cwd/relay.md" ]; } && relay="relay"
+[ -n "$cwd" ] && { [ -f "$cwd/.caddis/relay.md" ] || [ -f "$cwd/relay.md" ]; } && relay="relay"
 
 # Directory basename
 dir=$(echo "$cwd" | sed 's|.*[/\\]||')

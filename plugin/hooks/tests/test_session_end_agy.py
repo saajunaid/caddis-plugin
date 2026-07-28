@@ -1,7 +1,7 @@
 """Subprocess tests for the agy session_end hook (Stop -> <workspace>/.caddis/usage-log.jsonl).
 
 The agy adapter parses agy's camelCase Stop payload, appends one usage-log record to the workspace's
-artifact dir (write-where-the-repo-lives), stays SILENT on stdout (agy parses a Stop hook's stdout as a
+`.caddis/` artifact dir, stays SILENT on stdout (agy parses a Stop hook's stdout as a
 `{"decision":…}` object), and never fails the turn.
 
 Run: python -m pytest claude-harness/hooks/tests/test_session_end_agy.py -q
@@ -37,12 +37,11 @@ def test_appends_usage_record_and_stays_silent(tmp_path):
     assert rec["conversationId"] == "c1" and rec["terminationReason"] == "model_stop"
 
 
-def test_writes_where_the_repo_lives(tmp_path):
-    # A repo still on .claudster gets its record there — no stray .caddis.
+def test_always_writes_to_caddis(tmp_path):
+    # Phase F dropped the .claudster/ write-fallback — even a repo still on .claudster gets .caddis/.
     (tmp_path / ".claudster").mkdir()
     _run(json.dumps({"workspacePaths": [str(tmp_path)], "conversationId": "c2"}))
-    assert (tmp_path / ".claudster" / "usage-log.jsonl").exists()
-    assert not (tmp_path / ".caddis").exists()
+    assert (tmp_path / ".caddis" / "usage-log.jsonl").exists()
 
 
 def test_never_fails_on_bad_input():

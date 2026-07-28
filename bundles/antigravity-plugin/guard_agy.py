@@ -34,11 +34,9 @@ import os
 import re
 import sys
 
-# Functional identity, mirrored from scripts/claudster_config.py. Read order: the current dir first,
-# the pre-rename dir as a one-version fallback.
-_ARTIFACT_DIRS = (".caddis", ".claudster")
+# Functional identity, mirrored from scripts/claudster_config.py.
+_ARTIFACT_DIR = ".caddis"
 _ENV_PREFIX = "CADDIS"
-_LEGACY_ENV_PREFIX = "CLAUDSTER"
 
 # ── protected-path rules (write → deny) ──────────────────────────────────────
 _SECRET_BASENAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials",
@@ -221,12 +219,9 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _config_path(root: str) -> str | None:
-    """The repo's ``config.toml`` — ``.caddis`` preferred, legacy ``.claudster`` as fallback."""
-    for name in _ARTIFACT_DIRS:
-        cfg = os.path.join(str(root), name, "config.toml")
-        if os.path.isfile(cfg):
-            return cfg
-    return None
+    """The repo's ``.caddis/config.toml``, or ``None`` if it doesn't exist."""
+    cfg = os.path.join(str(root), _ARTIFACT_DIR, "config.toml")
+    return cfg if os.path.isfile(cfg) else None
 
 
 def _load_guard_config(root: str) -> dict:
@@ -253,11 +248,8 @@ def guard_disabled(root: str) -> bool:
     """True when the guard is turned off entirely (all tiers bypassed).
 
     Precedence: the env var wins (global); otherwise the per-repo `[guard]` table — `enabled = false`
-    or `mode = "off"`. Any parse problem → not disabled (fail safe). CADDIS_GUARD_DISABLED is the
-    current name; the pre-rename CLAUDSTER_GUARD_DISABLED is read only when the new name is unset."""
-    _disabled = os.environ.get(f"{_ENV_PREFIX}_GUARD_DISABLED")
-    if _disabled is None:
-        _disabled = os.environ.get(f"{_LEGACY_ENV_PREFIX}_GUARD_DISABLED", "")
+    or `mode = "off"`. Any parse problem → not disabled (fail safe). Env var: CADDIS_GUARD_DISABLED."""
+    _disabled = os.environ.get(f"{_ENV_PREFIX}_GUARD_DISABLED", "")
     if _disabled.strip().lower() in _TRUTHY:
         return True
     section = _load_guard_config(root)
@@ -271,11 +263,8 @@ def guard_disabled(root: str) -> bool:
 def deny_only(root: str) -> bool:
     """True when the guard keeps DENY (silent hard-block) but suppresses the ASK tier (ask -> allow =
     silence), so it NEVER prompts — for autonomous / no-prompt workflows that still want a catastrophe
-    net. Env `CADDIS_GUARD_MODE=deny-only` (`CLAUDSTER_GUARD_MODE` fallback); config `[guard] mode =
-    "deny-only"`. Read silently."""
-    _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE")
-    if _mode is None:
-        _mode = os.environ.get(f"{_LEGACY_ENV_PREFIX}_GUARD_MODE", "")
+    net. Env `CADDIS_GUARD_MODE=deny-only`; config `[guard] mode = "deny-only"`. Read silently."""
+    _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE", "")
     if _mode.strip().lower() == "deny-only":
         return True
     section = _load_guard_config(root)

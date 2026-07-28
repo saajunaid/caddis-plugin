@@ -121,6 +121,21 @@ caddis update --extras     # add extras to an existing install
 The first run. Detects, shows exactly what it is about to run, asks, then installs. `--yes` skips
 the prompt for CI.
 
+### Removing caddis
+
+**There is no `caddis remove`.** This CLI installs and updates; it never uninstalls. Removal goes
+through each agent's own command — the same principle as everything else here:
+
+```bash
+claude plugin uninstall caddis@caddis         # Claude Code
+claude plugin uninstall caddis-extras@caddis
+agy plugin uninstall caddis                   # agy
+agy plugin uninstall caddis-extras
+```
+
+`npm uninstall -g @caddis/cli` removes **only this CLI**, not the caddis plugins it installed into
+your agents. Uninstall those first if you want caddis gone entirely.
+
 ---
 
 ## Flags

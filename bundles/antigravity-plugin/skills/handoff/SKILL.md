@@ -46,8 +46,8 @@ plan A on the workstream stack — so its exact resume point survives and `/resu
 > per-branch file automatically when it exists, then `.caddis/relay.md`, then the legacy
 > `.claude/relay/<branch>.md` and root `relay.md` (back-compat during the migration).
 >
-> **Write where the repo lives:** if this repo still has a `.claudster/` (and no `.caddis/`), write
-> the relay THERE — don't create a second artifact dir. `/caddis:migrate-dir` converts the repo.
+> A repo still on the pre-rename `.claudster/` won't see this relay until it's converted —
+> `/caddis:migrate-dir` does that.
 
 ```markdown
 # Relay — <feature>

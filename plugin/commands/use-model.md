@@ -39,7 +39,7 @@ paired with `OSS_BASE_URL`/`OSS_MODEL`).
 ## Key resolution (never hardcoded)
 Precedence, highest wins:
 1. the provider's env var (`GLM_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`) or generic `OSS_API_KEY`;
-2. a keys file at `$CADDIS_KEYS_FILE` (default `~/.claudster/keys.env`, `KEY=VALUE` lines, `#` comments);
+2. a keys file at `$CADDIS_KEYS_FILE` (default `~/.caddis/keys.env`, `KEY=VALUE` lines, `#` comments);
 3. missing → the launcher exits non-zero with an actionable message naming the exact env var to set.
 
 The resolver is `claude-harness/scripts/oss_model.py` (`resolve(provider, env)`) — the one place a

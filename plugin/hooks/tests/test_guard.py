@@ -217,14 +217,11 @@ GUARD = HOOKS / "guard.py"
 
 
 def _clean_env() -> dict:
-    # Strip the kill switch (both names of the env pair) so the guard's default (enabled) behaviour
-    # is deterministic regardless of the ambient environment — the caller's shell may have
-    # CADDIS_GUARD_DISABLED or CLAUDSTER_GUARD_DISABLED set.
+    # Strip the kill switch so the guard's default (enabled) behaviour is deterministic regardless
+    # of the ambient environment — the caller's shell may have CADDIS_GUARD_DISABLED set.
     e = dict(os.environ)
     e.pop("CADDIS_GUARD_DISABLED", None)
-    e.pop("CLAUDSTER_GUARD_DISABLED", None)
     e.pop("CADDIS_GUARD_MODE", None)  # a real deny-only User env var must not leak into ask-tier tests
-    e.pop("CLAUDSTER_GUARD_MODE", None)
     return e
 
 
@@ -275,9 +272,7 @@ class TestKillSwitch:
     """The global disable toggle bypasses ALL tiers — even a deny — and emits nothing."""
 
     def test_env_var_disables_deny(self):
-        # Pins the OLD env name on purpose (fallback contract) — the new name is stripped so only
-        # the legacy variable is under test.
-        env = {**_clean_env(), "CLAUDSTER_GUARD_DISABLED": "1"}
+        env = {**_clean_env(), "CADDIS_GUARD_DISABLED": "1"}
         r = subprocess.run(
             [sys.executable, str(GUARD)],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
@@ -286,7 +281,16 @@ class TestKillSwitch:
         assert r.stdout.strip() == ""
 
     def test_env_var_falsey_still_guards(self):
-        env = {**_clean_env(), "CLAUDSTER_GUARD_DISABLED": "0"}
+        env = {**_clean_env(), "CADDIS_GUARD_DISABLED": "0"}
+        r = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+            capture_output=True, text=True, encoding="utf-8", timeout=20, env=env)
+        assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_legacy_env_var_name_no_longer_has_any_effect(self):
+        # Phase F dropped the CLAUDSTER_* fallback — the pre-rename name must now be inert.
+        env = {**_clean_env(), "CLAUDSTER_GUARD_DISABLED": "1"}
         r = subprocess.run(
             [sys.executable, str(GUARD)],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
@@ -328,9 +332,7 @@ class TestKillSwitch:
         assert r.stdout.strip() == ""
 
     def test_guard_disabled_helper(self, tmp_path, monkeypatch):
-        # isolate from ambient env — both names of the pair
         monkeypatch.delenv("CADDIS_GUARD_DISABLED", raising=False)
-        monkeypatch.delenv("CLAUDSTER_GUARD_DISABLED", raising=False)
         assert guard.guard_disabled(str(tmp_path)) is False
         (tmp_path / ".caddis").mkdir()
         (tmp_path / ".caddis" / "config.toml").write_text(

@@ -60,12 +60,9 @@ def _load_artifact_helpers():
         from claudster_config import ARTIFACT_DIRS, artifact_root
         return ARTIFACT_DIRS, artifact_root
     except Exception:  # pragma: no cover — defensive
-        dirs = (".caddis", ".claudster")
+        dirs = (".caddis",)
 
         def _artifact_root(root):
-            for name in dirs:
-                if (Path(root) / name).is_dir():
-                    return Path(root) / name
             return Path(root) / dirs[0]
 
         return dirs, _artifact_root
@@ -642,9 +639,8 @@ ARTIFACT_CONFIG_EXAMPLE = """\
 #
 # Nothing here takes effect until you copy this file to `config.toml` (same directory) and
 # uncomment the keys you want. The caddis hooks/scripts read `config.toml` (never this `.example`)
-# from the repo root's `.caddis/` — or, in a repo that predates the rename and still has one,
-# `.claudster/` (run `/caddis:migrate-dir` to convert it). Unknown sections/keys are ignored, so a
-# section that a given caddis version doesn't yet honor is harmless to leave in place.
+# from the repo root's `.caddis/`. Unknown sections/keys are ignored, so a section that a given
+# caddis version doesn't yet honor is harmless to leave in place.
 #
 # All three sections below are honored. Every key falls back to a baked-in default, so uncomment
 # only the ones you want to change.
@@ -697,9 +693,7 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     (guard/doc_coverage/dream_memory). Idempotent; never clobbers an existing .gitignore or
     config example.
 
-    Writes where the repo lives: a NEW repo gets `.caddis/`, but a repo that predates the rename
-    and still has `.claudster/` is scaffolded IN PLACE — a bootstrap must not silently split a
-    project's artifacts across two dirs. `/caddis:migrate-dir` is how such a repo converts.
+    Writes into the repo's `.caddis/`.
     """
     notes: list[str] = []
     root = artifact_root(target)
@@ -740,9 +734,8 @@ def relocate_legacy(target: Path, dry: bool) -> list[str]:
     detected by a claude-harness/ dir), where .github/plans is pool-synced to the
     public caddis-plugin mirror and must stay put (migration decision 5).
 
-    The destination is `.caddis/` for a fresh repo and the repo's existing `.claudster/` for one
-    that predates the rename — this relocation is about the OLD `.claude/`+root layout, not about
-    renaming a repo's artifact dir (that is `/caddis:migrate-dir`, opt-in).
+    The destination is always `.caddis/` — this relocation is about the OLD `.claude/`+root
+    layout, not about renaming a repo's artifact dir (that is `/caddis:migrate-dir`, opt-in).
     """
     art = artifact_root(target).name
     moves = [

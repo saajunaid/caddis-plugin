@@ -89,9 +89,8 @@ On a fresh session read in order: `.caddis/relay.md` (if present) → the active
 accordingly — never scatter these to the repo root or `.github/` (the latter is often a published/
 synced tree in harness-authoring repos).
 
-> **Write where the repo lives.** Repos created before the rename use `.claudster/` instead. Both
-> work — reads try `.caddis/` then `.claudster/` — but always write to whichever this repo already
-> has, never both. `/caddis:migrate-dir` converts a repo when you want it converted.
+> **A repo created before the rename uses `.claudster/` instead.** Run `/caddis:migrate-dir` to
+> convert it — everything under `.caddis/` above is invisible to caddis until you do.
 
 ### Doc discipline (the KB can't silently rot)
 Read `.caddis/kb/DOC-MAP.md` first to find the right reference doc, then read it on demand. When you

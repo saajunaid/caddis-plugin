@@ -9,8 +9,7 @@ must never fail a subagent's turn. Anchors to the SESSION repo (payload `cwd`, s
 convention as session_end.py/inject_relay.py), not the hook process's launch cwd.
 Cross-platform, stdlib only.
 
-Writes where the repo lives: `.caddis/` normally, but an unmigrated repo that still has
-`.claudster/` keeps getting its log there — appending to a second dir would split the history.
+Writes into the repo's `.caddis/` artifact dir.
 """
 import json
 import os
@@ -20,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 
 # Shared artifact-dir resolution (scripts/claudster_config.py) with an inline fallback, so a
-# SubagentStop can never die on an import problem. Same rule either way: write where the repo lives.
+# SubagentStop can never die on an import problem.
 try:
     _SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
     if _SCRIPTS not in sys.path:
@@ -28,9 +27,6 @@ try:
     from claudster_config import artifact_root  # noqa: E402
 except Exception:  # pragma: no cover — defensive
     def artifact_root(root):
-        for _n in (".caddis", ".claudster"):
-            if os.path.isdir(os.path.join(str(root), _n)):
-                return os.path.join(str(root), _n)
         return os.path.join(str(root), ".caddis")
 
 

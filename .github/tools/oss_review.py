@@ -58,7 +58,7 @@ class ConfigError(Exception):
     """Raised when configuration can't be resolved (unknown provider, or missing API key)."""
 
 
-DEFAULT_KEYS_FILE = "~/.claudster/keys.env"
+DEFAULT_KEYS_FILE = "~/.caddis/keys.env"
 
 
 def _parse_keys_file(path: str) -> dict[str, str]:
@@ -99,7 +99,7 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, 
         )
     # Key precedence: REVIEW_API_KEY > provider env (DEEPSEEK_API_KEY, …) > OSS_API_KEY >
     # the caddis keys file — same resolution chain as the claude-oss launcher, so wiring
-    # a provider once (in ~/.claudster/keys.env) lights up both lanes.
+    # a provider once (in ~/.caddis/keys.env) lights up both lanes.
     key_env = f"{provider.upper()}_API_KEY"
     api_key = ""
     for name in ("REVIEW_API_KEY", key_env, "OSS_API_KEY"):
@@ -107,7 +107,7 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, 
         if api_key:
             break
     if not api_key:
-        keys_path = env.get("CADDIS_KEYS_FILE") or env.get("CLAUDSTER_KEYS_FILE") or DEFAULT_KEYS_FILE
+        keys_path = env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE
         file_keys = _parse_keys_file(keys_path)
         for name in (key_env, "OSS_API_KEY"):
             api_key = (file_keys.get(name) or "").strip()

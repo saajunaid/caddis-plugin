@@ -19,14 +19,12 @@ SCRIPT = Path(__file__).resolve().parent.parent.parent / "agy" / "guard_agy.py"
 
 
 def _clean_env() -> dict:
-    # Strip the kill switch (both names of the env pair) so the guard's default (enabled) behaviour
-    # is deterministic regardless of the ambient environment — this machine sets the legacy name
-    # globally, which would silently turn every deny below into a pass.
+    # Strip the kill switch so the guard's default (enabled) behaviour is deterministic regardless
+    # of the ambient environment — this machine may set CADDIS_GUARD_DISABLED globally, which would
+    # silently turn every deny below into a pass.
     e = dict(os.environ)
     e.pop("CADDIS_GUARD_DISABLED", None)
-    e.pop("CLAUDSTER_GUARD_DISABLED", None)
     e.pop("CADDIS_GUARD_MODE", None)  # a real deny-only User env var must not leak into ask-tier tests
-    e.pop("CLAUDSTER_GUARD_MODE", None)
     return e
 
 
@@ -147,7 +145,7 @@ def test_stdout_is_a_single_wellformed_object(tmp_path):
     assert r.stdout.count("{") == r.stdout.count("}")
 
 
-# ── per-repo config: escape hatch + kill switch (dual-path artifact dir) ─────
+# ── per-repo config: escape hatch + kill switch ──────────────────────────────
 def test_allow_list_downgrades_ask_to_allow(tmp_path):
     (tmp_path / ".caddis").mkdir()
     (tmp_path / ".caddis" / "config.toml").write_text('[guard]\nallow = ["./build"]\n', encoding="utf-8")
@@ -162,18 +160,29 @@ def test_allow_list_cannot_override_deny(tmp_path):
 
 
 def test_env_kill_switch_disables_every_tier(tmp_path):
-    # Pins the legacy name on purpose (the one-version fallback contract).
-    env = {**_clean_env(), "CLAUDSTER_GUARD_DISABLED": "1"}
+    env = {**_clean_env(), "CADDIS_GUARD_DISABLED": "1"}
     r = _run(_payload("rm -rf /", tmp_path), env=env)
     assert r.returncode == 0 and r.stdout.strip() == ""
 
 
+def test_legacy_env_var_name_no_longer_has_any_effect(tmp_path):
+    # Phase F dropped the CLAUDSTER_* fallback — the pre-rename name must now be inert.
+    env = {**_clean_env(), "CLAUDSTER_GUARD_DISABLED": "1"}
+    assert _decision(_run(_payload("rm -rf /", tmp_path), env=env))["decision"] == "deny"
+
+
 def test_kill_switch_disables_every_tier(tmp_path):
-    # Legacy .claudster config dir is still honoured on read.
-    (tmp_path / ".claudster").mkdir()
-    (tmp_path / ".claudster" / "config.toml").write_text('[guard]\nenabled = false\n', encoding="utf-8")
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "config.toml").write_text('[guard]\nenabled = false\n', encoding="utf-8")
     r = _run(_payload("rm -rf /", tmp_path))
     assert r.returncode == 0 and r.stdout.strip() == ""
+
+
+def test_legacy_config_dir_no_longer_honoured(tmp_path):
+    # Phase F dropped the .claudster/ read-fallback — a config living ONLY there must not apply.
+    (tmp_path / ".claudster").mkdir()
+    (tmp_path / ".claudster" / "config.toml").write_text('[guard]\nenabled = false\n', encoding="utf-8")
+    assert _decision(_run(_payload("rm -rf /", tmp_path)))["decision"] == "deny"
 
 
 def test_broken_config_does_not_disable_the_guard(tmp_path):

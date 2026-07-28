@@ -18,7 +18,7 @@ dicts out, unit-tested without a tree) and a small glue layer (``load_facts`` / 
 the CLI) that does all I/O and **fails open & silent** — Dream Memory must never block or slow a
 turn.
 
-A fact (one JSON object per line in ``.caddis/memory.jsonl`` — legacy ``.claudster/`` still read)::
+A fact (one JSON object per line in ``.caddis/memory.jsonl``)::
 
     {
       "kind":     "failure-mode | rejected-approach | repo-fact | workflow-success",
@@ -59,31 +59,18 @@ SURFACE_LIMIT = 5            # SessionStart shows at most this many (context-eco
 
 STORE_NAME = "memory.jsonl"
 DEFAULT_STORE = f".caddis/{STORE_NAME}"      # nominal path; resolve per-repo via store_path()
-LEGACY_STORE = f".claudster/{STORE_NAME}"    # pre-rename location, still read
 
 _REQUIRED_FIELDS = ("kind", "key", "summary", "hitCount", "firstSeen", "lastSeen", "source")
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def store_path(root) -> Path:
-    """This repo's fact store — an existing one wins, else the dir the repo lives in.
-
-    Both a read and a write target: an unmigrated repo keeps appending to its `.claudster/`
-    store instead of silently starting an empty second one beside it.
-    """
+    """This repo's fact store, at ``.caddis/memory.jsonl``."""
     try:
         from claudster_config import artifact_read
         return artifact_read(root, STORE_NAME)
     except Exception:
-        base = Path(root)
-        for rel in (DEFAULT_STORE, LEGACY_STORE):
-            cand = base / rel
-            if cand.exists():
-                return cand
-        legacy_dir = base / ".claudster"
-        if legacy_dir.is_dir() and not (base / ".caddis").is_dir():
-            return legacy_dir / STORE_NAME
-        return base / DEFAULT_STORE
+        return Path(root) / DEFAULT_STORE
 
 
 # --------------------------------------------------------------------------- #

@@ -7,7 +7,7 @@ this script. See docs/guide/porting-to-a-harness.md for how bundles are produced
 Guidance — **repo = rules, user = skills**: install SKILLS once at the user level (`--user`, into
 ~/.codex/skills / ~/.agents/skills) so every project sees them; keep RULES (AGENTS.md) per-repo (the
 default `--dest` mode), since rules are project-specific. Teams that want vendored/pinned skills can
-still install per-repo. Every apply is recorded in ~/.claudster/installs.json; `--update-all` refreshes
+still install per-repo. Every apply is recorded in ~/.caddis/installs.json; `--update-all` refreshes
 them all, `--uninstall` removes only the unmodified files it wrote, and `claudster_doctor.py` reports health.
 
 Usage:
@@ -54,20 +54,18 @@ REPO_SLUG = "saajunaid/caddis-plugin"
 REPO_URL = f"https://github.com/{REPO_SLUG}"
 DEFAULT_TARBALL_URL = f"https://codeload.github.com/{REPO_SLUG}/tar.gz/refs/heads/main"
 ENV_PREFIX = "CADDIS"
-LEGACY_ENV_PREFIX = "CLAUDSTER"
 # Roots (relative to a source checkout) that may hold bundles, in preference order.
 BUNDLE_ROOTS = ("bundles", "dist/runtime-resources")
 
 def _home() -> Path:
-    """User home — overridable via CADDIS_FAKE_HOME (fallback CLAUDSTER_FAKE_HOME) so tests never touch the real ~/.claudster etc."""
-    return Path(os.environ.get(f"{ENV_PREFIX}_FAKE_HOME")
-                or os.environ.get(f"{LEGACY_ENV_PREFIX}_FAKE_HOME") or Path.home())
+    """User home — overridable via CADDIS_FAKE_HOME so tests never touch the real ~/.caddis etc."""
+    return Path(os.environ.get(f"{ENV_PREFIX}_FAKE_HOME") or Path.home())
 
 
 def _registry_path() -> Path:
     """The install registry: every apply is recorded so --update-all can re-run them and --doctor can
     report skew. User-level (survives per-project churn)."""
-    return _home() / ".claudster" / "installs.json"
+    return _home() / ".caddis" / "installs.json"
 
 
 def _user_skills(target: str):
@@ -341,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Install SKILLS once at the harness's user level (~/.codex/skills, "
                              "~/.agents/skills) instead of per-project. Rules (AGENTS.md) stay per-repo.")
     parser.add_argument("--update-all", action="store_true",
-                        help="Re-run every install recorded in the registry (~/.claudster/installs.json).")
+                        help="Re-run every install recorded in the registry (~/.caddis/installs.json).")
     parser.add_argument("--uninstall", action="store_true",
                         help="Remove manifest-tracked UNMODIFIED files at --dest (+ registry entry).")
     args = parser.parse_args(argv)

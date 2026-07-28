@@ -1,9 +1,9 @@
 """Subprocess tests for the agy warm-start hook (PreInvocation -> {"injectSteps":[…]}).
 
 agy has no SessionStart, so the adapter fires on PreInvocation and acts ONLY on invocationNum == 1.
-It reads the workspace relay (dual-path .caddis/.claudster, per-branch preferred), trims it, and
-injects it as an ephemeralMessage. Everything else — later invocations, no relay, bad input — must
-emit nothing and exit 0.
+It reads the workspace relay (.caddis, per-branch preferred), trims it, and injects it as an
+ephemeralMessage. Everything else — later invocations, no relay, bad input — must emit nothing and
+exit 0.
 
 Run: python -m pytest claude-harness/hooks/tests/test_warm_start_agy.py -q
 """
@@ -46,10 +46,11 @@ def test_first_invocation_injects_the_relay(tmp_path):
     assert msg.startswith("=== relay.md")
 
 
-def test_reads_the_legacy_artifact_dir(tmp_path):
+def test_legacy_artifact_dir_no_longer_read(tmp_path):
+    # Phase F dropped the .claudster/ read-fallback — a relay living ONLY there is invisible.
     (tmp_path / ".claudster").mkdir()
     (tmp_path / ".claudster" / "relay.md").write_text("legacy relay body", encoding="utf-8")
-    assert "legacy relay body" in _message(_run(_payload(tmp_path)))
+    assert _run(_payload(tmp_path)).stdout.strip() == ""
 
 
 def test_later_invocation_injects_nothing(tmp_path):

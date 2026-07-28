@@ -42,19 +42,12 @@ try:
     from claudster_config import (ARTIFACT_DIRS, artifact_read, artifact_root, get_int, get_str,
                                   get_str_list, load_config)
 except Exception:  # pragma: no cover - defensive shim
-    ARTIFACT_DIRS = (".caddis", ".claudster")  # type: ignore
+    ARTIFACT_DIRS = (".caddis",)  # type: ignore
 
     def artifact_root(root):  # type: ignore
-        for _n in ARTIFACT_DIRS:
-            if (Path(root) / _n).is_dir():
-                return Path(root) / _n
         return Path(root) / ARTIFACT_DIRS[0]
 
     def artifact_read(root, *parts):  # type: ignore
-        for _n in ARTIFACT_DIRS:
-            cand = Path(root).joinpath(_n, *parts)
-            if cand.exists():
-                return cand
         return artifact_root(root).joinpath(*parts)
 
     def load_config(root, section):  # type: ignore
@@ -77,8 +70,7 @@ _SKIP_DIRS = {".venv", "venv", "node_modules", ".git", "__pycache__", ".mypy_cac
 # Default locations, relative to the repo root passed into run(). Generic — no repo-specific names.
 DEFAULT_ROUTE_TREE = "frontend/src/routeTree.gen.ts"
 DEFAULT_PAGE_GUIDE = "UI_PAGE_GUIDE.md"
-# Nominal doc-map path. The real one is resolved per-repo by doc_map_path() so an unmigrated
-# `.claudster/` repo is still gated (and never grows a second, empty `.caddis/kb/`).
+# Nominal doc-map path. The real one is resolved per-repo by doc_map_path().
 DOC_MAP_REL = "kb/DOC-MAP.md"
 DEFAULT_DOC_MAP = f".caddis/{DOC_MAP_REL}"
 
@@ -95,13 +87,12 @@ AGENTS_MD_BUDGET = CLAUDE_MD_BUDGET
 # the project's own documentation and is intentionally NOT policed — the KB is the code-relevant set
 # the team curates. Orphan = a KB note that isn't indexed in the doc-map (warning only). Scoping this
 # to the KB means zero assumptions about any project's docs/ layout, and no noise.
-# Both dir names are globbed so a half-migrated repo's stragglers are still governed.
 GOVERNED_GLOBS: tuple[str, ...] = tuple(f"{name}/kb/*.md" for name in ARTIFACT_DIRS)
 
 
 def doc_map_path(root) -> Path:
-    """This repo's DOC-MAP — an existing one wins (`.caddis` then `.claudster`), else the dir the
-    repo lives in. Both the read target for the gate and the write target for ``reindex``."""
+    """This repo's DOC-MAP, under ``.caddis/kb/``. Both the read target for the gate and the write
+    target for ``reindex``."""
     return artifact_read(root, *DOC_MAP_REL.split("/"))
 
 

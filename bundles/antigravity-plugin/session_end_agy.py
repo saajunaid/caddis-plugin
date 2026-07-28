@@ -2,8 +2,8 @@
 """caddis `session_end` hook for agy (Antigravity) — Stop event.
 
 Ports claude-harness/hooks/session_end.py to agy's contract. On Stop, appends ONE session-end record to
-the workspace's usage log (`<workspace>/.caddis/usage-log.jsonl`, or `.claudster/` if the repo still lives
-there). Self-contained (the agy bundle does not ship claudster_config.py), stdlib-only, and fully defensive:
+the workspace's usage log (`<workspace>/.caddis/usage-log.jsonl`). Self-contained (the agy bundle does not
+ship claudster_config.py), stdlib-only, and fully defensive:
 a Stop hook must never fail the turn, and must not print a non-JSON line to stdout (agy parses Stop-hook
 stdout as a `{"decision":…}` object — a stray string trips its "unsupported hook decision" path). So this
 does a pure side effect and prints NOTHING.
@@ -19,11 +19,6 @@ from datetime import datetime, timezone
 
 
 def _artifact_root(root: str) -> str:
-    """Write where the repo lives: prefer .caddis, keep .claudster if that's what the repo has."""
-    for name in (".caddis", ".claudster"):
-        path = os.path.join(str(root), name)
-        if os.path.isdir(path):
-            return path
     return os.path.join(str(root), ".caddis")
 
 

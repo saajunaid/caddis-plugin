@@ -2,12 +2,12 @@
 """caddis /usage-review: local usage analysis + harness self-tuning recommendations.
 
 Reads:
-  <artifact-dir>/usage-log.jsonl  per-session digest (Stop hook). Tries `.caddis/`, then legacy
-                                  `.claudster/`, then the older `.claude/usage-log.jsonl`.
+  <artifact-dir>/usage-log.jsonl  per-session digest (Stop hook). Tries `.caddis/`, then the older
+                                  `.claude/usage-log.jsonl`.
   ~/.claude/projects/<slug>/      session transcripts (agent dispatches, context size)
   claude-harness/agents/*.md      agent model tiers (frontmatter)
 
-Writes (into the dir the repo lives in — `.caddis/` unless the repo still uses `.claudster/`):
+Writes (into the repo's `.caddis/`):
   <output-dir>/usage-review.html  graph-first HTML dashboard (default: <artifact-dir>/reviews)
   <artifact-dir>/.last-usage-review   timestamp for cadence nudge (updated on each run)
 
@@ -34,12 +34,9 @@ try:
         sys.path.insert(0, _HARNESS_SCRIPTS)
     from claudster_config import ARTIFACT_DIRS, artifact_root
 except Exception:  # pragma: no cover — defensive
-    ARTIFACT_DIRS = (".caddis", ".claudster")
+    ARTIFACT_DIRS = (".caddis",)
 
     def artifact_root(root):
-        for _n in ARTIFACT_DIRS:
-            if (Path(root) / _n).is_dir():
-                return Path(root) / _n
         return Path(root) / ARTIFACT_DIRS[0]
 
 _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -109,7 +106,7 @@ def _transcript_dir(cwd: str) -> Path | None:
 # ── data loading ───────────────────────────────────────────────────────────────
 
 def _usage_log_path(cwd: str) -> str:
-    """The usage log to read: `.caddis/`, then legacy `.claudster/`, then the older `.claude/`.
+    """The usage log to read: `.caddis/`, then the older `.claude/`.
 
     Returns the write-side path (under the dir the repo lives in) when none exists yet, so the
     caller's `isfile` guard and the "no data" message both name the right place.
@@ -344,7 +341,7 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
 _CHEAP_AGENTS = {"preflight", "tester", "codebase-audit", "ui-design-reviewer", "data-engineer",
                  "sql-expert", "claude-md-curator", "debug"}
 _HEAVY_AGENTS = {"anchor", "security-analyst"}
-# Core skill identity is the caddis plugin's; the pre-rename "caddis:" prefix is also listed so
+# Core skill identity is the caddis plugin's; the pre-rename "claudster:" prefix is also listed so
 # legacy usage-log entries (recorded before the caddis rename) still categorize correctly.
 _CORE_SKILL_NAMES = ("feature-plan", "handoff", "prd", "ship", "tdd", "ui-brief")
 _CORE_SKILLS  = {f"{p}:{n}" for p in ("caddis", "claudster") for n in _CORE_SKILL_NAMES}
@@ -1001,8 +998,7 @@ def _card_html(f: dict) -> str:
 def render_html(metrics: dict, findings: list[dict], days: int,
                 ws: str, we: str, generated: str,
                 log_path: str = ".caddis/usage-log.jsonl") -> str:
-    # log_path is shown in the footer so the dashboard names the dir this repo actually uses
-    # (`.caddis/` normally, legacy `.claudster/` in an unmigrated repo).
+    # log_path is shown in the footer so the dashboard names the dir this repo actually uses.
     mm       = metrics.get("model_mix", {})
     tot_out  = metrics.get("output") or 1
     sessions = metrics.get("sessions", 0)
