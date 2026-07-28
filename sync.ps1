@@ -1050,7 +1050,8 @@ function caddis-push {
         [switch]$NoPublish,
         [string]$McpVersion = "",
         [string[]]$Profiles = @("ptarmigan", "liffey"),
-        [switch]$SkipProfileSync
+        [switch]$SkipProfileSync,
+        [switch]$SkipAgySync
     )
 
     $pushResult = [ordered]@{
@@ -1439,6 +1440,20 @@ function caddis-push {
         } else {
             Write-Host "  Source manifest committed: $bumpSummary." -ForegroundColor Magenta
             Write-Host ""
+        }
+    }
+
+    # agy has no auto-update - after a mirror-changing publish, refresh the LOCAL agy install from the fresh
+    # antigravity bundle so it never lags a publish (the manual re-import pain). Guarded (only when agy is on
+    # PATH and the bundle exists) and skippable via -SkipAgySync. Non-fatal: a failure never fails the push.
+    if (-not $SkipAgySync -and $pushResult.MirrorChanged) {
+        $agyCmd = Get-Command agy -ErrorAction SilentlyContinue
+        $agyBundle = Join-Path $ProjectRoot "vscode-extensions\caddis-plugin\bundles\antigravity-plugin"
+        if ($agyCmd -and (Test-Path $agyBundle)) {
+            Write-Host "  [..]  agy: refreshing local install from the new bundle (agy has no auto-update)..." -ForegroundColor DarkGray
+            & $agyCmd.Source plugin install $agyBundle 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]  agy plugin refreshed to the new bundle." -ForegroundColor Green }
+            else { Write-Host "  [WARN] agy re-import returned non-zero (non-fatal) - run 'agy plugin install' by hand if needed." -ForegroundColor Yellow }
         }
     }
 

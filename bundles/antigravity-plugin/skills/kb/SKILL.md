@@ -46,8 +46,9 @@ surface the `[DOC-MAP]` "read the index first" pointer for future sessions in th
 
 ## KB note format (OKF-lite — mandatory for every new note)
 
-Every new `.caddis/kb/*.md` note starts with this frontmatter block (`type` is required;
-the rest recommended). `DOC-MAP.md` is the index, not a note — it stays frontmatter-free:
+Every new `.caddis/kb/*.md` note starts with this frontmatter block. **`type` is the only required
+field**; everything else is recommended. `DOC-MAP.md` is the index, not a note — it stays
+frontmatter-free:
 
 ```yaml
 ---
@@ -56,5 +57,18 @@ title: <human title>
 description: <one line — keep it identical to the note's DOC-MAP row description>
 tags: [topic, topic]
 timestamp: 2026-01-01      # ISO date of last substantive update
+# --- OKF v0.2 trust signals (all optional; omit rather than guess) ---
+status: stable             # draft | stable | deprecated  (absent reads as stable)
+stale_after: 2026-12-31    # re-verify by this date; nothing auto-acts on it
+verified:                  # who CONFIRMED it (not who wrote it); append, never rewrite
+  - { by: human:handle, at: 2026-07-28T10:00:00Z }
+generated: { by: caddis/<model-id>, at: 2026-07-28T09:00:00Z }
 ---
 ```
+
+The full schema, the caddis↔OKF `status` mapping, and what caddis deliberately skips from OKF v0.2
+(`sources:`, `Attested Computation`) live in
+[`.github/instructions/document-frontmatter.instructions.md`](../../.github/instructions/document-frontmatter.instructions.md).
+
+**Backward compatible:** an existing note with no trust fields is still correct. Do not bulk-migrate
+old notes — add the fields as notes are next touched.

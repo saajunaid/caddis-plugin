@@ -4,7 +4,7 @@ Ported from an internal project and made harness-generic: the same route-drift /
 doc-map-integrity / rules-file-budget checks, but every check **auto-skips** when its inputs
 are absent, so a backend-only or doc-less repo passes silently with no noise. Read-only; never writes.
 
-Three checks (all relative to a passed-in repo root — no module-level ROOT):
+Four checks (all relative to a passed-in repo root — no module-level ROOT):
 
 1. **Page-guide route coverage** — every live route in ``frontend/src/routeTree.gen.ts`` has an
    entry in ``UI_PAGE_GUIDE.md``. A missing entry is a hard failure. Absent route tree OR page
@@ -15,6 +15,11 @@ Three checks (all relative to a passed-in repo root — no module-level ROOT):
 3. **Rules-file budget** — the always-loaded rules file stays lean (warning only). Post-migration
    that is ``AGENTS.md`` (canonical) plus its tiny ``CLAUDE.md`` @import shim; a pre-migration repo has
    only ``CLAUDE.md``. Config key ``agents_md_budget`` (``claude_md_budget`` is the back-compat alias).
+4. **OKF v0.2 trust signals** — when an artifact-dir doc declares ``status`` / ``stale_after`` /
+   ``verified`` / ``generated``, they must be well-formed (warning only). **Opt-in by presence:** a
+   missing trust field is never reported, so every pre-v0.2 document passes silently. Nothing here
+   can fail the gate — the signals are recommended, not required. See
+   ``.github/instructions/document-frontmatter.instructions.md``.
 
 Usage::
 
@@ -170,6 +175,153 @@ def extract_docmap_entries(docmap_text: str) -> set[str]:
     return entries
 
 
+# --------------------------------------------------------------------------- #
+# OKF v0.2 trust signals — well-formedness only, WARNING only.
+#
+# Contract (see .github/instructions/document-frontmatter.instructions.md):
+#   * `type` is the only required field. A MISSING trust field is never reported — not as a
+#     failure, not as a warning. These checks are opt-in by presence, so every pre-v0.2 document
+#     stays silent. Backward compatibility is the load-bearing property here.
+#   * A malformed field that IS present warns, so a typo surfaces without gating anything.
+#   * Deliberately hand-rolled, not PyYAML: the harness ships no third-party deps, and a doc-gate
+#     must never be the reason a repo needs one. We only need four top-level keys.
+# --------------------------------------------------------------------------- #
+
+# Both vocabularies are accepted — caddis's work-tracking values AND OKF v0.2's. Neither supersedes
+# the other; the instruction file carries the mapping. Legacy synonyms included so old docs stay quiet.
+TRUST_STATUS_VALUES: frozenset[str] = frozenset({
+    "draft", "stable", "deprecated",                      # OKF v0.2
+    "current", "done", "superseded", "ready",             # caddis
+    "shipped", "implemented",                             # caddis legacy synonyms for `done`
+})
+
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ISO_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})?$")
+_BY_RE = re.compile(r"(?:^|[\s{,])by:\s*([^,}\n]+)", re.MULTILINE)
+_AT_RE = re.compile(r"(?:^|[\s{,])at:\s*([^,}\n]+)", re.MULTILINE)
+
+
+def frontmatter_block(text: str) -> str | None:
+    """The raw body of a leading ``---`` YAML block, or None when the document has no frontmatter."""
+    match = _FRONTMATTER_RE.match(text.lstrip("﻿"))
+    return match.group(1) if match else None
+
+
+def _scalar(raw: str) -> str:
+    """A frontmatter scalar with its trailing ``# comment`` and surrounding quotes removed."""
+    return re.sub(r"\s+#.*$", "", raw).strip().strip("'\"").strip()
+
+
+def _top_level_field(block: str, key: str) -> tuple[str, list[str]] | None:
+    """``(inline value, nested lines)`` for an unindented ``key:`` in ``block``; None if absent.
+
+    Nested lines are the indented continuation lines that follow — which is how both
+    ``verified:``-then-``  - {...}`` and a block-style mapping are captured without a YAML parser.
+    """
+    lines = block.splitlines()
+    for i, line in enumerate(lines):
+        match = re.match(rf"^{re.escape(key)}:[ \t]*(.*)$", line)
+        if not match:
+            continue
+        nested: list[str] = []
+        for follow in lines[i + 1:]:
+            if follow.strip() and not follow[:1].isspace():
+                break                      # next top-level key ends this field
+            if follow.strip():
+                nested.append(follow)
+        return match.group(1), nested
+    return None
+
+
+def _actor_entry_issues(chunk: str, what: str) -> list[str]:
+    """Warnings for one ``{by, at}`` record, written inline (flow) or as indented block style."""
+    issues: list[str] = []
+    by = _BY_RE.search(chunk)
+    at = _AT_RE.search(chunk)
+    if not by or not _scalar(by.group(1)):
+        issues.append(f"{what} entry is missing `by:`")
+    if not at:
+        issues.append(f"{what} entry is missing `at:`")
+    else:
+        value = _scalar(at.group(1))
+        # A full ISO 8601 UTC timestamp is the standard; a bare date is tolerated (still unambiguous).
+        if not (_ISO_DATETIME_RE.match(value) or _ISO_DATE_RE.match(value)):
+            issues.append(f"{what} `at: {value}` is not an ISO 8601 timestamp (YYYY-MM-DDTHH:MM:SSZ)")
+    return issues
+
+
+def _split_list_entries(nested: list[str]) -> list[str]:
+    """Group indented lines into ``- ``-introduced list entries (one chunk of text each)."""
+    entries: list[str] = []
+    for line in nested:
+        if line.strip().startswith("- "):
+            entries.append(line.strip()[2:])
+        elif entries:
+            entries[-1] += "\n" + line.strip()
+    return entries
+
+
+def trust_signal_warnings(text: str) -> list[str]:
+    """Well-formedness warnings for the OKF v0.2 trust signals present in ``text``. Pure.
+
+    Returns ``[]`` for a document with no frontmatter, or with frontmatter carrying none of the
+    trust fields — silence is the correct answer for every pre-v0.2 document. Never raises, and
+    the caller must never treat a returned string as a gate failure.
+    """
+    block = frontmatter_block(text)
+    if block is None:
+        return []
+    warns: list[str] = []
+
+    status = _top_level_field(block, "status")
+    if status is not None:
+        value = _scalar(status[0])
+        # Only a single bare token is vetted. caddis has long-standing docs whose status is a
+        # sentence ("DRAFT — approved shape (Option 2), awaiting go"); vetting those would nag
+        # about prose that predates the field's vocabulary. A one-word typo still surfaces.
+        if value and " " not in value and value.lower() not in TRUST_STATUS_VALUES:
+            warns.append(
+                f"`status: {value}` is not a known value "
+                f"({', '.join(sorted(TRUST_STATUS_VALUES))})"
+            )
+
+    stale = _top_level_field(block, "stale_after")
+    if stale is not None:
+        value = _scalar(stale[0])
+        if not value:
+            warns.append("`stale_after:` is empty — give an ISO date (YYYY-MM-DD) or drop the field")
+        elif not (_ISO_DATE_RE.match(value) or _ISO_DATETIME_RE.match(value)):
+            warns.append(f"`stale_after: {value}` is not an ISO date (YYYY-MM-DD)")
+
+    verified = _top_level_field(block, "verified")
+    if verified is not None:
+        inline, nested = verified
+        entries = _split_list_entries(nested)
+        flow = _scalar(inline)
+        if not entries and flow.startswith("["):
+            # Inline flow-sequence form: verified: [ { by: x, at: y }, { ... } ]
+            entries = [e for e in flow.strip("[]").split("},") if e.strip()]
+        if entries:
+            for entry in entries:
+                warns.extend(_actor_entry_issues(entry, "`verified`"))
+        elif flow and not flow.startswith("["):
+            warns.append("`verified:` must be a list of `{ by, at }` entries, not a scalar")
+        else:
+            warns.append("`verified:` is present but lists no `{ by, at }` entries")
+
+    generated = _top_level_field(block, "generated")
+    if generated is not None:
+        inline, nested = generated
+        chunk = inline + "\n" + "\n".join(nested)
+        if not chunk.strip():
+            warns.append("`generated:` is present but empty — needs `{ by, at }`")
+        else:
+            warns.extend(_actor_entry_issues(chunk, "`generated`"))
+
+    return warns
+
+
 def docmap_issues(
     entries: set[str],
     governed: set[str],
@@ -204,6 +356,35 @@ def _governed_docs(root: Path, globs: tuple[str, ...]) -> set[str]:
             if path.is_file():
                 docs.add(path.relative_to(root).as_posix())
     return docs
+
+
+def scan_trust_signals(root: Path) -> list[tuple[str, list[str]]]:
+    """``(repo-relative path, warnings)`` for every artifact-dir doc with a malformed trust field.
+
+    Scoped to the caddis artifact dir(s) — the docs this standard governs — not the whole repo, and
+    not ``docs/``. A repo with no artifact dir yields nothing. Files that produce no warnings are
+    omitted, so the common case (no trust fields anywhere) returns an empty list.
+    """
+    root = Path(root)
+    out: list[tuple[str, list[str]]] = []
+    for name in ARTIFACT_DIRS:
+        base = root / name
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for fn in sorted(filenames):
+                if not fn.endswith(".md"):
+                    continue
+                path = Path(dirpath) / fn
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue      # vanished/locked mid-scan — never crash the gate
+                issues = trust_signal_warnings(text)
+                if issues:
+                    out.append((path.relative_to(root).as_posix(), issues))
+    return sorted(out)
 
 
 def _count_lines(path: Path) -> int | None:
@@ -613,6 +794,13 @@ def run(root: Path, check: bool) -> int:
     # 3. Rules-file budget (warning only) — AGENTS.md (+ its CLAUDE.md shim), or CLAUDE.md pre-migration.
     for name, n in oversize_files(_rules_md_lengths(root), budget):
         warnings.append(f"{name} is {n} lines (> {budget} budget)")
+
+    # 4. OKF v0.2 trust signals (warning only, and only when a field is PRESENT and malformed).
+    #    Never a hard failure and never reported for an absent field — the trust signals are
+    #    recommended, not required, so a pre-v0.2 repo produces exactly zero output here.
+    for rel, issues in scan_trust_signals(root):
+        for issue in issues:
+            warnings.append(f"{rel}: {issue}")
 
     for w in warnings:
         print(f"  warning: {w}")

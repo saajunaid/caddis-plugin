@@ -137,7 +137,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Agent Md Refactor | `workflow/agent-md-refactor/` | Refactor bloated agent instruction files (AGENTS.md, .cursorrules, .github/ files, etc.) to follow progressive disclosure principles. Splits monolithic files into organized, linked documentation. |
-| Agent Orchestration | `workflow/agent-orchestration/` | End-to-end blueprint for orchestrating the full agent pipeline — from spec intake through planning, implementation, testing, and debugging |
+| Agent Orchestration | `workflow/agent-orchestration/` | End-to-end blueprint for orchestrating the full agent pipeline — from spec intake through planning, implementation, testing, and debugging — plus the multi-model fan-out rules (when a second model is worth it, the intent→model map, and the cost guardrails) |
 | Ask Questions If Underspecified | `workflow/asking-questions/` | Clarify requirements before implementing. Do not use automatically, only when invoked explicitly. |
 | Best Practices | `workflow/best-practices/` | Transforms vague prompts into optimized Claude Code prompts. Adds verification, specific context, constraints, and proper phasing. Invoke with /best-practices. |
 | Brainstorming | `workflow/brainstorming/` | You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. |

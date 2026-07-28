@@ -92,6 +92,15 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
   work). Never same-vendor.
 
+### Flag high-risk phases (`risk:` — a marker, not a mechanism)
+Each phase may carry **`risk: normal|high`** (default `normal` — omit the line unless the phase is
+`high`), meaning only "this is a phase where a wrong answer is expensive" — security/authz, a
+correctness-critical algorithm, an ambiguous spec, or an irreversible change. It is **inert**: it
+selects no model, spawns no agents, and implies no fan-out — it exists so the executor can decide **at
+runtime** whether an extra cross-check is worth it. Do not emit orchestration, lane fan-out, or
+`Workflow` scripts from this command; the runtime decision rules and the intent→model map live in one
+place, the `agent-orchestration` skill's *Multi-model fan-out* section.
+
 ## Step 3 — Write the plan to `.caddis/plans/<feature-slug>.md`
 
 Create `.caddis/plans/` if it doesn't exist.
@@ -127,6 +136,7 @@ Creating Model: <model-id>
 **Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>
 **Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
 **Session:** continue | **fresh** (start a new session for this phase — note why: lane change / heavy context)
+**Risk:** high — token-verification seam; a wrong answer here is a silent auth bypass  *(omit this line when normal)*
 **Goal:** <one sentence>
 **Touches:** `<files>`
 **TDD:**

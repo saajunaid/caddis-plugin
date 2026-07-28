@@ -1,6 +1,6 @@
 ---
 name: agent-orchestration
-description: "End-to-end blueprint for orchestrating the full agent pipeline — from spec intake through planning, implementation, testing, and debugging"
+description: "End-to-end blueprint for orchestrating the full agent pipeline — from spec intake through planning, implementation, testing, and debugging — plus the multi-model fan-out rules (when a second model is worth it, the intent→model map, and the cost guardrails)"
 ---
 
 # Agent Orchestration Blueprint
@@ -51,6 +51,11 @@ The operator (human) acts as **orchestrator**. Agents act as an **advisory board
 ### Key Principle: Artefact-Driven Workflow
 
 Every stage produces a **persistent artefact** (markdown file, commit, test run) that the next stage can consume without relying on conversation memory. This is what makes multi-session execution reliable.
+
+> The pipeline below is the **sequential** axis — which agent, in what order. There is a second,
+> independent axis: **how many models** work a given stage. That is deliberately rationed — see
+> [Multi-model fan-out](#multi-model-fan-out-the-second-axis-how-many-models) before reaching for a
+> second model.
 
 | Stage | Artefact | Location |
 |-------|----------|----------|
@@ -392,10 +397,138 @@ The plan document should contain **copy-paste prompts** for each phase. This rem
 
 ---
 
+## Multi-model fan-out (the second axis: how many models)
+
+> ### ⚠️ If you are not Claude Code, treat this section as ADVISORY and execute solo.
+> The `Agent` tool, its per-agent `model:` override, the `Workflow` tool, and the `/glm`,
+> `/deepseek`, `/caddis:cross-review` commands described below are **Claude-Code-only**. On Codex,
+> Copilot, Antigravity/agy, or any other host: take the *judgement* from this section — default solo,
+> cheapest deterministic check first, don't trust a single model on a security invariant — and
+> **ignore the mechanics**. Do not attempt to emulate fan-out by hand, do not tell the user to run
+> tools your host does not have, and do not treat the model map below as instructions you can execute.
+> Solo execution is a correct, complete outcome here.
+
+Everything above is *sequential*: one model, one stage at a time, operator in the loop. **Fan-out** —
+running two or more models on the same work and reconciling their output — is a separate axis, and it
+is **expensive in three currencies at once**: provider quota, the orchestrator's own context, and the
+human's attention. It earns its cost rarely. The rules below are ordered; apply them in order.
+
+### Rule 0 — default SOLO
+
+**One model does the work. That is the default and it is right most of the time.** Fan out only when
+the work is genuinely high-risk *or* high-uncertainty:
+
+| Fan out | Stay solo |
+|---|---|
+| Security-sensitive code — authn/authz, crypto, secret handling, input trust boundaries | Boilerplate, CRUD, scaffolding |
+| Correctness-critical algorithms where a subtle wrong answer looks right (concurrency, money, dates/timezones, migrations, dedup/merge logic) | Mechanical refactors with a green suite either side |
+| Ambiguous specs — where the risk is that *everyone* misreads the requirement the same way | Anything a test, type-checker, or linter can decide |
+| Verifying a frontier model's **own** risky output — a model is the worst reviewer of its own reasoning | Work already covered by an existing review gate |
+| Irreversible / wide blast radius — a drop, a flag day, a fleet-wide sweep | Work you can trivially revert |
+
+Two failure modes, both real: **fanning out on size** (a big mechanical task is still solo — split it
+across *sessions*, not models) and **fanning out for reassurance** (a second opinion you have already
+decided to ignore is pure cost).
+
+### Rule 1 — cheapest check first
+
+**Never spend a second model on something a deterministic check can decide.** Climb this ladder and
+stop at the first rung that answers the question:
+
+1. **Tests / types / linters / the build.** If a failing test, `mypy`/`tsc`, or a lint rule confirms
+   the concern, you are done — that is a *fact*, not an opinion, and it costs nothing.
+2. **Read the code.** A targeted grep or a five-line read beats any model's guess about what the code
+   does.
+3. **A subagent on the same model** (`code-reviewer`, `security-analyst`, `anchor`, `preflight`) — a
+   fresh context, not a fresh vendor. Catches most "did we miss something" cases.
+4. **A different tier** — escalate one model tier for the hard part only.
+5. **Cross-vendor.** The last rung, and the rationed one (see the guardrails).
+
+If a deterministic check *can* be written but doesn't exist yet, **write the check** — it is cheaper
+than the model call and it keeps paying.
+
+### Rule 2 — name the INTENT, not the model
+
+Talk about lanes by what they are *for*, so plans, prompts, and reviews survive model releases and the
+LiteLLM cutover. **This table is the single place the intent→model mapping lives** — everything else
+(plans, commands, skills) refers to the intent name and points here.
+
+| Intent | What it's for | Current model | Claude Code mechanics | Cost |
+|---|---|---|---|---|
+| **deepest** | Subtle correctness, security invariants, novel architecture, judgment-heavy seams | `opus` | `/model opus`; `Agent(model: "opus")` | **High** — Anthropic plan quota |
+| **broad** | Wide parallel coverage of a large but not-subtle surface; the workhorse | `sonnet` | `/model sonnet`; `Agent(model: "sonnet")` | Medium — the default; budget for several |
+| **mechanical** | Fully-specced, repeat-of-a-known-pattern, no judgment required | `haiku` | `/model haiku`; `Agent(model: "haiku")` | Low |
+| **cross-vendor-reviewer** | A *different vendor's* blind spots on a diff — **code review only** | `deepseek` (default), `glm` | `/caddis:cross-review`, `/glm`, `/deepseek` | **Scarce** — separate starter-tier subscription, NOT Anthropic quota. Ration it. |
+| **synthesis / long-horizon** | Orchestrating many lanes, or work that can't self-verify across a large codebase | `fable` | `/model fable` | **Very high** — ~2× opus's rate-limit burn. RARE. |
+
+**Update this table, not the callers**, when a model is added, retired, or re-tiered. A plan that says
+"cross-vendor-reviewer" keeps working; a plan that says "deepseek-chat" rots.
+
+### Hard guardrails
+
+These are constraints, not preferences. Each exists because breaking it produced a real cost.
+
+1. **DeepSeek and GLM are the CODE-REVIEW lane, and nothing else.** Map them to cross-vendor review of
+   a diff or a concrete file set. **Never** general audit, research, planning, architecture, or
+   open-ended subagent work — they are unreliable outside that lane, and an unreliable lane's output
+   still costs a full synthesis pass to disprove.
+2. **Ration cross-vendor to ~one consolidated pass per task.** One review of the whole change, not one
+   agent per area. Alternate vendors *between* tasks (DeepSeek this diff, GLM the next) — different
+   families have different blind spots and alternation maximises what the pair catches over time.
+3. **Degrade to solo when a lane's quota is exhausted.** A 402/429/quota error on GLM or DeepSeek is a
+   **downgrade, not a blocker**: log that the cross-vendor pass was skipped, continue with the
+   same-vendor reviewer, and say so in the report. Never stall the task waiting on a rationed lane,
+   and never silently drop the pass — an unrun check that reads as "reviewed" is worse than no check.
+4. **Name the synthesis cost before you add a lane.** N lanes do not cost N model calls — they cost N
+   calls **plus** reconciling N reports, which burns the orchestrator's frontier context (the scarcest
+   thing in the session) **and** the human's attention on the write-up. So:
+   - **Default cap: 3 lanes.** Above that, write the synthesis budget down first — who reconciles, on
+     what model, and what the human is expected to read.
+   - **Hard ceiling ~8**, and only for a one-off audit of a genuinely partitioned surface. The 8-lane
+     migration audit that motivated these rules produced a 272-line report that still needed a human
+     read and a main-thread re-verification of every HIGH finding. That tail is the real cost.
+   - If you cannot say what you would *do differently* based on lane N's output, lane N is not worth
+     running.
+5. **Lanes advise; they do not write.** Fan-out agents are read-only — they return findings, the main
+   thread applies them. This is the same rule as "agents never chain autonomously without review", and
+   it is what keeps parallel lanes from clobbering each other.
+6. **Verify high-severity findings in the main thread before acting.** A finding from a lane is a
+   *claim*. Re-read the cited file/line yourself. Subagent reports are confidently wrong often enough
+   that acting on an unverified HIGH is how fan-out turns into net-negative work.
+
+### Running it — existing mechanisms only
+
+Invent no new machinery. Everything needed already ships:
+
+| Need | Use |
+|---|---|
+| Second opinion, same vendor, fresh context | `Agent` tool → `code-reviewer` / `security-analyst` / `anchor` / `preflight` |
+| A different tier for one lane only | The `Agent` tool's `model:` override (per-agent; does not change the session model) |
+| 2–4 lanes in parallel | Several `Agent` calls **in one message** — they run concurrently. This is enough; you do not need anything heavier. |
+| Deterministic multi-stage orchestration (fan out over a discovered list, loop until dry, adversarial verify stages) | The `Workflow` tool — **only when the human explicitly asks for it**; it can spawn dozens of agents |
+| Cross-vendor review of a diff | `/caddis:cross-review` (or `python .github/tools/oss_review.py --provider deepseek\|glm --range <range>`) |
+| Cross-vendor opinion that needs to read the repo | `/glm <prompt>` or `/deepseek <prompt>` |
+| Cross-vendor one-shot, no repo context | `/ask-glm` / `/ask-deepseek` |
+| Per-phase model + lane assignment in a plan | `/caddis:feature-plan` — every phase already carries **Model**, **Lane**, and a cross-review provider |
+
+**Reviewer rule (standing):** the reviewer is always a different vendor than whoever wrote the code.
+Claude or GLM implemented → DeepSeek reviews (or swap). Never same-vendor.
+
+Full command/billing decision table: `docs/guide/multi-model-workflow.md`.
+
+---
+
 ## Anti-Patterns to Avoid
 
 | ❌ Anti-Pattern | ✅ Instead |
 |----------------|-----------|
+| Fanning out because the task is *big* | Fan out for **risk**, not size — split a big mechanical task across sessions, not models |
+| Spending a cross-vendor pass before the tests have run | Cheapest check first — deterministic gates decide it for free |
+| One cross-vendor agent per area | One consolidated cross-vendor pass per task — the lane is rationed |
+| Using DeepSeek/GLM for audit, research, or planning | Code-review lane only — they are unreliable outside it |
+| Adding an Nth lane without budgeting the synthesis | Cap the lanes; reconciling N reports lands on you *and* the human |
+| Acting on a subagent's HIGH finding as reported | Re-verify it in the main thread against the cited file/line first |
+| Blocking the task when a rationed lane is out of quota | Degrade to solo, log the skipped pass, continue |
 | Jumping straight to code without a plan | Triage → ADR (if needed) → Plan → Implement |
 | Implementing all phases in one session | One phase per session — clean context, focused work |
 | Letting agents edit the plan document | Only the Planner agent (or operator) edits plans |
@@ -493,6 +626,7 @@ A well-orchestrated session should produce:
 | Session continuation context | `.github/skills/workflow/relay/SKILL.md` |
 | Verifying code before committing | `.github/skills/workflow/verification-loop/SKILL.md` |
 | Writing implementation plans | `.github/skills/docs/writing-plans/SKILL.md` |
+| Running the cross-vendor review lane | `.github/skills/coding/cross-review/SKILL.md` |
 | Creating new reusable skills | `.github/skills/workflow/skill-creator/SKILL.md` |
 | Best practices reference | `.github/skills/workflow/best-practices/SKILL.md` |
 

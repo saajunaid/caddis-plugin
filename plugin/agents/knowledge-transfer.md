@@ -110,8 +110,9 @@ primary write.
 
 ## KB note format (OKF-lite — mandatory for every new note)
 
-Every new `.caddis/kb/*.md` note starts with this frontmatter block (`type` is required;
-the rest recommended). `DOC-MAP.md` is the index, not a note — it stays frontmatter-free:
+Every new `.caddis/kb/*.md` note starts with this frontmatter block. **`type` is the only required
+field**; everything else is recommended. `DOC-MAP.md` is the index, not a note — it stays
+frontmatter-free:
 
 ```yaml
 ---
@@ -120,5 +121,21 @@ title: <human title>
 description: <one line — keep it identical to the note's DOC-MAP row description>
 tags: [topic, topic]
 timestamp: 2026-01-01      # ISO date of last substantive update
+# --- OKF v0.2 trust signals (all optional; omit rather than guess) ---
+status: stable             # draft | stable | deprecated  (absent reads as stable)
+stale_after: 2026-12-31    # re-verify by this date; nothing auto-acts on it
+verified:                  # who CONFIRMED it (not who wrote it); append, never rewrite
+  - { by: human:handle, at: 2026-07-28T10:00:00Z }
+generated: { by: caddis/<model-id>, at: 2026-07-28T09:00:00Z }
 ---
 ```
+
+Full schema + the caddis↔OKF `status` mapping + what caddis skips from OKF v0.2:
+[`.github/instructions/document-frontmatter.instructions.md`](../../.github/instructions/document-frontmatter.instructions.md).
+
+Two rules that matter for this agent specifically:
+- **Never self-`verified`.** You *generate* notes; `verified` records a **second party** (a human, or
+  the hub) confirming one. Writing your own entry destroys the signal. Use `generated` for your
+  authorship.
+- **Never bulk-migrate.** Existing notes without trust fields are valid. Add fields only to a note you
+  are already rewriting for content reasons.
