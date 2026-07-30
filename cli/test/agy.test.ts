@@ -98,6 +98,38 @@ describe('agy adapter drive', () => {
     expect(result.steps[0]?.command).toBe('agy plugin install /pkg/bundles/antigravity-plugin');
   });
 
+  it('stages the bundle outside any @-scoped path before calling agy (regression: agy misparses "@" as a marketplace qualifier)', async () => {
+    // Reproduces the real npx layout: node_modules/@caddis/cli/bundles/... -- agy's own
+    // `plugin install <path>` splits on the first "@" and treats the remainder as a
+    // marketplace name, failing with "unknown marketplace: caddis\cli\bundles\...".
+    const scoped = path.join(scratch, 'node_modules', '@caddis', 'cli', 'bundles', 'antigravity-plugin');
+    mkdirSync(scoped, { recursive: true });
+    writeFileSync(path.join(scoped, 'plugin.json'), JSON.stringify({ name: 'caddis', version: '1.3.47' }));
+    mockBundlePath.mockImplementation(() => scoped);
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
+
+    const result = await agyAdapter.drive('update', { dryRun: false });
+
+    expect(result.ok).toBe(true);
+    const installCall = mockRun.mock.calls[1];
+    const executedPath = installCall?.[1]?.[2];
+    expect(executedPath).toBeDefined();
+    expect(executedPath).not.toContain('@');
+    // The reported command still shows the real, meaningful bundle path, not the
+    // throwaway staged copy -- a user reading the log should see intent, not plumbing.
+    expect(result.steps[0]?.command).toBe(`agy plugin install ${scoped}`);
+  });
+
+  it('does not stage (no-op) when the bundle path has no "@" -- the common npm-link/dev case', async () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
+    const result = await agyAdapter.drive('update', { dryRun: false });
+    const installCall = mockRun.mock.calls[1];
+    expect(installCall?.[1]?.[2]).toBe('/pkg/bundles/antigravity-plugin');
+    expect(result.ok).toBe(true);
+  });
+
   it('drives the same command for install and update (agy install is idempotent)', async () => {
     mockWhich.mockResolvedValue('/bin/agy');
     mockRun.mockResolvedValue(ok('1.1.7'));

@@ -13,7 +13,7 @@
  * needs no network beyond npm itself and the installed version is pinned to
  * the CLI version — "the caddis you installed IS the pool you get".
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, cpSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentAdapter, AgentStatus, Detection, DriveOptions, DriveResult, DriveAction, ExtrasStatus, StepResult } from './types.js';
@@ -108,6 +108,39 @@ function shortenHome(target: string): string {
   return target.startsWith(home) ? path.join('~', target.slice(home.length)) : target;
 }
 
+/**
+ * agy's `plugin install <path>` parses "@" in its argument as a `plugin@marketplace`
+ * qualifier — so it cannot accept a raw path containing one, which is exactly what
+ * `npx @caddis/cli` always produces (npm installs scoped packages under a literal
+ * `@scope/name/` directory). Symptom, verbatim: `agy plugin install
+ * .../node_modules/@caddis/cli/bundles/antigravity-plugin` fails with
+ * `Error: unknown marketplace: caddis\cli\bundles\antigravity-plugin` — agy split on
+ * the first "@" and took everything after it as the marketplace name.
+ *
+ * Fix: if the resolved bundle path contains "@", stage a copy under a plain temp
+ * directory (guaranteed "@"-free) and install from there instead. No-op for layouts
+ * where this never triggers (npm link, a local checkout run from source).
+ */
+function stageForAgy(bundleDir: string): { installPath: string; cleanup: () => void } {
+  if (!bundleDir.includes('@')) {
+    return { installPath: bundleDir, cleanup: () => {} };
+  }
+  const staged = mkdtempSync(path.join(os.tmpdir(), 'caddis-agy-'));
+  const dest = path.join(staged, path.basename(bundleDir));
+  cpSync(bundleDir, dest, { recursive: true });
+  return {
+    installPath: dest,
+    // Best-effort: a stray temp dir left behind is harmless clutter, not a failure.
+    cleanup: () => {
+      try {
+        rmSync(staged, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
+
 async function drive(_action: DriveAction, options: DriveOptions): Promise<DriveResult> {
   const detected = await detect();
   if (!detected.present) {
@@ -126,7 +159,9 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
 
   // install is idempotent in agy: re-installing over an existing import is the
   // update path, so `install` and `update` drive the same command.
-  const planned = [{ cmd: BIN, args: ['plugin', 'install', bundle] }];
+  // `bundleDir` is tracked alongside `args` (not re-derived from it) so staging
+  // never has to guess which array slot holds the path.
+  const planned = [{ cmd: BIN, args: ['plugin', 'install', bundle], bundleDir: bundle }];
 
   // Extras is opt-in via --extras, BUT an extras install that already exists is
   // always kept current: leaving it to rot at an old version because the user
@@ -136,7 +171,7 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
   if (options.extras === true || extrasInstalled) {
     const extrasBundle = bundlePath(EXTRAS_BUNDLE);
     if (extrasBundle) {
-      planned.push({ cmd: BIN, args: ['plugin', 'install', extrasBundle] });
+      planned.push({ cmd: BIN, args: ['plugin', 'install', extrasBundle], bundleDir: extrasBundle });
     } else if (options.extras === true) {
       return {
         ok: false,
@@ -151,30 +186,42 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
     return {
       ok: true,
       skipped: true,
+      // Show the logical bundle path, not a staged temp copy that was never created.
       steps: planned.map((s) => ({ command: formatCommand(s.cmd, s.args), ok: true, code: null })),
       message: 'dry run — nothing executed',
     };
   }
 
-  const steps: StepResult[] = [];
-  for (const step of planned) {
-    const command = formatCommand(step.cmd, step.args);
-    const result = await run(step.cmd, step.args);
-    steps.push({
-      command,
-      ok: result.ok,
-      code: result.code,
-      output: result.ok
-        ? undefined
-        : (result.stderr || result.stdout || result.failure || '').trim().split(/\r?\n/).slice(-3).join('\n'),
-    });
-    // Core must succeed before extras is attempted — extras is an add-on to it.
-    if (!result.ok) {
-      return { ok: false, skipped: false, steps, message: `\`${command}\` failed` };
-    }
-  }
+  const cleanups: Array<() => void> = [];
+  try {
+    const steps: StepResult[] = [];
+    for (const step of planned) {
+      const command = formatCommand(step.cmd, step.args);
+      // Substitute a staged copy only at execution time -- dry-run and the logged
+      // `command` above stay in terms of the real, meaningful bundle path.
+      const staged = stageForAgy(step.bundleDir);
+      cleanups.push(staged.cleanup);
+      const execArgs = [...step.args.slice(0, -1), staged.installPath];
 
-  return { ok: true, skipped: false, steps };
+      const result = await run(step.cmd, execArgs);
+      steps.push({
+        command,
+        ok: result.ok,
+        code: result.code,
+        output: result.ok
+          ? undefined
+          : (result.stderr || result.stdout || result.failure || '').trim().split(/\r?\n/).slice(-3).join('\n'),
+      });
+      // Core must succeed before extras is attempted — extras is an add-on to it.
+      if (!result.ok) {
+        return { ok: false, skipped: false, steps, message: `\`${command}\` failed` };
+      }
+    }
+
+    return { ok: true, skipped: false, steps };
+  } finally {
+    cleanups.forEach((fn) => fn());
+  }
 }
 
 export const agyAdapter: AgentAdapter = {
