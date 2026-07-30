@@ -45,6 +45,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Code Documentation | `code-documentation/` | Writing effective code documentation - API docs, README files, inline comments, and technical guides. Use for documenting codebases, APIs, or writing developer guides. |
+| Explainer Doc | `explainer-doc/` | Write a document that hands off work to a team who did NOT do the investigation — an external vendor, another team, a contractor — and who must be able to act on it alone. Use when the user says "write a spec for the X team", "document this for someone outside the team", "explainer doc", "implementation spec for a vendor", "hand this off to Y", or is about to write a design doc whose primary reader did not live through the debugging/design process. NOT for internal specs where the reader already has full context (use technical-writing or writing-plans instead) — this is specifically for the "stranger must follow it alone" case. |
 | Technical Writing | `technical-writing/` | Technical documentation best practices for READMEs, API docs, architecture docs, runbooks, and developer guides. Use when writing or reviewing documentation, creating onboarding guides, or establishing documentation standards. |
 | Writing Plans | `writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code |
 
