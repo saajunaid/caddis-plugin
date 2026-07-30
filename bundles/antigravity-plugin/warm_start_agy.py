@@ -2,7 +2,10 @@
 """caddis warm-start hook for agy (Antigravity) — PreInvocation event.
 
 Ports the relay half of claude-harness/hooks/inject_relay.py. agy has NO SessionStart event, so the
-nearest equivalent is PreInvocation with `invocationNum == 1` — the first model turn of a session.
+nearest equivalent is PreInvocation with `invocationNum == 0` — the first model turn of a session.
+**agy's invocations are 0-indexed** (confirmed via a live-fire session against the real `agy` binary
+2026-07-30 -- the original code checked `== 1`, which is agy's SECOND turn, so this hook silently
+never fired at all until the live check caught it; see .caddis/plans/agy-hooks-port.md step 5).
 On that turn only, the workspace's relay doc is injected as an ephemeral step so a fresh agy session
 resumes with zero re-discovery. Every later invocation emits nothing (re-injecting the relay on every
 turn would burn context and drown the conversation).
@@ -118,10 +121,10 @@ def main() -> None:
             return
         if not isinstance(data, dict):
             return
-        # SessionStart equivalent: the FIRST invocation only. Anything else (or an unparseable
-        # invocationNum) injects nothing.
+        # SessionStart equivalent: the FIRST invocation only (agy 0-indexes invocationNum, so the
+        # first turn is 0, not 1). Anything else (or an unparseable invocationNum) injects nothing.
         try:
-            if int(data.get("invocationNum")) != 1:
+            if int(data.get("invocationNum")) != 0:
                 return
         except Exception:
             return

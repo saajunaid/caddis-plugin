@@ -1,9 +1,11 @@
 """Subprocess tests for the agy warm-start hook (PreInvocation -> {"injectSteps":[…]}).
 
-agy has no SessionStart, so the adapter fires on PreInvocation and acts ONLY on invocationNum == 1.
-It reads the workspace relay (.caddis, per-branch preferred), trims it, and injects it as an
-ephemeralMessage. Everything else — later invocations, no relay, bad input — must emit nothing and
-exit 0.
+agy has no SessionStart, so the adapter fires on PreInvocation and acts ONLY on invocationNum == 0
+(agy's first invocation is 0-indexed, confirmed via a live-fire session against the real `agy` binary
+2026-07-30 — the original assumption of invocationNum == 1 was WRONG and silently dropped every
+warm-start injection; see .caddis/plans/agy-hooks-port.md step 5). It reads the workspace relay
+(.caddis, per-branch preferred), trims it, and injects it as an ephemeralMessage. Everything else —
+later invocations, no relay, bad input — must emit nothing and exit 0.
 
 Run: python -m pytest claude-harness/hooks/tests/test_warm_start_agy.py -q
 """
@@ -24,7 +26,7 @@ def _run(stdin: str) -> subprocess.CompletedProcess:
     )
 
 
-def _payload(ws, invocation=1):
+def _payload(ws, invocation=0):
     return json.dumps({"invocationNum": invocation, "initialNumSteps": 2,
                        "conversationId": "c1", "workspacePaths": [str(ws)]})
 
@@ -54,9 +56,11 @@ def test_legacy_artifact_dir_no_longer_read(tmp_path):
 
 
 def test_later_invocation_injects_nothing(tmp_path):
+    # invocation=1 here is the SECOND turn (agy's first is 0) -- also the exact regression case
+    # for the live-fire bug found 2026-07-30 (the original code checked invocationNum == 1).
     (tmp_path / ".caddis").mkdir()
     (tmp_path / ".caddis" / "relay.md").write_text("# Relay\nbody", encoding="utf-8")
-    r = _run(_payload(tmp_path, invocation=2))
+    r = _run(_payload(tmp_path, invocation=1))
     assert r.returncode == 0 and r.stdout.strip() == ""
 
 
@@ -87,10 +91,10 @@ def test_long_relay_is_trimmed(tmp_path):
     "",
     "not json at all",
     "[]",
-    '{"invocationNum": "one"}',
-    '{"invocationNum": 1}',                              # no workspacePaths
-    '{"invocationNum": 1, "workspacePaths": []}',
-    '{"invocationNum": 1, "workspacePaths": "nope"}',
+    '{"invocationNum": "zero"}',
+    '{"invocationNum": 0}',                              # no workspacePaths
+    '{"invocationNum": 0, "workspacePaths": []}',
+    '{"invocationNum": 0, "workspacePaths": "nope"}',
     '{"initialNumSteps": 2}',                            # no invocationNum
 ])
 def test_malformed_input_fails_open(stdin):
