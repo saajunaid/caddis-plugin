@@ -381,7 +381,7 @@
     },
     {
       "name": "antigravity-plugin",
-      "_comment": "Installable agy plugin (agy 1.1.5 contract — docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (code-reviewer, preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (caddis_ping MCP tool).",
+      "_comment": "Installable agy plugin (agy 1.1.5 contract — docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (all 12, ported 2026-07-30 after live-fire validation of code-reviewer + preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (caddis_ping MCP tool).",
       "workspace_root": ".",
       "extra_roots": {
         "harness": "claude-harness"
@@ -407,7 +407,11 @@
           "root": "harness",
           "source": "agents",
           "destination": "agents",
-          "included_names": ["code-reviewer.md", "preflight.md"]
+          "included_names": [
+            "anchor.md", "claude-md-curator.md", "code-reviewer.md", "codebase-audit.md",
+            "data-engineer.md", "debug.md", "knowledge-transfer.md", "preflight.md",
+            "security-analyst.md", "sql-expert.md", "tester.md", "ui-design-reviewer.md"
+          ]
         }
       ],
       "files": [
@@ -461,7 +465,7 @@
       "extra_roots": { "harness": "claude-harness", "scriptsrc": "scripts" },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.49",
+        "version": "1.3.50",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/caddis-plugin" },
         "homepage": "https://github.com/saajunaid/caddis-plugin",
