@@ -71,6 +71,39 @@ def test_review_marker_final_line_wins(tmp_path):
     assert _log_lines(tmp_path)[-1]["verdict"] == "clean"
 
 
+def test_missing_agent_type_recovered_from_meta_json_sidecar(tmp_path):
+    # Regression case found live 2026-07-30: SubagentStop's payload sometimes omits
+    # agent_type/subagent_type/agent_name entirely, and the code used to fall straight to
+    # the meaningless agent_id hash. The subagent's own <transcript>.meta.json sidecar
+    # reliably carries agentType -- confirmed against real Claude Code output.
+    _git_init(tmp_path)
+    tp = _transcript(tmp_path / "agent-abc123.jsonl", "done")
+    (tmp_path / "agent-abc123.meta.json").write_text(
+        json.dumps({"agentType": "caddis:codebase-audit", "description": "x"}), encoding="utf-8"
+    )
+    payload = {
+        "hook_event_name": "SubagentStop", "cwd": str(tmp_path),
+        "agent_id": "abc123", "agent_transcript_path": tp,
+    }
+    r = _run(tmp_path, json.dumps(payload))
+    assert r.returncode == 0, r.stderr
+    assert _log_lines(tmp_path)[-1]["agent"] == "caddis:codebase-audit"
+
+
+def test_no_meta_sidecar_falls_back_to_agent_id(tmp_path):
+    # No agent_type in the payload AND no .meta.json sidecar on disk -- still logs
+    # *something* (the raw id) rather than silently dropping the dispatch.
+    _git_init(tmp_path)
+    tp = _transcript(tmp_path / "agent-nometas.jsonl", "done")
+    payload = {
+        "hook_event_name": "SubagentStop", "cwd": str(tmp_path),
+        "agent_id": "nometas", "agent_transcript_path": tp,
+    }
+    r = _run(tmp_path, json.dumps(payload))
+    assert r.returncode == 0, r.stderr
+    assert _log_lines(tmp_path)[-1]["agent"] == "nometas"
+
+
 def test_no_transcript_still_logs_dispatch(tmp_path):
     _git_init(tmp_path)
     payload = {"hook_event_name": "SubagentStop", "cwd": str(tmp_path)}

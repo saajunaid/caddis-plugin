@@ -53,11 +53,41 @@ def _repo_root(start: str) -> str:
     return start
 
 
+def _agent_type_from_meta(transcript_path: str) -> str:
+    """Recover the agent type from the subagent's own `<transcript>.meta.json` sidecar.
+
+    Claude Code's SubagentStop payload does not always carry agent_type/subagent_type/
+    agent_name directly (observed empirically 2026-07-30: intermittently absent across an
+    otherwise-identical dispatch shape, cause not pinned down) -- but the sidecar file next
+    to agent_transcript_path (agent-<id>.jsonl -> agent-<id>.meta.json) reliably has
+    `{"agentType": "..."}`. Falls back to "" on any problem (missing file, bad JSON, no key)."""
+    if not transcript_path:
+        return ""
+    meta_path = re.sub(r"\.jsonl$", ".meta.json", transcript_path)
+    if meta_path == transcript_path or not os.path.isfile(meta_path):
+        return ""
+    try:
+        with open(meta_path, encoding="utf-8") as fh:
+            meta = json.load(fh)
+        val = meta.get("agentType")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _agent_name(data: dict) -> str:
-    for key in ("agent_type", "subagent_type", "agent_name", "agent_id"):
+    for key in ("agent_type", "subagent_type", "agent_name"):
         val = data.get(key)
         if isinstance(val, str) and val.strip():
             return val.strip()
+    meta_type = _agent_type_from_meta(data.get("agent_transcript_path") or data.get("transcript_path") or "")
+    if meta_type:
+        return meta_type
+    val = data.get("agent_id")
+    if isinstance(val, str) and val.strip():
+        return val.strip()
     return "unknown"
 
 
