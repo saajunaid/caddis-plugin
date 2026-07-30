@@ -17,11 +17,14 @@ overridable via `CADDIS_KEYS_FILE`). If your keys file is populated, no env setu
 Details: the `coding/cross-review` skill and the **Providers & keys** guide.
 
 ## Run it
-The tool ships at `.github/tools/oss_review.py` (stdlib-only, no install):
+Locate the tool (stdlib-only, no install), in order:
+- `.github/tools/oss_review.py` — this project vendors its own copy.
+- `${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py` — the plugin-bundled copy (every install has this;
+  use it whenever the project has no local copy).
 ```
-python .github/tools/oss_review.py                     # DeepSeek eyes (default)
-python .github/tools/oss_review.py --provider glm      # GLM eyes
-python .github/tools/oss_review.py --range $ARGUMENTS  # review a git range, e.g. origin/main..HEAD
+python <resolved-path>/oss_review.py                     # DeepSeek eyes (default)
+python <resolved-path>/oss_review.py --provider glm      # GLM eyes
+python <resolved-path>/oss_review.py --range $ARGUMENTS  # review a git range, e.g. origin/main..HEAD
 ```
 Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
 **Alternate the provider between reviews** (DeepSeek one diff, GLM the next) — different model

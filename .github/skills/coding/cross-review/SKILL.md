@@ -28,10 +28,13 @@ churn — the preset table in `oss_review.py` is the one place to edit a rename,
 `REVIEW_BASE_URL` always win, so you can point at any new id without touching code.
 
 ## How to run
-From the repo root (the tool ships at `.github/tools/oss_review.py`):
+From the repo root. Locate the tool, in order:
+- `.github/tools/oss_review.py` — this project vendors its own copy.
+- `${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py` — the plugin-bundled copy (every Claude Code
+  install has this; use it whenever the project has no local copy).
 ```
-python .github/tools/oss_review.py                       # review the working tree (staged+unstaged)
-python .github/tools/oss_review.py --range origin/main..HEAD   # review a branch's commits
+python <resolved-path>/oss_review.py                       # review the working tree (staged+unstaged)
+python <resolved-path>/oss_review.py --range origin/main..HEAD   # review a branch's commits
 ```
 Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the env).
 
