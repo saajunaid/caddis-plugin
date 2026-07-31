@@ -132,3 +132,51 @@ Do not keep zombie subagents "just in case."
 - No web dashboard / database / telemetry server — agent-log.jsonl + files is sufficient
 - No A/B testing framework — bake-off is manual (2 runs, read the output)
 - No "eval score" number — verdict distribution + key-finding match is the signal
+
+## Eval session — 2026-07-31
+
+First real run of this runbook since it was written. Found the machinery itself was partly
+broken before any agent-quality signal could be trusted — fixed that first (see
+`claude-harness/hooks/agent_log.py` commits `270461b`, `cb73dd4`, caddis v1.3.52/v1.3.54):
+
+1. **Signal 1 was unreliable.** `agent-log.jsonl`'s `agent` field was logging opaque
+   `agent_id` hashes instead of the subagent's name for a chunk of dispatches (root cause:
+   Claude Code's SubagentStop payload intermittently omits `agent_type`/`subagent_type`/
+   `agent_name`; exact trigger not pinned down). Fixed with a fallback to the subagent's own
+   `<transcript>.meta.json` sidecar, which reliably carries `agentType`. **16 of the log's 39
+   historical entries are unrecoverably unlabeled** (transcripts were already pruned) — those
+   are lost, not backfillable.
+2. **Verdict extraction silently failed on bolded prose.** `tester`'s golden-task run returned
+   a correct `**Verdict: changes-requested**` and got logged as `verdict: none` — the regex
+   required a plain, unstyled `verdict:` line. Fixed to tolerate markdown emphasis around the
+   label, confirmed against the real transcript that exposed it.
+
+With the log fixed, ran what Signal 2 golden tasks actually exist (3 of 12 agents have one —
+see gap below) live against the real subagents:
+
+| Agent | Task | Result |
+|---|---|---|
+| `code-reviewer` | 01-auth-middleware-missing-test | **PASS**, and found a real bug beyond the task's own expected findings (the `/health` bypass only fires when the `Authorization` header is entirely absent, so a request carrying a stale/garbage token still 401s — defeats the point of an unauthenticated health check). All 3 pass criteria met. |
+| `preflight` | 01-wrong-file-path | **Partial** — verdict (`FAIL`) and blocker-listing correct, but the Agent tool dispatches subagents in the *main session's* cwd, not an arbitrary directory named in the prompt, so it validated against the real `claudster-source` repo instead of the constructed fixture. Correctly caught nonexistent paths there instead — right instinct, wrong repo. Methodology gap, not an agent-quality finding: **golden tasks needing a specific repo state can't be run via the in-session Agent tool as this task was written; they'd need a real fixture repo + a headless CLI dispatch (`claude -p` in that directory) the way the agy hooks were live-tested.** |
+| `tester` | 01-missing-edge-case | **PASS** — correct verdict, correctly identified the missing 404/None-return test as blocking, did not invent test code, and (bonus) correctly noted the snippet doesn't exist in either open repo rather than fabricating file references. This run is also what surfaced finding #2 above. |
+
+**Verdict distribution (signal 1, post-fix, all history):** with 16/39 entries unrecoverably
+unlabeled, the readable ones are too sparse and pre-fix to trust for rubber-stamping/
+over-strictness patterns yet — re-check in a few weeks now that logging is reliable.
+`claudster:anchor` (5 runs, all pre-rename) and `caddis:knowledge-transfer` (4 runs) are the
+only caddis subagents with real historical dispatch data at all. Every other agent —
+`codebase-audit`, `data-engineer`, `debug`, `preflight`, `security-analyst`, `sql-expert`,
+`code-reviewer`, `claude-md-curator`, `ui-design-reviewer` — has **zero recorded organic
+dispatches** in the visible log (some of that may be hiding in the 16 unlabeled entries, but
+it can't be confirmed). Worth a real look once a few more weeks of reliable logging accrue.
+
+**Signal 3 (model staleness):** clean. All 12 agents use the generic `sonnet`/`opus` tier
+alias (no version-pinned model string), so they track the current model automatically — no
+stale pin found. `anchor` and `security-analyst` sit on `opus` (matches their
+high-risk/verification scope); everything else is `sonnet`. Nothing to change.
+
+**Open gap, not fixed this session:** the golden task set is far short of the documented
+"3-5 tasks per agent" — only `code-reviewer`, `preflight`, `tester` have exactly 1 each, and
+no baseline transcripts exist anywhere under `eval/baselines/`. Building the rest out is a
+separate, larger task (worth doing incrementally rather than in one sitting — one real task +
+baseline per agent, as it actually gets exercised).

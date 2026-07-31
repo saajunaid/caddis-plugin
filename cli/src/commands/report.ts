@@ -6,6 +6,7 @@
  * it once, here, means they can never disagree.
  */
 import type { AgentAdapter, AgentStatus, Detection } from '../agents/types.js';
+import { run } from '../util/exec.js';
 import { bundleManifest, packageInfo } from '../util/pkg.js';
 
 export type DriftState =
@@ -30,12 +31,41 @@ export interface AgentReport {
   extrasDrift?: DriftState;
 }
 
+export interface CliUpdateInfo {
+  current: string;
+  latest: string;
+}
+
 export interface Report {
   cliVersion: string;
   poolVersion: string;
   /** Version of the shipped `caddis-extras` bundle, if this package ships one. */
   extrasVersion?: string;
   agents: AgentReport[];
+  /**
+   * Set only when a newer `@caddis/cli` is published than this install carries. This is the
+   * root of the "doctor can lie" gap: every per-agent drift check compares against
+   * `poolVersion`, which is whatever pool THIS locally-installed CLI happened to bundle at ITS
+   * OWN publish time -- not the true upstream latest. A doctor run can report "everything
+   * current" while being wrong, because the CLI itself (and the pool it carries) is stale.
+   * Undefined when up to date, offline, or the registry lookup fails -- never a defect on its
+   * own; see checkCliUpdate.
+   */
+  cliUpdate?: CliUpdateInfo;
+}
+
+/**
+ * Whether a newer `@caddis/cli` is published on npm than `currentVersion`. Never throws, never
+ * blocks doctor from working offline -- an unreachable registry or any other failure is
+ * indistinguishable from "already current" (both return null). Short timeout: this runs on
+ * every `doctor` invocation and must not make the command feel hung on a slow network.
+ */
+export async function checkCliUpdate(currentVersion: string): Promise<CliUpdateInfo | null> {
+  const result = await run('npm', ['view', '@caddis/cli', 'version'], { timeout: 5_000 });
+  if (!result.ok) return null;
+  const latest = result.stdout.trim();
+  if (!latest || latest === currentVersion) return null;
+  return { current: currentVersion, latest };
 }
 
 function classify(adapter: AgentAdapter, detection: Detection, status: AgentStatus, poolVersion: string): DriftState {
@@ -47,28 +77,42 @@ function classify(adapter: AgentAdapter, detection: Detection, status: AgentStat
   return status.version === poolVersion ? 'current' : 'stale';
 }
 
-export async function gather(adapters: AgentAdapter[]): Promise<Report> {
+export interface GatherOptions {
+  /**
+   * Also check npm for a newer `@caddis/cli` (see `cliUpdate` on Report). Opt-in: `status`
+   * (the bare `caddis` command) and `init`/`update` stay network-free by default; `doctor` is
+   * the deliberate diagnostic command that asks for it explicitly.
+   */
+  checkCliUpdate?: boolean;
+}
+
+export async function gather(adapters: AgentAdapter[], options: GatherOptions = {}): Promise<Report> {
   const manifest = bundleManifest();
   const poolVersion = manifest.poolVersion;
   const extrasVersion = manifest.bundles['antigravity-plugin-extras'];
+  const cliVersion = packageInfo().version;
 
   // Detection and status both shell out; run the agents concurrently so doctor
-  // costs one agent's latency, not the sum of them.
-  const agents = await Promise.all(
-    adapters.map(async (adapter): Promise<AgentReport> => {
-      const detection = await adapter.detect();
-      const status = detection.present ? await adapter.status() : { installed: false, note: 'agent not installed' };
-      return {
-        adapter,
-        detection,
-        status,
-        drift: classify(adapter, detection, status, poolVersion),
-        extrasDrift: classifyExtras(adapter, detection, status, extrasVersion),
-      };
-    }),
-  );
+  // costs one agent's latency, not the sum of them. The (optional) npm lookup
+  // runs alongside them, not after, so it never adds its own latency on top.
+  const [agents, cliUpdate] = await Promise.all([
+    Promise.all(
+      adapters.map(async (adapter): Promise<AgentReport> => {
+        const detection = await adapter.detect();
+        const status = detection.present ? await adapter.status() : { installed: false, note: 'agent not installed' };
+        return {
+          adapter,
+          detection,
+          status,
+          drift: classify(adapter, detection, status, poolVersion),
+          extrasDrift: classifyExtras(adapter, detection, status, extrasVersion),
+        };
+      }),
+    ),
+    options.checkCliUpdate ? checkCliUpdate(cliVersion) : Promise.resolve(null),
+  ]);
 
-  return { cliVersion: packageInfo().version, poolVersion, extrasVersion, agents };
+  return { cliVersion, poolVersion, extrasVersion, agents, cliUpdate: cliUpdate ?? undefined };
 }
 
 function classifyExtras(

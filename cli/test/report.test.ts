@@ -8,13 +8,25 @@ vi.mock('../src/util/pkg.js', async (importOriginal) => {
     bundleManifest: vi.fn(() => ({ poolVersion: '1.3.39', bundles: { 'antigravity-plugin': '1.3.39' } })),
   };
 });
+vi.mock('../src/util/exec.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/util/exec.js')>();
+  return { ...actual, run: vi.fn() };
+});
 
-import { actionable, gather } from '../src/commands/report.js';
+import { actionable, checkCliUpdate, gather } from '../src/commands/report.js';
+import { run } from '../src/util/exec.js';
 import { bundleManifest } from '../src/util/pkg.js';
+import type { RunResult } from '../src/util/exec.js';
 import { fakeAdapter } from './helpers.js';
+
+const mockRun = vi.mocked(run);
+const ok = (stdout = ''): RunResult => ({ ok: true, code: 0, stdout, stderr: '' });
+const fail = (stderr = 'boom'): RunResult => ({ ok: false, code: 1, stdout: '', stderr });
 
 beforeEach(() => {
   vi.mocked(bundleManifest).mockReturnValue({ poolVersion: '1.3.39', bundles: { 'antigravity-plugin': '1.3.39' } });
+  mockRun.mockReset();
+  mockRun.mockResolvedValue(ok('0.1.0')); // default: "no update available" for gather()'s own lookup
 });
 
 describe('drift classification', () => {
@@ -99,5 +111,46 @@ describe('report metadata', () => {
     const report = await gather([fakeAdapter({ id: 'claude' })]);
     expect(report.cliVersion).toBe('0.1.0');
     expect(report.poolVersion).toBe('1.3.39');
+  });
+});
+
+describe('checkCliUpdate()', () => {
+  it('returns null when already on the latest published version', async () => {
+    mockRun.mockResolvedValue(ok('0.1.0'));
+    expect(await checkCliUpdate('0.1.0')).toBeNull();
+  });
+
+  it('returns current + latest when a newer version is published', async () => {
+    mockRun.mockResolvedValue(ok('0.2.0'));
+    expect(await checkCliUpdate('0.1.0')).toEqual({ current: '0.1.0', latest: '0.2.0' });
+  });
+
+  it('returns null on a registry failure -- never a defect on its own, doctor must work offline', async () => {
+    mockRun.mockResolvedValue(fail('ENOTFOUND registry.npmjs.org'));
+    expect(await checkCliUpdate('0.1.0')).toBeNull();
+  });
+
+  it('returns null on empty/garbage stdout rather than a bogus "update"', async () => {
+    mockRun.mockResolvedValue(ok('   '));
+    expect(await checkCliUpdate('0.1.0')).toBeNull();
+  });
+});
+
+describe('gather() cliUpdate opt-in', () => {
+  it('does NOT check npm by default -- status/init/update stay network-free', async () => {
+    await gather([fakeAdapter({ id: 'claude' })]);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('checks npm and surfaces cliUpdate when explicitly requested (doctor)', async () => {
+    mockRun.mockResolvedValue(ok('9.9.9'));
+    const report = await gather([fakeAdapter({ id: 'claude' })], { checkCliUpdate: true });
+    expect(report.cliUpdate).toEqual({ current: '0.1.0', latest: '9.9.9' });
+  });
+
+  it('omits cliUpdate when requested but already current', async () => {
+    mockRun.mockResolvedValue(ok('0.1.0'));
+    const report = await gather([fakeAdapter({ id: 'claude' })], { checkCliUpdate: true });
+    expect(report.cliUpdate).toBeUndefined();
   });
 });

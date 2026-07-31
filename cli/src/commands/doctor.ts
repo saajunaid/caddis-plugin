@@ -36,7 +36,7 @@ interface Problem {
 }
 
 export async function doctor(options: DoctorOptions): Promise<number> {
-  const report = await gather(options.adapters);
+  const report = await gather(options.adapters, { checkCliUpdate: true });
   const findings: Problem[] = [];
 
   if (options.json) {
@@ -63,7 +63,17 @@ function renderEnvironment(report: Report, problems: Problem[]): void {
   }
 
   item('info', `platform ${process.platform} ${process.arch} (${os.release()})`);
-  item('info', `@caddis/cli ${report.cliVersion}`);
+  if (report.cliUpdate) {
+    item('warn', `@caddis/cli ${report.cliVersion} ${color.dim('→')} ${color.bold(report.cliUpdate.latest)} available`);
+    detail('everything below is compared against the pool THIS install carries, which is now behind the published one');
+    problems.push({
+      kind: 'problem',
+      text: `@caddis/cli itself is behind: ${report.cliUpdate.current} installed, ${report.cliUpdate.latest} published`,
+      fix: 'npm i -g @caddis/cli@latest',
+    });
+  } else {
+    item('ok', `@caddis/cli ${report.cliVersion}`);
+  }
 
   const manifest = bundleManifest();
   if (report.poolVersion === 'unknown') {
@@ -255,6 +265,7 @@ function problemFor(entry: AgentReport, poolVersion: string): Problem | null {
 function toJson(report: Report) {
   return {
     cliVersion: report.cliVersion,
+    cliUpdate: report.cliUpdate ?? null,
     poolVersion: report.poolVersion,
     extrasVersion: report.extrasVersion ?? null,
     node: process.versions.node,

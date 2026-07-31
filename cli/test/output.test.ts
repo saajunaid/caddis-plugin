@@ -8,17 +8,28 @@ vi.mock('../src/util/pkg.js', async (importOriginal) => {
     bundleManifest: vi.fn(() => ({ poolVersion: '1.3.39', bundles: { 'antigravity-plugin': '1.3.39' } })),
   };
 });
+vi.mock('../src/util/exec.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/util/exec.js')>();
+  return { ...actual, run: vi.fn() };
+});
 
 import { doctor } from '../src/commands/doctor.js';
 import { status } from '../src/commands/status.js';
 import { update } from '../src/commands/update.js';
+import { run } from '../src/util/exec.js';
 import { bundleManifest } from '../src/util/pkg.js';
+import type { RunResult } from '../src/util/exec.js';
 import { captureStdout, fakeAdapter } from './helpers.js';
 
 let capture: ReturnType<typeof captureStdout>;
+const mockRun = vi.mocked(run);
 
 beforeEach(() => {
   vi.mocked(bundleManifest).mockReturnValue({ poolVersion: '1.3.39', bundles: { 'antigravity-plugin': '1.3.39' } });
+  // doctor's own npm-registry lookup (checkCliUpdate) must never hit the real network in tests --
+  // default to "already current" so it's a non-event unless a test overrides it.
+  mockRun.mockReset();
+  mockRun.mockResolvedValue({ ok: true, code: 0, stdout: '0.1.0', stderr: '' } satisfies RunResult);
   capture = captureStdout();
 });
 afterEach(() => capture.restore());
@@ -68,6 +79,24 @@ describe('doctor', () => {
 
   it('--strict exits 1 on real drift', async () => {
     expect(await doctor({ adapters: realWorldAdapters(), strict: true })).toBe(1);
+  });
+
+  it('flags a stale @caddis/cli itself, not just the agents it drives', async () => {
+    mockRun.mockResolvedValue({ ok: true, code: 0, stdout: '0.5.0', stderr: '' } satisfies RunResult);
+    const code = await doctor({ adapters: realWorldAdapters(), strict: true });
+    const out = capture.output();
+    expect(out).toContain('@caddis/cli 0.1.0 → 0.5.0 available');
+    expect(out).toContain('@caddis/cli itself is behind: 0.1.0 installed, 0.5.0 published');
+    expect(out).toContain('npm i -g @caddis/cli@latest');
+    expect(out).toContain('3 things to fix:'); // claude + agy + the CLI itself
+    expect(code).toBe(1); // counts toward --strict, unlike the old decoupled update-notifier banner
+  });
+
+  it('a registry lookup failure does not add a phantom finding (never blocks doctor offline)', async () => {
+    mockRun.mockResolvedValue({ ok: false, code: 1, stdout: '', stderr: 'ENOTFOUND' } satisfies RunResult);
+    const code = await doctor({ adapters: realWorldAdapters(), strict: true });
+    expect(capture.output()).toContain('2 things to fix:'); // unchanged from the baseline case
+    expect(code).toBe(1); // still 1, from the real claude/agy drift -- not from the failed lookup
   });
 
   it('--strict exits 0 when only v0.2 stubs are outstanding', async () => {
