@@ -62,6 +62,31 @@ def test_appends_entry_with_agent_and_yaml_verdict(tmp_path):
     assert rows[-1]["ts"]
 
 
+def test_bolded_verdict_line_still_recognized(tmp_path):
+    # Regression case found live 2026-07-30: the tester agent phrased its verdict as
+    # "**Verdict: changes-requested**" (bolded prose, capital V) instead of a plain yaml-style
+    # `verdict:` line -- the original regex required the line to start with exactly "verdict:"
+    # and silently logged "none" for a real, correct verdict.
+    _git_init(tmp_path)
+    tp = _transcript(tmp_path / "t.jsonl", "## Findings\n\n**Verdict: changes-requested**\n\nSome prose.")
+    payload = {"hook_event_name": "SubagentStop", "cwd": str(tmp_path),
+               "agent_type": "tester", "agent_transcript_path": tp}
+    assert _run(tmp_path, json.dumps(payload)).returncode == 0
+    assert _log_lines(tmp_path)[-1]["verdict"] == "changes-requested"
+
+
+def test_midsentence_verdict_mention_does_not_false_positive(tmp_path):
+    # A verdict word appearing mid-sentence, not as the start of its own line, must not be
+    # treated as a declaration -- the fix widens what counts as the LABEL (markdown emphasis)
+    # without widening WHERE it can appear (still anchored to line-start via re.M).
+    _git_init(tmp_path)
+    tp = _transcript(tmp_path / "t.jsonl", "This depends on the verdict: reached earlier in the review.")
+    payload = {"hook_event_name": "SubagentStop", "cwd": str(tmp_path),
+               "agent_type": "tester", "agent_transcript_path": tp}
+    assert _run(tmp_path, json.dumps(payload)).returncode == 0
+    assert _log_lines(tmp_path)[-1]["verdict"] == "none"
+
+
 def test_review_marker_final_line_wins(tmp_path):
     _git_init(tmp_path)
     tp = _transcript(tmp_path / "t.jsonl", "All good.\n\nREVIEW: CLEAN")

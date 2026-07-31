@@ -132,7 +132,13 @@ def _verdict(text: str) -> str:
     """
     if not text:
         return "none"
-    hits = re.findall(r"^\s*verdict:\s*([A-Za-z][A-Za-z_-]*)", text, re.M | re.I)
+    # Tolerate markdown emphasis around the label (e.g. "**Verdict: changes-requested**") --
+    # found live 2026-07-30: a subagent that phrases its verdict as bolded prose instead of a
+    # plain yaml-style `verdict:` line was silently logged as "none". Still anchored to the
+    # START of a line (re.M) so a mid-sentence reference like "...per the verdict: above" can't
+    # false-positive.
+    hits = re.findall(r"^\s*[*_]{0,2}verdict[*_]{0,2}\s*:\s*[*_]{0,2}\s*([A-Za-z][A-Za-z_-]*)",
+                       text, re.M | re.I)
     if hits:
         return hits[-1].lower()
     for line in reversed([ln.strip() for ln in text.splitlines() if ln.strip()]):
