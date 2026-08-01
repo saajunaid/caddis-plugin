@@ -48,7 +48,7 @@ EXIT_CONFIG = 3
 # provider (Qwen, a local vLLM, …) is one new row. Callers can always bypass this via env/flags.
 PROVIDERS: dict[str, dict[str, str]] = {
     "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-v4-flash"},
-    "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5.2"},
+    "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-4.7"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1",        "model": "deepseek/deepseek-v4-flash"},
 }
 DEFAULT_PROVIDER = "deepseek"

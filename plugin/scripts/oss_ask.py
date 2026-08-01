@@ -28,7 +28,7 @@ import oss_model  # noqa: E402  (same-directory import: shared key resolution)
 # which holds the Anthropic-protocol endpoints for Claude Code.
 CHAT_PROVIDERS: dict[str, dict[str, str]] = {
     "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-v4-flash",          "key_env": "DEEPSEEK_API_KEY"},
-    "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5.2",                    "key_env": "GLM_API_KEY"},
+    "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-4.7",                    "key_env": "GLM_API_KEY"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1",        "model": "deepseek/deepseek-v4-flash", "key_env": "OPENROUTER_API_KEY"},
 }
 

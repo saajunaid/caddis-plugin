@@ -84,6 +84,17 @@ Summary
 `--strict` exits non-zero when something needs fixing (for CI). Detected-but-unsupported agents are
 information, not failures, and never trip `--strict`. `--json` gives machine-readable output.
 
+**`doctor` also checks whether `@caddis/cli` itself is behind npm** (a 5s `npm view` lookup, opt-in to
+`doctor` only — `status`/`init`/`update` stay network-free by default so they never feel hung offline).
+This matters because every per-agent drift check above compares against the pool bundled in *this*
+install — a CLI that is itself stale can under-report drift even though each individual comparison is
+correct. When behind, doctor adds:
+```
+  ▲ @caddis/cli 0.2.3 → 0.2.4 available
+      npm i -g @caddis/cli@latest
+```
+and counts it as a `--strict`-tripping problem, same as an agent gap.
+
 ### `caddis status`
 
 The same facts as a glanceable table. Running bare `caddis` does this.

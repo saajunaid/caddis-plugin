@@ -465,7 +465,7 @@
       "extra_roots": { "harness": "claude-harness", "scriptsrc": "scripts" },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.54",
+        "version": "1.3.55",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/caddis-plugin" },
         "homepage": "https://github.com/saajunaid/caddis-plugin",
@@ -482,6 +482,7 @@
           {"name": "caddis-extras", "source": "./plugin-extras", "description": "caddis-extras — the full caddis skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."}
         ]
       },
+      "_comment_files_list": "Every standalone script a command/skill shells out to (claude-harness/scripts/*.py, .github/tools/*.py) MUST be listed here EXPLICITLY -- there is no directory-glob for loose scripts, unlike 'copies' below. A script that exists on disk but is missing from this list is silently never bundled to ANY consumer install; nothing else catches this (found 2026-07-30: oss_review.py/oss_model.py/oss_ask.py existed for weeks and cross-review was broken in every consumer repo before anyone noticed -- see future-work-register.md). When adding a script a command/skill depends on, add its 'files' entry in the SAME commit.",
       "files": [
         {"root": "harness", "source": "settings.template.json", "destination": "settings.template.json"},
         {"root": "harness", "source": "stack-map.json", "destination": "stack-map.json"},

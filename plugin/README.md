@@ -77,3 +77,11 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   or left, harness files are refreshed only with `--force`.
 - **Agent-agnostic core.** `AGENTS.md` is the canonical rules file; `CLAUDE.md` is a thin `@AGENTS.md`
   import shim. subagents/commands/skills are plain markdown Codex/agy can also read.
+- **A new standalone script must be added to `.github/runtime-targets.json`'s `"claude"` target `files`
+  list in the same commit that adds it.** Loose scripts (`claude-harness/scripts/*.py`,
+  `.github/tools/*.py`) are enumerated one-by-one there — there is no directory-glob for them the way
+  `copies` globs whole agent/skill/command directories. A script that exists on disk but is missing from
+  that list is silently never bundled to any consumer install, and nothing else catches it (found
+  2026-07-30: `oss_review.py`/`oss_model.py`/`oss_ask.py` shipped for weeks with `/caddis:cross-review`
+  broken in every consumer repo before anyone noticed — see the runtime-targets.json inline comment at
+  that files list, and `.caddis/parking-lot/future-work-register.md`).
