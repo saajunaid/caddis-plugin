@@ -7,9 +7,9 @@ description: Re-measure an app's dashboard/API endpoints for load-time regressio
 # dashboard-perf-sweep — re-measure, then judge the shape, not just the time
 
 Today an app "earns" the rs-kit refresher pattern only when someone happens to be doing unrelated
-work on it, hits a slow page, and measures it properly. That worked for rev-sight and serve-sight,
-but a snapshot measurement goes stale — a page added last month, or a table that crossed a growth
-threshold since, has no mechanism to surface itself. This skill re-measures on demand.
+work on it, hits a slow page, and measures it properly. That worked for a couple of apps in the
+fleet, but a snapshot measurement goes stale — a page added last month, or a table that crossed a
+growth threshold since, has no mechanism to surface itself. This skill re-measures on demand.
 
 **What already exists and must NOT be rebuilt:** every app in the fleet has its own
 `.caddis/kb/dashboard-performance-tracker.md` with real baseline measurements. The gap this closes
@@ -40,14 +40,14 @@ growing. Time alone is not sufficient evidence — the fleet's own history prove
 
 | App | Cold time | Root cause | rs-kit? |
 |---|---|---|---|
-| serve-sight | worst >60s, 5 real breaches | recurring full-table aggregation | **YES** |
-| rev-sight (pre-fix) | 14s–60s+ across several endpoints | recurring full-table aggregation | **YES** |
-| appointment-assist | 10.3s | a single ~158MB LOB payload on 9.1k rows, not aggregation | **NO** — SQL aggregate + gzip |
-| nps-lens | 1.9s | cold JSON parse, no DB at all in prod | **NO** — warm the provider |
-| app-sight | 202ms | n/a — never crossed gate 1 | **NO** |
+| App A | worst >60s, 5 real breaches | recurring full-table aggregation | **YES** |
+| App B (pre-fix) | 14s–60s+ across several endpoints | recurring full-table aggregation | **YES** |
+| App C | 10.3s | a single ~158MB LOB payload on 9.1k rows, not aggregation | **NO** — SQL aggregate + gzip |
+| App D | 1.9s | cold JSON parse, no DB at all in prod | **NO** — warm the provider |
+| App E | 202ms | n/a — never crossed gate 1 | **NO** |
 
-A naive "slow ⇒ recommend rs-kit" tool would have wrongly flagged appointment-assist and nps-lens.
-That already happened once before the shape distinction was made explicit — don't repeat it.
+A naive "slow ⇒ recommend rs-kit" tool would have wrongly flagged App C and App D. That already
+happened once before the shape distinction was made explicit — don't repeat it.
 
 ## Step 1 — build the endpoint list for this app
 
@@ -103,12 +103,12 @@ Force these questions, in order, for each slow endpoint — don't skip to a verd
 1. **Does response size explain most of the time** (large payload, not a slow query)? → not rs-kit;
    recommend trimming fields / gzip / virtualization.
 2. **Is the slow part parsing/serialization, not the DB round-trip?** → not rs-kit; recommend
-   caching/warming the parsed form (nps-lens precedent).
+   caching/warming the parsed form (App D precedent).
 3. **Does the query scale with total stored rows rather than the response size** — read the actual
    SQL/query plan, not just the timing — **and is the same aggregation recomputed per request on data
    that keeps growing?** → candidate for rs-kit.
 4. **Is it slow only at deep pagination (OFFSET)?** → not rs-kit; recommend keyset paging
-   (`exception_id`-style cursor, rev-sight R6/P3 precedent).
+   (`exception_id`-style cursor, App B precedent).
 5. **Is a specific WHERE clause unseekable** (function-wrapped column, NVARCHAR/VARCHAR param
    mismatch)? → not rs-kit; recommend an index or a param-type fix.
 
@@ -124,9 +124,9 @@ being able to see a before/after. Print a summary alongside the file edit.
 
 ## Validating this skill against known ground truth
 
-Before trusting a new app's output, or after changing the checklist, run the sweep against an
-already-known app and confirm it reproduces the **already-established, human-verified** conclusion:
-**app-sight** (202ms, should conclude "not a candidate") and **serve-sight** (known breach, should
-conclude "aggregation-shaped, rs-kit candidate" for the pages already identified). If the output
-disagrees with the known-good conclusion for either, that's a checklist bug — fix the checklist, don't
-rationalize the disagreement away.
+Before trusting a new app's output, or after changing the checklist, run the sweep against two
+already-known apps in your fleet and confirm it reproduces the **already-established, human-verified**
+conclusion for each: one that's genuinely fast (should conclude "not a candidate") and one with a
+known aggregation breach (should conclude "aggregation-shaped, rs-kit candidate" for the pages
+already identified). If the output disagrees with the known-good conclusion for either, that's a
+checklist bug — fix the checklist, don't rationalize the disagreement away.
