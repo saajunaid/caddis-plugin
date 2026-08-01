@@ -1,5 +1,5 @@
 {
-  "description": "caddis harness loop, auto-activated on install: relay.md session-resume injection (SessionStart + PreCompact), a session-end nudge + token-usage digest (Stop), a subagent dispatch/verdict log for agent-eval (SubagentStop -> .caddis/agent-log.jsonl), post-edit lint (PostToolUse on Edit/Write), and a deterministic safety guard (PreToolUse on Bash/Edit/Write/MultiEdit) that blocks secret/catastrophic writes and asks before destructive shell/lockfile/CI changes (escape hatch: .caddis/config.toml [guard] allow). All handlers are pure-Python and cross-platform; they require `python` on PATH.",
+  "description": "caddis harness loop, auto-activated on install: relay.md session-resume injection (SessionStart + PreCompact), a session-end nudge + token-usage digest (Stop), a subagent dispatch/verdict log for agent-eval (SubagentStop -> .caddis/agent-log.jsonl), post-edit lint (PostToolUse on Edit/Write), a rules-file budget re-warn (PostToolUse on Edit/Write/MultiEdit to an oversize AGENTS.md/CLAUDE.md), and a deterministic safety guard (PreToolUse on Bash/Edit/Write/MultiEdit) that blocks secret/catastrophic writes and asks before destructive shell/lockfile/CI changes (escape hatch: .caddis/config.toml [guard] allow). All handlers are pure-Python and cross-platform; they require `python` on PATH.",
   "hooks": {
     "PreToolUse": [
       {
@@ -60,6 +60,15 @@
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/auto_lint.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/rules_budget_nudge.py\""
           }
         ]
       }

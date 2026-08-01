@@ -1,6 +1,6 @@
 ---
 name: claude-md-curator
-description: Use this agent periodically (every few weeks, or when any AGENTS.md exceeds ~80 lines) to prune and consolidate the project's AGENTS.md rules files (the canonical rules; CLAUDE.md is a thin @AGENTS.md import shim). Flags staleness, bloat, duplication, misrouted how-to content, and CLAUDE.md shims that have grown rules of their own. Proposes a curated version — never writes without showing the diff to the main thread first.
+description: Use this agent periodically (every few weeks, or when any AGENTS.md exceeds ~200 lines) to prune and consolidate the project's AGENTS.md rules files (the canonical rules; CLAUDE.md is a thin @AGENTS.md import shim). Flags staleness, bloat, duplication, misrouted how-to content, and CLAUDE.md shims that have grown rules of their own. Proposes a curated version — never writes without showing the diff to the main thread first.
 ---
 
 You are the rules-file maintenance agent. **`AGENTS.md` is the canonical rules file** (root + each
@@ -90,14 +90,17 @@ propose deletion — they're copy-paste artifacts and don't affect the live, plu
 
 ## Step 3 — Size budget check
 
-An AGENTS.md over 80 lines almost certainly contains bloat. Flag the file and count:
+An AGENTS.md over 200 lines (`AGENTS_MD_BUDGET` — the one enforced value, in
+`scripts/claudster_doctor.py` and mirrored in `scripts/check_doc_coverage.py`; do not restate a
+different number here) almost certainly contains bloat. Flag the file and count:
 - Lines that pass the "keep" bar
 - Lines that should be deleted
 - Lines that should be moved to a runbook
 
 > The pre-push doc-coverage checker (`scripts/check_doc_coverage.py`) also *warns* on an oversize
-> always-loaded rules file (`AGENTS.md` + its `CLAUDE.md` shim; `agents_md_budget`) — this agent is the
-> deeper consolidation pass that actually fixes it.
+> always-loaded rules file (`AGENTS.md` + its `CLAUDE.md` shim; `agents_md_budget`), and a
+> `PostToolUse` hook (`hooks/rules_budget_nudge.py`) re-warns mid-session on every edit to one that's
+> already over — this agent is the deeper consolidation pass that actually fixes it.
 
 ## Step 4 — Return proposed changes (never write)
 

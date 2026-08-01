@@ -116,6 +116,26 @@ def oversize_rules_files(dest: Path, budget: int = AGENTS_MD_BUDGET) -> list[tup
     return out
 
 
+def _severity_word(ratio: float) -> str:
+    """Coarse severity label so a 1.1x overage doesn't read identically to a 5x one
+    (register 0e: the nudge used to print the exact same sentence for both)."""
+    if ratio >= 3.0:
+        return "way"
+    if ratio >= 1.5:
+        return "well"
+    return "slightly"
+
+
+def oversize_message(rel_path: str, lines: int, budget: int = AGENTS_MD_BUDGET) -> str:
+    """One-line, severity-scaled description of an oversize rules file. Shared by the
+    SessionStart/PreCompact nudge (nudge_line) and the PostToolUse re-warn
+    (hooks/rules_budget_nudge.py) so both read identically and the threshold lives in
+    exactly one place: ``AGENTS_MD_BUDGET`` above (mirrored in check_doc_coverage.py)."""
+    ratio = lines / budget if budget else 0.0
+    return (f"AGENTS.md {_severity_word(ratio)} over budget "
+            f"({rel_path}: {lines} lines, {ratio:.1f}x the {budget}-line budget) — run claude-md-curator")
+
+
 def docmap_dangling(dest: Path) -> list[str]:
     """Dangling `.md` links in <artifact-dir>/kb/DOC-MAP.md (the '/caddis:kb' signal)."""
     dm = next((p for p in (Path(dest) / n / "kb" / "DOC-MAP.md" for n in ARTIFACT_DIRS) if p.is_file()), None)
@@ -179,7 +199,7 @@ def _file_signals(dest: Path) -> list[str]:
     over = oversize_rules_files(dest)
     if over:
         worst = max(over, key=lambda x: x[1])
-        signals.append(f"AGENTS.md over budget ({worst[0]}: {worst[1]} lines) — run claude-md-curator")
+        signals.append(oversize_message(worst[0], worst[1]))
     dangling = docmap_dangling(dest)
     if dangling:
         signals.append(f"{len(dangling)} dangling DOC-MAP link(s) — run /caddis:kb")
