@@ -36,7 +36,7 @@ from pathlib import Path
 # URL you supply via OSS_BASE_URL.
 PROVIDERS: dict[str, dict[str, str]] = {
     "deepseek":   {"base_url": "https://api.deepseek.com/anthropic",  "model": "deepseek-v4-flash",          "key_env": "DEEPSEEK_API_KEY"},
-    "glm":        {"base_url": "https://api.z.ai/api/anthropic",      "model": "glm-4.7",                    "key_env": "GLM_API_KEY"},
+    "glm":        {"base_url": "https://api.z.ai/api/anthropic",      "model": "glm-5.2",                    "key_env": "GLM_API_KEY"},
     "openrouter": {"base_url": "",                                    "model": "deepseek/deepseek-v4-flash", "key_env": "OPENROUTER_API_KEY"},
 }
 DEFAULT_PROVIDER = "deepseek"

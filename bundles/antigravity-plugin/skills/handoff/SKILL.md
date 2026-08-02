@@ -39,6 +39,31 @@ clean phase boundary and lose or double-do the work.
 tracker shows plan A in progress, but the work moved to plan B), suggest the user run `/digress` to park
 plan A on the workstream stack — so its exact resume point survives and `/resume` can pop it back later.
 
+## Step 2b — Advisory-Hub handoff audit (conditional — skip silently if not applicable)
+
+**Trigger:** the active plan found in Step 2 has a sibling `<slug>-advisory-context.md`. **No such file
+→ skip this step entirely and silently** — no extra work on an ordinary handoff.
+
+**Why it is a distinct step:** a context doc is written *before* the work happens, so it is **always
+stale by the time it is needed**. The outgoing Hub's instinct is always "yes, this doc is designed for
+exactly this" — **that instinct has been measured and found wrong**: a real audit found seven gaps in a
+context file the outgoing Hub believed was current, including the single highest-value technique the Hub
+had developed by then.
+
+**Do not ask "are there gaps?" Assume there are, and find them mechanically** (full detail: the
+`advisory-hub` skill's §G):
+1. **List every technique, decision, and correction you actually used this session** — from your own
+   actions in this transcript, not by re-reading the context doc.
+2. **For each, check whether the context doc's instruction itself already covers it** — not whether the
+   word appears. Would a fresh Hub, reading only that file, be told to do the same thing?
+3. **The caveat that will burn you:** a literal-string grep over prose produces **false MISSINGs**. A
+   `0 matches` result means "this exact string isn't here," not "this isn't covered." **Read the section
+   before believing a 0-match grep.**
+4. **Land every real gap as a durable rule** in the right section of the advisory-context, carrying the
+   specific failure that earned it — a note left for later is not a fix.
+
+Record the outcome in relay.md's `## Learnings captured` line (below).
+
 ## Step 3 — write the resume doc (overwrite) with exactly these sections
 > **Where to write:** solo / single active branch → `.caddis/relay.md` (default).
 > **Team / parallel branches** → write `.caddis/relay/<current-branch>.md` instead, so two
@@ -74,6 +99,7 @@ plan A on the workstream stack — so its exact resume point survives and `/resu
 
 ## Learnings captured
 knowledge-transfer: <✓ ran → files written | ✗ skipped → reason>
+advisory-context audit: <N candidates → M gaps → landed in <path>> | n/a (no advisory-context for this plan)
 
 ## Resume prompt
 \`\`\`
@@ -88,6 +114,8 @@ Read relay.md, then the plan it points to. Continue from <phase/step>. Next acti
 - Only verified facts and real paths. Mark anything unconfirmed as `Unknown`.
 - Update the plan's tracker rows too (status + last commit) — relay and tracker must agree.
 - Don't commit unless asked. Report where `relay.md` was written and the one next action.
+- **Never hand off a Hub session on the strength of "the context doc is designed for this."** That is the
+  one instinct that has been measured and found wrong. Run Step 2b's audit instead.
 - **Prune the Done section — two rules, both apply:**
   1. **Merge-based:** Phases already merged to `main` (confirmed by a tag or commit) must be compressed
      to a single line: `- **RW-N**: merged to main as vYYYY.MM.DD.N (<commit>) ✅`. Only the current

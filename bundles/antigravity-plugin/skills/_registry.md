@@ -85,6 +85,7 @@
 | Ui Brief | `ui-brief/` | Design-first UI brief — lock the aesthetic before writing any code |
 | Usage Review | `usage-review/` | Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step |
 | Use Model | `use-model/` | Explain (or apply) the model lanes — claude / claude-glm / cross-review — key resolution, and how to add a provider |
+| Validate Phase | `validate-phase/` | Advisory Hub phase validation — consume a phase report, RE-DERIVE its claims independently, and return ACCEPT / ACCEPT-WITH-CORRECTION / REJECT |
 | Version | `version/` | Report the installed caddis version |
 
 ### Media
@@ -108,6 +109,7 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
+| Advisory Hub | `advisory-hub/` | Cross-session phase validation for multi-phase implementation plans — a long-lived "Hub" session RE-DERIVES each implementation phase's claims independently instead of trusting its self-assessment. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "advisory context", "who checks the implementing session", "the plan turned out to be wrong", "hand off the hub", "re-derive don't trust", or when a long, multi-session plan with expensive-to-reverse decisions (a migration, a security change, anything touching production data correctness) needs an independent session that verifies every phase before the next one starts. NOT for a three-phase feature — it costs a full extra session's context per phase, and a skill that doesn't say so gets applied everywhere and resented. |
 | Best Practices | `best-practices/` | >- |
 | Brainstorming | `brainstorming/` | You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. |
 | Context Curator | `context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |

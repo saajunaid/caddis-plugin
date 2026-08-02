@@ -43,6 +43,14 @@ folder you will touch (the canonical rules; `CLAUDE.md` is an `@AGENTS.md` shim)
 `.caddis/PROJECT-FACTS.md` if present (for the real run/test commands) —
 **read it, never edit it**. Identify the test command the plan/facts specify so you can run it yourself.
 
+**Advisory-Hub mode (conditional — OFF by default).** Check whether a companion file
+`<plan-dir>/<plan-stem>-advisory-context.md` exists (e.g. plan `.caddis/plans/foo.md` → look for
+`.caddis/plans/foo-advisory-context.md`). **If it does not exist — the normal case, including every
+docket run — Advisory-Hub mode is OFF and nothing else in this command changes.** If it exists, read it
+and set Advisory-Hub mode ON for this run: it names locked decisions you may not change unilaterally,
+this project's declared safety conventions, and how to re-derive the plan's anchor numbers. See the
+`advisory-hub` skill for the full contract.
+
 **2. Determine where to resume.** The `## Tracker` table is the resume signal. Start at the first phase whose
 status is not `done`/`✅`. If every phase is already done, verify the tests are green and go straight to the
 report — do not redo completed work.
@@ -62,6 +70,15 @@ report — do not redo completed work.
      the short commit hash (`git rev-parse --short HEAD`) and a one-line note. This is what lets a future
      session (or the runner) see progress. Commit the Tracker update with the phase (or as a tiny follow-up
      commit) — it lives in the plan file, which is fine to commit on this branch.
+   - **FILE THE PHASE REPORT — Advisory-Hub mode only.** *Skip this bullet entirely if Step 1 found no
+     `<slug>-advisory-context.md`.* Write `.caddis/advisory-hub-reports/phase-NN-<slug>.md` (zero-padded
+     phase number; create the directory and add a `README.md` index row if absent) using the
+     `advisory-hub` skill's report contract. Verbatim means verbatim — paste real terminal output, never
+     reconstruct it. Report the model/lane you actually ran on. Report every commit, including tooling and
+     config. `git add` the report file with this phase's commit. **If the report's SURPRISES /
+     CONTRADICTIONS section is non-empty, stop after this phase** — mark the Tracker row
+     `blocked-pending-hub`, leave later phases untouched, and let the Hub correct the plan; that is not
+     your call to make here.
 
    If a phase cannot be completed (a blocking gap the plan did not resolve, or a rule above would be
    violated), **stop there**: leave later phases untouched, record the blocker in the review file, mark the
@@ -107,6 +124,9 @@ showed; `review` is the review-file path you wrote:
 ```json
 {"implemented":true,"phases_done":<int>,"tests":"passed|failed","review":".caddis/reviews/<slug>.md"}
 ```
+
+(In Advisory-Hub mode, the phase report from Step 3 is a **file**, written per phase — this JSON block
+remains the one and only final output of the whole run, in every mode, unchanged.)
 
 If you had to stop before implementing anything (e.g. you were on the default branch, or the plan was
 unreadable), still end with the block using `"implemented":false,"phases_done":0,"tests":"failed"` and put

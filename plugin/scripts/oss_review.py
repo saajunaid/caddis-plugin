@@ -18,13 +18,23 @@ vars always win, so you can point at any new id without touching code. Nothing h
 
 Usage:
   python oss_review.py [--range <git range>] [--cwd <repo>] [--provider P] [--base-url U] [--model M]
-    --range   e.g. origin/main..HEAD   (default: the working tree, i.e. staged+unstaged)
+    --range   e.g. origin/main..HEAD   (default: the working tree — staged, unstaged AND
+              untracked non-ignored files; a range excludes untracked by design)
 
 Exit codes (fail-closed):
   0  REVIEW: CLEAN      — no blocking issues
   1  REVIEW: BLOCKING   — one or more blocking issues
-  2  error              — no diff verdict parsed, git failure, or endpoint/parse failure
+  2  error              — no diff verdict parsed, git failure, endpoint/parse failure, or the diff
+                          exceeds REVIEW_MAX_DIFF_CHARS (see below — never silently downgraded to CLEAN)
   3  misconfigured      — REVIEW_API_KEY missing (actionable message on stderr)
+
+Diff-size ceiling: an oversized diff sent to a chat-completions endpoint has been observed, live, to
+come back two different unsafe ways — an empty `content` field on an HTTP 200 (at least fails closed:
+no verdict line ⇒ exit 2), and, worse, a `REVIEW: CLEAN` verdict with no substantive engagement (a
+silent false negative — the model was overwhelmed, not actually reviewing). Rather than risk the second
+case, a diff over REVIEW_MAX_DIFF_CHARS (default 60,000 chars; override via the env var or
+--max-diff-chars) is refused BEFORE any LLM call: exit 2 with a message suggesting a narrower --range
+or a per-file/per-commit review instead of one giant diff.
 
 Stdlib-only (urllib) so it runs anywhere with no pip install.
 """
@@ -48,10 +58,33 @@ EXIT_CONFIG = 3
 # provider (Qwen, a local vLLM, …) is one new row. Callers can always bypass this via env/flags.
 PROVIDERS: dict[str, dict[str, str]] = {
     "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-v4-flash"},
-    "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-4.7"},
+    "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5.2"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1",        "model": "deepseek/deepseek-v4-flash"},
 }
 DEFAULT_PROVIDER = "deepseek"
+
+# Tried, in order, ONLY when the primary provider fails at transport level (timeout, HTTP
+# error, unparseable response) AND the user did not name a provider explicitly.
+#
+# Why a fallback rather than just picking one vendor: the whole point of this tool is that the
+# reviewer is a DIFFERENT vendor from the author, so collapsing to a single provider means an
+# outage leaves you with no second opinion and — worse — no signal that you have lost one.
+# Observed on serve-sight across three consecutive phases: GLM timed out every time and the
+# sessions recorded "cross-review inconclusive" and moved on. A review that silently does not
+# happen is the same failure class as a diff that silently is not read.
+#
+# Order matters: DeepSeek leads because it has actually found real bugs (a date-boundary bug
+# two same-vendor passes missed, an anchor bug, an orphaned-permission-rows bug). GLM is the
+# spare tyre, not a co-equal — an alternation policy that sends half the phases to a provider
+# that times out buys variety it never actually collects.
+FALLBACK_PROVIDERS: tuple[str, ...] = ("glm",)
+
+# Fail-closed diff-size ceiling (see the module docstring). Observed live: an oversized diff got back
+# an empty `content` field (safe, but wasteful) on one occasion, and — separately, a bulk multi-document
+# diff around 169,000 chars — a `REVIEW: CLEAN` verdict with zero substantive engagement (unsafe: a
+# silent false negative). 60,000 chars is comfortably under both observed failure points while still
+# covering an ordinary multi-file phase diff. REVIEW_MAX_DIFF_CHARS / --max-diff-chars override it.
+DEFAULT_MAX_DIFF_CHARS = 60_000
 
 
 class ConfigError(Exception):
@@ -81,16 +114,32 @@ def _parse_keys_file(path: str) -> dict[str, str]:
     return out
 
 
-def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, str, str]:
+def resolve_config(
+    args: argparse.Namespace,
+    env: dict[str, str],
+    provider: str | None = None,
+    use_overrides: bool = True,
+) -> tuple[str, str, str]:
     """(base_url, api_key, model). Precedence: explicit flag > env var > provider preset.
 
     Never hard-fails on a model rename: a known --provider supplies sane defaults, and
     REVIEW_MODEL / REVIEW_BASE_URL override them without any code change.
+
+    `provider` names one explicitly (used for fallback). `use_overrides=False` then ignores
+    --model/--base-url/REVIEW_MODEL/REVIEW_BASE_URL, because those were chosen for the PRIMARY
+    provider: pointing DeepSeek's model id at GLM's endpoint would turn a clean fallback into
+    a confusing 404.
     """
-    provider = (args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+    provider = (
+        provider or args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
+    ).strip().lower()
     preset = PROVIDERS.get(provider, {})
-    base_url = (args.base_url or env.get("REVIEW_BASE_URL") or preset.get("base_url") or "").rstrip("/")
-    model = args.model or env.get("REVIEW_MODEL") or preset.get("model") or ""
+    if use_overrides:
+        base_url = (args.base_url or env.get("REVIEW_BASE_URL") or preset.get("base_url") or "").rstrip("/")
+        model = args.model or env.get("REVIEW_MODEL") or preset.get("model") or ""
+    else:
+        base_url = (preset.get("base_url") or "").rstrip("/")
+        model = preset.get("model") or ""
     if not base_url or not model:
         known = ", ".join(sorted(PROVIDERS))
         raise ConfigError(
@@ -122,11 +171,52 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, 
     return base_url, api_key, model
 
 
-def get_diff(rng: str | None, cwd: str) -> str:
+def _untracked_files(cwd: str) -> list[str]:
+    """New, non-ignored files git is not tracking yet. Empty list on any git failure."""
+    out = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=cwd, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=30,
+    )
+    if out.returncode != 0:
+        return []
+    return [p for p in out.stdout.split("\0") if p]
+
+
+def _untracked_diff(path: str, cwd: str) -> str:
+    """A synthetic add-hunk for one untracked file, WITHOUT touching the index.
+
+    `git add -N` would also work and is shorter, but it WRITES to the index — unacceptable
+    in a review tool that routinely runs mid-session against a tree the user is still
+    working in. `--no-index` gets the same diff with no side effect.
+
+    Note the exit code: `git diff --no-index` returns 1 when the files differ, which is the
+    normal outcome here. Only >1 is a real failure.
+    """
+    null = "/dev/null" if os.name != "nt" else "NUL"
+    out = subprocess.run(
+        ["git", "diff", "--no-index", "--", null, path],
+        cwd=cwd, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=30,
+    )
+    return out.stdout if out.returncode <= 1 else ""
+
+
+def get_diff(rng: str | None, cwd: str, include_untracked: bool = True) -> str:
     """The unified diff for `rng` (e.g. 'origin/main..HEAD'), or the working tree when None.
 
-    Working tree = staged + unstaged against HEAD (`git diff HEAD`). Raises on git failure so
-    main() maps it to EXIT_ERROR rather than reviewing an empty diff as CLEAN.
+    Working tree = staged + unstaged against HEAD, PLUS untracked non-ignored files.
+
+    Untracked files are included because `git diff HEAD` reports only paths git already
+    tracks, so a change consisting entirely of NEW files produced an empty diff — and the
+    empty-diff branch in main() prints `REVIEW: CLEAN` and exits 0 without ever calling the
+    model. A brand-new module is exactly the kind of change most worth reviewing, and it was
+    the kind that silently got no review at all. Found on serve-sight 2026-08-02: four
+    consecutive cross-review runs over a phase of mostly-new files reported CLEAN, and the
+    real findings only appeared once the author happened to run `git add -A` first.
+
+    Untracked files are NOT included for an explicit `rng` — a commit range is a span of
+    history, and files that were never committed are correctly outside it.
     """
     cmd = ["git", "diff", rng] if rng else ["git", "diff", "HEAD"]
     # encoding pinned to UTF-8: git emits UTF-8, but text=True would decode with the locale
@@ -136,7 +226,12 @@ def get_diff(rng: str | None, cwd: str) -> str:
                          encoding="utf-8", errors="replace", timeout=30)
     if out.returncode != 0:
         raise RuntimeError(f"git diff failed: {out.stderr.strip()}")
-    return out.stdout
+    if rng or not include_untracked:
+        return out.stdout
+    extra = "".join(_untracked_diff(p, cwd) for p in _untracked_files(cwd))
+    # Concatenated BEFORE returning so the caller's REVIEW_MAX_DIFF_CHARS ceiling measures
+    # the true payload rather than the tracked-only fraction of it.
+    return out.stdout + extra
 
 
 def current_branch(cwd: str) -> str:
@@ -157,7 +252,7 @@ def build_review_prompt(diff_text: str, branch: str, rng: str | None) -> str:
     Self-contained: the criteria are inline so a real review always happens, and it ends with
     a single machine-parseable verdict line the caller maps to an exit code.
     """
-    scope = rng or "the working tree (staged + unstaged changes)"
+    scope = rng or "the working tree (staged, unstaged and new untracked files)"
     return (
         f"Perform an adversarial code review of the changes on branch '{branch}' ({scope}). "
         "The unified diff is provided below. Judge, in priority order: (1) correctness — logic "
@@ -219,10 +314,15 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                         help=f"preset: {', '.join(sorted(PROVIDERS))} (default {DEFAULT_PROVIDER}); env REVIEW_PROVIDER")
     parser.add_argument("--base-url", dest="base_url", default=None, help="override REVIEW_BASE_URL / the preset")
     parser.add_argument("--model", default=None, help="override REVIEW_MODEL / the preset")
+    parser.add_argument("--max-diff-chars", type=int, default=None,
+                        help=f"override REVIEW_MAX_DIFF_CHARS (default {DEFAULT_MAX_DIFF_CHARS})")
     args = parser.parse_args(argv)
 
     try:
         base_url, api_key, model = resolve_config(args, env)
+        primary_provider = (
+            args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
+        ).strip().lower()
     except ConfigError as exc:
         sys.stderr.write(f"{exc}\n")
         return EXIT_CONFIG
@@ -234,20 +334,71 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         return EXIT_ERROR
 
     if not diff_text.strip():
-        print("No changes to review.")
+        # Says what was scanned, not just that nothing was found. This branch used to fire
+        # on a tree full of NEW files (they are invisible to `git diff HEAD`) and report
+        # CLEAN without calling the model — a silent false negative that reads identically
+        # to a real pass. Untracked files are in scope now; naming the scope keeps the
+        # message honest if that ever regresses.
+        print(f"No changes to review in {args.range or 'the working tree (incl. untracked)'}.")
         print("REVIEW: CLEAN")
         return EXIT_CLEAN
+
+    max_diff_chars = args.max_diff_chars
+    if max_diff_chars is None:
+        env_val = (env.get("REVIEW_MAX_DIFF_CHARS") or "").strip()
+        max_diff_chars = int(env_val) if env_val.isdigit() else DEFAULT_MAX_DIFF_CHARS
+    if len(diff_text) > max_diff_chars:
+        sys.stderr.write(
+            f"diff is {len(diff_text)} chars, over the {max_diff_chars}-char review ceiling — refusing "
+            "rather than risk an unreviewable prompt silently coming back CLEAN.\n"
+            "  Narrow --range to a smaller commit span, or review file-by-file / commit-by-commit.\n"
+            "  Override (not recommended without knowing your endpoint's real limit): "
+            "--max-diff-chars <n> or $REVIEW_MAX_DIFF_CHARS.\n"
+        )
+        return EXIT_ERROR
 
     branch = current_branch(args.cwd)
     prompt = build_review_prompt(diff_text, branch, args.range)
 
-    try:
-        review = call_llm(base_url, api_key, model, prompt)
-    except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, ValueError, TimeoutError) as exc:
-        sys.stderr.write(
-            f"review request failed ({model} @ {base_url}): {exc}\n"
-            "  If the model id was renamed, set REVIEW_MODEL to the current id (env overrides the preset).\n"
-        )
+    # Fall back to another vendor only when the user did NOT name one. If they asked for a
+    # specific provider, silently reviewing with a different one would misreport who checked
+    # the code — the single fact this tool exists to establish.
+    explicit = bool(args.provider or env.get("REVIEW_PROVIDER"))
+    chain: list[tuple[str, str, str, str]] = [(primary_provider, base_url, api_key, model)]
+    if not explicit:
+        for name in FALLBACK_PROVIDERS:
+            if name == primary_provider:
+                continue
+            try:
+                fb_url, fb_key, fb_model = resolve_config(args, env, provider=name, use_overrides=False)
+            except ConfigError:
+                continue  # no key for the spare — not an error, just nothing to fall back to
+            chain.append((name, fb_url, fb_key, fb_model))
+
+    review = None
+    for idx, (name, url, key, mdl) in enumerate(chain):
+        try:
+            review = call_llm(url, key, mdl, prompt)
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, ValueError, TimeoutError) as exc:
+            remaining = len(chain) - idx - 1
+            sys.stderr.write(
+                f"review request failed ({mdl} @ {url}): {exc}\n"
+                + (
+                    f"  falling back to {chain[idx + 1][0]}...\n"
+                    if remaining
+                    else "  If the model id was renamed, set REVIEW_MODEL to the current id "
+                         "(env overrides the preset).\n"
+                )
+            )
+            continue
+        if idx:
+            # Loud on purpose. A verdict from a different vendor than the one requested is a
+            # material fact about the review, not an implementation detail — it belongs in the
+            # transcript the phase report quotes.
+            print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}) instead.")
+        break
+
+    if review is None:
         return EXIT_ERROR
 
     print(review)

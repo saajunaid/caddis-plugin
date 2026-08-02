@@ -28,15 +28,28 @@ churn — the preset table in `oss_review.py` is the one place to edit a rename,
 `REVIEW_BASE_URL` always win, so you can point at any new id without touching code.
 
 ## How to run
-From the repo root. Locate the tool, in order:
-- `.github/tools/oss_review.py` — this project vendors its own copy.
-- `${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py` — the plugin-bundled copy (every Claude Code
-  install has this; use it whenever the project has no local copy).
+From the repo root. Resolve the tool path deterministically — check only these two exact
+locations, in order, and **never search the filesystem for it** (see Rules below):
+```bash
+if [ -f ".github/tools/oss_review.py" ]; then
+  TOOL=".github/tools/oss_review.py"                              # this project vendors its own copy
+elif [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py" ]; then
+  TOOL="${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py"               # the plugin-bundled copy
+else
+  echo "oss_review.py not found at either known location — report this and stop. Do NOT search for it."
+  exit 3
+fi
 ```
-python <resolved-path>/oss_review.py                       # review the working tree (staged+unstaged)
-python <resolved-path>/oss_review.py --range origin/main..HEAD   # review a branch's commits
+```
+python "$TOOL"                                             # review the working tree (staged+unstaged)
+python "$TOOL" --range origin/main..HEAD                   # review a branch's commits
 ```
 Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the env).
+
+**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is refused with exit 2
+*before* any LLM call — an oversized diff has been observed to come back either an empty response, or
+worse, a `REVIEW: CLEAN` with zero real engagement. If you hit this, narrow `--range` or review in
+smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint's real limit.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
@@ -52,3 +65,7 @@ Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the
   the main thread after reading the findings.
 - Treat exit 2/3 as blocking-unknown, never as approval (the tool is fail-closed by design).
 - Different vendor ⇒ different style; weigh its findings on merit, don't cargo-cult them.
+- **Never use `find`, `Get-ChildItem -Recurse`, or any other filesystem-wide search to locate
+  `oss_review.py`.** Check only the two paths above. On Git Bash under Windows, `find /` (or any
+  search rooted at `/`) walks every mounted drive, not just the repo — it can hang or take minutes.
+  If neither path exists, stop and report it; don't go hunting for the file.
