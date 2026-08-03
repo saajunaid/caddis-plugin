@@ -199,119 +199,6 @@ def validate_skill_references(agents_dir: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Contract Consistency Test
-# ---------------------------------------------------------------------------
-
-def validate_contract_consistency(agents_dir: Path) -> list[str]:
-    """
-    Parse CONTRACT-REFERENCE.md for declared required_fields per agent,
-    then verify each agent's Output Contract table in its .agent.md file
-    mentions those fields.
-    Returns a list of warning strings (empty = all contracts consistent).
-    """
-    errors: list[str] = []
-    contract_ref = agents_dir.parent / "agent-docs" / "CONTRACT-REFERENCE.md"
-    if not contract_ref.exists():
-        # Deliberately NOT a silent skip. This check spent an unknown period reporting
-        # "skipping" on every publish, which reads like a pass. A validator whose input has
-        # vanished must say so as a defect, not as weather. Either restore the file or delete
-        # this function - a check that always skips is worse than no check, because the output
-        # implies it ran.
-        return [
-            "CONTRACT-REFERENCE.md is MISSING at .github/agent-docs/ — the agent contract "
-            "consistency check has not run. Restore the file or remove this check; do not "
-            "leave it skipping."
-        ]
-
-    ref_text = contract_ref.read_text(encoding="utf-8")
-
-    # Parse CONTRACT-REFERENCE.md for agent contracts:
-    # Pattern: **Agent** | <name>  and  `required_fields` | <fields>
-    # Each contract block has a table with | **Agent** | <name> | and
-    # | `required_fields` | <comma-separated fields> |
-    agent_re = re.compile(r"\|\s*\*\*Agent\*\*\s*\|\s*(.+?)\s*\|")
-    fields_re = re.compile(r"\|\s*`required_fields`\s*\|\s*(.+?)\s*\|")
-
-    # Walk line-by-line to pair agents with their required_fields
-    contracts: dict[str, set[str]] = {}
-    current_agent: str | None = None
-
-    for line in ref_text.splitlines():
-        agent_match = agent_re.search(line)
-        if agent_match:
-            current_agent = agent_match.group(1).strip()
-            continue
-        fields_match = fields_re.search(line)
-        if fields_match and current_agent:
-            raw = fields_match.group(1).strip()
-            if raw.upper() in ("N/A", "N/A (GOLDEN NUGGETS ARE ADDITIVE)",
-                                "N/A (DIAGRAM FILE IS THE ARTEFACT)",
-                                "N/A (PROMPT FILE IS THE ARTEFACT)") or raw.startswith("N/A"):
-                current_agent = None
-                continue
-            fields = set()
-            for raw_field in raw.split(","):
-                field = raw_field.strip()
-                if not field:
-                    continue
-                backtick_match = re.match(r"`([^`]+)`", field)
-                if backtick_match:
-                    fields.add(backtick_match.group(1).strip())
-                    continue
-                field = field.split("(", 1)[0].strip().strip("`")
-                if field:
-                    fields.add(field)
-            contracts[current_agent] = fields
-            current_agent = None
-
-    if not contracts:
-        return ["Could not parse any contracts from CONTRACT-REFERENCE.md"]
-
-    # Now check each agent's .agent.md for an Output Contract table
-    # and verify the required_fields appear there
-    for agent_name, expected_fields in contracts.items():
-        # Convert agent name to file slug
-        slug = re.sub(r"\s+", "-", agent_name.lower().strip())
-        agent_file = agents_dir / f"{slug}.agent.md"
-        if not agent_file.exists():
-            # Try alternate slugs (e.g. "UI/UX Designer" -> "ui-ux-designer")
-            slug = re.sub(r"[/\\]", "-", slug)
-            agent_file = agents_dir / f"{slug}.agent.md"
-        if not agent_file.exists():
-            errors.append(f"{agent_name}: no matching .agent.md for contract check")
-            continue
-
-        text = agent_file.read_text(encoding="utf-8")
-        # Find the Output Contract section
-        contract_section = ""
-        in_contract = False
-        for line in text.splitlines():
-            if re.match(r"#+\s*.*output\s*contract", line, re.IGNORECASE):
-                in_contract = True
-                continue
-            if in_contract:
-                if re.match(r"^#{1,3}\s", line) and "output contract" not in line.lower():
-                    break
-                contract_section += line + "\n"
-
-        if not contract_section.strip():
-            errors.append(f"{agent_name}: no Output Contract section found in agent file")
-            continue
-
-        # Check for each required field in the contract section
-        contract_lower = contract_section.lower()
-        for field in expected_fields:
-            # Flexible match: field name may appear as `field`, field, or in prose
-            if field.lower() not in contract_lower:
-                errors.append(
-                    f"{agent_name}: required_field '{field}' from CONTRACT-REFERENCE.md "
-                    f"not found in agent's Output Contract section"
-                )
-
-    return errors
-
-
-# ---------------------------------------------------------------------------
 # Vocabulary Lint Test
 # ---------------------------------------------------------------------------
 
@@ -524,16 +411,6 @@ def main() -> None:
         print("  [OK]    All skill references resolve to existing SKILL.md files")
     else:
         for e in skill_errors:
-            print(f"  [WARN]  {e}")
-
-    # ── Contract consistency test ─────────────────────────────────────────
-    print("\n  CONTRACT CONSISTENCY")
-    print("  -----------------------------------------")
-    contract_errors = validate_contract_consistency(agents_dir)
-    if not contract_errors:
-        print("  [OK]    All agent contracts consistent with CONTRACT-REFERENCE.md")
-    else:
-        for e in contract_errors:
             print(f"  [WARN]  {e}")
 
     # ── Vocabulary lint test ──────────────────────────────────────────────

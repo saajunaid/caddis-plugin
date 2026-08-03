@@ -158,7 +158,7 @@ Auto-load these skills when the condition matches — do not skip.
 | CSS architecture decisions | `.github/skills/frontend/css-architecture/SKILL.md` |
 | API consumption / typed clients | `.github/skills/coding/api-client-patterns/SKILL.md` |
 | Component unit/integration testing | `.github/skills/testing/component-testing/SKILL.md` |
-| Frontend design systems / tokens | `.github/skills/frontend/frontend-design/SKILL.md` |
+| Frontend design systems / tokens, **and any premium / high-end visual design or animation work** | `.github/skills/frontend/frontend-design/SKILL.md` |
 | Data-backed design decisions (palettes, fonts) | `.github/skills/frontend/ui-ux-intelligence/SKILL.md` |
 | Banner/header design for social and web | `.github/skills/frontend/banner-design/SKILL.md` |
 | HTML slide presentations | `.github/skills/frontend/slides/SKILL.md` |

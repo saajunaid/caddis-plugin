@@ -99,10 +99,22 @@ Build it from the files, not from memory. It must contain:
    - **verify the tree independently** — `git fetch`, count divergence, and `git status`/diff any dirty
      file before treating it as authority
 4. **At least one question whose naive answer is WRONG.** This is the load-bearing part. A Hub that
-   only skimmed must fail *visibly* rather than silently. On the reference project the trap is *"what
-   is the funnel's `offered` count, and why is it NOT `SUM(OfferedInd)`?"* — naive 3,814, correct
-   4,783, because the raw flags do not nest. Pick the equivalent from this plan's own measured facts.
-5. **What is carried open**, verbatim from Step 3.
+   only skimmed must fail *visibly* rather than silently.
+
+   > **USE A DIFFERENT TRAP THAN THE PREVIOUS HUB'S.** Check the last spawn prompt in
+   > `.caddis/advisory-hub-reports/` and pick a fresh one. A trap reused across generations stops
+   > testing comprehension and starts testing whether the new Hub read the old prompt — which it can
+   > pass while understanding nothing. Rotate it, and prefer a fact the *most recent* milestone
+   > established, since that is what the incoming Hub is least likely to have absorbed.
+
+   Good traps share a shape: a figure that looks obvious, a correct value that differs, and a reason
+   rooted in the data rather than in the code. On the reference project, one generation asked why the
+   funnel's `offered` is not `SUM(OfferedInd)` (naive 3,814, correct 4,783 — the raw flags do not
+   nest); the next asked why an abandonment rate moved from 7.6% to 5.9% (the old figure was not a
+   rate at all — 72% of its numerator sat outside its own denominator).
+5. **What is carried open — INLINE IT VERBATIM, do not link to it.** A pointer costs a file hop at
+   exactly the moment the new Hub has least context, and a carried-open item that is not read is
+   indistinguishable from one that was closed.
 6. **The next work**, with its batching (`Session: continue` = batchable, `fresh` = not) and any
    standing constraint the new Hub would not otherwise know — a stalled upstream load, a deploy hold,
    an environment that is mid-change.

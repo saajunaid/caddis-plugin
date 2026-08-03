@@ -465,7 +465,7 @@
       "extra_roots": { "harness": "claude-harness", "scriptsrc": "scripts" },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.61",
+        "version": "1.3.62",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": { "name": "junaid", "url": "https://github.com/saajunaid/caddis-plugin" },
         "homepage": "https://github.com/saajunaid/caddis-plugin",

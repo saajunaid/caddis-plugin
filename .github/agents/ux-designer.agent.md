@@ -113,7 +113,7 @@ Auto-load these skills when the condition matches — do not skip.
 | Data-backed design decisions (palettes, fonts, UX rules) | `.github/skills/frontend/ui-ux-intelligence/SKILL.md` ⬅️ PRIMARY |
 | UI implementation review | `.github/skills/frontend/ui-review/SKILL.md` |
 | Framework-aware mockup creation | `.github/skills/frontend/mockup/SKILL.md` |
-| Frontend design patterns | `.github/skills/frontend/frontend-design/SKILL.md` |
+| Frontend design patterns, **and any premium / high-end visual design work** | `.github/skills/frontend/frontend-design/SKILL.md` |
 | Brand guidelines & visual identity | `.github/skills/frontend/brand-guidelines/SKILL.md` |
 | Theme creation & design tokens | `.github/skills/frontend/theme-factory/SKILL.md` |
 | Design token architecture | `.github/skills/frontend/design-system-tokens/SKILL.md` |
