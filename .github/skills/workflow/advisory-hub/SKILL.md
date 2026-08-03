@@ -35,15 +35,38 @@ recording "inconclusive."
 context, per phase.** Do not reach for this because it sounds rigorous — reach for it because the
 decisions are expensive enough to reverse that the cost is cheap insurance by comparison.
 
-## The five artifacts
+### The concrete test — so this is not a judgement call
 
-| File | Who writes it | Committed? | What is lost without it |
+> **Create `<plan-stem>-advisory-context.md` when TWO OR MORE are true:**
+> - the plan has **≥8 phases**
+> - it **spans multiple sessions** (any phase marked `Session: fresh`)
+> - a mistake is **expensive to reverse** — a migration, a security change, production data
+>   correctness, or numbers published to stakeholders
+> - it will be implemented by **sessions that will not share context**
+>
+> Fewer than two → do not create it.
+
+The reference project hit all four. A three-phase feature hits none.
+
+**Where this gets asked matters more than where it is written.** Every *consumer* of the context file
+was wired (`implement`, `handoff`, `validate-phase`) while nothing *produced* it — so the pattern only
+ever got used by someone who already knew it existed. `/caddis:feature-plan` now runs this test at the
+end of planning, which is the only moment phase count, risk and session boundaries are all known, and
+**offers** the file. It must never create it silently: an opt-in pattern that switches itself on is no
+longer opt-in.
+
+## The six artifacts
+
+| File | Who writes it | When | What is lost without it |
 |---|---|---|---|
-| `<slug>.md` (the plan) | the planning session | yes | — |
-| `<slug>-advisory-context.md` | the Hub | **yes** | Nothing else can carry re-derivation access, locked-decision reasons, or a disproved-claims list across a Hub crash/compaction |
-| `.caddis/advisory-hub-reports/phase-NN-<slug>.md` | the implementing session | **yes** | The only evidence that a phase's claims were ever checkable, not just asserted |
-| `.caddis/advisory-hub-reports/phase-NN-hub-verdict.md` | the Hub | **yes** | Without it a later reader sees a self-assessment and no evidence anyone verified it |
-| `.caddis/advisory-hub-reports/README.md` | the Hub (updated per phase) | yes | An index — which phase, which verdict, when |
+| `<slug>.md` (the plan) | the planning session | before | — |
+| `<slug>-advisory-context.md` | the Hub | before | Nothing else can carry re-derivation access, locked-decision reasons, or a disproved-claims list across a Hub crash/compaction. **Its existence is also the on/off gate.** |
+| `.caddis/advisory-hub-reports/phase-NN.prompt.md` | the **Hub** | **before the phase runs** | What the implementer was *told*. Without it, "the implementer deviated" and "the implementer was right and the plan was wrong" are both unfalsifiable |
+| `.caddis/advisory-hub-reports/phase-NN.report.md` | the implementing session | after | The only evidence that a phase's claims were ever checkable, not just asserted |
+| `.caddis/advisory-hub-reports/phase-NN.verdict.md` | the Hub | after | Without it a later reader sees a self-assessment and no evidence anyone verified it |
+| `.caddis/advisory-hub-reports/README.md` + `AGENTS.md` | the Hub | per phase | An index for humans; and for agents, which ROLE writes which file — an implementer that writes its own verdict has produced a self-assessment wearing a verdict's name |
+
+All are **committed**. See §H for naming, frontmatter and the flat-directory rationale.
 
 **Why not just use `.caddis/relay.md`?** Relay is **gitignored and overwritten by every
 `/caddis:handoff`** — it is a pointer for resuming *one* session, not a durable record. The whole reason
@@ -540,14 +563,62 @@ technique the Hub had developed by then.
 
 ## §H — The reports directory
 
-`.caddis/advisory-hub-reports/` — zero-pad the phase number (`phase-00-`, `phase-01-`, …) so the
-directory sorts in execution order. Keep a `README.md` index inside it:
+`.caddis/advisory-hub-reports/` — **three artifacts per phase**, written by different authors at
+different times. Together they answer *"what was asked, what was claimed, what was independently
+checked."* Any one alone misleads.
 
-| Phase | Report | Verdict | Outcome | Date |
-|---|---|---|---|---|
+```
+phase-NN.prompt.md    what the implementer was TOLD    <- the HUB writes, BEFORE the phase runs
+phase-NN.report.md    what the implementer CLAIMS      <- the IMPLEMENTER writes, after
+phase-NN.verdict.md   what the Hub RE-DERIVED          <- the HUB writes, after
+```
+
+Zero-pad `NN` so the directory sorts in execution order; batched phases share one stem
+(`phase-08-09.report.md`). Keep a `README.md` index inside, and an `AGENTS.md` stating which role
+writes which file — an implementer that writes its own verdict has produced a self-assessment
+wearing a verdict's name, which is worse than no verdict.
+
+**Flat, not subfoldered.** The dominant read is *"what happened in phase N"*, and flat keeps a
+phase's three files adjacent. `prompts/ reports/ verdicts/` optimises the rarer by-artifact read at
+the cost of the common one. **No descriptive slug in the filename** either — it belongs in the H1,
+where it does not have to be typed to link to the file.
+
+**Give every artifact frontmatter — `type` is required, and the verdict must be machine-readable.**
+OKF tier 0 makes `type`'s absence a defect, and on the reference project 17 of 19 artifacts had no
+frontmatter at all until someone needed to build a tool over them. Keep it flat (scalar `key: value`
+only — nested maps and lists defeat simple parsers) and keep `verdict` to a three-value vocabulary:
+
+```yaml
+---
+type: phase-prompt | phase-report | phase-verdict
+plan: .caddis/plans/<slug>.md
+phase: 12                                          # or 10-11 for a batched pair
+milestone: M4
+verdict: accept | accept-with-correction | reject  # verdicts only
+---
+```
+
+`verdict` is the one field a tool can read to answer *"was this phase actually signed off"* without
+parsing prose — and a prose scraper gets that wrong **quietly**, which is the worst way to be wrong
+about whether something was validated. Do not bulk-retrofit optional provenance fields onto old
+documents; adding a missing `type` fixes a defect, back-filling optional fields is churn.
+
+**Commit the prompt, and write it BEFORE the phase runs.** This was added after the fact on the
+reference project and the gap it closed is sharp: the Hub had ruled three times that *"the
+implementer deviated"* or *"the implementer was right and the plan was wrong"* — judgements made
+against an instruction that existed only in a closed conversation. **A deviation only means
+something if the instruction is on the record**, and writing the prompt up front stops it being
+quietly reshaped to match the outcome.
 
 The verdict file matters as much as the report: without it, a later reader sees only the phase's own
-self-assessment and no evidence anyone checked it.
+self-assessment and no evidence anyone checked it. A verdict may be **amended in place by a later
+Hub** in an attributed block — do not rewrite the original judgement; showing both it and why it
+moved is the point.
+
+> **If you ever rename files here, fix every reference in the same commit — and check `relay.md`
+> explicitly.** It is gitignored, so `git grep` and `git ls-files` MISS IT. A migration on the
+> reference project rewrote 40 references across 14 tracked files and would still have left relay
+> pointing at dead filenames — the one file a new session is told to read first.
 
 ---
 

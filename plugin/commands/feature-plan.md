@@ -198,6 +198,33 @@ done:
 
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
 
+## Step 3b — Does this plan need an Advisory Hub? (ask once, here)
+
+The Advisory Hub is **opt-in per plan**, gated on a single file: `<plan-stem>-advisory-context.md`
+beside the plan. `/caddis:implement`, `/caddis:handoff` and `/caddis:validate-phase` all check for it;
+**no file → no behaviour change, ever.** But nothing has ever *asked* whether to create it, so the
+pattern only ever gets used by someone who already knows it exists. This step closes that gap.
+
+**Ask it here** — at the end of planning is the only moment the phase count, risk levels and session
+boundaries are all known.
+
+> **Create `<plan-stem>-advisory-context.md` when TWO OR MORE are true:**
+> - the plan has **≥8 phases**
+> - it **spans multiple sessions** (any phase marked `Session: fresh`)
+> - a mistake is **expensive to reverse** — a migration, a security change, production data
+>   correctness, or numbers that get published to stakeholders
+> - it will be implemented by **sessions that will not share context** (headless lanes, or a fresh
+>   session per phase)
+>
+> **Two or more → offer it. Fewer → say nothing.** Do not create it "to be safe": it costs a full
+> extra session's context *per phase*, and a pattern applied everywhere gets resented and then ignored.
+
+If the test passes, tell the user plainly what it costs and what it buys, and offer to scaffold the
+context doc from the `advisory-hub` skill's §A template. **Do not create it silently** — an opt-in
+pattern that switches itself on is no longer opt-in.
+
+If it does not pass, say nothing at all. A three-phase feature should never hear about this.
+
 ## Step 4 — Report
 Output the plan path (`.caddis/plans/<feature-slug>.md`), the phase list (one line each, with each
 phase's model tier + lane), confirm the local-coder gate passed (or list the phases that need
