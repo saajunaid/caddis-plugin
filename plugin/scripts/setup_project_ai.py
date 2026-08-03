@@ -76,7 +76,14 @@ PLACEHOLDER_RE = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
              ".ruff_cache", ".pytest_cache", "dist", "build", ".tanstack", ".codex-tmp"}
 TEXT_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".toml", ".txt",
-                 ".yml", ".yaml", ".cfg", ".ini", ".html", ".css", ".env", ".ps1", ".sh"}
+                 ".yml", ".yaml", ".cfg", ".ini", ".html", ".css", ".env", ".ps1", ".sh",
+                 # .mjs was missing until 2026-08-03. A .mjs carrying a {{PLACEHOLDER}} was
+                 # skipped by the scan, so the leftover-placeholder gate could not see it and
+                 # the file shipped unrendered and SILENTLY. Found while porting a Playwright
+                 # prod-render check (an .mjs) into the fleet template. Same class as the
+                 # VersionBadge trap: a hardcoded extension/file list that a new file type
+                 # falls straight through.
+                 ".mjs", ".cjs"}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

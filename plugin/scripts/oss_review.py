@@ -87,6 +87,19 @@ FALLBACK_PROVIDERS: tuple[str, ...] = ("glm",)
 DEFAULT_MAX_DIFF_CHARS = 60_000
 
 
+# A diff over the ceiling is split into batches on whole-FILE boundaries and each batch is
+# reviewed separately, rather than the whole thing being refused. Refusing was correct while
+# there was no alternative — a silent false CLEAN is the worst outcome this tool has — but it
+# put the burden on the author, and the workaround people reached for (`git stash` to split
+# the tree) mutates the working tree mid-verification and cost a hand-resolved merge conflict
+# on serve-sight, 2026-08-03.
+#
+# Batching scales in both directions: a small change is one batch, identical in cost and
+# behaviour to before; a 175k-char phase is three or four, with no judgement call about where
+# to cut. Verdicts aggregate fail-closed (see `aggregate_verdicts`).
+MAX_REVIEW_BATCHES = 12
+
+
 class ConfigError(Exception):
     """Raised when configuration can't be resolved (unknown provider, or missing API key)."""
 
@@ -234,6 +247,66 @@ def get_diff(rng: str | None, cwd: str, include_untracked: bool = True) -> str:
     return out.stdout + extra
 
 
+def split_diff_by_file(diff_text: str) -> list[str]:
+    """The diff cut into per-file chunks on `diff --git` boundaries.
+
+    Splitting on file boundaries, never mid-file: half a file's hunks is worse than no
+    review of it, because the model confidently reasons about code it cannot see.
+    """
+    if not diff_text.strip():
+        return []
+    parts: list[str] = []
+    current: list[str] = []
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git ") and current:
+            parts.append("".join(current))
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def batch_diff(diff_text: str, max_chars: int) -> list[str]:
+    """Pack whole files into as few batches as possible, each under `max_chars`.
+
+    A single file larger than the ceiling gets its own batch and is sent anyway — it is
+    over the limit either way, and reviewing it is strictly better than skipping it. The
+    caller reports how many batches were used so an oversized single file is visible.
+    """
+    files = split_diff_by_file(diff_text)
+    if not files:
+        return []
+    batches: list[str] = []
+    current = ""
+    for chunk in files:
+        if current and len(current) + len(chunk) > max_chars:
+            batches.append(current)
+            current = chunk
+        else:
+            current += chunk
+    if current:
+        batches.append(current)
+    return batches
+
+
+def aggregate_verdicts(verdicts: list[bool | None]) -> bool | None:
+    """Fail-closed roll-up: any BLOCKING wins; CLEAN only if EVERY batch was clean.
+
+    A batch with no parseable verdict (`None`) poisons the result to `None`, which the
+    caller maps to EXIT_ERROR — the same fail-closed rule as the single-batch path. An
+    unreviewed batch must never be able to produce a CLEAN overall.
+    """
+    if not verdicts:
+        return None
+    if any(v is False for v in verdicts):
+        return False
+    if any(v is None for v in verdicts):
+        return None
+    return True
+
+
 def current_branch(cwd: str) -> str:
     try:
         out = subprocess.run(
@@ -347,18 +420,43 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     if max_diff_chars is None:
         env_val = (env.get("REVIEW_MAX_DIFF_CHARS") or "").strip()
         max_diff_chars = int(env_val) if env_val.isdigit() else DEFAULT_MAX_DIFF_CHARS
-    if len(diff_text) > max_diff_chars:
+    batches = batch_diff(diff_text, max_diff_chars) or [diff_text]
+    # Batching only helps when the diff HAS file boundaries to cut on. A single file (or a
+    # blob with no `diff --git` headers) larger than the ceiling cannot be split, and sending
+    # it anyway would reintroduce exactly the silent false-CLEAN the ceiling exists to stop.
+    # Refuse, as before — the guarantee is absolute: no prompt over the ceiling is ever sent.
+    if any(len(b) > max_diff_chars for b in batches):
+        biggest = max(batches, key=len)
+        first_line = biggest.splitlines()[0][:120] if biggest.strip() else "(no file header)"
         sys.stderr.write(
-            f"diff is {len(diff_text)} chars, over the {max_diff_chars}-char review ceiling — refusing "
-            "rather than risk an unreviewable prompt silently coming back CLEAN.\n"
+            f"diff is {len(diff_text):,} chars and contains a single chunk of {len(biggest):,}, "
+            f"over the {max_diff_chars:,}-char review ceiling — refusing rather than risk an "
+            "unreviewable prompt silently coming back CLEAN.\n"
+            f"  Largest chunk starts: {first_line}\n"
             "  Narrow --range to a smaller commit span, or review file-by-file / commit-by-commit.\n"
             "  Override (not recommended without knowing your endpoint's real limit): "
             "--max-diff-chars <n> or $REVIEW_MAX_DIFF_CHARS.\n"
         )
         return EXIT_ERROR
+    if len(batches) > MAX_REVIEW_BATCHES:
+        # Loud, never a silent truncation: a capped review that reads like a complete one is
+        # the same class of lie as an oversized prompt coming back CLEAN.
+        sys.stderr.write(
+            f"diff is {len(diff_text):,} chars — {len(batches)} batches, over the "
+            f"{MAX_REVIEW_BATCHES}-batch cap. Refusing rather than reviewing part of it and "
+            "reporting a verdict that looks whole.\n"
+            "  Narrow --range to a smaller commit span, or raise --max-diff-chars if you know "
+            "your endpoint's real limit.\n"
+        )
+        return EXIT_ERROR
+    if len(batches) > 1:
+        print(
+            f"[cross-review] diff is {len(diff_text):,} chars, over the {max_diff_chars:,} "
+            f"ceiling — reviewing in {len(batches)} batches split on file boundaries. "
+            "Verdict is CLEAN only if every batch is clean."
+        )
 
     branch = current_branch(args.cwd)
-    prompt = build_review_prompt(diff_text, branch, args.range)
 
     # Fall back to another vendor only when the user did NOT name one. If they asked for a
     # specific provider, silently reviewing with a different one would misreport who checked
@@ -375,34 +473,53 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                 continue  # no key for the spare — not an error, just nothing to fall back to
             chain.append((name, fb_url, fb_key, fb_model))
 
-    review = None
-    for idx, (name, url, key, mdl) in enumerate(chain):
-        try:
-            review = call_llm(url, key, mdl, prompt)
-        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, ValueError, TimeoutError) as exc:
-            remaining = len(chain) - idx - 1
-            sys.stderr.write(
-                f"review request failed ({mdl} @ {url}): {exc}\n"
-                + (
-                    f"  falling back to {chain[idx + 1][0]}...\n"
-                    if remaining
-                    else "  If the model id was renamed, set REVIEW_MODEL to the current id "
-                         "(env overrides the preset).\n"
+    verdicts: list[bool | None] = []
+    for batch_no, batch in enumerate(batches, 1):
+        prompt = build_review_prompt(batch, branch, args.range)
+        if len(batches) > 1:
+            files = len(split_diff_by_file(batch))
+            print(f"\n===== batch {batch_no}/{len(batches)} — {files} file(s), "
+                  f"{len(batch):,} chars =====")
+
+        review = None
+        for idx, (name, url, key, mdl) in enumerate(chain):
+            try:
+                review = call_llm(url, key, mdl, prompt)
+            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, ValueError,
+                    TimeoutError) as exc:
+                remaining = len(chain) - idx - 1
+                sys.stderr.write(
+                    f"review request failed ({mdl} @ {url}): {exc}\n"
+                    + (
+                        f"  falling back to {chain[idx + 1][0]}...\n"
+                        if remaining
+                        else "  If the model id was renamed, set REVIEW_MODEL to the current id "
+                             "(env overrides the preset).\n"
+                    )
                 )
-            )
-            continue
-        if idx:
-            # Loud on purpose. A verdict from a different vendor than the one requested is a
-            # material fact about the review, not an implementation detail — it belongs in the
-            # transcript the phase report quotes.
-            print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}) instead.")
-        break
+                continue
+            if idx:
+                # Loud on purpose. A verdict from a different vendor than the one requested is
+                # a material fact about the review, not an implementation detail — it belongs
+                # in the transcript the phase report quotes.
+                print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}).")
+            break
 
-    if review is None:
-        return EXIT_ERROR
+        if review is None:
+            # Every provider failed on this batch. Do NOT continue to the next one: a partial
+            # sweep that still prints a verdict is the failure mode this whole tool guards.
+            sys.stderr.write(f"batch {batch_no}/{len(batches)} could not be reviewed — aborting.\n")
+            return EXIT_ERROR
 
-    print(review)
-    verdict = classify_verdict(review)
+        print(review)
+        verdicts.append(classify_verdict(review))
+
+    verdict = aggregate_verdicts(verdicts)
+    if len(batches) > 1:
+        blocking = sum(1 for v in verdicts if v is False)
+        unparsed = sum(1 for v in verdicts if v is None)
+        print(f"\n[cross-review] {len(batches)} batches — {blocking} blocking, "
+              f"{unparsed} with no parseable verdict.")
     if verdict is True:
         return EXIT_CLEAN
     if verdict is False:
