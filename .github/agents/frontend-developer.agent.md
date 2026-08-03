@@ -155,7 +155,6 @@ Auto-load these skills when the condition matches — do not skip.
 |------|-----------------|
 | UI implementation review | `.github/skills/frontend/ui-review/SKILL.md` |
 | UI testing | `.github/skills/testing/ui-testing/SKILL.md` |
-| Premium visual design / animation | `.github/skills/frontend/premium-react/SKILL.md` |
 | CSS architecture decisions | `.github/skills/frontend/css-architecture/SKILL.md` |
 | API consumption / typed clients | `.github/skills/coding/api-client-patterns/SKILL.md` |
 | Component unit/integration testing | `.github/skills/testing/component-testing/SKILL.md` |
@@ -167,7 +166,6 @@ Auto-load these skills when the condition matches — do not skip.
 | Warm editorial design system (cream, Syne, DM Sans) | `.github/skills/frontend/warm-editorial-ui/SKILL.md` |
 | Word cloud and text visualization | `.github/skills/frontend/word-cloud/SKILL.md` |
 | Algorithmic art / generative visuals | `.github/skills/frontend/algorithmic-art/SKILL.md` |
-| Awwwards-tier premium visual design | `.github/skills/frontend/high-end-visual-design/SKILL.md` |
 | Playwright web app testing | `.github/skills/testing/webapp-testing/SKILL.md` |
 | Browser troubleshooting / console inspection | `.github/skills/testing/playwright/SKILL.md` |
 

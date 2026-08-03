@@ -105,7 +105,6 @@ Auto-load these skills when the condition matches — do not skip.
 | Task involves color palette or font pairing decisions | `.github/skills/frontend/ui-ux-intelligence/SKILL.md` | Data-backed design decisions from CSV knowledge bases |
 | Task involves logo, CIP, or icon design | `.github/skills/frontend/brand-design/SKILL.md` | Structured brand identity and logo generation workflows |
 | Task involves mockup or HTML prototype creation | `.github/skills/frontend/mockup/SKILL.md` | Framework-aware mockup with implementation annotations |
-| Task involves any visual design, mockup, or UI creation | `.github/skills/frontend/high-end-visual-design/SKILL.md` | Enforces agency-tier aesthetics — bans generic defaults, ensures premium output |
 
 ### Skills
 
@@ -126,16 +125,13 @@ Auto-load these skills when the condition matches — do not skip.
 | Warm editorial design system (cream, Syne, DM Sans) | `.github/skills/frontend/warm-editorial-ui/SKILL.md` |
 | Word cloud and text visualization | `.github/skills/frontend/word-cloud/SKILL.md` |
 | SVG diagram and illustration creation | `.github/skills/media/svg-create/SKILL.md` |
-| React + Framer Motion premium patterns | `.github/skills/frontend/premium-react/SKILL.md` |
 | React component architecture & hooks | `.github/skills/frontend/react-best-practices/SKILL.md` |
 | shadcn/ui + Radix component library | `.github/skills/frontend/shadcn-radix/SKILL.md` |
 | CSS architecture, tokens & dark mode | `.github/skills/frontend/css-architecture/SKILL.md` |
 | Canvas poster and static art creation | `.github/skills/frontend/canvas-design/SKILL.md` |
 | Generative art with p5.js | `.github/skills/frontend/algorithmic-art/SKILL.md` |
-| UX design with brand color system | `.github/skills/frontend/ux-design/SKILL.md` |
 | React TypeScript type-safe patterns | `.github/skills/frontend/react-dev/SKILL.md` |
 | UI testing patterns | `.github/skills/testing/ui-testing/SKILL.md` |
-| Awwwards-tier premium visual design | `.github/skills/frontend/high-end-visual-design/SKILL.md` |
 
 > **Project Context**: Read `project-config.md`. If a `profile` is set, use its Profile Definition to resolve `<PLACEHOLDER>` values in skills, instructions, and prompts.
 

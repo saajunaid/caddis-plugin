@@ -212,7 +212,16 @@ def validate_contract_consistency(agents_dir: Path) -> list[str]:
     errors: list[str] = []
     contract_ref = agents_dir.parent / "agent-docs" / "CONTRACT-REFERENCE.md"
     if not contract_ref.exists():
-        return ["CONTRACT-REFERENCE.md not found — skipping contract consistency check"]
+        # Deliberately NOT a silent skip. This check spent an unknown period reporting
+        # "skipping" on every publish, which reads like a pass. A validator whose input has
+        # vanished must say so as a defect, not as weather. Either restore the file or delete
+        # this function - a check that always skips is worse than no check, because the output
+        # implies it ran.
+        return [
+            "CONTRACT-REFERENCE.md is MISSING at .github/agent-docs/ — the agent contract "
+            "consistency check has not run. Restore the file or remove this check; do not "
+            "leave it skipping."
+        ]
 
     ref_text = contract_ref.read_text(encoding="utf-8")
 
