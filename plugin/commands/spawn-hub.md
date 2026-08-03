@@ -40,6 +40,21 @@ one most likely to omit exactly what the next Hub needs.
 
 ---
 
+## Step 0 — resolve the context file, and refuse cleanly when you cannot
+
+Use `$ARGUMENTS` if given. Otherwise look for `<plan-stem>-advisory-context.md` beside every plan in
+`.caddis/plans/`.
+
+- **None found → STOP and say so.** This project is not running an Advisory Hub, so there is no role to
+  hand over. Do not scaffold one here: that decision belongs to `/caddis:feature-plan` Step 3b, at
+  planning time, when the phase count and risk are actually known.
+- **More than one → ask which**, listing them with each plan's status. Never guess: handing over the
+  wrong plan's Hub is worse than not handing over.
+- **Already handed over?** Check the succession table. If the last row has no end reason, this is a
+  fresh handover. **If the last row is already closed and a new one opened, STOP** — a previous run
+  completed and re-running would double-close it and re-open a duplicate. Re-running this command is
+  safe only when the tree still shows the outgoing Hub as current.
+
 ## Step 1 — the mechanical audit (MANDATORY, and it is not a formality)
 
 **Do not ask yourself "are there gaps?" — assume there are, and find them mechanically.** The outgoing
@@ -55,9 +70,15 @@ nowhere a fresh Hub would find it.
    rather than the code? Each is a candidate line item.
 2. **For each, check whether the advisory context already tells a fresh Hub to do the same thing.**
    Not "does the word appear" — whether *the instruction* is there.
-3. **Land every real gap as a durable rule** in the advisory context (§7 gotchas, §8/§12 techniques,
-   §9 environment facts, §13 succession) — not as a note in a verdict. **A correction that lives only
-   in a verdict file dies with the session that wrote it.**
+3. **Land every real gap as a durable rule** in the advisory context — its *Standing gotchas*,
+   *Hub techniques*, *Environment facts* or *Succession* section. **Cite sections BY NAME, never by
+   number:** numbers drift between a project's hand-grown file and the shipped template, and this
+   command previously named §7/§9/§13, which matched one project and no template.
+   **A correction that lives only in a verdict file dies with the session that wrote it.**
+4. **Audit in BOTH directions.** As well as what is missing, look for what is now **obsolete** — a
+   gotcha since promoted to `AGENTS.md`, or one a committed test now enforces, compresses to a line
+   and a pointer. The context doc is append-only by design and every incoming Hub must read it end to
+   end; without a diet it becomes the thing it exists to prevent.
 
 > **The caveat that will burn you: a literal-string grep over prose throws false MISSINGs.** The same
 > audit that found seven real gaps also produced three false negatives — content that *was* present,
@@ -78,9 +99,38 @@ nowhere a fresh Hub would find it.
 ## Step 3 — update the succession table
 
 In the advisory context's succession section: close the outgoing Hub's row (what it covered, why it
-ended) and open the next one. **Then write the `Carried into Hub N+1` list** — open items only, each
-with enough detail to act on without archaeology. This list is the single highest-value thing you hand
-over; everything else can be re-read from files.
+ended) and open the next one.
+
+**Then update the carried-open list — APPEND AND CLOSE, never rewrite.**
+
+Each Hub used to *rewrite* this list, which means an open item can vanish between generations with
+nothing to show it ever existed. Nobody notices, because the only evidence was the list itself.
+
+So: every item gets a stable id and is **never deleted**.
+
+```markdown
+- **[C7] Break-glass is DB-engine-dependent** — raised Hub 4. <what, and enough to act on>
+  → **CLOSED by Hub 6**: fixed in `abc1234`, verified on prod.
+- **[C9] `files.py` sibling-prefix traversal** — raised Hub 4. <detail>
+  → still open.
+```
+
+Closing an item requires **saying who closed it and why** — a line, not a deletion. That makes a
+disappearance impossible: an item either carries a close reason or it is still open, and both are
+visible. It also lets a later Hub see that something was closed *wrongly*, which a deletion hides
+forever.
+
+**CONSERVATION CHECK — mechanical, and it fails the spawn.** Every id in the predecessor's ledger
+must appear in the outgoing one as either still-open or closed-with-a-reason. An id that is simply
+absent is a silent loss: **stop and restore it before handing over.** Do not ask "did anything
+vanish?" — diff the ids. That is the same design move as the handoff audit, for the same reason.
+
+**One ledger, one home.** A verdict may *raise* an item, but it is not raised until it has an id in
+the context doc's ledger, in the same commit. Two uncoordinated lists drift, and the drift is
+invisible.
+
+Carry the whole list forward, closed items included. It is short, and its history is the cheapest
+audit trail this pattern has.
 
 ## Step 4 — generate the prompt
 
@@ -112,7 +162,8 @@ Build it from the files, not from memory. It must contain:
    funnel's `offered` is not `SUM(OfferedInd)` (naive 3,814, correct 4,783 — the raw flags do not
    nest); the next asked why an abandonment rate moved from 7.6% to 5.9% (the old figure was not a
    rate at all — 72% of its numerator sat outside its own denominator).
-5. **What is carried open — INLINE IT VERBATIM, do not link to it.** A pointer costs a file hop at
+5. **What is carried open — INLINE THE OPEN ITEMS VERBATIM, do not link to them.** (Closed items stay
+   in the context file for the audit trail; they do not belong in the prompt.) A pointer costs a file hop at
    exactly the moment the new Hub has least context, and a carried-open item that is not read is
    indistinguishable from one that was closed.
 6. **The next work**, with its batching (`Session: continue` = batchable, `fresh` = not) and any
@@ -120,6 +171,12 @@ Build it from the files, not from memory. It must contain:
    an environment that is mid-change.
 7. **The standing authorisations**: deploys are user-authorised **every time**; a previous yes does not
    carry.
+
+**Write it to `.caddis/advisory-hub-reports/hub-NN.spawn.md`** (frontmatter `type: hub-spawn`,
+`hub: NN`), then print it. Until this file existed, every succession prompt lived and died in chat —
+which made two of this command's own instructions unimplementable: "rotate the trap by checking the
+last spawn prompt" had nothing to check, and the ledger conservation check below had nothing to diff
+against.
 
 Print the prompt in a fenced block, ready to paste. **Say plainly that it starts a NEW session** — a
 Hub spawned inside the outgoing session's context inherits exactly the staleness this whole mechanism

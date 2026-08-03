@@ -208,20 +208,22 @@ pattern only ever gets used by someone who already knows it exists. This step cl
 **Ask it here** — at the end of planning is the only moment the phase count, risk levels and session
 boundaries are all known.
 
-> **Create `<plan-stem>-advisory-context.md` when TWO OR MORE are true:**
-> - the plan has **≥8 phases**
-> - it **spans multiple sessions** (any phase marked `Session: fresh`)
-> - a mistake is **expensive to reverse** — a migration, a security change, production data
->   correctness, or numbers that get published to stakeholders
-> - it will be implemented by **sessions that will not share context** (headless lanes, or a fresh
->   session per phase)
+> **The test lives in the `advisory-hub` skill ("When it earns its keep") — load it and apply it
+> there.** It is stated in exactly one place on purpose: this command used to restate the thresholds,
+> and two copies of a rule drift on the first edit.
 >
-> **Two or more → offer it. Fewer → say nothing.** Do not create it "to be safe": it costs a full
-> extra session's context *per phase*, and a pattern applied everywhere gets resented and then ignored.
+> In short: **expensive-to-reverse is REQUIRED**, plus ≥8 phases or non-shared-context sessions.
+> No stakes → say nothing, whatever else is true.
 
 If the test passes, tell the user plainly what it costs and what it buys, and offer to scaffold the
-context doc from the `advisory-hub` skill's §A template. **Do not create it silently** — an opt-in
+context doc from the `advisory-hub` skill's template. **Do not create it silently** — an opt-in
 pattern that switches itself on is no longer opt-in.
+
+**In headless mode, never offer and never create.** Headless forbids asking anything, so an "offer"
+is impossible there. Instead record the result as a line under `## Constraints & decisions` —
+*"Advisory Hub: test passed (N phases, <criteria>) — not scaffolded, headless run; create
+`<plan-stem>-advisory-context.md` to enable"* — so the decision reaches a human rather than being
+silently dropped or silently taken.
 
 If it does not pass, say nothing at all. A three-phase feature should never hear about this.
 

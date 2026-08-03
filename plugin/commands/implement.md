@@ -51,6 +51,24 @@ and set Advisory-Hub mode ON for this run: it names locked decisions you may not
 this project's declared safety conventions, and how to re-derive the plan's anchor numbers. See the
 `advisory-hub` skill for the full contract.
 
+**In Advisory-Hub mode, the previous phase's VERDICT gates this one.** Before starting phase N, require
+`.caddis/advisory-hub-reports/phase-(N-1).verdict.md` carrying frontmatter `verdict: accept` or
+`verdict: accept-with-correction`.
+
+- **Missing** → the Hub has not validated it yet. **STOP.** Mark the Tracker row
+  `blocked-pending-hub` and say which verdict you are waiting on.
+- **`verdict: reject`** → **STOP.** The phase is to be redone, not built upon.
+- Phase 1 (or the first phase of the plan) has no predecessor — proceed.
+
+This is the Hub's central power and until now it ran on human discipline alone: the verdict recorded
+whether the next phase could start, and *nothing read it*. Five lines of check make the claim true by
+machine.
+
+**If a `phase-NN.prompt.md` exists for the phase you are about to run, it is the INSTRUCTION OF
+RECORD** — read it, and measure your DEVIATIONS against it, not against the plan alone. The Hub writes
+that file before the phase precisely so a deviation is falsifiable; an executor that never reads it
+undermines the whole argument.
+
 **2. Determine where to resume.** The `## Tracker` table is the resume signal. Start at the first phase whose
 status is not `done`/`✅`. If every phase is already done, verify the tests are green and go straight to the
 report — do not redo completed work.
