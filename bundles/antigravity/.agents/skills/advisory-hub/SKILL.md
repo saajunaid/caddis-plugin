@@ -252,7 +252,7 @@ are worthless if a future Hub can't cheaply reproduce them.
 ## §B — the phase report contract
 
 Every implementation phase, in Advisory-Hub mode, ends by writing this block **to a file**
-(`.caddis/advisory-hub-reports/phase-NN-<slug>.md`), never just to chat. **A report without re-derivable
+(`.caddis/advisory-hub-reports/phase-NN.report.md` — §H), never just to chat. **A report without re-derivable
 evidence is not a report.**
 
 ```
@@ -336,7 +336,7 @@ ISSUES ADDRESSED: <list, or NONE>
 
 ```
 === HUB VERDICT — PHASE <n> ===
-REPORT:        .caddis/advisory-hub-reports/phase-NN-<slug>.md
+REPORT:        .caddis/advisory-hub-reports/phase-NN.report.md
 VALIDATED BY:  <hub session model/lane> on <ISO 8601 UTC>
 VERDICT:       ACCEPT | ACCEPT-WITH-CORRECTION | REJECT
 

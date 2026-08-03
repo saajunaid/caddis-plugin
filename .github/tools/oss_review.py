@@ -372,9 +372,25 @@ def call_llm(base_url: str, api_key: str, model: str, prompt: str, timeout: int 
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     try:
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"unexpected response shape from endpoint: {exc}") from exc
+    # An HTTP 200 carrying empty or null content is a REAL observed failure (see the module
+    # docstring: an oversized diff came back with an empty `content` field). Returning it
+    # unraised had two bad consequences, both silent:
+    #   - it never reached the `except` in main(), so the provider FAILOVER never fired — the
+    #     run died having never tried the spare, which is the exact case failover exists for;
+    #   - `content: null` (legal in OpenAI-compatible responses) returned None, and
+    #     `classify_verdict(None)` then raised AttributeError. Uncaught, Python exits 1 —
+    #     which is EXIT_BLOCKING. A crash was being reported to scripted callers as "the
+    #     reviewer found blocking issues."
+    # Raising here routes both into the existing retry/failover path and kills the crash.
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(
+            "endpoint returned HTTP 200 with empty or absent message content "
+            f"(type={type(content).__name__}) — treating as a provider failure"
+        )
+    return content
 
 
 def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> int:
@@ -461,7 +477,15 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     # Fall back to another vendor only when the user did NOT name one. If they asked for a
     # specific provider, silently reviewing with a different one would misreport who checked
     # the code — the single fact this tool exists to establish.
-    explicit = bool(args.provider or env.get("REVIEW_PROVIDER"))
+    # "Explicit" must include a custom ENDPOINT, not just a named preset. Someone who set
+    # REVIEW_BASE_URL/REVIEW_MODEL (the documented future-proofing path) has named exactly who
+    # should review their code; falling back to the GLM preset would misreport the reviewer —
+    # the one fact this tool exists to establish.
+    explicit = bool(
+        args.provider or env.get("REVIEW_PROVIDER")
+        or args.base_url or env.get("REVIEW_BASE_URL")
+        or args.model or env.get("REVIEW_MODEL")
+    )
     chain: list[tuple[str, str, str, str]] = [(primary_provider, base_url, api_key, model)]
     if not explicit:
         for name in FALLBACK_PROVIDERS:

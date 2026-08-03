@@ -16,8 +16,8 @@ mode) has filed a phase report.
 
 ## Step 0 — resolve inputs
 
-Use **$ARGUMENTS** if given. Otherwise, find the newest `phase-*.md` file in
-`.caddis/advisory-hub-reports/` that has no matching `phase-NN-hub-verdict.md` sibling yet — that is the
+Use **$ARGUMENTS** if given. Otherwise, find the newest `phase-*.report.md` file in
+`.caddis/advisory-hub-reports/` that has no matching `phase-NN.verdict.md` sibling yet — that is the
 one awaiting validation. Read its `PLAN:` and `ADVISORY CTX:` header fields and load both files.
 
 **If no `<slug>-advisory-context.md` exists** for the plan named in the report: say so explicitly, offer
@@ -62,8 +62,22 @@ job and the step most likely to be skipped (`advisory-hub` skill §F).
 
 ## Step 5 — write the verdict
 
-Write `.caddis/advisory-hub-reports/phase-NN-hub-verdict.md` beside the report, using the `advisory-hub`
+Write `.caddis/advisory-hub-reports/phase-NN.verdict.md` beside the report, using the `advisory-hub`
 skill's §C template in full, including the mandatory **WHAT IS NOW STRUCTURAL** table.
+
+> **Give it OKF frontmatter — `type` is REQUIRED and its absence is a defect.**
+> Keep it flat (scalar `key: value` only; nested maps and lists defeat simple parsers):
+> ```yaml
+> ---
+> type: phase-verdict
+> plan: <path to the plan>
+> phase: 12          # or 10-11 for a batched pair
+> milestone: M4
+> verdict: accept | accept-with-correction | reject
+> ---
+> ```
+> `verdict` is the one field a tool can read to answer *"was this phase signed off"* without parsing prose — and a prose scraper gets that wrong quietly.
+
 
 ## Step 6 — push every correction into `advisory-context.md`
 

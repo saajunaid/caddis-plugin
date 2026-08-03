@@ -71,7 +71,7 @@ report — do not redo completed work.
      session (or the runner) see progress. Commit the Tracker update with the phase (or as a tiny follow-up
      commit) — it lives in the plan file, which is fine to commit on this branch.
    - **FILE THE PHASE REPORT — Advisory-Hub mode only.** *Skip this bullet entirely if Step 1 found no
-     `<slug>-advisory-context.md`.* Write `.caddis/advisory-hub-reports/phase-NN-<slug>.md` (zero-padded
+     `<slug>-advisory-context.md`.* Write `.caddis/advisory-hub-reports/phase-NN.report.md` (zero-padded
      phase number; create the directory and add a `README.md` index row if absent) using the
      `advisory-hub` skill's report contract. Verbatim means verbatim — paste real terminal output, never
      reconstruct it. Report the model/lane you actually ran on. Report every commit, including tooling and
@@ -79,6 +79,18 @@ report — do not redo completed work.
      CONTRADICTIONS section is non-empty, stop after this phase** — mark the Tracker row
      `blocked-pending-hub`, leave later phases untouched, and let the Hub correct the plan; that is not
      your call to make here.
+
+> **Give it OKF frontmatter — `type` is REQUIRED and its absence is a defect.**
+> Keep it flat (scalar `key: value` only; nested maps and lists defeat simple parsers):
+> ```yaml
+> ---
+> type: phase-report
+> plan: <path to the plan>
+> phase: 12          # or 10-11 for a batched pair
+> milestone: M4
+> ---
+> ```
+
 
    If a phase cannot be completed (a blocking gap the plan did not resolve, or a rule above would be
    violated), **stop there**: leave later phases untouched, record the blocker in the review file, mark the
