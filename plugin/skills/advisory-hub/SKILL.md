@@ -43,6 +43,17 @@ produce a worthless verdict.
 Where a `phase-NN.prompt.md` exists it is **the instruction of record** — `/caddis:implement` reads it,
 and deviations are measured against it, not against the plan alone.
 
+**The launch command does not belong in `phase-NN.prompt.md`.** That file is read by the implementer,
+i.e. *after* launch — a file instructing you to spawn GLM is one GLM only reads once it has already
+been spawned. Observed on a real plan, and the skill said nothing either way, so it will recur.
+Surface the launch command to whoever is **orchestrating** (the human, or the session that will spawn
+the phase). What the phase prompt SHOULD carry is a one-line **lane declaration** — *"This phase must
+run on `<lane>`"* — so a mis-launched session can self-detect and act on it.
+
+The lane a phase gets is also **provisional until this file is written.** Writing the phase prompt is
+the first time anyone but the spec's author reads the spec; if the phase turns out to need judgment a
+no-escalation lane cannot supply, downgrade it here.
+
 ### 3. The switch
 
 `<plan-stem>-advisory-context.md`, beside the plan. `/caddis:implement`, `/caddis:handoff` and

@@ -393,7 +393,34 @@ def call_llm(base_url: str, api_key: str, model: str, prompt: str, timeout: int 
     return content
 
 
+def _force_utf8_stdio() -> None:
+    """Make stdout/stderr survive a review written by a model, on any console.
+
+    A review is prose, and prose from a model contains →, —, ’, … or ≥ sooner or later. A
+    Windows console defaults to cp1252, where `print(review)` raises UnicodeEncodeError —
+    AFTER the provider round-trip has already been paid for (~8 minutes, observed) and, because
+    the print sits inside the per-batch loop, killing every remaining batch with it. Worse, the
+    caller sees a traceback and a non-zero exit, which is indistinguishable from a provider
+    timeout: the documented response is "switch vendor and retry", so the next move burns
+    another full review on the other provider and hits the identical crash, because the cause is
+    local stdout encoding, not the provider.
+
+    `errors="replace"` is the load-bearing part: a mangled arrow is a far better outcome than a
+    discarded review. Guarded because stdout may already have been swapped for something without
+    `.reconfigure` (pytest's capture, a pipe wrapper) — in which case there is nothing to fix.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # pragma: no cover — defensive; never lose a review to this
+            pass
+
+
 def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> int:
+    _force_utf8_stdio()
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description="Cross-vendor code review via an OpenAI-compatible endpoint.")
     parser.add_argument("--range", dest="range", default=None,
@@ -449,8 +476,22 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             f"over the {max_diff_chars:,}-char review ceiling — refusing rather than risk an "
             "unreviewable prompt silently coming back CLEAN.\n"
             f"  Largest chunk starts: {first_line}\n"
-            "  Narrow --range to a smaller commit span, or review file-by-file / commit-by-commit.\n"
-            "  Override (not recommended without knowing your endpoint's real limit): "
+            + (
+                # The working tree includes untracked files by design (that fix stopped a
+                # false-CLEAN on all-new-file phases), which means an agent's own uncommitted
+                # plans/PRDs are counted as "the diff". Observed live: 77k of untracked
+                # .caddis/ markdown pushed a real phase over the ceiling. Reviewing the phase's
+                # commit range is both the workaround AND the more accurate scope, so name it
+                # as a literal command instead of leaving each caller to rediscover it.
+                "  You are reviewing the WORKING TREE, which includes untracked files — "
+                "uncommitted docs/plans count toward this total.\n"
+                "  If the phase is already committed, review its commits instead (usually the "
+                "scope you actually want):\n"
+                "      --range HEAD~1..HEAD\n"
+                if args.range is None
+                else "  Narrow --range to a smaller commit span, or review file-by-file.\n"
+            )
+            + "  Override (not recommended without knowing your endpoint's real limit): "
             "--max-diff-chars <n> or $REVIEW_MAX_DIFF_CHARS.\n"
         )
         return EXIT_ERROR

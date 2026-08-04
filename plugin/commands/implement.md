@@ -43,6 +43,31 @@ folder you will touch (the canonical rules; `CLAUDE.md` is an `@AGENTS.md` shim)
 `.caddis/PROJECT-FACTS.md` if present (for the real run/test commands) —
 **read it, never edit it**. Identify the test command the plan/facts specify so you can run it yourself.
 
+**Check the phase's `Lane:` before implementing anything.** The plan assigns every phase an
+execution lane, and until now nothing read it: on one 14-phase plan, Phases 1 and 2 were both
+assigned `glm-headless` and both ran on `claude`, silently, twice in a row — the plan advertised a
+cheap lane for 4 of 14 phases that executed nothing, and every cost assumption resting on it was
+quietly false. **The `Lane:` line is a routing directive, not a note.**
+
+You cannot always prove your own lane, but you can detect a known mismatch — a Claude session
+looking at `Lane: glm-headless`. Apply this **asymmetrically: act on a known mismatch, proceed when
+unsure.** On a known mismatch:
+
+- **Interactive session (no `CADDIS_HEADLESS`, no `DOCKET_PLAN`/`DOCKET_BRANCH` in the environment)
+  → spawn the assigned lane.** Run the phase's literal launch command yourself — e.g.
+  `claude-glm -p "/caddis:implement <plan> — Phase N only"` — wait for it, then report what it did.
+  On Windows `claude-glm` is `claude-glm.ps1` and resolves only on the **PowerShell** PATH; a
+  Bash `command -v claude-glm` returns nothing and looks like "not installed", which it is not.
+  If the spawn fails for any reason, implement the phase here and record the deviation (below) —
+  a failed spawn must never silently become a skipped phase.
+- **Headless or docket-runner session → never spawn. Implement here and record the deviation.**
+  You may already *be* the spawned lane, and a session that spawns its own lane on every start is
+  an infinite loop. The env markers above are the guard: if either is set, someone else placed you.
+
+**Record the lane you actually ran on in the Tracker's `Lane` column** — the lane you ran, never the
+lane the plan planned. A deviation then shows up as a diff between the phase block and the tracker
+row, visible to any later reader without an Advisory Hub having to catch it live.
+
 **Advisory-Hub mode (conditional — OFF by default).** Check whether a companion file
 `<plan-dir>/<plan-stem>-advisory-context.md` exists (e.g. plan `.caddis/plans/foo.md` → look for
 `.caddis/plans/foo-advisory-context.md`). **If it does not exist — the normal case, including every
@@ -85,9 +110,10 @@ report — do not redo completed work.
    - **COMMIT** — `git add` the phase's files and `git commit` with the phase's conventional-commit message
      (from the plan, or a faithful equivalent). Stay on the current branch.
    - **UPDATE THE TRACKER** — edit the plan's `## Tracker` row for this phase: set Status to `done`, fill
-     the short commit hash (`git rev-parse --short HEAD`) and a one-line note. This is what lets a future
-     session (or the runner) see progress. Commit the Tracker update with the phase (or as a tiny follow-up
-     commit) — it lives in the plan file, which is fine to commit on this branch.
+     the short commit hash (`git rev-parse --short HEAD`), set the `Lane` column to the lane this phase
+     ACTUALLY ran on (not the planned one — see Step 1), and add a one-line note. This is what lets a
+     future session (or the runner) see progress. Commit the Tracker update with the phase (or as a tiny
+     follow-up commit) — it lives in the plan file, which is fine to commit on this branch.
    - **FILE THE PHASE REPORT — Advisory-Hub mode only.** *Skip this bullet entirely if Step 1 found no
      `<slug>-advisory-context.md`.* Write `.caddis/advisory-hub-reports/phase-NN.report.md` (zero-padded
      phase number; create the directory and add a `README.md` index row if absent) using the

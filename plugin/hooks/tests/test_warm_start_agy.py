@@ -10,6 +10,7 @@ later invocations, no relay, bad input — must emit nothing and exit 0.
 Run: python -m pytest claude-harness/hooks/tests/test_warm_start_agy.py -q
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,10 +20,19 @@ import pytest
 SCRIPT = Path(__file__).resolve().parent.parent.parent / "agy" / "warm_start_agy.py"
 
 
-def _run(stdin: str) -> subprocess.CompletedProcess:
+_HEADLESS_MARKERS = ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH")
+RELAY_MARKER = "=== session-context: relay.md"
+
+
+def _run(stdin: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    # Scrubbed by default: the relay is suppressed for headless sessions, and this suite must
+    # pass when run FROM one.
+    child_env = {k: v for k, v in os.environ.items() if k not in _HEADLESS_MARKERS}
+    child_env.update(env or {})
     return subprocess.run(
         [sys.executable, str(SCRIPT)],
         input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=30,
+        env=child_env,
     )
 
 
@@ -45,7 +55,26 @@ def test_first_invocation_injects_the_relay(tmp_path):
     assert r.returncode == 0
     msg = _message(r)
     assert "ship the thing" in msg
-    assert msg.startswith("=== relay.md")
+    assert msg.startswith(RELAY_MARKER)
+
+
+def test_relay_is_framed_as_background_state_not_a_task(tmp_path):
+    """Same frame as the Claude Code hook: injected before the prompt, the relay was being
+    executed as the session's first task. It has to announce that it is state."""
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "relay.md").write_text(
+        "# Relay\n## Next step (exact)\nDelete the old table.", encoding="utf-8")
+    msg = _message(_run(_payload(tmp_path)))
+    assert "NOT A TASK" in msg
+    assert "read before acting" not in msg
+    assert msg.rstrip().endswith("=== end session-context ===")
+    assert "Delete the old table." in msg
+
+
+def test_headless_session_gets_no_relay(tmp_path):
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "relay.md").write_text("RELAY-BODY", encoding="utf-8")
+    assert _run(_payload(tmp_path), env={"CADDIS_HEADLESS": "1"}).stdout.strip() == ""
 
 
 def test_legacy_artifact_dir_no_longer_read(tmp_path):

@@ -92,6 +92,32 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
   work). Never same-vendor.
 
+**The `Lane:` line is a routing directive read by `/caddis:implement`, not a note.** An interactive
+session that is handed a phase belonging to another lane spawns that lane rather than absorbing the
+work; a headless one records the deviation in the Tracker. Write the launch command out in full, per
+phase — it is executed verbatim.
+
+#### A phase may take a no-escalation lane only if its exit gate would fail on a spec error
+`glm-headless` cannot escalate: it does what the phase says. So completeness is only half the test —
+the other half is whether being **wrong** would be caught. Ask literally: *"if the instruction I just
+wrote were wrong, would this phase's exit gate go red?"*
+- **Yes** → pure logic with literal assertions: a parser, a computed value, an API shape assertion
+  (*"`expected_slots` returns exactly 96 and 1440"*). Safe for a no-escalation lane.
+- **No** → user-facing copy, nav/menu entries, status or badge flags, ordering, wording, config
+  defaults — anything whose only proof is a human looking at it. **Not safe, however completely it
+  is specified.**
+
+This is the failure the completeness gate cannot see, because **you wrote the spec**: if you could
+see the gap you would have filled it. Live case — a phase spelled out to 10 literal steps across 8
+files passed every bullet of the local-coder gate, and the spec itself was wrong twice (it shipped an
+internal repo path into stakeholder-facing copy, and set a `live` status flag that suppressed the
+framework's own "Soon" badge). `tsc` clean, 632/632 tests green, cross-review CLEAN, exit gate
+satisfied. A headless run following it literally would have committed both, entirely green.
+
+In an Advisory-Hub plan, treat your lane as **provisional**: the Hub writes each `phase-NN.prompt.md`
+before the phase runs, and that is the first time anyone but the spec's author reads it. Let that
+read confirm or downgrade the lane. It costs nothing — the prompt is being written anyway.
+
 ### Flag high-risk phases (`risk:` — a marker, not a mechanism)
 Each phase may carry **`risk: normal|high`** (default `normal` — omit the line unless the phase is
 `high`), meaning only "this is a phase where a wrong answer is expensive" — security/authz, a
@@ -195,6 +221,10 @@ done:
   the literal launch command for glm phases) and a cross-review provider that is a different vendor
   than the implementer. A glm-headless phase MUST pass every bullet of this gate — that lane has no
   slack for reasoning out gaps.
+- **Gate-detectable** — if this phase's instruction were WRONG, its exit gate would go red. A phase
+  whose gates pass either way (copy, nav entries, badges, ordering, wording, config defaults) must
+  not take a lane that cannot escalate, no matter how completely it is specified. Every other bullet
+  here checks that the spec is COMPLETE; only this one checks that a mistake would be noticed.
 
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
 
@@ -208,12 +238,14 @@ pattern only ever gets used by someone who already knows it exists. This step cl
 **Ask it here** — at the end of planning is the only moment the phase count, risk levels and session
 boundaries are all known.
 
-> **The test lives in the `advisory-hub` skill ("When it earns its keep") — load it and apply it
-> there.** It is stated in exactly one place on purpose: this command used to restate the thresholds,
-> and two copies of a rule drift on the first edit.
->
-> In short: **expensive-to-reverse is REQUIRED**, plus ≥8 phases or non-shared-context sessions.
-> No stakes → say nothing, whatever else is true.
+> **You MUST call `Skill(advisory-hub)` and read *"When it earns its keep"* before deciding.**
+> Do not decide from memory, and do not decide from any summary — including one in this file.
+> The test is stated in exactly one place on purpose: two copies of a rule drift on the first edit,
+> and the copy that used to live here had already drifted. It compressed the REQUIRED leg to the
+> phrase *"expensive-to-reverse"* and dropped the enumeration that defines it — which reads as
+> *"can I `git revert` this?"*, and under that reading a plan that publishes € figures to business
+> stakeholders scores "no stakes". That is the one leg that fires on reporting, analytics and
+> dashboard work, i.e. most of what this fleet builds. Load the skill.
 
 If the test passes, tell the user plainly what it costs and what it buys, and offer to scaffold the
 context doc from the `advisory-hub` skill's template. **Do not create it silently** — an opt-in
@@ -225,7 +257,16 @@ is impossible there. Instead record the result as a line under `## Constraints &
 `<plan-stem>-advisory-context.md` to enable"* — so the decision reaches a human rather than being
 silently dropped or silently taken.
 
-If it does not pass, say nothing at all. A three-phase feature should never hear about this.
+If it does not pass, say nothing **to the user** — a three-phase feature should never hear about
+this. But **always record the determination in the plan, pass or fail**: one line under
+`## Constraints & decisions`, naming which REQUIRED trigger was or was not hit.
+
+> `Advisory Hub: not applicable — no REQUIRED trigger (not a migration / security change /
+> production data correctness / numbers published to stakeholders).`
+
+Silent to the human, auditable in the artifact. "Say nothing" once meant *leave no trace anywhere*,
+and a wrong negative was then invisible — no line in the plan, no line in the chat, nothing for
+anyone to challenge. A rule whose failures leave no artifact cannot be reviewed.
 
 ## Step 4 — Report
 Output the plan path (`.caddis/plans/<feature-slug>.md`), the phase list (one line each, with each

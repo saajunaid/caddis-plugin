@@ -7,6 +7,7 @@ and a tmp_path cwd, then asserts on stdout / written files.
 Run: python -m pytest claude-harness/hooks/tests/test_hook_paths.py -q
 """
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -16,8 +17,19 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 INJECT = HOOKS_DIR / "inject_relay.py"
 SESSION_END = HOOKS_DIR / "session_end.py"
 
+# The relay is suppressed for headless sessions, so these must be scrubbed by default or the
+# whole file fails whenever the suite is run FROM a docket-spawned session — which is exactly
+# when it most needs to pass.
+_HEADLESS_MARKERS = ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH")
 
-def _run(script: Path, cwd: Path, stdin: str) -> subprocess.CompletedProcess:
+# The relay is wrapped in an explicit "this is state, not a task" frame; tests key off the
+# opening marker rather than the sentence, so wording can be tuned without breaking them.
+RELAY_MARKER = "=== session-context: relay.md"
+
+
+def _run(script: Path, cwd: Path, stdin: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    child_env = {k: v for k, v in os.environ.items() if k not in _HEADLESS_MARKERS}
+    child_env.update(env or {})
     return subprocess.run(
         [sys.executable, str(script)],
         cwd=str(cwd),
@@ -26,6 +38,7 @@ def _run(script: Path, cwd: Path, stdin: str) -> subprocess.CompletedProcess:
         text=True,
         encoding="utf-8",  # hooks reconfigure stdout to utf-8; decode to match (Windows default is cp1252)
         timeout=30,
+        env=child_env,
     )
 
 
@@ -76,6 +89,64 @@ def test_inject_prefers_new_over_legacy(tmp_path):
     assert "RELAY-OLD-CONTENT" not in r.stdout
 
 
+# ── inject_relay: the relay is framed as state, and skipped when headless ───
+# Measured on a glm-headless docket (2026-08-03): the relay arrives before the user's prompt,
+# used to be headed "read before acting", and was EXECUTED first — the session committed the
+# previous session's leftover next step, then started its own task. An explicit "ignore the
+# relay" line in the prompt did not change the ordering, so the injection itself has to say
+# what it is, and a run with no human to misread it should not get one at all.
+
+def test_relay_is_framed_as_background_state_not_a_task(tmp_path):
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "relay.md").write_text(
+        "# Relay\n## Next step (exact)\nDelete the old table.", encoding="utf-8")
+    out = _run(INJECT, tmp_path, "{}").stdout
+    assert RELAY_MARKER in out
+    assert "NOT A TASK" in out, "the frame must say the relay is not the session's task"
+    assert "read before acting" not in out, \
+        "the old header was an imperative — that phrasing is the bug, not a label"
+    assert "=== end session-context ===" in out, "the frame must close, so the body is bounded"
+    assert "Delete the old table." in out, "framing must not cost the relay's content"
+
+
+def test_relay_suppressed_for_a_headless_session(tmp_path):
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "relay.md").write_text("RELAY-BODY", encoding="utf-8")
+    out = _run(INJECT, tmp_path, "{}", env={"CADDIS_HEADLESS": "1"}).stdout
+    assert "RELAY-BODY" not in out, "a headless run is given its task explicitly — no resume pointer"
+    assert RELAY_MARKER not in out
+
+
+def test_relay_suppressed_for_a_docket_runner_session(tmp_path):
+    """The docket runner spawns implement lanes with no human present (implement.md's own contract)."""
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "relay.md").write_text("RELAY-BODY", encoding="utf-8")
+    for marker in ("DOCKET_PLAN", "DOCKET_BRANCH"):
+        out = _run(INJECT, tmp_path, "{}", env={marker: "x"}).stdout
+        assert "RELAY-BODY" not in out, f"{marker} marks a runner-spawned session"
+
+
+def test_headless_flag_is_only_honoured_when_truthy(tmp_path):
+    """An empty or 'false' value must not suppress — a stray export should not silently
+    disable the resume pointer for every interactive session on the machine."""
+    (tmp_path / ".caddis").mkdir()
+    (tmp_path / ".caddis" / "relay.md").write_text("RELAY-BODY", encoding="utf-8")
+    for value in ("", "0", "false", "no"):
+        out = _run(INJECT, tmp_path, "{}", env={"CADDIS_HEADLESS": value}).stdout
+        assert "RELAY-BODY" in out, f"CADDIS_HEADLESS={value!r} must not count as headless"
+
+
+def test_headless_suppresses_only_the_relay(tmp_path):
+    """The other SessionStart signals are labels, not instructions — they are not the bug,
+    and dropping them would quietly cost a headless run its DOC-MAP pointer."""
+    (tmp_path / ".caddis" / "kb").mkdir(parents=True)
+    (tmp_path / ".caddis" / "kb" / "DOC-MAP.md").write_text("# Doc map", encoding="utf-8")
+    (tmp_path / ".caddis" / "relay.md").write_text("RELAY-BODY", encoding="utf-8")
+    out = _run(INJECT, tmp_path, "{}", env={"CADDIS_HEADLESS": "1"}).stdout
+    assert "RELAY-BODY" not in out
+    assert "DOC-MAP" in out
+
+
 # ── inject_relay: workstream stack (digression tracker, Phase 1) ────────────
 _PARKED = "⛏ Parked workstream:"
 
@@ -111,8 +182,8 @@ def test_parked_line_precedes_relay(tmp_path):
     (tmp_path / ".caddis" / "relay.md").write_text("# Relay — CURRENT", encoding="utf-8")
     r = _run(INJECT, tmp_path, "{}")
     assert _PARKED in r.stdout
-    assert "=== relay.md" in r.stdout
-    assert r.stdout.index(_PARKED) < r.stdout.index("=== relay.md")
+    assert RELAY_MARKER in r.stdout
+    assert r.stdout.index(_PARKED) < r.stdout.index(RELAY_MARKER)
 
 
 def test_multiple_frames_listed_lifo(tmp_path):
