@@ -1194,6 +1194,18 @@ function caddis-push {
         Pop-Location
         $claudeBundle = Join-Path $ProjectRoot "dist\runtime-resources\claude"
         $extrasBundle = Join-Path $ProjectRoot "dist\runtime-resources\claude-extras"
+        # A failed export must be LOUD. Without this the publish quietly skipped the bundle copy
+        # and shipped whatever dist/ happened to hold from the last good run - so a manifest typo
+        # ("root": "repo" instead of "scriptsrc") silently released a STALE bundle while every
+        # other step reported success. Found 2026-08-06 by a post-publish smoke test, not by the
+        # pipeline: two new gate scripts were absent from the mirror and nothing had said so.
+        # Same family as the smoke gate that passed vacuously - a failure that does not stop the
+        # release is not a check.
+        if (-not $claudeExportOk) {
+            Write-Host "  [FAIL] claude export FAILED - the bundle was NOT refreshed." -ForegroundColor Red
+            Write-Host "         Publishing now would ship a STALE bundle. Fix the export and re-run." -ForegroundColor Red
+            throw "claude export failed; refusing to publish a stale bundle"
+        }
         $haveCore   = $claudeExportOk -and (Test-Path (Join-Path $claudeBundle "plugin"))
         $haveExtras = $claudeExportOk -and (Test-Path (Join-Path $extrasBundle "plugin-extras"))
         if ($haveCore -and $haveExtras) {

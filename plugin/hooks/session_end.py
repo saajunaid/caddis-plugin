@@ -14,6 +14,7 @@ Writes into the repo's `.caddis/` artifact dir.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -127,6 +128,69 @@ def _summarise(transcript_path: str) -> dict | None:
     return tot
 
 
+def _extract_identity(transcript_path: str) -> tuple[set[str], set[str]]:
+    """Return ``(skills, commands)`` used in this session's transcript — names only.
+
+    V15: the usage log carried token totals but no skill/command identity, so the pruning
+    question (Phase 12) was unanswerable from evidence. This recovers that identity at the
+    Stop hook (where the per-session record is born and the transcript is already read once
+    for tokens), so the log becomes self-describing and survives transcript compaction.
+
+    Sources (both verified against live fleet transcripts 2026-08-05):
+      * **Skills** — ``Skill`` tool_use events on assistant turns; only ``input.skill`` is
+        taken, never any other argument.
+      * **Commands** — the ``<command-name>/plugin:cmd</command-name>`` marker the harness
+        embeds in user-message text; the leading slash is stripped.
+
+    Privacy bar: a Skill tool_use may carry a prompt or args in other ``input`` keys — those
+    are ignored. Fully fail-open: any read/parse error returns empty sets, never a crash.
+    """
+    skills: set[str] = set()
+    commands: set[str] = set()
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return skills, commands
+    try:
+        with open(transcript_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                msg = ev.get("message") if isinstance(ev.get("message"), dict) else ev
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role")
+                content = msg.get("content")
+                # Skills: Skill tool_use on assistant turns — name only.
+                if role == "assistant" and isinstance(content, list):
+                    for item in content:
+                        if not isinstance(item, dict) or item.get("type") != "tool_use":
+                            continue
+                        if item.get("name") == "Skill":
+                            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
+                            sk = inp.get("skill")
+                            if isinstance(sk, str) and sk.strip():
+                                skills.add(sk.strip())
+                # Commands: <command-name>/plugin:cmd</command-name> marker on user turns.
+                if role == "user":
+                    text = ""
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, list):
+                        text = "\n".join(
+                            b.get("text", "") for b in content
+                            if isinstance(b, dict) and isinstance(b.get("text"), str)
+                        )
+                    for m in re.finditer(r"<command-name>\s*(/[^<\s]+)\s*</command-name>", text):
+                        commands.add(m.group(1).strip().lstrip("/"))
+    except Exception:
+        pass
+    return skills, commands
+
+
 def _fmt(n: int) -> str:
     if n >= 1_000_000:
         return f"{n/1_000_000:.1f}M"
@@ -172,6 +236,10 @@ print(
 )
 
 u = _summarise(data.get("transcript_path", ""))
+# V15: record which skills/commands fired (names only) alongside the token totals, so the
+# pruning question is answerable from the log instead of taste. Computed unconditionally so
+# identity is captured even when the token parse yields nothing.
+skills, commands = _extract_identity(data.get("transcript_path", ""))
 if u:
     print(
         f"\n[USAGE] this session ~ in {_fmt(u['input'])} · out {_fmt(u['output'])} · "
@@ -179,15 +247,24 @@ if u:
         f"({_fmt(u['cache_read'])} read) · est. ${u['est_cost_usd']:.2f} "
         f"(estimate — edit rates in session_end.py)"
     )
+# Write a record whenever there is token data OR identity. Tying the write to tokens alone
+# would lose identity for any session whose usage parse returned nothing — pruning evidence
+# must not depend on token accounting succeeding.
+if u or skills or commands:
     try:
         caddis_dir = str(artifact_root(_repo_root(_session_cwd)))
         os.makedirs(caddis_dir, exist_ok=True)
         rec = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "session": data.get("session_id", ""),
-            "input": u["input"], "output": u["output"],
-            "cache_write": u["cache_write"], "cache_read": u["cache_read"],
-            "est_cost_usd": u["est_cost_usd"], "models": u["models"],
+            "input": u["input"] if u else 0,
+            "output": u["output"] if u else 0,
+            "cache_write": u["cache_write"] if u else 0,
+            "cache_read": u["cache_read"] if u else 0,
+            "est_cost_usd": u["est_cost_usd"] if u else 0.0,
+            "models": u["models"] if u else [],
+            "skills": sorted(skills),
+            "commands": sorted(commands),
         }
         with open(os.path.join(caddis_dir, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")

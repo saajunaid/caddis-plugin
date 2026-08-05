@@ -55,7 +55,7 @@ If the context package is written as a standalone Markdown handoff or context do
 | Intent Document | `agent-docs/intents/<feature>.md` | Goal, Constraints, Success Criteria |
 | Pipeline state | `.github/pipeline-state.json` | Current stage, approved gates |
 | Project config | `project-config.md` | Tech stack, constraints, brand tokens |
-| Current plan step | `.github/plans/<feature>.md` | Current phase/step only |
+| Current plan step | `.caddis/plans/<feature>.md` | Current phase/step only |
 
 ### Tier 2 — Include When Relevant (SHOULD READ)
 | Item | Source | What to extract |

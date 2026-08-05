@@ -6,6 +6,12 @@ description: "USE THIS SKILL whenever a user asks for a comprehensive implementa
 
 # Golden Plan
 
+> **`/caddis:feature-plan` is the canonical planning entry point.** It writes to `.caddis/plans/`,
+> which is what `/caddis:implement`, `/caddis:handoff`, `/caddis:digress` and `/caddis:resume`
+> actually read, and it now carries this skill's evidence gate. Reach for golden-plan when you
+> specifically need its heavier apparatus — the data-binding tables, the query catalog, the
+> self-sweep. For ordinary multi-phase work, feature-plan is the shorter path to the same place.
+
 ## When to Use
 
 Activate this skill when the request is for a **comprehensive implementation plan** that involves:
@@ -92,8 +98,8 @@ Run through the checklist below. For each item, determine its tier:
 - **Tier:** OPTIONAL. Skill paths that do not exist should be omitted from phase prompts - do not list phantom skills.
 
 #### E8 - Output Destination
-- Where should the plan file be saved? (Default: `.github/plans/<feature-slug>.md`)
-- Where should the associated tracker be saved? (Default: `.github/plans/tracker/<feature-slug>-tracker.md`)
+- Where should the plan file be saved? (Default: `.caddis/plans/<feature-slug>.md`)
+- Where should the associated tracker be saved? (Default: `.caddis/plans/tracker/<feature-slug>-tracker.md`)
 - Is there a `chain_id` to use? (Format: `FEAT-YYYY-MMDD-{slug}`)
 - **Tier:** OPTIONAL. Default path is used if not specified.
 
@@ -185,7 +191,7 @@ Creating Model: <exact runtime model identifier or display name>
 > **Visual reference:** [path to mockup or "N/A"]
 > **Data source:** [path to canonical data sample or "See E3 - API Contract section"]
 > **Output destination:** [path where plan is saved]
-> **Execution tracker:** `.github/plans/tracker/<feature-slug>-tracker.md`
+> **Execution tracker:** `.caddis/plans/tracker/<feature-slug>-tracker.md`
 > **Execution:** Manual - one agent session per phase. See protocol below.
 
 ---
@@ -335,7 +341,7 @@ Do not mark done unless all items pass. If any fail, fix and re-verify.
 After all items pass:
 1. Create the phase implementation commit: `git add -A && git commit -m "phase(N): [Name] complete"`.
 2. Capture the phase implementation commit hash with `git rev-parse HEAD`.
-3. Update the associated execution tracker declared in the plan header: `.github/plans/tracker/<feature-slug>-tracker.md`.
+3. Update the associated execution tracker declared in the plan header: `.caddis/plans/tracker/<feature-slug>-tracker.md`.
 4. Mark Phase N complete in the tracker row with status, gate, completed date, executor/model, changed files, validation evidence, commit hash, push state, and comments.
 5. Commit the tracker update or amend it into the phase commit according to the repository's commit policy.
 6. Do not consider the phase complete until the tracker row is updated after validation and commit, and the row includes the commit hash and comments.
@@ -378,7 +384,7 @@ git commit -m "phase(N): [Name] complete"
 git rev-parse HEAD
 
 # 3. Update tracker
-#    Use .github/plans/tracker/<feature-slug>-tracker.md and mark Phase N complete with:
+#    Use .caddis/plans/tracker/<feature-slug>-tracker.md and mark Phase N complete with:
 #    status, gate, completed date, executor/model, changed files,
 #    validation evidence, commit hash, push state, and comments.
 ```
@@ -506,14 +512,14 @@ When a new phase must be inserted into an **existing plan** (discovered mid-proj
 
 ## Output Destination
 
-Every generated plan MUST have an associated execution tracker. Put the tracker path in the plan header as `> **Execution tracker:** .github/plans/tracker/<feature-slug>-tracker.md`.
+Every generated plan MUST have an associated execution tracker. Put the tracker path in the plan header as `> **Execution tracker:** .caddis/plans/tracker/<feature-slug>-tracker.md`.
 
 Golden-plan must create both files together. Never emit the plan without creating its associated tracker in the same run.
 
 Save the completed plan to:
 
-- `.github/plans/<feature-slug>.md` - default for both modes
-- `.github/plans/backlog/<feature-slug>.md` - optional backlog location
+- `.caddis/plans/<feature-slug>.md` - default for both modes
+- `.caddis/plans/backlog/<feature-slug>.md` - optional backlog location
 
 If mode is **`junai-pipeline`**, additionally register the artefact in `.github/agent-docs/ARTIFACTS.md` with `status: current`.
 
@@ -521,7 +527,7 @@ When revising an existing plan file, preserve `Original Author`, `Creation Date`
 
 ### Plan Status Tracker
 
-Alongside the plan file, **always** create `.github/plans/tracker/<feature-slug>-tracker.md` using
+Alongside the plan file, **always** create `.caddis/plans/tracker/<feature-slug>-tracker.md` using
 this template (one row per phase, populated from the Pre-Flight Scan). The plan header must reference this exact tracker path:
 
 ```
@@ -533,14 +539,14 @@ Creating Model: <exact runtime model identifier or display name>
 
 # Plan Status - [Project Name]
 
-> Plan: `.github/plans/<feature-slug>.md`
-> Tracker: `.github/plans/tracker/<feature-slug>-tracker.md`
+> Plan: `.caddis/plans/<feature-slug>.md`
+> Tracker: `.caddis/plans/tracker/<feature-slug>-tracker.md`
 > Started: YYYY-MM-DDTHH:MM:SSZ
 > Last updated: YYYY-MM-DDTHH:MM:SSZ
 
 | Phase | Name | Agent | Model | Status | Gate | Completed | Changed files | Validation evidence | Commit | Push | Comments |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 0 | Context & Decisions | - | - | Complete | passed | YYYY-MM-DDTHH:MM:SSZ | `.github/plans/<feature-slug>.md` | Evidence gate complete | - | not_required | Plan authored |
+| 0 | Context & Decisions | - | - | Complete | passed | YYYY-MM-DDTHH:MM:SSZ | `.caddis/plans/<feature-slug>.md` | Evidence gate complete | - | not_required | Plan authored |
 | 1 | [Name] | @[Agent] | [model] | Pending | not_run | - | | | | unknown | |
 | 2 | [Name] | @[Agent] | [model] | Pending | not_run | - | | | | unknown | |
 | N | [Name] | @[Agent] | [model] | Pending | not_run | - | | | | unknown | |
@@ -558,7 +564,7 @@ Creating Model: <exact runtime model identifier or display name>
 **Comments rule:** The `Comments` column is required for completed, blocked, or skipped phases. Use it for concise handoff notes, blockers, decisions, caveats, known limitations, or follow-up context discovered during the phase.
 
 **Plan Completion Protocol:** When every tracker row has `status: Complete`, the plan is done. The executing agent (or the Janitor backstop) MUST:
-1. Filesystem-move the plan file from `.github/plans/<feature-slug>.md` to `.github/plans/done/<feature-slug>.md` using `Move-Item`/`mv`/`run_command` — NOT `git mv` (the `done/` folder is gitignored in project repos).
+1. Filesystem-move the plan file from `.caddis/plans/<feature-slug>.md` to `.caddis/plans/done/<feature-slug>.md` using `Move-Item`/`mv`/`run_command` — NOT `git mv` (the `done/` folder is gitignored in project repos).
 2. Update the plan frontmatter: set `status: done` and add `Archived: <YYYY-MM-DD>`.
 3. Log the move in the tracker `Comments` field of the last completed phase row.
 4. Never delete plan files — only move to `done/`.

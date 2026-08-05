@@ -633,6 +633,7 @@ ARTIFACT_GITIGNORE = """\
 # caddis artifacts — commit plans/handoffs/agent-docs/prd; ignore transient state
 reviews/*.html
 usage-log.jsonl
+agent-log.jsonl
 .last-usage-review
 relay.md
 relay/
@@ -806,6 +807,11 @@ def main() -> int:
     ap.add_argument("--force", action="store_true", help="Overwrite existing CLAUDE.md/AGENTS.md/harness files")
     ap.add_argument("--install", action="store_true", help="Create venv if missing")
     ap.add_argument("--dry-run", action="store_true", help="Report actions without writing")
+    ap.add_argument("--hooks-only", action="store_true",
+                    help="Install ONLY the pre-push gate and exit. For callers that create the git "
+                         "repo after deploying the harness - the generator runs this script at stage "
+                         "10 and `git init` at stage 11, so the gate could never install and no "
+                         "bootstrapped app has ever had one.")
     ap.add_argument("--vendor", action="store_true",
                     help="Copy plugin-owned agents+commands into .claude/ (for raw checkouts without "
                          "the caddis plugin installed; plugin installs load them globally — no copy needed)")
@@ -818,6 +824,14 @@ def main() -> int:
     if not HARNESS_DIR.is_dir():
         print(f"ERROR: harness templates not found at {HARNESS_DIR}", file=sys.stderr)
         return 2
+
+    if args.hooks_only:
+        # Idempotent and clobber-safe: never replaces a hook it did not write unless --force.
+        # Exists because the gate cannot install before the repo does. Safe to call on an
+        # already-set-up project, which is what makes it usable as a retrofit for existing apps.
+        for note in install_git_hooks(target, args.force, args.dry_run):
+            print(f"  {note}")
+        return 0
 
     name = args.name or target.name
     mapping: dict[str, str] = {"PROJECT_NAME": name}

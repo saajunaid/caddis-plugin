@@ -270,6 +270,45 @@ def load_agent_config(cwd: str) -> list[dict]:
             continue
     return agents
 
+
+def load_command_roster(cwd: str) -> list[str]:
+    """Bare command stems available in this install (e.g. ``implement``, ``handoff``).
+
+    Modeled on :func:`load_agent_config`: plugin install → project ``.claude`` → caddis dev
+    checkout. Each ``<name>.md`` is one command; the plugin prefix (``caddis:``) is added at
+    invocation time, so the roster holds bare stems and the never-fired comparison normalizes
+    fired names the same way (handles the caddis/claudster prefix divergence — Phase 5).
+    """
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    candidates = []
+    if plugin_root:
+        candidates.append(os.path.join(plugin_root, "commands"))
+    candidates.append(os.path.join(cwd, ".claude", "commands"))
+    candidates.append(os.path.join(cwd, "claude-harness", "commands"))
+    roster: list[str] = []
+    for c in candidates:
+        if not os.path.isdir(c):
+            continue
+        try:
+            names = sorted(os.listdir(c))
+        except Exception:
+            continue
+        for fname in names:
+            if fname.endswith(".md"):
+                stem = fname[:-3]
+                if stem and stem not in roster:
+                    roster.append(stem)
+    return roster
+
+
+def _bare_cmd(name: str) -> str:
+    """Strip a plugin namespace prefix (``caddis:implement`` / ``claudster:implement`` → ``implement``).
+
+    Command stems themselves contain no colon, so the segment after the last colon is the stem.
+    A bare name (no colon) is returned unchanged.
+    """
+    return name.rsplit(":", 1)[-1].strip()
+
 # ── metrics aggregation ────────────────────────────────────────────────────────
 
 def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
@@ -278,7 +317,8 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
             "sessions": 0, "input": 0, "output": 0,
             "cache_write": 0, "cache_read": 0, "est_cost_usd": 0.0,
             "model_mix": {}, "per_day": {}, "agent_dispatches": {},
-            "agent_models": {}, "skill_dispatches": {}, "peak_contexts": [],
+            "agent_models": {}, "skill_dispatches": {}, "command_fires": {},
+            "peak_contexts": [],
         }
     model_mix: dict[str, int] = defaultdict(int)
     per_day: dict[str, dict] = {}
@@ -287,6 +327,8 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
     agent_dispatches: dict[str, int] = defaultdict(int)
     agent_models: dict[str, list[str]] = defaultdict(list)
     skill_dispatches: dict[str, int] = defaultdict(int)
+    command_fires: dict[str, int] = defaultdict(int)
+    log_skill_fires: dict[str, int] = defaultdict(int)
     peak_contexts: list[int] = []
 
     for s in sessions:
@@ -310,6 +352,14 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
                 continue
             model_mix[_tier(model)] += out
 
+        # Identity from the log (V15 / Phase 11): commands are recorded ONLY in the log
+        # (transcripts don't carry them), so the log is the source of truth; skills are
+        # unioned in for sessions whose transcript was deleted/compacted.
+        for cmd in (s.get("commands") or []):
+            command_fires[cmd] += 1
+        for sk in (s.get("skills") or []):
+            log_skill_fires[sk] += 1
+
         sid = s.get("_session_id", "")
         if sid in transcripts:
             td = transcripts[sid]
@@ -323,6 +373,12 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
             for atype, models in td.get("agent_models", {}).items():
                 agent_models[atype].extend(models)
 
+    # Log-derived skills fill gaps the surviving transcripts can't (deleted/compacted
+    # transcripts): a skill the log recorded but no transcript corroborates still counts.
+    for sk, cnt in log_skill_fires.items():
+        if sk not in skill_dispatches:
+            skill_dispatches[sk] = cnt
+
     return {
         "sessions": len(sessions),
         "input": tot_input, "output": tot_output,
@@ -333,6 +389,7 @@ def compute_metrics(sessions: list[dict], transcripts: dict[str, dict]) -> dict:
         "agent_dispatches": dict(agent_dispatches),
         "agent_models": {k: list(v) for k, v in agent_models.items()},
         "skill_dispatches": dict(skill_dispatches),
+        "command_fires": dict(command_fires),
         "peak_contexts": peak_contexts,
     }
 
@@ -347,7 +404,8 @@ _CORE_SKILL_NAMES = ("feature-plan", "handoff", "prd", "ship", "tdd", "ui-brief"
 _CORE_SKILLS  = {f"{p}:{n}" for p in ("caddis", "claudster") for n in _CORE_SKILL_NAMES}
 
 
-def run_rules(metrics: dict, prev: dict, agents: list[dict]) -> list[dict]:
+def run_rules(metrics: dict, prev: dict, agents: list[dict],
+              cmd_roster: list[str] | None = None) -> list[dict]:
     findings: list[dict] = []
     mm         = metrics.get("model_mix", {})
     tot_out    = metrics.get("output") or 1
@@ -536,6 +594,34 @@ def run_rules(metrics: dict, prev: dict, agents: list[dict]) -> list[dict]:
                        if delta_pct > 0 else "")
                 ),
                 "action": "Check which sessions or agents are driving the change." if delta_pct > 0 else "",
+                "apply_target": None,
+            })
+
+    # R9 — Never-fired commands (pruning evidence) ───────────────────────────────
+    # V15 / Phase 11: identity in the log now lets us name commands that ship but never
+    # fired in the window. This is the evidence Phase 12's prune runs on — a command the
+    # log never sees across enough sessions is a pruning candidate backed by data, not a guess.
+    cmd_fires = metrics.get("command_fires", {})
+    cmd_roster = cmd_roster or []
+    if sessions >= 3 and cmd_roster:
+        fired_bare = {_bare_cmd(n) for n in cmd_fires}
+        never = sorted(c for c in cmd_roster if c not in fired_bare)
+        if never:
+            shown = never[:8]
+            sample = ", ".join(f"`{n}`" for n in shown)
+            n_never = len(never)
+            findings.append({
+                "id": "R9", "severity": "low",
+                "title": f"{n_never} command{'s' if n_never != 1 else ''} never fired this window",
+                "finding": (
+                    "These commands ship in the install but the log shows no invocation this "
+                    f"window: {sample}{'…' if n_never > 8 else ''}. "
+                    "Consistently-idle commands are pruning candidates — but confirm against "
+                    "transcripts before removing, since a command may see use outside this repo."
+                ),
+                "action": "Cross-check the 90-day transcript history before removing any command "
+                          "(Phase 12). A command never seen anywhere is redundant; one used rarely "
+                          "may still earn its place.",
                 "apply_target": None,
             })
 
@@ -1204,7 +1290,8 @@ def main() -> None:
     metrics     = compute_metrics(current_sessions, transcripts)
     prev_metrics = compute_metrics(prev_sessions, {})
     agents       = load_agent_config(cwd)
-    findings     = run_rules(metrics, prev_metrics, agents)
+    cmd_roster   = load_command_roster(cwd)
+    findings     = run_rules(metrics, prev_metrics, agents, cmd_roster=cmd_roster)
 
     # Markdown to stdout
     print(render_markdown(metrics, findings, days, ws, we))
