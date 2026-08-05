@@ -341,3 +341,54 @@ class TestKillSwitch:
         (tmp_path / ".caddis" / "config.toml").write_text(
             "[guard]\nenabled = false\n", encoding="utf-8")
         assert guard.guard_disabled(str(tmp_path)) is True
+
+
+# ── Phase 6: shell-tool coverage and the write/shell asymmetry ───────────────
+# Both reproduced live with the kill switch cleared before being fixed:
+#   Write config/.env.api.dev            -> DENY   (correct)
+#   Bash  echo K=v > config/.env.api.dev -> ALLOW  (same secret, different tool)
+#   PowerShell Remove-Item -Recurse ...  -> ALLOW  (the tool was never classified)
+
+def test_secret_write_via_shell_redirection_is_denied():
+    """The guard denied .env via Write/Edit and waved it through via a shell redirect. Observed
+    live: a phase blocked on Edit, then the same file written by a shell command minutes later."""
+    for cmd in (
+        "echo API_KEY=abc123 > config/.env.api.dev",
+        "echo API_KEY=abc123 >> .env",
+        'Set-Content -Path .env.production -Value "K=v"',
+        "printf 'k=v' | tee secrets/creds.json",
+    ):
+        tier, _ = guard.decide("Bash", {"command": cmd}, [])
+        assert tier == "deny", f"shell write to a secret file must be denied: {cmd!r}"
+
+
+def test_redirection_check_does_not_flag_ordinary_writes():
+    """A guard that fires on every redirect gets switched off. Only secret TARGETS."""
+    for cmd in (
+        "echo hello > notes.txt",
+        "cat a.py > b.py",
+        "npm run build > build.log 2>&1",
+        "echo x >> README.md",
+    ):
+        tier, _ = guard.decide("Bash", {"command": cmd}, [])
+        assert tier != "deny", f"ordinary redirect must not be denied: {cmd!r}"
+
+
+def test_powershell_tool_is_classified_like_bash():
+    """This is a Windows-primary environment exposing a distinct PowerShell tool. The guard's own
+    _is_win_recursive_delete rule exists for exactly these commands, but decide() only ever
+    classified `Bash`, so every PowerShell command returned a silent allow — the rule could never
+    fire on the tool that actually issues them.
+
+    Note the tiers are the EXISTING, correct ones, not stricter: a recursive delete of a subpath
+    is `ask` (denying every one would over-block and get the guard switched off), and only a
+    root/drive target is `deny`. The bug was never the tier — it was that no tier applied at all."""
+    tier, _ = guard.decide("PowerShell", {"command": "Remove-Item -Recurse -Force E:\Projects"}, [])
+    assert tier == "ask", "a recursive delete via PowerShell must at least reach the ask tier"
+    tier, _ = guard.decide("PowerShell", {"command": "Remove-Item -Recurse -Force C:\\"}, [])
+    assert tier == "deny", "a recursive delete of a drive root via PowerShell must be denied"
+
+
+def test_powershell_ordinary_command_still_allowed():
+    tier, _ = guard.decide("PowerShell", {"command": "Get-ChildItem ."}, [])
+    assert tier == "allow"

@@ -55,14 +55,31 @@ unsure.** On a known mismatch:
 
 - **Interactive session (no `CADDIS_HEADLESS`, no `DOCKET_PLAN`/`DOCKET_BRANCH` in the environment)
   → spawn the assigned lane.** Run the phase's literal launch command yourself — e.g.
-  `claude-glm -p "/caddis:implement <plan> — Phase N only"` — wait for it, then report what it did.
+  `claude-glm -p "/caddis:implement <plan> — Phase N only"` — wait for it, then verify it (below).
   On Windows `claude-glm` is `claude-glm.ps1` and resolves only on the **PowerShell** PATH; a
   Bash `command -v claude-glm` returns nothing and looks like "not installed", which it is not.
   If the spawn fails for any reason, implement the phase here and record the deviation (below) —
   a failed spawn must never silently become a skipped phase.
+  > **First, check the launch command carries `-p` or `--print`. If it does not, REFUSE to run it**
+  > — report the malformed command and implement here instead. The launchers set `CADDIS_HEADLESS`
+  > *only* on `-p`/`--print`, and that variable is the entire loop guard. A launch command missing
+  > it spawns a session that is not marked headless, which reads this same `Lane:` line and spawns
+  > again — unbounded recursion. Without `-p` the command also opens an interactive session, so the
+  > parent waits forever on a child that is sitting at a prompt.
 - **Headless or docket-runner session → never spawn. Implement here and record the deviation.**
   You may already *be* the spawned lane, and a session that spawns its own lane on every start is
   an infinite loop. The env markers above are the guard: if either is set, someone else placed you.
+
+**After the spawn, verify it — do not assume.** Re-read the plan's Tracker row for that phase and
+confirm the status and commit hash the child claims to have written. "Wait for it and report" checks
+nothing: a mistyped plan path in the launch command silently implements a *different plan* while you
+move on. If the row is unchanged, treat the phase as **not done** and say so.
+
+**If your arguments carry a phase restriction — `— Phase N only` — implement exactly that phase and
+stop**, then emit the final JSON block. Every launch command this system generates ends that way, and
+nothing used to honour it: a child spawned for phase 2 of 14 would run phases 2 *through 14*, pulling
+later `claude`-lane and security-sensitive phases onto the cheap model. That is the precise inverse of
+the bug the lane routing exists to fix.
 
 **Record the lane you actually ran on in the Tracker's `Lane` column** — the lane you ran, never the
 lane the plan planned. A deviation then shows up as a diff between the phase block and the tracker
@@ -77,12 +94,27 @@ this project's declared safety conventions, and how to re-derive the plan's anch
 `advisory-hub` skill for the full contract.
 
 **In Advisory-Hub mode, the previous phase's VERDICT gates this one.** Before starting phase N, require
-`.caddis/advisory-hub-reports/phase-(N-1).verdict.md` carrying frontmatter `verdict: accept` or
-`verdict: accept-with-correction`.
+a verdict in `.caddis/advisory-hub-reports/` that satisfies **all three** of:
+
+1. **It covers phase N-1.** Usually `phase-(N-1).verdict.md`, but a **batched** verdict counts: a file
+   whose `phase:` is a range — `phase-10-11.verdict.md`, `phase: 10-11` — satisfies the gate for every
+   phase the range **covers**. Batched pairs are normal, not exotic: one live plan alone carries
+   `phase-05-06`, `08-09`, `10-11` and `13-14`. A literal `phase-(N-1)` lookup sends phase 12 hunting
+   for a `phase-11.verdict.md` that will never exist, and falsely blocks a properly validated plan.
+2. **It belongs to the plan you are implementing.** The report directory is flat and shared, so with two
+   hub-mode plans in one repo, plan A's `phase-02.verdict.md` would otherwise satisfy plan B's phase-3
+   gate. Match the verdict's identity field against the plan. **Accept either `plan:` (a path) or
+   `feature:` (a slug) — both are in live fleet use** and neither is wrong; one project's verdicts carry
+   one, another's carry the other. If a verdict carries neither, treat its identity as unproven: say so
+   and do not let it gate anything.
+3. **It carries `verdict: accept` or `verdict: accept-with-correction`.**
 
 - **Missing** → the Hub has not validated it yet. **STOP.** Mark the Tracker row
   `blocked-pending-hub` and say which verdict you are waiting on.
 - **`verdict: reject`** → **STOP.** The phase is to be redone, not built upon.
+- **`verdict: accept-degraded`** → the Hub validated it **without an advisory context**, so the
+  locked-decision and safety-rule re-checks never ran. It is a partial check wearing an accept. Proceed
+  only if the phase is low-stakes, and **say in your report that you did so on a degraded verdict**.
 - Phase 1 (or the first phase of the plan) has no predecessor — proceed.
 
 This is the Hub's central power and until now it ran on human discipline alone: the verdict recorded
@@ -99,6 +131,11 @@ status is not `done`/`✅`. If every phase is already done, verify the tests are
 report — do not redo completed work.
 
 **3. Implement each remaining phase, TDD-first.** For each phase, in order:
+   - **LANE** — **re-check this phase's `Lane:` and apply Step 1's spawn/record rule to it.** Do this
+     first, every phase, not just the one you resumed at. Step 1's check only ever saw the *resume*
+     phase: on a plan whose phase 1 is `claude` and phase 2 is `glm-headless`, it finds no mismatch and
+     this loop then carries you straight through phase 2 — so the lane silently executes nothing for
+     every phase after the first, which is the original bug wearing a different hat.
    - **RED** — write the failing test(s) the phase names (`<test file>::<case>`). Run them; confirm they
      fail for the right reason (the missing behavior, not an import error). If a phase genuinely has no
      testable surface, say so in the review file and implement the minimal change directly.
@@ -116,7 +153,13 @@ report — do not redo completed work.
      follow-up commit) — it lives in the plan file, which is fine to commit on this branch.
    - **FILE THE PHASE REPORT — Advisory-Hub mode only.** *Skip this bullet entirely if Step 1 found no
      `<slug>-advisory-context.md`.* Write `.caddis/advisory-hub-reports/phase-NN.report.md` (zero-padded
-     phase number; create the directory and add a `README.md` index row if absent) using the
+     phase number; create the directory and add a `README.md` index row if absent — and when you
+     create `.caddis/advisory-hub-reports/` for the first time, also write an **`AGENTS.md`** there
+     carrying the naming, frontmatter and role rules from the `advisory-hub` skill, so they bind every
+     agent that writes to that directory including ones that never loaded the skill. The skill claims
+     this file ships; nothing ever created it, so it exists only where a Hub hand-wrote one.
+     **Never overwrite an existing `AGENTS.md`** — the hand-written ones in the fleet are the good
+     copies) using the
      `advisory-hub` skill's report contract. Verbatim means verbatim — paste real terminal output, never
      reconstruct it. Report the model/lane you actually ran on. Report every commit, including tooling and
      config. `git add` the report file with this phase's commit. **If the report's SURPRISES /

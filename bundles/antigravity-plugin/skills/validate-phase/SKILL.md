@@ -25,6 +25,13 @@ to bootstrap one from the `advisory-hub` skill's §A template, and continue in *
 the verdict exactly which checks (§4 locked-decision adjudication, §5 safety-rule re-check) were
 unavailable without it. Never silently skip a check without recording that you skipped it.
 
+**A degraded verdict must be machine-distinguishable, not just annotated in prose.** Write
+`verdict: accept-degraded` (not plain `accept`) in the frontmatter. `/caddis:implement` reads only the
+`verdict:` field to decide whether the next phase may start, so a degraded accept spelled `accept` is
+indistinguishable from a full one — the gate cannot tell a partial check from a real one, which is
+precisely the false confidence this whole pattern exists to prevent. Use `reject-degraded` likewise if
+you are rejecting without the context doc.
+
 ## Step 1 — read the report once as a document
 
 Before validating a single claim, check the report against itself: does CROSS-REVIEW agree with

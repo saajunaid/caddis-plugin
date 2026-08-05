@@ -46,7 +46,7 @@ python "$TOOL" --range origin/main..HEAD                   # review a branch's c
 ```
 Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the env).
 
-**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is refused with exit 2
+**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). Exit 2 now means a *single unsplittable file* over the ceiling, or too many batches — not an ordinary large diff. Previously it was refused with exit 2
 *before* any LLM call — an oversized diff has been observed to come back either an empty response, or
 worse, a `REVIEW: CLEAN` with zero real engagement. If you hit this, narrow `--range` or review in
 smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint's real limit.

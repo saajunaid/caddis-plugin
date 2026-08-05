@@ -34,11 +34,20 @@ python "$TOOL"                                           # DeepSeek eyes (defaul
 python "$TOOL" --provider glm                            # GLM eyes
 python "$TOOL" --range $ARGUMENTS                        # review a git range, e.g. origin/main..HEAD
 ```
-Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset). If it exits 2 with a
-"diff is N chars, over the review ceiling" message, the diff is too large to review safely in one
-pass — narrow `--range` or review in smaller chunks; don't raise `--max-diff-chars` blind.
-**Alternate the provider between reviews** (DeepSeek one diff, GLM the next) — different model
-families have different blind spots, and alternation maximizes what the pair catches over time.
+Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
+
+**A large diff is batched, not refused.** Over `REVIEW_MAX_DIFF_CHARS` (default 60,000) the tool splits
+on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. Exit 2
+now means the narrower case — a **single file** too big to split, or more batches than the cap. When you
+see it, the fix is usually to review that one file separately, not to narrow `--range`; don't raise
+`--max-diff-chars` blind.
+
+**Do not alternate providers on a schedule.** DeepSeek is the default because it has actually found real
+bugs that same-vendor passes missed; GLM is the documented fallback, used automatically when DeepSeek is
+unavailable and you did not name a provider. The policy lives in `oss_review.py`'s `FALLBACK_PROVIDERS`
+comment — a rota that sends half your phases to a provider observed timing out three phases running buys
+variety it never actually collects, and a review that silently does not happen is the same failure class
+as a diff that silently is not read. Name a provider explicitly only when you have a reason.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.

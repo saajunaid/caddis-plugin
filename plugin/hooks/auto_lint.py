@@ -6,6 +6,7 @@ it exits silently — linting must never block an edit. Cross-platform (pure Pyt
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -23,7 +24,7 @@ try:
 except Exception:
     sys.exit(0)
 
-if data.get("tool_name") not in ("Edit", "Write"):
+if data.get("tool_name") not in ("Edit", "Write", "MultiEdit"):
     sys.exit(0)
 
 file_path = data.get("tool_input", {}).get("file_path", "")
@@ -47,7 +48,13 @@ if ext == ".py":
         print(f"[lint] ruff:\n{r.stdout.strip()}", flush=True)
 
 elif ext in (".ts", ".tsx", ".js", ".jsx"):
-    r = run(["npx", "--no", "eslint", "--format", "compact", file_path])
+    # Windows CreateProcess will not resolve the `npx.CMD` shim from a bare "npx", so this
+    # branch raised FileNotFoundError and run() swallowed it — JS/TS lint silently never
+    # happened on the primary platform. Resolve the real executable first.
+    _npx = shutil.which("npx")
+    if not _npx:
+        return
+    r = run([_npx, "--no", "eslint", "--format", "compact", file_path])
     if r and r.returncode != 0 and r.stdout.strip():
         print(f"[lint] eslint:\n{r.stdout.strip()[:600]}", flush=True)
 

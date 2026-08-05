@@ -199,13 +199,69 @@ flowchart LR
 
 1. **Start simple** - Core elements first, add details incrementally
 2. **One concept per diagram** - Split complex views into focused diagrams
-3. **Use clear labels** - Meaningful names make diagrams self-documenting
+3. **Use clear labels, but SHORT ones** - see *Label length* below. Meaningful names make diagrams
+   self-documenting; long ones get silently clipped, and a clipped label is worse than a terse one
+   because the reader cannot tell text is missing
 4. **Comment extensively** - Use `%%` to explain complex parts
 5. **Validate syntax** - Test at [mermaid.live](https://mermaid.live) before committing
 6. **Version control** - Store `.mmd` files with code
 7. **Keep updated** - Update diagrams when code changes
 
+## Label length — text is CLIPPED, not wrapped, and nothing warns you
+
+**The most common defect in a generated diagram, and it is invisible to the author.** Mermaid does
+not error, the diagram renders, and the text is simply cut off mid-word. Two distinct causes:
+
+**1. A long unbroken token in a node label cannot wrap.** Mermaid wraps node text at *spaces* only.
+`GenesysConversationTranscripts` is 30 characters with no space in it, so there is no break
+opportunity — it overflows the box and is clipped to `GenesysConversationTransc…`. Identifiers,
+table names, class names and file paths are all this shape.
+
+**2. Edge labels never wrap at all.** `A -->|"E2 · no index on ConversationStart"| B` renders on one
+line at any length, clipping or overlapping neighbouring nodes.
+
+**Rules:**
+
+- **Keep any unbroken token to ~20 characters.** Break longer ones explicitly with `<br/>`:
+  `["GenesysConversation<br/>Transcripts"]`.
+- **Keep each `<br/>`-separated line to ~25 characters.**
+- **Never put a sentence on an edge.** Edge labels get a short id or one word — `|"B2"|`, `|"reads"|`.
+  If it needs explaining, explain it in prose or a table beside the diagram.
+- **Prefer a short display name plus a lookup table** over cramming full identifiers into nodes:
+
+  ```mermaid
+  flowchart TD
+      B["Voice<br/>transcripts"] --> APP["dashboard"]
+  ```
+
+  | short name | actual table |
+  |---|---|
+  | Voice transcripts | `dbo.GenesysConversationTranscripts` |
+
+**Check it mechanically before shipping** — cheaper than rendering, and catches both causes:
+
+```bash
+python -c "
+import re,sys
+body=re.search(r'\`\`\`mermaid(.*?)\`\`\`',open(sys.argv[1],encoding='utf-8').read(),re.S).group(1)
+for e in re.findall(r'\|\"?([^\"|]+)\"?\|',body):
+    if len(e)>15: print(f'EDGE LABEL {len(e)} chars (never wraps): {e}')
+for lbl in re.findall(r'\[\"(.*?)\"\]',body):
+    for line in lbl.split('<br/>'):
+        t=max((len(w) for w in line.split()),default=0)
+        if t>20: print(f'LONG TOKEN {t} chars (cannot wrap): {line}')
+print('checked')
+" FILE.md
+```
+
+**Rendering to look at it is better still** — but only if you actually open the image. A diagram that
+renders without error is not a diagram that reads correctly, which is the same trap as a passing
+test that asserts nothing.
+
 ## Common Issues
+
+**Text is cut off mid-word:** see *Label length* above — the label is too long to wrap. This does
+not produce an error.
 
 **Diagram won't render:**
 - Check for typos in diagram type declaration

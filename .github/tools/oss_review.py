@@ -33,8 +33,11 @@ come back two different unsafe ways — an empty `content` field on an HTTP 200 
 no verdict line ⇒ exit 2), and, worse, a `REVIEW: CLEAN` verdict with no substantive engagement (a
 silent false negative — the model was overwhelmed, not actually reviewing). Rather than risk the second
 case, a diff over REVIEW_MAX_DIFF_CHARS (default 60,000 chars; override via the env var or
---max-diff-chars) is refused BEFORE any LLM call: exit 2 with a message suggesting a narrower --range
-or a per-file/per-commit review instead of one giant diff.
+--max-diff-chars) is SPLIT INTO BATCHES on whole-file boundaries and each batch reviewed separately;
+the verdict is CLEAN only if every batch is clean (aggregation is fail-closed). Exit 2 is now the
+narrower case: a SINGLE file larger than the ceiling, which cannot be split, or more batches than
+MAX_REVIEW_BATCHES. Refusal was the original behaviour and is kept for those two - a silent false
+CLEAN is the worst outcome this tool has - but it no longer fires on an ordinary large phase diff.
 
 Stdlib-only (urllib) so it runs anywhere with no pip install.
 """

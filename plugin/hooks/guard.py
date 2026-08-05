@@ -116,12 +116,47 @@ def _is_win_recursive_delete(cmd: str) -> bool:
     return ps_recurse_force or cmd_slash_s
 
 
+# Shell constructs that WRITE to a named target: redirections, and the usual suspects that take
+# a path argument. Matching the target lets classify_write judge it, so the shell path and the
+# Write/Edit path can never disagree about what counts as a secret.
+_SHELL_WRITE_TARGET = re.compile(
+    r"""(?:
+          >>?\s*(?P<redir>[^\s|;&<>]+)                      # > file   >> file
+        | \|\s*tee\s+(?:-a\s+)?(?P<tee>[^\s|;&<>]+)          # | tee file
+        | -(?:Path|FilePath|LiteralPath)\s+(?P<ps>[^\s|;&]+) # Set-Content -Path file
+        | \bOut-File\s+(?P<outfile>[^\s|;&]+)                # Out-File file
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _shell_write_targets(command: str) -> list[str]:
+    """Every path this command appears to write to. Best-effort by design: a miss degrades to the
+    old behaviour, it never invents a denial."""
+    out: list[str] = []
+    for m in _SHELL_WRITE_TARGET.finditer(command):
+        for val in m.groupdict().values():
+            if val:
+                out.append(val.strip("'\"" ))
+    return out
+
+
 def classify_bash(command: str) -> tuple[str, str]:
     """Risk tier (deny|ask|allow) + reason for a shell command."""
     c = command.strip()
     cl = c.lower()
     n = _strip_quotes(c)          # quote-normalized: defeats `rm '-rf' "/"` evasion
     nl = n.lower()
+
+    # ── deny: writing a secret through the shell ──
+    # classify_write denied `.env` and credential files; classify_bash had no equivalent, so the
+    # SAME file was denied via Edit and waved through via `echo ... > .env`. Observed live: a phase
+    # blocked on Edit, then written by a shell command minutes later. Delegating to classify_write
+    # rather than restating its patterns is the point — two copies of a secret list would drift.
+    for _target in _shell_write_targets(c):
+        _tier, _why = classify_write(_target)
+        if _tier == "deny":
+            return "deny", f"shell command {_why}"
     rm_rf = _is_rm_recursive_force(n)
     catastrophic = bool(_CATASTROPHIC_TARGET.search(n))
     find_delete = bool(re.search(r"\bfind\b.*?(?:-delete\b|-exec\s+rm\b)", nl))
@@ -181,7 +216,11 @@ def decide(tool_name: str, tool_input, allow_patterns: list[str]) -> tuple[str, 
     if tool_name in ("Write", "Edit", "MultiEdit"):
         target = str(tool_input.get("file_path") or tool_input.get("path") or "")
         tier, reason = classify_write(target) if target else ("allow", "")
-    elif tool_name == "Bash":
+    elif tool_name in ("Bash", "PowerShell"):
+        # PowerShell is a DISTINCT tool on Windows-primary hosts. Classifying only "Bash" meant
+        # `Remove-Item -Recurse -Force <root>` bypassed every tier — while _is_win_recursive_delete
+        # below exists for precisely those commands. The rule could never fire on the tool that
+        # actually issues them. Verified live before fixing.
         target = str(tool_input.get("command", ""))
         tier, reason = classify_bash(target)
     else:

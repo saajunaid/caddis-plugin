@@ -21,7 +21,7 @@ Include frontmatter for:
 ## The three tiers
 
 caddis follows **OKF-lite** (Open Knowledge Format — the frontmatter layer only; the `raw/` + `+wiki/`
-restructure is deliberately skipped, see `.caddis/plans/kuns-tools-and-okf.md`). As of OKF **v0.2** the
+restructure is deliberately skipped, see `.caddis/parking-lot/kuns-tools-and-okf.md`). As of OKF **v0.2** the
 schema is layered, and only the first tier is required:
 
 | Tier | Fields | Rule |

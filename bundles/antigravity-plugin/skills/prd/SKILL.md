@@ -21,8 +21,10 @@ Interview the user to fill gaps. Ask only what you can't infer from the codebase
 Ask in small batches; stop interviewing once the spec is testable.
 
 ## Headless mode
-When the invocation contains the marker **`HEADLESS RUN RULES`** (a docket runner / non-interactive
-caller spawned this session — no human is present), the Discovery interview above is **suspended and
+When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` /
+`DOCKET_PLAN` / `DOCKET_BRANCH` is set in the environment** (the caddis OSS launchers export
+`CADDIS_HEADLESS` on claude's `-p`/`--print`; the docket runner sets the others) — a non-interactive
+caller spawned this session and no human is present, so the Discovery interview above is **suspended and
 forbidden**. This mode exists for one-line ideas: the card may be nothing more than a short title with
 **no description**, and there may be **no codebase or `STACK.md`** to draw on. That is expected and still
 fully actionable — a terse title is enough to write a complete draft PRD.

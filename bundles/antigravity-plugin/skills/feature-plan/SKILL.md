@@ -13,8 +13,10 @@ The plan file is the **durable spine of the harness** — it must let any future
 agent, on any tool) resume with zero re-discovery. Optimize for that.
 
 ## Headless mode
-When the invocation contains the marker **`HEADLESS RUN RULES`** (a docket runner / non-interactive
-caller spawned this session — no human is present), the scope-check questions and any interview are
+When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` /
+`DOCKET_PLAN` / `DOCKET_BRANCH` is set in the environment** (the caddis OSS launchers export
+`CADDIS_HEADLESS` on claude's `-p`/`--print`; the docket runner sets the others) — a non-interactive
+caller spawned this session and no human is present, so the scope-check questions and any interview are
 **suspended and forbidden**. This mode exists for one-line ideas: the card may be a short title with **no
 description**, and there may be **no codebase, PROJECT-FACTS, or prior PRD** to read. That is expected —
 write a complete best-effort plan anyway.
@@ -53,6 +55,14 @@ points), read it first. It's a free, token-zero project fingerprint that anchors
 exists instead of assumed. If the work fits comfortably in one session, say so and offer to just do it
 instead of planning. Only produce a plan for genuinely multi-phase work.
 
+**If a PRD exists for this feature, read it FIRST.** Look for `.caddis/prd/<feature-slug>.md`.
+`/caddis:prd` ends by suggesting `/feature-plan <feature>`, and until now nothing on this side ever
+opened the file — so the whole chain's first handoff depended on the model happening to look. Carry
+its functional requirements into phases (they are written *"so a test can verify it"*, which is
+exactly what a phase's exit gate needs) and its `## Open questions` into `## Constraints & decisions`.
+A headless pipeline that plans straight from a bare title while a complete PRD sits on disk is the
+failure this closes.
+
 ## Step 2 — Design phases
 Break the work into **independently completable** phases (~30–60 min each, clear exit gate). Each phase
 follows the harness loop: **RED → GREEN → REFACTOR → VERIFY → COMMIT**. Front-load risk.
@@ -88,7 +98,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   feature branch). The local-coder gate below exists exactly so these phases survive a weaker
   implementer — a phase may only take this lane if it passes that gate.
 - **review lane (every phase that touches code)** — cross-vendor review by a vendor that did NOT
-  write the code: `python .github/tools/oss_review.py --range main..HEAD --provider deepseek`
+  write the code: `/caddis:cross-review --range main..HEAD`
   (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
   work). Never same-vendor.
 
@@ -170,7 +180,7 @@ Creating Model: <model-id>
   - GREEN: <minimal implementation>
   - REFACTOR: <what to clean if needed>
 **Verify (subagents):** dispatch `tester` (must return passed), then `code-reviewer` (verdict: approved)
-**Cross-review:** `python .github/tools/oss_review.py --range main..HEAD --provider <vendor that did NOT implement>` → REVIEW: CLEAN
+**Cross-review:** `/caddis:cross-review --range main..HEAD` → REVIEW: CLEAN
 **Exit gate:** <specific, testable — e.g. "GET /api/x returns 200 with {shape}", not "tests pass">
 **Commit:** `<conventional commit message>`
 **Then:** update the Tracker row (status + hash) → `/caddis:handoff` if ending the session here.
@@ -221,6 +231,12 @@ done:
   the literal launch command for glm phases) and a cross-review provider that is a different vendor
   than the implementer. A glm-headless phase MUST pass every bullet of this gate — that lane has no
   slack for reasoning out gaps.
+- **Launch command is spawnable** — every `glm-headless` phase's command carries **`-p`** (or
+  `--print`) and ends with **`— Phase N only`**. Both are load-bearing, not style: the launchers set
+  `CADDIS_HEADLESS` *only* on `-p`, and that variable is the guard that stops a spawned session
+  spawning another one forever; the `Phase N only` suffix is what stops the child running to the end
+  of the plan. The command is executed verbatim by a model with no slack to notice a missing flag,
+  and `/caddis:implement` now refuses a command without `-p` rather than running it.
 - **Gate-detectable** — if this phase's instruction were WRONG, its exit gate would go red. A phase
   whose gates pass either way (copy, nav entries, badges, ordering, wording, config defaults) must
   not take a lane that cannot escalate, no matter how completely it is specified. Every other bullet
