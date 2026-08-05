@@ -58,3 +58,12 @@ skills/windows-deployment/SKILL.md
 # --- The allowlist file itself documents the vmie- substring in comments; exempt it so the
 # --include-dist scan of mirror copies doesn't flag its own documentation. ---
 tools/pool-validator/denylist-exceptions.txt
+
+# --- The privacy mechanism itself (added 2026-08-05 with the tracked-file scan) ---
+# These files contain internal markers BY DESIGN: they are the regression guards that
+# assert the denylist still detects them. Scrubbing them would silently disable the very
+# protection that stops internal hostnames reaching a public repo — the check must not
+# eat its own tests. validate_pool.py itself is excluded in code, not here.
+scripts/tests/test_validate_pool.py
+scripts/tests/test_sync_ps1.py
+scripts/tests/test_check_doc_coverage.py

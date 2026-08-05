@@ -916,18 +916,36 @@ function Invoke-CaddisFreshShell {
     )
 
     $tempScript = Join-Path ([System.IO.Path]::GetTempPath()) ("caddis-smoke-" + [guid]::NewGuid().ToString() + ".ps1")
+    # `@"` is an INTERPOLATING here-string. `$ErrorActionPreference` unescaped expands to its
+    # current VALUE at build time, so the generated script contained the literal line
+    # `Continue = 'Stop'` - and a bare `Continue` at script top level terminates the script
+    # SILENTLY with exit 0. Every check below it was dead text, and caddis-ship gated releases
+    # on the exit code, so the release smoke test passed vacuously for its entire existence.
+    # The backtick is load-bearing. Reproduced and fixed 2026-08-05.
     $scriptContent = @"
 Set-Location '$WorkingDirectory'
 . '$REPO_ROOT\sync.ps1'
 
-$ErrorActionPreference = 'Stop'
+`$ErrorActionPreference = 'Stop'
 $ScriptText
+
+Write-Host 'SMOKE-OK: reached end of smoke script'
 "@
 
     [System.IO.File]::WriteAllText($tempScript, $scriptContent)
     try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempScript
-        return $LASTEXITCODE
+        # Capture output so the caller can prove the script RAN, not merely that it exited 0.
+        $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempScript 2>&1
+        $code = $LASTEXITCODE
+        $output | ForEach-Object { Write-Host $_ }
+        if ($code -eq 0 -and ($output -join "`n") -notmatch 'SMOKE-OK') {
+            # Exit 0 without the end-marker means the script died before finishing. That is
+            # indistinguishable from success by exit code alone - which is exactly how this
+            # gate failed. Fail closed.
+            Write-Host "  [FAIL] smoke script exited 0 but never reached the end - treating as failure" -ForegroundColor Red
+            return 1
+        }
+        return $code
     } finally {
         if (Test-Path $tempScript) {
             Remove-Item $tempScript -Force

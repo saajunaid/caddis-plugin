@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -421,6 +422,73 @@ def check_privacy_scan(roots: list[Path]) -> CheckResult:
     r.info.append(f"scanned {total_files} files across {len(roots)} root(s)")
     if allowlist:
         r.info.append(f"loaded {len(allowlist)} allowlist pattern(s); skipped {skipped} file(s)")
+    r.passed = not r.failures
+    return r
+
+
+def check_privacy_scan_tracked() -> CheckResult:
+    """Privacy scan over EVERY git-tracked file, not just the pool.
+
+    `check_privacy_scan` above only ever looks at the roots in `_resolve_scan_roots`,
+    which starts at `.github/`. That is the pool — but the repo is PUBLIC, and a visitor
+    sees every tracked file. On 2026-08-05 that blind spot was holding four internal audit
+    reports under `docs/analysis/` and 25 working-record files under `.caddis/`, carrying
+    internal hostnames, a bot-token name and fleet app names — every one of them already in
+    PRIVACY_SUBSTRINGS. The denylist was right; nothing had ever pointed it at those paths.
+
+    Generated mirrors are skipped: they derive from source, so fixing the source fixes them,
+    and reporting both doubles every finding. Untracked files are skipped because they are
+    not published — local caches (`.mypy_cache`) otherwise drown the signal in SHA noise.
+    """
+    r = CheckResult(name="Privacy scan — every tracked file (public surface)")
+    allowlist = _load_path_allowlist()
+
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception as exc:  # pragma: no cover — git absent is not a privacy failure
+        r.info.append(f"skipped — could not list tracked files ({exc})")
+        r.passed = True
+        return r
+    if tracked.returncode != 0:
+        r.info.append("skipped — not a git repo")
+        r.passed = True
+        return r
+
+    # Mirrors are generated from source; fix the source and they follow.
+    #
+    # `.caddis/` and `docs/` are the WORKING RECORD and are excluded deliberately. This repo
+    # (saajunaid/caddis) is PRIVATE as of 2026-08-05; the thing the public sees is the generated
+    # mirror saajunaid/caddis-plugin, which carries `.github/`, the bundles, and a handful of root
+    # scripts — and zero `.caddis/` or `docs/` files (verified against the mirror's index). So an
+    # internal hostname in a plan or a parking-lot note cannot reach anyone, while the same string
+    # in `claude-harness/` or a root script can. Scanning the working record would fail the build
+    # over notes that are private by construction, and a check that cries wolf gets switched off.
+    skip_prefixes = ("dist/", "cli/bundles/", "vscode-extensions/", ".caddis/", "docs/")
+    scanned = skipped = 0
+    for rel in tracked.stdout.splitlines():
+        if rel.startswith(skip_prefixes):
+            continue
+        f = REPO_ROOT / rel
+        if f.suffix.lower() not in SCAN_TEXT_EXTENSIONS:
+            continue
+        if _is_allowlisted(f, allowlist):
+            skipped += 1
+            continue
+        if f.resolve() == DENYLIST_EXCEPTIONS.resolve() or f.resolve() == Path(__file__).resolve():
+            continue
+        text = _read_text_safe(f)
+        if text is None:
+            continue
+        scanned += 1
+        for h in _scan_text_for_privacy(text):
+            r.failures.append(f"{rel}: {h}")
+
+    r.info.append(f"scanned {scanned} tracked file(s) outside the generated mirrors")
+    if skipped:
+        r.info.append(f"{skipped} allowlisted")
     r.passed = not r.failures
     return r
 
@@ -1277,6 +1345,7 @@ def main(argv: list[str] | None = None) -> int:
             check_manifest_contract(),
             check_agy_plugin_target(),
             check_privacy_scan(roots),
+            check_privacy_scan_tracked(),
             check_generated_artifacts(roots),
             check_prompts(),
             check_skill_frontmatter(),

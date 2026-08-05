@@ -179,6 +179,28 @@ never leave a mutation in the tree.** The specific trap worth naming: dropping a
 default silently changes behaviour *without erroring* — exactly what a mutation test catches and a code
 read does not.
 
+### A reproduction harness can DOWNGRADE a finding — build it anyway
+
+A filed finding (GLM executing an injected relay's leftover task before its own prompt) had three
+live observations behind it on one docket, and read as confirmed. Building the harness the note itself
+demanded — replay the real hook's captured stdout into a clean arena via a `--settings` SessionStart
+hook, so the installed plugin can't contaminate the arm — ran it **six** times, three as baselines
+matched to the reported conditions. **Not one reproduced.** The finding was downgraded to "not
+established," not closed: the fixes were kept anyway (cheap, and one is structural), but the writeup
+now says so plainly instead of letting three anecdotes read as a measurement.
+
+> **Three observations on one project is a pattern, not a measurement.** A harness that fails to
+> reproduce is not a wasted harness — it is the finding doing its job. Build the falsifiable test even
+> when the finding already feels certain; "confirmed by re-reading the report" and "confirmed by trying
+> to break it and failing" are different claims, and only the second is durable.
+
+**The reusable A/B method, for testing a hook whose fix is already installed:** capture the real hook's
+actual stdout (pre-fix and post-fix, run for real against a repo holding the test condition), then
+replay each capture into a **clean arena** via a `--settings` SessionStart hook. Keep the arena's own
+plugin relay-free, so the only relay text in play is the one under test — otherwise the installed
+(possibly still-unpatched) plugin injects its own and contaminates the result. Each arena is its own
+git repo, so the evidence is files and commits, not a transcript read.
+
 ### Re-run the cross-review yourself
 
 A report's own internal contradiction (CLEAN in one section, "pending" in another) is settled in one

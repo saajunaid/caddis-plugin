@@ -28,3 +28,7 @@ mcp-publisher.exe
 # Local secret files (never commit)
 pypimcp.key
 *.key
+
+# Legacy artifact-dir telemetry. Per-machine, never a deliverable. The existing rules
+# covered .caddis/*.jsonl but not the pre-rename name, so these stayed published.
+.claudster/

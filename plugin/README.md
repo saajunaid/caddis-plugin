@@ -85,3 +85,19 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   2026-07-30: `oss_review.py`/`oss_model.py`/`oss_ask.py` shipped for weeks with `/caddis:cross-review`
   broken in every consumer repo before anyone noticed — see the runtime-targets.json inline comment at
   that files list, and `.caddis/parking-lot/future-work-register.md`).
+- **A canonical rule stated in a skill must not be glossed inline in the command that loads it.** The
+  gloss always wins — it's already in context and reads as sufficient, so the "go load the skill"
+  instruction next to it gets skipped — and a gloss that compresses an enumeration into an abstract
+  phrase is strictly worse than no gloss, because it silently drops the item doing the real work (found
+  2026-08-04: `feature-plan.md` Step 3b forbade restating the advisory-hub gating test, then restated it
+  two lines later, dropping the enumerated *"numbers published to stakeholders"* leg — the one that
+  fires on nearly every dashboard/reporting plan this fleet builds). Before adding an `In short:` /
+  `TL;DR:` / `Summary:` gloss of a skill-owned rule to any command, either delete it or make it
+  lossless (enumerate, never abstract). A grep for those three phrases across `commands/` is the sweep.
+- **Hook/content-lint tests must scrub `CADDIS_HEADLESS`/`DOCKET_PLAN`/`DOCKET_BRANCH` from a
+  subprocess's child env**, or the whole file spuriously passes/fails depending on whether the suite
+  happens to run from inside a headless or docket-spawned session — exactly the session type these
+  markers exist to detect (see `_HEADLESS_MARKERS` in `claude-harness/hooks/tests/test_hook_paths.py`
+  and `test_warm_start_agy.py`). And a content lint that asserts a sentence appears verbatim in a
+  prose doc must assert against a whitespace-flattened copy (`" ".join(text.split())`), or an
+  unrelated paragraph re-wrap fakes a failure — see `_flat()` in `scripts/tests/test_lane_routing.py`.
