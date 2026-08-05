@@ -120,6 +120,19 @@ disappearance impossible: an item either carries a close reason or it is still o
 visible. It also lets a later Hub see that something was closed *wrongly*, which a deletion hides
 forever.
 
+**ARTIFACT CONSERVATION — the same check, for the files you wrote.** The ledger check above catches
+an id that *disappeared*. Nothing caught a file that *exists and is invisible*, which is the inverted
+failure and just as silent:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" hub-artifacts --reports .caddis/advisory-hub-reports
+```
+
+Exit 1 means you wrote a phase prompt the successor will never learn about. It will find no prompt,
+write a fresh one, and lose whatever reasoning yours carried — plausibly and completely. Name every
+prompt you authored in this spawn doc before handing over. (Degrades open: no handover yet, or no
+script, means proceed.)
+
 **CONSERVATION CHECK — mechanical, and it fails the spawn.** Every id in the predecessor's ledger
 must appear in the outgoing one as either still-open or closed-with-a-reason. An id that is simply
 absent is a silent loss: **stop and restore it before handing over.** Do not ask "did anything

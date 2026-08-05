@@ -37,7 +37,7 @@ Start by understanding the current project context, then ask questions one at a 
 ## After the Design
 
 **Documentation:**
-- Write the validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
+- Write the validated design to `.caddis/plans/YYYY-MM-DD-<topic>-design.md`
 - Apply `.github/instructions/document-frontmatter.instructions.md` when creating or updating the design doc
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the design document to git

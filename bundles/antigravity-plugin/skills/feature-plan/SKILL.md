@@ -55,6 +55,28 @@ points), read it first. It's a free, token-zero project fingerprint that anchors
 exists instead of assumed. If the work fits comfortably in one session, say so and offer to just do it
 instead of planning. Only produce a plan for genuinely multi-phase work.
 
+### Evidence gate — do not write plan content while a BLOCKER is unresolved
+Absorbed from `golden-plan`, whose strongest idea this is, and the direct counter to the failure
+mode that makes a plan dangerous: **you write the spec, so you cannot see its gaps.** A phase built
+on guessed field names or an imagined API is confidently wrong, passes every completeness check,
+and only fails at the exit gate — or worse, doesn't.
+
+Before writing any phase, tier each item:
+- **BLOCKER** — stop and ask the user. Do not plan around it.
+- **WARNING** — proceed, but the affected phases carry a stated assumption.
+- **OPTIONAL** — note its absence and continue.
+
+| # | Evidence | Tier |
+|---|---|---|
+| E1 | A mockup / wireframe / screenshot of the target UI, and is it frozen? | BLOCKER for UI-heavy work, WARNING otherwise |
+| E2 | A real data sample on the CURRENT schema, so field names are read not guessed | BLOCKER for any data binding, WARNING if a typed DTO/interface defines it |
+| E3 | The API contract for anything you will call — real request/response shapes | BLOCKER when integrating something you did not write |
+| E4 | Scaffold inventory: what already exists that these phases must fit into | WARNING — `.caddis/PROJECT-FACTS.md` fills this for free if present |
+
+**Free head-start:** `.caddis/PROJECT-FACTS.md` pre-fills E4 plus the run/test/build commands, env-var
+names and CI workflows at zero token cost — and grounds the `## Risks` table in what the scan actually
+shows rather than boilerplate.
+
 **If a PRD exists for this feature, read it FIRST.** Look for `.caddis/prd/<feature-slug>.md`.
 `/caddis:prd` ends by suggesting `/feature-plan <feature>`, and until now nothing on this side ever
 opened the file — so the whole chain's first handoff depended on the model happening to look. Carry
@@ -128,6 +150,24 @@ In an Advisory-Hub plan, treat your lane as **provisional**: the Hub writes each
 before the phase runs, and that is the first time anyone but the spec's author reads it. Let that
 read confirm or downgrade the lane. It costs nothing — the prompt is being written anyway.
 
+### Group phases into MILESTONES — only when the plan is big enough
+**Add milestones when the plan has ~8+ phases OR spans multiple sessions.** Below that, phases and a
+Tracker are enough; a three-phase feature gains nothing from ceremony. (Same sizing instinct as the
+Advisory-Hub test, deliberately — one threshold to remember, not two.)
+
+A milestone is **a group of phases that ship together**. It answers "what lands when this is done?",
+which is the question a long plan otherwise leaves the executor guessing at.
+
+```markdown
+### Milestone M2 — <name>  (phases 4-7)
+**Ships:** <what actually lands — a version, a PR, a deploy>
+**Gate:** <the check that must pass before it ships>
+**Boundary:** handoff + fresh session before M3
+```
+
+Then give every phase a `**Milestone:** M2` line and add a `Milestone` column to the Tracker, so a
+resuming session can see at a glance which group it is in and what remains before the next ship.
+
 ### Flag high-risk phases (`risk:` — a marker, not a mechanism)
 Each phase may carry **`risk: normal|high`** (default `normal` — omit the line unless the phase is
 `high`), meaning only "this is a phase where a wrong answer is expensive" — security/authz, a
@@ -169,6 +209,7 @@ Creating Model: <model-id>
 ### Phase 1 — <name>  ⏳
 > ⚠️ **Switch model/lane BEFORE starting this phase** — the *active* model does the work, not the
 > one named here. Lane `claude`: run `/model <alias>`. Lane `glm-headless`: run the exact command below.
+**Milestone:** M1  *(omit on plans without milestones)*
 **Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>
 **Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
 **Session:** continue | **fresh** (start a new session for this phase — note why: lane change / heavy context)
@@ -194,6 +235,30 @@ Creating Model: <model-id>
 - **Session boundaries:** `/caddis:handoff` after any phase that ends a sitting. Start a FRESH
   session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or whenever
   context feels heavy. Resume with exactly: `read <this plan's path> and implement the next ⏳ phase`.
+- **Run to a boundary, not to a phase.** The executor implements phase after phase, committing each,
+  and stops only at a marked boundary. Do not plan a stop after every phase — that is the friction
+  this structure exists to remove.
+- **The four halts, and nothing else:**
+  1. **A milestone boundary** — its `Gate:` passed and it is ready to ship.
+  2. **A phase marked `Session: fresh`** — context is heavy or the work changes shape.
+  3. **After a `risk: high` phase** — *after*, never before. The phase is executed and committed
+     normally; the halt stops anything being **built on top of it** before a human has looked. Blast
+     radius stays one reviewable, revertable commit. Halting *beforehand* buys nothing: the phase has
+     to be executed either way, and a well-specced high-risk phase is as executable as any other.
+  4. **A failed or blocked phase** — tests red, exit gate unmet, or the plan turned out wrong. Stop;
+     do not build on it.
+- **A lane change is NOT a halt.** `/caddis:implement` spawns the assigned lane itself and verifies
+  the result. It used to need a human only because the routing was inert.
+- **At every halt, leave both:** run `/caddis:handoff` (durable `relay.md` + Tracker), then print the
+  **halt block** — the single thing the human acts on:
+  ```
+  === HALT — <one-line reason> ===
+  Done:    phases 4-7 (M2) · commits <sha>, <sha>
+  Blocked: <what, or "nothing">
+  You:     /clear, then paste ↓
+           read <plan path> and implement Phase 8
+  ```
+  A run that trails off without this costs a human the work of reconstructing where it got to.
 - **Ship gate:** NEVER push or merge to main from a phase — phases only commit to the feature branch.
   When all phases are ✅: `/caddis:ship-pr` (stops at green CI), then STOP and wait for the human's
   explicit go before `/caddis:ship-merge`.
@@ -207,9 +272,9 @@ Creating Model: <model-id>
 |---|---|
 
 ## Tracker (update as you go — this is the resume signal)
-| Phase | Model | Lane | Status | Commit | Cross-review | Notes |
-|---|---|---|---|---|---|---|
-| 1 | mid | claude | not started | — | — | |
+| Phase | Milestone | Model | Lane | Status | Commit | Cross-review | Notes |
+|---|---|---|---|---|---|---|---|
+| 1 | M1 | mid | claude | not started | — | — | |
 ```
 
 ## Plan quality gate — local-coder ready (MANDATORY)

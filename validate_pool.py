@@ -493,6 +493,39 @@ def check_privacy_scan_tracked() -> CheckResult:
     return r
 
 
+def check_enforcement_ratio() -> CheckResult:
+    """Report the enforcement ratio. INFORMATIONAL — never fails the build.
+
+    How many of caddis's load-bearing rules (MUST / NEVER / STOP / REQUIRED) can a machine fail
+    on, versus how many only a model can choose to honour? Three audits independently found that
+    stripping the prose leaves very little machine content, and an advisory rule that READS like a
+    guarantee is worse than one that reads like advice.
+
+    Deliberately not a gate: a threshold here would tempt someone to hit the number by deleting
+    the word MUST from a paragraph, which improves the ratio and nothing else. It is a direction
+    of travel, printed where it cannot be ignored.
+    """
+    r = CheckResult(name="Enforcement ratio — machine-enforced vs advisory rules")
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import enforcement_inventory as ei
+        rules = ei.collect()
+        machine = [x for x in rules if x.machine]
+        ratio = (len(machine) / len(rules)) if rules else 0.0
+        cmd = [x for x in rules if "/commands/" in x.path]
+        cmd_m = sum(1 for x in cmd if x.machine)
+        r.info.append(f"commands (execution path): {cmd_m}/{len(cmd)} = "
+                      f"{(cmd_m/len(cmd) if cmd else 0):.1%} — the figure that matters")
+        r.info.append(f"blended incl. skills: {len(machine)}/{len(rules)} = {ratio:.1%} "
+                      "(skill guidance is advisory by design)")
+        r.info.append("informational only — `python scripts/enforcement_inventory.py --advisory` "
+                      "lists the unenforced ones")
+    except Exception as exc:  # pragma: no cover — never break the validator over a metric
+        r.info.append(f"skipped — {exc}")
+    r.passed = True
+    return r
+
+
 # ---------------------------------------------------------------------------
 # Check 5 — Generated artifacts under distributable folders
 # ---------------------------------------------------------------------------
@@ -1346,6 +1379,7 @@ def main(argv: list[str] | None = None) -> int:
             check_agy_plugin_target(),
             check_privacy_scan(roots),
             check_privacy_scan_tracked(),
+            check_enforcement_ratio(),
             check_generated_artifacts(roots),
             check_prompts(),
             check_skill_frontmatter(),

@@ -16,7 +16,10 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** This should be run in a dedicated worktree (created by brainstorming skill).
 
-**Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
+> **Prefer `/caddis:feature-plan`.** It is the canonical planning entry point and produces a plan
+> the harness can resume, track and gate. This skill remains for free-form planning prose.
+
+**Save plans to:** `.caddis/plans/YYYY-MM-DD-<feature-name>.md`
 
 **Document metadata:** Before creating or updating a plan, apply `.github/instructions/document-frontmatter.instructions.md`. The YAML frontmatter block must be the first content in the file. New plans require `Original Author`, `Creation Date`, and `Creating Model`; revised plans must preserve those fields and add or update `Last Author`, `Last Updated`, and `Last Model Used`.
 
@@ -215,7 +218,7 @@ The "Current State" column tells agents what exists and whether to modify or lea
 
 - `path/to/file.ext` — {why this file is needed}
 - `path/to/file.ext` (from Phase N-1)
-- `.github/plans/{this-plan}.md` (this file)
+- `.caddis/plans/{this-plan}.md` (this file)
 
 ### Phase Prompt
 
@@ -333,7 +336,7 @@ Walk through every FR, NFR, risk, and design decision from ALL input documents. 
 **Agent context:** You are the `@{agent-name}` agent. Load `.github/project-config.md` before starting.
 
 **Read these files FIRST (in order):**
-1. `.github/plans/{plan-file}.md` — **THIS PLAN** — read "Phase N — Step M"
+1. `.caddis/plans/{plan-file}.md` — **THIS PLAN** — read "Phase N — Step M"
 2. {Architecture/PRD doc} — {specific sections}
 3. {Target file(s)} — current state
 
@@ -370,7 +373,7 @@ Walk through every FR, NFR, risk, and design decision from ALL input documents. 
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to `.github/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to `.caddis/plans/<filename>.md`. Two execution options:**
 
 **1. This session** — I implement each task sequentially, reviewing between tasks
 

@@ -23,7 +23,7 @@ State tracking uses two distinct documents with different write semantics:
 
 | Document | Write mode | Purpose |
 |----------|-----------|---------|
-| **Plan Tracker** (`.github/plans/tracker/<slug>-tracker.md`) | Overwrite each row | Per-phase completion record, linked to commits |
+| **Plan Tracker** (`.caddis/plans/tracker/<slug>-tracker.md`) | Overwrite each row | Per-phase completion record, linked to commits |
 | **CURRENT_STATE** (`.github/agent-docs/CURRENT_STATE.md`) | Overwrite head section | Single-view of right now: what phase, what's done, what's blocked |
 | **Session Log** (inline in CURRENT_STATE, append-only) | Append only | Chronological audit trail — never rewrite past entries |
 
@@ -42,8 +42,8 @@ Replace this section wholesale each time:
 ```markdown
 ## Current Status
 
-**Plan:** `.github/plans/<feature-slug>.md`
-**Tracker:** `.github/plans/tracker/<feature-slug>-tracker.md`
+**Plan:** `.caddis/plans/<feature-slug>.md`
+**Tracker:** `.caddis/plans/tracker/<feature-slug>-tracker.md`
 **Last updated:** YYYY-MM-DDTHH:MM:SSZ
 **Active agent:** @[Agent] (model: [Model])
 **Current phase:** Phase N — [Name]
@@ -116,7 +116,7 @@ The canonical template is at `.github/agent-docs/CURRENT_STATE.md`. Copy it for 
 ## Integration with Golden-Plan
 
 When running a golden-plan:
-- The plan tracker (`.github/plans/tracker/<slug>-tracker.md`) is the commitment ledger.
+- The plan tracker (`.caddis/plans/tracker/<slug>-tracker.md`) is the commitment ledger.
 - CURRENT_STATE.md is the working scratch-pad for the current session.
 - After completing a phase, update BOTH the tracker row AND the CURRENT_STATE current-status section.
 - When all tracker rows are `Complete`, follow the Plan Completion Protocol in golden-plan: move the plan to `plans/done/`, set `status: done`.

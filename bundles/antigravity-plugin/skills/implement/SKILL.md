@@ -43,6 +43,22 @@ folder you will touch (the canonical rules; `CLAUDE.md` is an `@AGENTS.md` shim)
 `.caddis/PROJECT-FACTS.md` if present (for the real run/test commands) —
 **read it, never edit it**. Identify the test command the plan/facts specify so you can run it yourself.
 
+**Run the machine gates first — they decide, not your reading of the prose below.**
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" verdict-gate  --plan <plan> --phase <N>
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+```
+
+Obey the exit code: **0** proceed · **1** STOP and report why · **2** proceed but record the note it
+printed · **3** wrong lane — the launch command is on stdout, spawn it · **4** the launch command is
+malformed, do not run it.
+
+**If the script is missing, proceed** — it degrades open by design, and an older install or a
+plugin-only consumer must not be blocked by a gate it does not have. The prose below is the same
+contract in words, and remains the fallback.
+
 **Check the phase's `Lane:` before implementing anything.** The plan assigns every phase an
 execution lane, and until now nothing read it: on one 14-phase plan, Phases 1 and 2 were both
 assigned `glm-headless` and both ran on `claude`, silently, twice in a row — the plan advertised a
@@ -182,6 +198,29 @@ report — do not redo completed work.
    If a phase cannot be completed (a blocking gap the plan did not resolve, or a rule above would be
    violated), **stop there**: leave later phases untouched, record the blocker in the review file, mark the
    Tracker row `blocked`, and report honestly with `"tests":"failed"` — never fake completion.
+
+**3b. Halt only at a boundary.** Implement phase after phase, committing each. Stop for exactly four
+reasons — a **milestone boundary**, a phase marked `Session: fresh`, **after** a `risk: high` phase,
+or a **failed/blocked** phase. A lane change is not one of them: you spawn the lane yourself (Step 1).
+
+The `risk: high` halt is deliberately *after*, not before. Execute and commit the phase normally; the
+halt exists to stop the **next** phase building on it before a human has looked, so the blast radius
+stays one reviewable, revertable commit.
+
+At every halt: run the `/caddis:handoff` procedure (durable `relay.md` + Tracker), then print the halt
+block as your **last output before the JSON**, so the human has one action rather than an archaeology
+job:
+
+```
+=== HALT — <one-line reason> ===
+Done:    phases <a>-<b> (<milestone>) · commits <sha>, <sha>
+Blocked: <what, or "nothing">
+You:     /clear, then paste ↓
+         read <plan path> and implement Phase <next>
+```
+
+**In headless/runner mode, never ask — halt, write the block, and exit.** The block is how a
+non-interactive run tells a human what it needs; asking is still forbidden.
 
 **4. Run the tests yourself.** After the last phase you complete, run the project's full test command once
 more and record the real result. The runner will re-run it independently and that decides success — but

@@ -503,6 +503,8 @@
         {"source": "tools/oss_review.py", "destination": "scripts/oss_review.py"},
         {"root": "harness",   "source": "scripts/oss_model.py",        "destination": "scripts/oss_model.py"},
         {"root": "harness",   "source": "scripts/oss_ask.py",          "destination": "scripts/oss_ask.py"},
+        {"root": "repo",      "source": "scripts/caddis_gate.py",        "destination": "scripts/caddis_gate.py"},
+        {"root": "repo",      "source": "scripts/enforcement_inventory.py", "destination": "scripts/enforcement_inventory.py"},
         {"root": "harness",   "source": "scripts/claude-oss.ps1",        "destination": "scripts/claude-oss.ps1"},
         {"root": "harness",   "source": "scripts/claude-oss.sh",         "destination": "scripts/claude-oss.sh"},
         {"root": "harness",   "source": "scripts/claude-glm.ps1",        "destination": "scripts/claude-glm.ps1"},

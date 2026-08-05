@@ -62,13 +62,13 @@ Every stage produces a **persistent artefact** (markdown file, commit, test run)
 | Requirements | Spec / feature file | Supplied by operator (e.g. `nextprompt.md`) |
 | Quick-Win Triage | Commit with passing tests | Git history |
 | Architecture | ADR (Architecture Decision Record) | Inside the plan document |
-| Planning | Plan document (phases, steps, files) | `.github/plans/<feature>.md` |
+| Planning | Plan document (phases, steps, files) | `.caddis/plans/<feature>.md` |
 | Fidelity Audit | Gap table (0 gaps = pass) | Inside the plan document |
 | Risk Assessment | Risk register (scored risks) | Inside the plan document |
 | Implementation Prompts | Embedded copy-paste prompts | Inside the plan document |
 | Implementation | Code + tests per phase | Git commits per phase |
 | Code Review | Review report | Chat session or plan annotation |
-| Debug / Polish | Fix-up plan (issues A–N) | `.github/plans/<feature>-fixup.md` |
+| Debug / Polish | Fix-up plan (issues A–N) | `.caddis/plans/<feature>-fixup.md` |
 
 ---
 
@@ -181,7 +181,7 @@ Spec Input
    - What to change (specific enough to implement without guessing)
    - Expected test additions
    - Verification command
-4. Place plan in `.github/plans/<feature-name>.md`
+4. Place plan in `.caddis/plans/<feature-name>.md`
 
 #### 2b. Fidelity Audit
 After authoring, audit the plan against the spec:
@@ -265,7 +265,7 @@ Score each identified risk:
 1. Start a **new chat session** (clean context)
 2. Provide the phase prompt:
    ```
-   Read .github/plans/<feature>.md and implement Phase N.
+   Read .caddis/plans/<feature>.md and implement Phase N.
    Run pytest after every file change. All tests must pass before commit.
    ```
 3. Implement Agent reads the plan, executes numbered steps
@@ -285,7 +285,7 @@ The plan document should contain **copy-paste prompts** for each phase. This rem
 ```markdown
 ### Phase 2 Prompt (copy into new chat)
 
-> Read `.github/plans/my-feature.md`, specifically Phase 2 (steps 5–9).
+> Read `.caddis/plans/my-feature.md`, specifically Phase 2 (steps 5–9).
 > Implement each step in order. Run `pytest tests/ -x -q` after each file edit.
 > When all steps pass, commit with message:
 > `feat(cards): phase 2 — insight card refactoring`
@@ -338,7 +338,7 @@ The plan document should contain **copy-paste prompts** for each phase. This rem
    - Root cause
    - Proposed fix (specific enough to implement)
    - Acceptance criteria
-3. **Write fix-up plan** — Place in `.github/plans/<feature>-fixup.md`
+3. **Write fix-up plan** — Place in `.caddis/plans/<feature>-fixup.md`
 4. **Execute** — Implement Agent works through issues sequentially
 5. **Verify** — Run full test suite + visual inspection
 6. **Commit** — `fix(<scope>): post-track cross-component polish`
@@ -562,7 +562,7 @@ Load .github/skills/workflow/agent-orchestration/SKILL.md for the methodology."
 ```
 Operator opens new chat:
 
-"Read .github/plans/<feature>.md and implement Phase N.
+"Read .caddis/plans/<feature>.md and implement Phase N.
 Run pytest after each file change. Commit when all tests pass.
 Use message: feat(<scope>): phase N — <summary>"
 ```
@@ -575,7 +575,7 @@ Operator opens new chat:
 "All implementation phases for <feature> are complete.
 Audit all changed files for cross-component issues.
 Catalogue each issue (A–N) with root cause, fix, and acceptance criteria.
-Write the fix-up plan to .github/plans/<feature>-fixup.md"
+Write the fix-up plan to .caddis/plans/<feature>-fixup.md"
 ```
 
 ### Absorbing Mid-Flight Changes
@@ -584,7 +584,7 @@ Write the fix-up plan to .github/plans/<feature>-fixup.md"
 Operator opens new chat:
 
 "I independently added <change> to <file(s)>.
-Read .github/plans/<feature>.md and update it to absorb this change.
+Read .caddis/plans/<feature>.md and update it to absorb this change.
 Trace every affected step, update embedded prompts, re-verify fidelity."
 ```
 

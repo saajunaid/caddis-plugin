@@ -24,7 +24,7 @@ Systematically migrate an application from a legacy database schema to a new sch
 1. **Read-Only** — Never execute DDL or DML (`CREATE`, `ALTER`, `INSERT`, `UPDATE`, `DELETE`) against the database. All analysis is SELECT-only.
 2. **No SQL Aliases** — Proposed queries must use direct `Table.Column` notation. Aliases obscure the mapping and make future changes harder to trace.
 3. **No Assumptions** — Every column mapping must be verified against the actual schema DDL. If a mapping is ambiguous or a source column has no clear target, flag it as a **GAP** rather than guessing.
-4. **Scratchpad Protocol** — If context becomes large, save intermediate findings to `.github/plans/temp_migration_scratchpad.md` to preserve state across reasoning steps.
+4. **Scratchpad Protocol** — If context becomes large, save intermediate findings to `.caddis/plans/temp_migration_scratchpad.md` to preserve state across reasoning steps.
 
 ---
 
@@ -255,7 +255,7 @@ Produce a single, comprehensive document suitable for use as an **Implementation
 ```
 
 ### Output Location
-Place the final report at the path specified by the user (default: `.github/plans/backlog/migration_report.md`).
+Place the final report at the path specified by the user (default: `.caddis/plans/backlog/migration_report.md`).
 
 ---
 
