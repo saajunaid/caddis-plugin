@@ -410,11 +410,30 @@ py_has() { [ -n "$PY" ] && "$PY" -m "$1" --version >/dev/null 2>&1; }
 # Does the project ASK for this tool? If so, being unable to run it is a failure.
 py_wants() { grep -qi -- "$1" pyproject.toml requirements.txt requirements-dev.txt 2>/dev/null; }
 
+# Does this project actually contain Python source? A pyproject.toml alone does not mean it
+# does - a config-only or frontend repo can carry one - and mypy exits non-zero with "There
+# are no .py[i] files in directory" when handed nothing. Skipping a checker that has nothing
+# to check is honest; failing the push over it is not.
+py_sources_exist() {
+  [ -n "$(find . -name '*.py' -not -path './.venv/*' -not -path './venv/*'             -not -path './node_modules/*' -not -path './.git/*' 2>/dev/null | head -1)" ]
+}
+
 py_gate() {
   tool=$1; shift
   if py_has "$tool"; then
     echo "[gate] $tool $*"
-    "$PY" -m "$tool" "$@" || fail=1
+    rc=0
+    "$PY" -m "$tool" "$@" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+  # pytest exit 5 = "no tests collected". A repo that has not written tests yet is not a
+  # failing repo, and blocking it would hit exactly the fresh-scaffold case this fix exists
+  # for. Every other non-zero code is a real failure.
+      if [ "$tool" = "pytest" ] && [ "$rc" -eq 5 ]; then
+        echo "[gate] pytest: no tests collected yet - not treated as a failure"
+      else
+        fail=1
+      fi
+    fi
   elif py_wants "$tool"; then
     echo "[gate] $tool: DECLARED by this project but not runnable in $PY - environment is broken" >&2
     echo "       fix: activate the venv, or reinstall dev deps (pip install -e '.[dev]')" >&2
@@ -429,7 +448,7 @@ if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
   else
     echo "[gate] interpreter: $PY"
     py_gate ruff check .
-    py_gate mypy .
+    if py_sources_exist; then py_gate mypy .; else echo "[skip] mypy: no Python sources"; fi
     py_gate pytest -q
   fi
 fi

@@ -3,47 +3,51 @@ set -eu
 
 echo "[hook] pre-commit quality gate"
 
-if [ -f "validate_pool.py" ]; then
-  if [ -x ".venv/bin/python" ]; then
-    PYTHON_BIN=".venv/bin/python"
-  elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-  elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
-  else
-    PYTHON_BIN=""
-  fi
+# ONE interpreter for the whole hook, project venv preferred.
+#
+# This previously probed only `.venv/bin/python` - the POSIX layout - so on Windows, where
+# the venv is `.venv/Scripts/python.exe`, it fell through to PATH and used the machine-wide
+# interpreter. And the tool checks below used bare `ruff`/`mypy`/`pytest` regardless, so the
+# hook already knew about the venv and then declined to use it for the things that mattered.
+PY=""
+for cand in .venv/Scripts/python.exe .venv/bin/python venv/Scripts/python.exe venv/bin/python; do
+  if [ -x "$cand" ]; then PY="$cand"; break; fi
+done
+if [ -z "$PY" ]; then PY=$(command -v python || command -v python3 || true); fi
 
-  if [ -n "$PYTHON_BIN" ]; then
-    echo "[hook] python validate_pool.py"
-    "$PYTHON_BIN" validate_pool.py
-  fi
+# Runnable IN $PY, not merely on PATH - the question is about the environment the code
+# imports from, which is not the question `command -v` answers.
+py_has() { [ -n "$PY" ] && "$PY" -m "$1" --version >/dev/null 2>&1; }
+
+if [ -f "validate_pool.py" ] && [ -n "$PY" ]; then
+  echo "[hook] python validate_pool.py"
+  "$PY" validate_pool.py
 fi
 
-# Doc-coverage discipline — dogfood on the caddis repo itself. set -eu means a hard failure
+# Doc-coverage discipline - dogfood on the caddis repo itself. set -eu means a hard failure
 # (missing route / dangling doc-map link) aborts the commit. No-op if the checker is absent.
-if [ -f "claude-harness/scripts/check_doc_coverage.py" ]; then
-  DOC_PY=$(command -v python || command -v python3 || true)
-  if [ -n "$DOC_PY" ]; then
-    echo "[hook] doc coverage"
-    "$DOC_PY" claude-harness/scripts/check_doc_coverage.py --check
-  fi
+if [ -f "claude-harness/scripts/check_doc_coverage.py" ] && [ -n "$PY" ]; then
+  echo "[hook] doc coverage"
+  "$PY" claude-harness/scripts/check_doc_coverage.py --check
 fi
 
+# Pre-commit stays FAST and mostly advisory by design: mypy and pytest keep their `|| true`
+# so a slow or noisy check never blocks a commit. pre-push is the gate that actually decides.
+# Only the interpreter resolution changed here, not which checks are blocking.
 if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-  if command -v ruff >/dev/null 2>&1; then
+  if py_has ruff; then
     echo "[hook] ruff check ."
-    ruff check .
+    "$PY" -m ruff check .
   fi
 
-  if command -v mypy >/dev/null 2>&1; then
+  if py_has mypy; then
     echo "[hook] mypy (best-effort)"
-    mypy . || true
+    "$PY" -m mypy . || true
   fi
 
-  if command -v pytest >/dev/null 2>&1; then
+  if py_has pytest; then
     echo "[hook] pytest -q"
-    pytest -q || true
+    "$PY" -m pytest -q || true
   fi
 fi
 
