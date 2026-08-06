@@ -224,7 +224,8 @@ Creating Model: <model-id>
 **Cross-review:** `/caddis:cross-review --range main..HEAD` → REVIEW: CLEAN
 **Exit gate:** <specific, testable — e.g. "GET /api/x returns 200 with {shape}", not "tests pass">
 **Commit:** `<conventional commit message>`
-**Then:** update the Tracker row (status + hash) → `/caddis:handoff` if ending the session here.
+**Then:** update the Tracker row (status + hash). If this phase ends the session, WRITE the handoff
+yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:handoff`" as the next action.
 
 ### Phase 2 — <name>  🔲
 <same structure>
@@ -232,7 +233,8 @@ Creating Model: <model-id>
 ## Execution protocol (standing rules — this plan is the memory, not anyone's head)
 - One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
   COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
-- **Session boundaries:** `/caddis:handoff` after any phase that ends a sitting. Start a FRESH
+- **Session boundaries:** the executor WRITES the handoff (durable `relay.md` + Tracker) after any
+  phase that ends a sitting — it performs the work, it does not suggest the command. Start a FRESH
   session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or whenever
   context feels heavy. Resume with exactly: `read <this plan's path> and implement the next ⏳ phase`.
 - **Run to a boundary, not to a phase.** The executor implements phase after phase, committing each,
@@ -249,8 +251,10 @@ Creating Model: <model-id>
      do not build on it.
 - **A lane change is NOT a halt.** `/caddis:implement` spawns the assigned lane itself and verifies
   the result. It used to need a human only because the routing was inert.
-- **At every halt, leave both:** run `/caddis:handoff` (durable `relay.md` + Tracker), then print the
-  **halt block** — the single thing the human acts on:
+- **At every halt, leave both:** the executor PERFORMS the handoff (writes `relay.md`, updates the
+  Tracker) and then prints the **halt block** — the single thing the human acts on. A next action of
+  "do a handoff" / "update the relay" is a DEFECT, not a handoff: it names the work instead of doing
+  it, and the context needed to do it is gone the moment the session ends:
   ```
   === HALT — <one-line reason> ===
   Done:    phases 4-7 (M2) · commits <sha>, <sha>

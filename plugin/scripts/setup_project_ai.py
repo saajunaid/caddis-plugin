@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import datetime, timezone
 import shutil
 import sys
 from pathlib import Path
@@ -373,17 +374,64 @@ def check_venv(target: Path, install: bool, dry: bool) -> list[str]:
 
 
 # Enforced "green before push" gate. Installed into .git/hooks/pre-push. Pure POSIX sh
-# so it runs under Git's bundled shell on Windows/Linux/macOS. Auto-skips tools that
-# aren't installed; only blocks when a present tool actually fails.
+# so it runs under Git's bundled shell on Windows/Linux/macOS.
+#
+# TOOLS RUN IN THE PROJECT'S OWN INTERPRETER, NOT WHATEVER IS ON PATH. This was a real
+# defect found by app-forge's dry run (2026-08-06): the gate resolved bare `pytest` and
+# `mypy` off PATH, which on Windows is the machine-wide C:\Python interpreter — so it
+# tested the app in an environment without the app's dependencies. Meanwhile `ruff` was
+# not on PATH at all and was silently skipped, even though the app had ruff in its venv.
+# It ran the two checks that could not work and skipped the one that would.
+#
+# A DECLARED-BUT-MISSING TOOL NOW BLOCKS. The old rule was "auto-skip anything not
+# installed", which is degrade-open: the gate reported success precisely when it had
+# checked the least. If a project asks for ruff in its pyproject and ruff cannot run,
+# that is a broken environment, not a project without linting — and a check that cannot
+# run must not report success. Tools the project never asked for are still skipped
+# silently, because those genuinely are not part of its standards.
 PRE_PUSH_HOOK = r"""#!/usr/bin/env sh
 # Managed by caddis setup-project-ai. Delete this file to opt out.
 set -eu
 echo "[caddis] pre-push quality gate"
 fail=0
+
+# Prefer the project's virtualenv over PATH. Checked in venv-layout order for both
+# Windows (Scripts/) and POSIX (bin/) so the same hook works on either.
+PY=""
+for cand in .venv/Scripts/python.exe .venv/bin/python venv/Scripts/python.exe venv/bin/python; do
+  if [ -x "$cand" ]; then PY="$cand"; break; fi
+done
+if [ -z "$PY" ]; then PY=$(command -v python || command -v python3 || true); fi
+
+# Runnable IN $PY - not merely present on PATH. This is the whole point: `command -v mypy`
+# answers a question about PATH, and the question we care about is about the environment
+# the app's code actually imports from.
+py_has() { [ -n "$PY" ] && "$PY" -m "$1" --version >/dev/null 2>&1; }
+# Does the project ASK for this tool? If so, being unable to run it is a failure.
+py_wants() { grep -qi -- "$1" pyproject.toml requirements.txt requirements-dev.txt 2>/dev/null; }
+
+py_gate() {
+  tool=$1; shift
+  if py_has "$tool"; then
+    echo "[gate] $tool $*"
+    "$PY" -m "$tool" "$@" || fail=1
+  elif py_wants "$tool"; then
+    echo "[gate] $tool: DECLARED by this project but not runnable in $PY - environment is broken" >&2
+    echo "       fix: activate the venv, or reinstall dev deps (pip install -e '.[dev]')" >&2
+    fail=1
+  fi
+}
+
 if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-  command -v ruff   >/dev/null 2>&1 && { echo "[gate] ruff check ."; ruff check . || fail=1; }
-  command -v mypy   >/dev/null 2>&1 && { echo "[gate] mypy ."; mypy . || fail=1; }
-  command -v pytest >/dev/null 2>&1 && { echo "[gate] pytest -q"; pytest -q || fail=1; }
+  if [ -z "$PY" ]; then
+    echo "[gate] python project, but no interpreter found (.venv or PATH) - cannot verify" >&2
+    fail=1
+  else
+    echo "[gate] interpreter: $PY"
+    py_gate ruff check .
+    py_gate mypy .
+    py_gate pytest -q
+  fi
 fi
 if [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then
   npm run 2>/dev/null | grep -q " lint"      && { echo "[gate] npm run lint"; npm run lint --silent || fail=1; }
@@ -392,15 +440,21 @@ if [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then
 fi
 # Doc-coverage discipline (any stack). The checker exits non-zero ONLY on a hard invariant
 # (missing route / dangling doc-map link); soft signals warn without failing. Auto-skips when the
-# checker isn't present (older repos) or no python is on PATH. Probe python then python3 so the gate
-# isn't silently disabled on python3-only systems (common on Linux/CI). `|| true` keeps it set -e-safe.
-DOC_PY=$(command -v python || command -v python3 || true)
-[ -n "$DOC_PY" ] && [ -f "scripts/check_doc_coverage.py" ] && { echo "[gate] doc coverage"; "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1; }
+# checker isn't present (older repos). Reuses $PY - resolved above with the project venv preferred -
+# rather than re-probing PATH, so it reads the same tree the rest of the gate does.
+if [ -f "scripts/check_doc_coverage.py" ]; then
+  DOC_PY="$PY"
+  if [ -z "$DOC_PY" ]; then DOC_PY=$(command -v python || command -v python3 || true); fi
+  if [ -n "$DOC_PY" ]; then
+    echo "[gate] doc coverage"
+    "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1
+  fi
+fi
 if [ "$fail" -ne 0 ]; then
-  echo "[caddis] push BLOCKED — fix the above, or 'git push --no-verify' to override." >&2
+  echo "[caddis] push BLOCKED - fix the above, or 'git push --no-verify' to override." >&2
   exit 1
 fi
-echo "[caddis] gate passed — pushing."
+echo "[caddis] gate passed - pushing."
 """
 
 
@@ -690,6 +744,50 @@ allow = [
 """
 
 
+def stamp_caddis_version(target: Path, dry: bool) -> list[str]:
+    """Record WHICH caddis scaffolded this project, in `.caddis/.caddis-version`.
+
+    Without this, "is this app's harness stale?" cannot be answered without diffing every
+    generated file against a current caddis - so in practice nobody asks, and apps drift silently
+    for months. One line makes the question cheap, and makes a fleet-wide staleness sweep a loop
+    rather than an investigation.
+
+    Deliberately NOT gitignored: the whole point is that a reviewer, or a future session, can see
+    what built this and when. Rewritten on every run, so re-running the harness updates the stamp.
+    """
+    notes: list[str] = []
+    version = "unknown"
+    # The harness may be running from an installed plugin (.../cache/caddis/caddis/1.3.68/scripts)
+    # or from a source checkout. Read the version from the plugin path when that is where we are;
+    # a checkout has no released version number, and saying "source-checkout" is more honest than
+    # inventing one.
+    here = Path(__file__).resolve()
+    parts = [p.name for p in here.parents]
+    if "caddis" in parts:
+        for parent in here.parents:
+            if re.fullmatch(r"\d+\.\d+\.\d+", parent.name):
+                version = parent.name
+                break
+    if version == "unknown" and "plugins" not in parts:
+        version = "source-checkout"
+
+    dest = artifact_root(target) / ".caddis-version"
+    stamped = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = "\n".join([
+        "# Which caddis scaffolded this project. Rewritten whenever the harness is re-run.",
+        "# Answers \"is this app's harness stale?\" without diffing every generated file.",
+        f"caddis_version={version}",
+        f"scaffolded_at={stamped}",
+        f"harness_path={here.parent}",
+        "",
+    ])
+    if not dry:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body, encoding="utf-8")
+    notes.append(f"caddis stamp: {version} -> {dest.relative_to(target)}")
+    return notes
+
+
 def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
@@ -892,6 +990,8 @@ def main() -> int:
 
     print(f"-- {artifact_root(target).name} artifact tree")
     for line in scaffold_artifact_dir(target, args.dry_run):
+        print(f"   {line}")
+    for line in stamp_caddis_version(target, args.dry_run):
         print(f"   {line}")
 
     print("-- doc-coverage discipline (DOC-MAP + page guide + checker)")

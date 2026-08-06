@@ -557,14 +557,19 @@ def reference_rows(root: Path) -> list[str]:
     return [_row("../../" + rel, rel, desc) for rel, desc in discover_reference_docs(root)]
 
 
-def kb_note_rows(root: Path, indexed: set[str] = frozenset()) -> list[str]:
+def kb_note_rows(root: Path, indexed: set[str] | None = None) -> list[str]:
     """Rows for `<artifact-dir>/kb/*.md` notes (excluding DOC-MAP), skipping already-indexed ones.
 
     ``indexed`` holds repo-root-relative paths already linked in the map. The description is a plain
     nudge (NOT an ``_(…)_`` placeholder, so a later reindex won't drop it) for the agent/human to fill.
     A half-migrated repo (both dirs present) has BOTH scanned, so a straggler note left in the legacy
     dir is still indexed — its link is written relative to the doc-map, like any other row.
+
+    Defaults to ``None`` rather than ``frozenset()``: the annotation said ``set[str]`` while the
+    default was a frozenset, so the two disagreed and mypy failed the file. ``None`` is the idiomatic
+    way to get an empty default without a shared mutable one.
     """
+    indexed = indexed or set()
     root = Path(root)
     home = kb_dir(root)
     notes = {p.resolve(): p for name in ARTIFACT_DIRS for p in (root / name / "kb").glob("*.md")}
@@ -606,7 +611,10 @@ def insert_table_rows(text: str, heading_contains: str, rows: list[str]) -> str:
             end = i
         elif start is not None and not s:
             break
-    if start is None:
+    # Both or neither: `end` is only ever assigned in the same branch that sets `start`, so this
+    # cannot fire in practice — but the narrowing is what lets mypy see that `end + 1` below is
+    # int + int rather than None + int, and the type checker is right that nothing else proved it.
+    if start is None or end is None:
         return text
     head = lines[start:start + 2]                     # header row + |---| separator
     body = [b for b in lines[start + 2:end + 1] if not _is_placeholder_row(b)]  # keep real rows

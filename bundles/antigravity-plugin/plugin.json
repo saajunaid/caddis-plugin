@@ -1,5 +1,5 @@
 {
   "name": "caddis",
-  "version": "1.3.68",
+  "version": "1.3.70",
   "description": "caddis — agent-agnostic dev harness as an Antigravity (agy) plugin: TDD skills + commands, single-sourced with the Claude Code plugin."
 }

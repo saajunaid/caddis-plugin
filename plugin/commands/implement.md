@@ -207,9 +207,18 @@ The `risk: high` halt is deliberately *after*, not before. Execute and commit th
 halt exists to stop the **next** phase building on it before a human has looked, so the blast radius
 stays one reviewable, revertable commit.
 
-At every halt: run the `/caddis:handoff` procedure (durable `relay.md` + Tracker), then print the halt
-block as your **last output before the JSON**, so the human has one action rather than an archaeology
-job:
+**At every halt, PERFORM the handoff yourself, now, before you stop.** Write `relay.md` and update
+the Tracker in this session — you are the only party holding the context that makes them worth
+anything, and it evaporates the moment you stop.
+
+**Do NOT emit "run `/caddis:handoff`", "do a handoff", or "update the relay" as a next action.**
+Naming the command instead of doing the work is the single most common way this step is skipped: the
+session ends, the user runs `/clear`, and the durable record that should have been written never is.
+`/caddis:handoff` is the same procedure a human may invoke *between* sessions; **at a halt, you are
+the one performing it.** The only next action you hand back is the resume line in the halt block.
+
+Then print the halt block as your **last output before the JSON**, so the human has one action rather
+than an archaeology job:
 
 ```
 === HALT — <one-line reason> ===
