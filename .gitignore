@@ -32,3 +32,8 @@ pypimcp.key
 # Legacy artifact-dir telemetry. Per-machine, never a deliverable. The existing rules
 # covered .caddis/*.jsonl but not the pre-rename name, so these stayed published.
 .claudster/
+
+# Per-machine telemetry - never a deliverable, and this repo is PUBLIC.
+agent-log.jsonl
+usage-log.jsonl
+memory.jsonl

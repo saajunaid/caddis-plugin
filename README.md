@@ -8,6 +8,47 @@ harder to derail. It's *agent-agnostic*: the same pool is exported to other AI C
 Antigravity, Copilot), and `CLAUDE.md`↔`AGENTS.md` are mirrors so every agent reads the same
 conventions.
 
+## Before you start
+
+| You need | Why |
+|---|---|
+| **Claude Code**, installed and signed in | caddis is a plugin for it |
+| **Python 3.11+** on `PATH` | the hooks and the cross-review tool are Python |
+| **Git** | several commands read repository state |
+| *(optional)* an API key for DeepSeek or GLM | only for cross-vendor review and the OSS lanes |
+
+**Honest about the platform:** caddis is developed and used daily on **Windows with PowerShell**.
+The hooks are pure Python and cross-platform, and the skills, commands and agents are plain markdown
+that work anywhere — but some launchers ship as both `.ps1` and `.sh`, the deployment skill is
+Windows-specific, and the publishing machinery (`sync.ps1`) is PowerShell-only. Nothing here is
+hostile to macOS or Linux; it is simply less travelled, so expect rough edges and please report them.
+
+## Your first five minutes
+
+```bash
+claude plugin marketplace add saajunaid/caddis-plugin
+claude plugin install caddis@caddis
+```
+
+Then, in a Claude Code session, confirm it actually loaded:
+
+```
+/caddis:version
+```
+
+If that prints a version, you are installed. From there, the shortest path to seeing what caddis is
+*for*:
+
+| Try this | What it does |
+|---|---|
+| `/caddis:feature-plan add CSV export` | writes a phased, TDD-structured plan to `.caddis/plans/` — the durable spine the rest of the harness reads |
+| `/caddis:implement <plan>` | executes that plan phase by phase, committing each, and stops only at a real boundary |
+| `/caddis:cross-review` | has a *different vendor's* model review your diff, because a same-vendor reviewer shares your blind spots |
+| `/caddis:handoff` | writes the resume doc, so the next session starts with zero re-discovery |
+
+Everything else is optional. If you only ever use `feature-plan` → `implement` → `cross-review`, you
+have most of the value.
+
 This repository is the **published marketplace mirror**: it hosts the `caddis` and `caddis-extras`
 Claude Code plugins, the portable per-harness bundles under `bundles/`, and the shared pool. It is
 generated and pushed by the caddis authoring repo's exporter — issues are welcome here, but code
