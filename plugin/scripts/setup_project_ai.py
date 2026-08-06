@@ -702,6 +702,47 @@ def write_project_facts(target: Path, facts: dict, dry: bool) -> list[str]:
     return [f"project facts: wrote {rel} ({n} facts — fold into the hierarchy, then delete)"]
 
 
+# Scaffolded into <artifact-dir>/comms/. The convention is deliberately thin - one file per
+# message, one row here - because the failure it prevents is not complexity, it is evaporation.
+COMMS_REGISTER_TEMPLATE = """# Comms register
+
+Outbound messages live in this directory - anything that must be **sent to a human outside this
+repo**: an access request, a decision from another team, a change only someone else can make.
+
+**A message not in this table does not exist.** The directory stops a draft from evaporating; this
+table stops a sent message from going unchased. Comms are almost always sent to get an *action*, and
+an unanswered ask looks exactly like a forgotten one unless something is tracking it.
+
+| Raised | Audience | Subject | Status | Blocks | File |
+|---|---|---|---|---|---|
+| _(none yet)_ | | | | | |
+
+## Status vocabulary
+
+| Status | Means |
+|---|---|
+| `DRAFT` | Written, not sent. Needs a human to send it. |
+| `SENT` | Sent - record the date and channel. |
+| `ANSWERED` | A reply arrived. Record the outcome, including a "no". |
+| `ACTIONED` | The thing we asked for actually happened. |
+| `DROPPED` | Deliberately abandoned - **record why**, or the next session re-raises it. |
+
+`ANSWERED` and `ACTIONED` are separate on purpose: "they replied" and "they did it" are different
+states, and treating them as one is how work stalls while looking resolved.
+
+## Writing one
+
+- Name it `YYYY-MM-DD-<audience>-<subject>.md`, and add its row here in the SAME commit.
+- **Write it send-ready.** The recipient has not read the plan. No internal paths, no repo slugs, no
+  phase numbers. If it cannot be pasted into an email unedited, it is not finished.
+- **State the ask in one sentence, near the top.** Everything else is supporting evidence.
+- **Give them a cheap way to say yes** - an alternative that costs them less than the primary ask
+  converts far better than take-it-or-leave-it.
+- `blocks:` is the field that earns its keep: what stalls if this is never answered?
+- **Never put secrets here.** Comms are the artifact most likely to be copied outward.
+"""
+
+
 ARTIFACT_GITIGNORE = """\
 # caddis artifacts — commit plans/handoffs/agent-docs/prd; ignore transient state
 reviews/*.html
@@ -810,7 +851,7 @@ def stamp_caddis_version(target: Path, dry: bool) -> list[str]:
 def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
-    Committed subdirs: plans, handoffs, agent-docs, prd, kb, prompts. Transient state
+    Committed subdirs: plans, handoffs, agent-docs, prd, kb, prompts, comms. Transient state
     (reviews/*.html, usage-log.jsonl, .last-usage-review, relay*, PROJECT-FACTS.md, memory.jsonl)
     is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
     Phase A3) — kb/ and prompts/ round out plans/prd/agent-docs/reviews so nothing has to
@@ -823,13 +864,29 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     notes: list[str] = []
     root = artifact_root(target)
     label = root.name
-    for sub in ("plans", "handoffs", "agent-docs", "reviews", "prd", "kb", "prompts"):
+    # `comms` holds outbound messages — anything only a human OUTSIDE this repo can resolve
+    # (an access request, a firmware change, a decision from another team). Without a home,
+    # those get written into a chat reply and evaporate when the session ends.
+    for sub in ("plans", "handoffs", "agent-docs", "reviews", "prd", "kb", "prompts", "comms"):
         d = root / sub
         if d.is_dir():
             continue
         if not dry:
             d.mkdir(parents=True, exist_ok=True)
         notes.append(f"scaffold: {label}/{sub}/")
+
+    # The comms REGISTER is the half that earns its keep, so it is scaffolded rather than left
+    # to convention. A directory only fixes "drafted but never sent"; the register fixes "sent
+    # but never chased" — and comms are almost always sent to GET AN ACTION, so an unanswered
+    # ask is indistinguishable from a forgotten one unless something tracks it.
+    reg = root / "comms" / "register.md"
+    if reg.exists():
+        notes.append(f"scaffold: {label}/comms/register.md present — kept")
+    else:
+        if not dry:
+            reg.parent.mkdir(parents=True, exist_ok=True)
+            reg.write_text(COMMS_REGISTER_TEMPLATE, encoding="utf-8")
+        notes.append(f"scaffold: wrote {label}/comms/register.md")
     gi = root / ".gitignore"
     if gi.exists():
         notes.append(f"scaffold: {label}/.gitignore present — kept")
