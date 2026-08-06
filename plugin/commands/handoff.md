@@ -106,6 +106,19 @@ Read relay.md, then the plan it points to. Continue from <phase/step>. Next acti
 \`\`\`
 ```
 
+## Step 4 — tidy finished artifacts
+Flip any plan/prompt's frontmatter `status:` to `done` (or `superseded`) if this session actually
+finished it — that is your judgment call; the script below never makes it and never auto-flips
+status. Then run:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply
+```
+(falls back to `scripts/caddis_tidy.py` from a source checkout). **If the script is missing,
+skip this step** — it degrades open, same as the other machine gates; an older install must not
+be blocked by a script it does not have. Include its report in your output. A **collision**
+(`done/<name>` already exists) is reported by the script, not fatal — surface it, do not fail the
+handoff over it.
+
 ## Rules
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in
   order: (1) interrupted mid-phase work → finish + commit it; else (2) the active plan's next not-started

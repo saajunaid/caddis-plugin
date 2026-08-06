@@ -392,6 +392,11 @@ If you revise an existing report file, preserve the original metadata fields and
 | `PASS` | Zero CRITICAL findings AND zero pending decisions |
 | `FAIL` | Any CRITICAL finding exists OR any decision is PENDING |
 
+**Then, as the very last line of your output (nothing after it), emit the machine verdict:**
+`PREFLIGHT: PASS` (zero CRITICAL findings and zero pending decisions) or `PREFLIGHT: FAIL` (one or
+more CRITICAL findings, or any decision pending). Automated runners read only this line; it must
+exactly match one of those two forms.
+
 `SIGNIFICANT` and `MINOR` findings do not block a PASS — they are advisory. However, they should be included in the report for the Planner to address.
 
 ---

@@ -71,6 +71,8 @@
 | Digress | `digress/` | Park the current workstream on the stack and switch to a new task — without losing the original |
 | Excalidraw Db | `excalidraw-db/` | Turn a SQL artifact into an Excalidraw diagram for a design review / ARB pack / slide — higher-level, drag-the-boxes format |
 | Feature Plan | `feature-plan/` | Create a phased, TDD-structured implementation plan that acts as the durable spine for multi-session work |
+| Gate Preflight | `gate-preflight/` | Deterministic headless preflight — validates a plan against the actual codebase, self-contained (never depends on a skill activating) |
+| Gate Review | `gate-review/` | Deterministic headless code review — adversarial diff review, self-contained (never depends on a skill activating) |
 | Handoff | `handoff/` | End-of-session handoff — capture exact state so the next session resumes with zero re-discovery |
 | Implement | `implement/` | Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase |
 | Kb | `kb/` | Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links |

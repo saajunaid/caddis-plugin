@@ -284,6 +284,24 @@ try:
 except Exception:
     pass
 
+# Tidy nudge (artifact-lifecycle-tidy Phase 3): ONE line when a finished plan/prompt is sitting
+# outside done/. Strictly read-only (dry-run scan only, no move) - the actual move happens at
+# /caddis:handoff or /caddis:implement close, never from a SessionStart hook. Fail-open & silent
+# like every other block here; an older install without the script just sees nothing.
+try:
+    from pathlib import Path as _Path
+
+    _sc2 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _sc2 not in sys.path:
+        sys.path.insert(0, _sc2)
+    import caddis_tidy as _ct  # noqa: E402
+
+    _tidy_nudge = _ct.nudge_line(_Path(ROOT))
+    if _tidy_nudge:
+        print("\n" + _tidy_nudge)
+except Exception:
+    pass
+
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
 # Prefer the current artifact dir, then the older .claude path.
 _STAMP = _first_existing(

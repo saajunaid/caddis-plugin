@@ -236,6 +236,18 @@ more and record the real result. The runner will re-run it independently and tha
 you run it too so your reported `"tests"` value is truthful, not assumed. Never report `"passed"` on a
 suite you did not see go green.
 
+**4b. If every phase is now done, tidy the plan into `done/`.** Only when the whole plan is
+finished (every `## Tracker` row is `done`, no halt, no blocker) — a mid-plan halt is not this.
+Flip the plan's own frontmatter `status:` to `done` (your judgment call: only if the Tracker
+genuinely backs it up), commit that with the final phase, then run:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply
+```
+(falls back to `scripts/caddis_tidy.py` from a source checkout; **skip this step if the script is
+missing** — degrades open, same as the gates in Step 1). A **collision**
+(`done/<name>` already exists) is reported by the script, not fatal — note it in the review file,
+do not fail the run over it.
+
 **5. Write a concise review file** to the path in the `DOCKET_REVIEW` env var (falls back to
 `.caddis/reviews/<slug>.md`, where `<slug>` is `DOCKET_SLUG`). Create `.caddis/reviews/` if needed.
 Keep it short and scannable — this is what the human reviewer reads before merging the branch:

@@ -120,3 +120,10 @@ try {
 - [ ] No obvious performance issues
 - [ ] Code is readable and documented
 - [ ] Breaking changes documented
+
+## Machine Verdict (automated / headless runs)
+
+**Then, as the very last line of your output (nothing after it), emit the machine verdict:**
+`REVIEW: CLEAN` (no blocking issues found across the categories above) or `REVIEW: BLOCKING` (one
+or more blocking issues). Automated runners read only this line; it must exactly match one of
+those two forms.
