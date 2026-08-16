@@ -40,8 +40,45 @@ describe('drift classification', () => {
     expect(report.agents[0]?.drift).toBe('stale');
   });
 
-  it('stale when the agent is AHEAD of the shipped pool (a downgrade is still drift)', async () => {
+  // CHANGED 2026-08-16. This previously asserted 'stale', on the reasoning that "a downgrade is
+  // still drift". The difference IS still drift and is still surfaced — but calling it 'stale' put
+  // two harmful things on it: the label read "update available" when no update exists, and
+  // actionable() drives anything not 'current', so `caddis update` installed this package's OLDER
+  // bundled pool over the newer one.
+  //
+  // That is not theoretical. Right after caddis 1.3.74 was published, `caddis status` reported
+  // Claude Code (1.3.74, the newest thing on the machine) as "update available" and agy (1.3.54,
+  // twenty releases behind) as "current" — wrong in both directions on the same run — and
+  // `caddis update` then downgraded agy and reported success.
+  it('ahead, not stale, when the agent is NEWER than the shipped pool', async () => {
     const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.4.0' } })]);
+    expect(report.agents[0]?.drift).toBe('ahead');
+  });
+
+  it('never drives an agent that is ahead — that would be a downgrade', async () => {
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.4.0' } })]);
+    expect(actionable(report)).toHaveLength(0);
+  });
+
+  it('--force can still drive an ahead agent — a deliberate rollback is a real thing to want', async () => {
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.4.0' } })]);
+    expect(actionable(report, true)).toHaveLength(1);
+  });
+
+  it('still drives an agent that is genuinely behind', async () => {
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.3.38' } })]);
+    expect(actionable(report)).toHaveLength(1);
+  });
+
+  it('orders numerically, not as strings — 1.3.9 is BEHIND 1.3.39', async () => {
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.3.9' } })]);
+    expect(report.agents[0]?.drift).toBe('stale');
+  });
+
+  it('falls back to equality when a version cannot be ordered', async () => {
+    // An unreadable version must never become an ordering claim, because an ordering claim is what
+    // authorises a downgrade. Different-and-unorderable stays 'stale', the old conservative answer.
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: 'nightly' } })]);
     expect(report.agents[0]?.drift).toBe('stale');
   });
 

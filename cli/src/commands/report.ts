@@ -8,10 +8,12 @@
 import type { AgentAdapter, AgentStatus, Detection } from '../agents/types.js';
 import { run } from '../util/exec.js';
 import { bundleManifest, packageInfo } from '../util/pkg.js';
+import { compareVersions } from '../util/semver.js';
 
 export type DriftState =
   | 'current' // agent has exactly the shipped pool version
-  | 'stale' // agent has caddis, at a different version
+  | 'stale' // agent has caddis, at an OLDER version than the shipped pool
+  | 'ahead' // agent has a NEWER version than this CLI bundles — never drive it, that is a downgrade
   | 'unknown' // agent has caddis but will not say which version
   | 'missing' // agent is present, caddis is not installed into it
   | 'absent' // agent is not on this machine
@@ -74,7 +76,14 @@ function classify(adapter: AgentAdapter, detection: Detection, status: AgentStat
   if (!status.installed) return 'missing';
   if (!status.version) return 'unknown';
   if (poolVersion === 'unknown') return 'unknown';
-  return status.version === poolVersion ? 'current' : 'stale';
+  // Order them, do not just compare them. `!==` cannot distinguish "behind" from "ahead", and the
+  // difference decides whether `caddis update` helps or harms: driving an agent that is AHEAD
+  // installs this package's older bundled pool over a newer one. Measured live on 2026-08-16 —
+  // agy was downgraded from 1.3.74 to 1.3.54 and the run reported success.
+  const order = compareVersions(status.version, poolVersion);
+  if (order === null) return status.version === poolVersion ? 'current' : 'stale'; // unorderable: old behaviour
+  if (order === 0) return 'current';
+  return order > 0 ? 'ahead' : 'stale';
 }
 
 export interface GatherOptions {
@@ -139,6 +148,9 @@ export function actionable(report: Report, includeCurrent = false): AgentReport[
   return report.agents.filter((entry) => {
     if (!entry.detection.present || !entry.adapter.supported) return false;
     if (includeCurrent) return true;
+    // NEVER drive an agent that is ahead of this package's bundle. `--force` still can, because a
+    // deliberate rollback is a real thing to want; doing it by default is not.
+    if (entry.drift === 'ahead') return false;
     return entry.drift !== 'current' || entry.extrasDrift === 'stale' || entry.extrasDrift === 'unknown';
   });
 }

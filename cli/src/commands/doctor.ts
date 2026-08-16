@@ -154,6 +154,8 @@ function renderSummary(report: Report, findings: Problem[]): void {
 function markFor(drift: DriftState): 'ok' | 'warn' | 'fail' | 'skip' | 'info' {
   switch (drift) {
     case 'current':
+    case 'ahead':
+      // Ahead is not a fault. It means the marketplace moved and this CLI's bundle has not.
       return 'ok';
     case 'stale':
     case 'missing':
@@ -170,6 +172,13 @@ function describe(entry: AgentReport, poolVersion: string): string {
   switch (entry.drift) {
     case 'current':
       return `caddis ${entry.status.version} ${color.dim('(current)')}`;
+    case 'ahead':
+      // Name both numbers. "newer" without the comparison leaves the reader unable to tell
+      // whether they should act, and the honest action here is to update the CLI, not the agent.
+      return (
+        `caddis ${color.green(entry.status.version ?? '?')} ${color.dim('— newer than this CLI bundles')} ` +
+        `${color.dim(`(${poolVersion}); left alone, update @caddis/cli to catch up`)}`
+      );
     case 'stale':
       return `caddis ${color.yellow(entry.status.version ?? '?')} ${color.dim('→')} ${color.bold(poolVersion)} available`;
     case 'unknown':

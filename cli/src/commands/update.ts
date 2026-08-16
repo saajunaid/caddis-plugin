@@ -35,12 +35,22 @@ export async function update(options: UpdateOptions): Promise<number> {
   const targets = actionable(report, options.force === true);
   if (targets.length === 0) {
     const supportedPresent = report.agents.filter((e) => e.detection.present && e.adapter.supported);
+    const ahead = report.agents.filter((e) => e.drift === 'ahead');
     line('');
-    line(
-      supportedPresent.length === 0
-        ? `  ${color.yellow('No supported agent found.')} caddis v0.1 drives Claude Code and agy.`
-        : `  ${color.green('Everything is already current.')} Use --force to re-drive anyway.`,
-    );
+    if (supportedPresent.length === 0) {
+      line(`  ${color.yellow('No supported agent found.')} caddis v0.1 drives Claude Code and agy.`);
+    } else if (ahead.length > 0) {
+      // "Already current" would be false here and false in the dangerous direction: it hides that
+      // this CLI would have installed an OLDER pool. Name the versions and point at the real fix.
+      line(
+        `  ${color.green('Nothing to do.')} ${ahead.length} agent(s) are NEWER than this package's ` +
+          `bundled pool (${report.poolVersion}) — driving them would be a DOWNGRADE, so they were ` +
+          `left alone.`,
+      );
+      line(`  Update the CLI itself (${color.cyan('npm i -g @caddis/cli')}), or ${color.cyan('--force')} to roll back deliberately.`);
+    } else {
+      line(`  ${color.green('Everything is already current.')} Use --force to re-drive anyway.`);
+    }
     return 0;
   }
 

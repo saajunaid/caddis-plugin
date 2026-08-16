@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { selectAdapters, AGENT_IDS } from '../src/agents/index.js';
 import { formatCommand, run } from '../src/util/exec.js';
+import { compareVersions } from '../src/util/semver.js';
 import { renderTable, visibleWidth } from '../src/util/table.js';
 
 describe('selectAdapters (--agent)', () => {
@@ -72,5 +73,37 @@ describe('renderTable', () => {
   it('widens a column to its longest cell', () => {
     const rendered = renderTable(['AGENT'], [['GitHub Copilot']]);
     expect(rendered).toContain('GitHub Copilot');
+  });
+});
+
+describe('compareVersions', () => {
+  it('orders release numbers', () => {
+    expect(compareVersions('1.3.74', '1.3.54')).toBe(1);
+    expect(compareVersions('1.3.54', '1.3.74')).toBe(-1);
+    expect(compareVersions('1.3.74', '1.3.74')).toBe(0);
+  });
+
+  it('orders numerically, not lexically', () => {
+    // The failure a string compare makes: "1.3.9" > "1.3.39" as text, and that is backwards.
+    expect(compareVersions('1.3.9', '1.3.39')).toBe(-1);
+    expect(compareVersions('1.10.0', '1.9.0')).toBe(1);
+  });
+
+  it('treats a missing part as zero', () => {
+    expect(compareVersions('1.3', '1.3.0')).toBe(0);
+    expect(compareVersions('2', '1.9.9')).toBe(1);
+  });
+
+  it('tolerates a leading v', () => {
+    expect(compareVersions('v1.3.74', '1.3.74')).toBe(0);
+  });
+
+  it('returns null rather than guessing', () => {
+    // Every caller falls back to equality on null. A version this cannot read must never become an
+    // ordering claim — an ordering claim is what authorises a downgrade.
+    expect(compareVersions('nightly', '1.3.74')).toBeNull();
+    expect(compareVersions('1.3.74', 'unknown')).toBeNull();
+    expect(compareVersions('', '1.3.74')).toBeNull();
+    expect(compareVersions('1.3.x', '1.3.74')).toBeNull();
   });
 });

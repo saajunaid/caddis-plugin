@@ -32,11 +32,23 @@ export async function status(options: StatusOptions): Promise<number> {
   line(renderTable(['AGENT', 'DETECTED', 'CADDIS', 'EXTRAS', 'STATE'], report.agents.map(toRow)));
   line('');
 
+  // 'ahead' is deliberately excluded — it is not "behind", and counting it produced the exact
+  // inversion this fixes: the newest agent on the machine reported as needing an update.
   const stale = report.agents.filter(
     (entry) => entry.drift === 'stale' || entry.drift === 'missing' || entry.extrasDrift === 'stale',
   );
+  const ahead = report.agents.filter((entry) => entry.drift === 'ahead');
   if (stale.length > 0) {
     line(`  ${color.yellow(`${stale.length} agent(s) behind`)} — run ${color.cyan('caddis update')} (or ${color.cyan('caddis doctor')} for detail)`);
+    line('');
+  }
+  if (ahead.length > 0) {
+    // The CLI's bundled pool only moves when the CLI is republished to npm, so it lags the plugin
+    // marketplace by design. Say so, or the reader assumes something is broken.
+    line(
+      `  ${ahead.length} agent(s) are NEWER than this CLI's bundled pool (${report.poolVersion}) — ` +
+        `left alone. Update the CLI itself (${color.cyan('npm i -g @caddis/cli')}) to catch up.`,
+    );
     line('');
   }
   return 0;
@@ -65,6 +77,11 @@ function stateLabel(drift: DriftState, disabled: boolean): string {
       return disabled ? color.yellow('current, disabled') : color.green('current');
     case 'stale':
       return color.yellow('update available');
+    case 'ahead':
+      // Not a problem, and NOT something `caddis update` should act on: this agent is newer than
+      // the pool this CLI bundles. Saying "current" would hide a real fact; saying "update
+      // available" would invite a downgrade. Say what is true.
+      return color.green('newer than CLI pool');
     case 'unknown':
       return color.yellow('version unknown');
     case 'missing':
