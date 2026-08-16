@@ -65,7 +65,12 @@ function renderEnvironment(report: Report, problems: Problem[]): void {
   item('info', `platform ${process.platform} ${process.arch} (${os.release()})`);
   if (report.cliUpdate) {
     item('warn', `@caddis/cli ${report.cliVersion} ${color.dim('→')} ${color.bold(report.cliUpdate.latest)} available`);
-    detail('everything below is compared against the pool THIS install carries, which is now behind the published one');
+    // Name the CONSEQUENCE, not just the fact. The old wording said the comparison base was
+    // behind and left the reader to work out what that implied. It implies something specific and
+    // alarming: every `current` printed below may be wrong, because `current` only ever meant
+    // "matches this package's bundled pool". That is how agy sat twenty releases stale while the
+    // CLI reported it as fine.
+    detail('so EVERY "current" below may be wrong — it only means "matches the pool this install carries"');
     problems.push({
       kind: 'problem',
       text: `@caddis/cli itself is behind: ${report.cliUpdate.current} installed, ${report.cliUpdate.latest} published`,

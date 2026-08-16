@@ -25,7 +25,16 @@ export async function status(options: StatusOptions): Promise<number> {
 
   line('');
   line(
-    `  ${color.bold('caddis')}  cli ${color.bold(report.cliVersion)}  ·  pool ${color.bold(report.poolVersion)}` +
+    // The pool is named as the YARDSTICK, in the header, because that is what every verdict below
+    // is measured against and status cannot see the marketplace — it is deliberately network-free.
+    // A tool that cannot know something must not print a verdict that implies it does.
+    //
+    // Deliberately NOT a footer line. The first attempt added one, and it broke the existing
+    // "stays quiet when everything is current" test — correctly: a qualifier phrased like a warning
+    // fires on every healthy run, and a warning that always fires is the one nobody reads. doctor
+    // carries the strong version, because doctor is where the network check actually happens.
+    `  ${color.bold('caddis')}  cli ${color.bold(report.cliVersion)}  ·  pool ${color.bold(report.poolVersion)} ` +
+      `${color.dim('(what "current" is measured against)')}` +
       (report.extrasVersion ? `  ·  extras ${color.bold(report.extrasVersion)}` : ''),
   );
   line('');

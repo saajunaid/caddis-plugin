@@ -231,3 +231,23 @@ describe('update', () => {
     expect(capture.output()).toContain('No supported agent found.');
   });
 });
+
+describe('status qualifies what it cannot know', () => {
+  it('names the pool as the yardstick, in the header', async () => {
+    // status is network-free and cannot see the marketplace, so `current` only ever meant "matches
+    // this CLI's bundled pool". Measured 2026-08-16: Claude Code read `current` at 1.3.74 while
+    // the marketplace had 1.3.75.
+    await status({ adapters: [fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.3.39' } })] });
+    expect(capture.output()).toContain('what "current" is measured against');
+  });
+
+  it('adds no extra line, so a healthy run stays quiet', async () => {
+    // The first attempt was a footer, and it broke the existing "stays quiet when everything is
+    // current" test. That test was right: a qualifier phrased like a warning fires on every healthy
+    // run, and a warning that always fires is the one nobody reads.
+    await status({ adapters: [fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.3.39' } })] });
+    const out = capture.output();
+    expect(out).not.toContain('behind');
+    expect(out).not.toContain('doctor');
+  });
+});

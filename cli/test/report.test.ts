@@ -191,3 +191,14 @@ describe('gather() cliUpdate opt-in', () => {
     expect(report.cliUpdate).toBeUndefined();
   });
 });
+
+describe('what "current" is allowed to claim', () => {
+  it('an agent equal to a STALE bundled pool still reads current — the known blind spot', async () => {
+    // Documented, not fixed in the classifier: status is deliberately network-free, so it cannot
+    // know the marketplace version. Measured 2026-08-16 — Claude Code read `current` at 1.3.74
+    // while the marketplace had 1.3.75. The mitigation is that status now SAYS what `current` is
+    // relative to, and doctor says every `current` may be wrong when the CLI itself is behind.
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.3.39' } })]);
+    expect(report.agents[0]?.drift).toBe('current');
+  });
+});
