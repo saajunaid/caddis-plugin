@@ -92,5 +92,27 @@ the funnel's `offered` count, and why is it NOT `SUM(OfferedInd)`?"* — the nai
 the correct one 4,783, because the raw flags do not nest. A Hub that only skimmed **fails visibly
 instead of silently**, which is the entire point.
 
+### Four rules that make the self-check mean something
+
+Shared with `/caddis:spawn-session`, which transfers the WORK where this transfers the ROLE. Both
+run on `scripts/caddis_spawn.py`, so a fix lands in both.
+
+1. **DERIVE the questions from what CHANGED. Do not choose them.** An agent picking its own exam
+   picks what it remembers, which is the thing under test. Spread them: oldest settled decisions
+   catch a successor that read only the recent sections; the newest changes catch one that read only
+   the summary.
+2. **A SUPERSEDED fact is the highest-signal question there is**, because the obvious answer is the
+   stale one. The measured discriminator was *"which model serves chat?"* — the answer had changed
+   **twice**, and naming only the most recent replacement proved the history had not been read.
+3. **Every question must be answerable from a committed file**, verified with
+   `caddis_spawn.py verify-question`, not assumed. A question whose answer is not written down tests
+   memory — the thing this mechanism replaces.
+4. **Store NO answer key. Re-derive at validation time.** A stored key freezes the outgoing agent's
+   belief: if it was wrong, the key is wrong and the check certifies the error. Re-deriving validates
+   the DOCUMENT as well as the reader — and validating only the reader is precisely what failed, when
+   a Hub passed a thirteen-question check on a handover containing four factual errors.
+
+**Six questions maximum.** Past six the successor writes an essay and the outgoing agent skims it.
+
 ---
 

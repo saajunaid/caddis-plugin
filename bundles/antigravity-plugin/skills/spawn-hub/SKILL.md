@@ -151,8 +151,12 @@ audit trail this pattern has.
 generator:**
 
 ```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" preflight
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_inventory.py" --with-tests
 ```
+
+`preflight` **refuses on a dirty tree**: the incoming Hub pulls, so uncommitted work is invisible to
+it. Commit first, or name every uncommitted file in the handover.
 (falls back to `scripts/caddis_inventory.py` in a source checkout; skip the step if absent — it
 degrades open like every other machine step here.)
 
@@ -190,6 +194,28 @@ Then write the judgement half yourself. It must contain:
    > testing comprehension and starts testing whether the new Hub read the old prompt — which it can
    > pass while understanding nothing. Rotate it, and prefer a fact the *most recent* milestone
    > established, since that is what the incoming Hub is least likely to have absorbed.
+
+   > **DERIVE the questions from what CHANGED — do not choose them.** An agent that picks its own
+   > exam picks what it remembers, which is the thing under test. Spread them: the oldest settled
+   > decisions catch a Hub that read only the recent sections; the most recent changes catch one
+   > that read only the summary; **a SUPERSEDED fact is the highest-signal question of all**,
+   > because the obvious answer is the stale one.
+
+   > **Every question must be answerable from a committed file. Prove it, do not assume it:**
+   >
+   > ```
+   > python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" verify-question \
+   >   --answer-in .caddis/kb/some-note.md --needle "the phrase that answers it"
+   > ```
+   >
+   > A question whose answer is not written down tests memory — the thing this mechanism exists to
+   > replace. It is not a harder question; it is the old failure wearing an exam's clothes.
+
+   > **Store NO answer key.** Re-derive each answer from the repo when the incoming Hub replies. A
+   > stored key freezes your belief at capture time: if you were wrong, the key is wrong and the
+   > check certifies the error. Re-deriving validates the DOCUMENT as well as the reader — which is
+   > exactly what `.caddis/parking-lot/done/004-*` found missing, where a Hub passed a
+   > thirteen-question check on a handover carrying four factual errors.
 
    Good traps share a shape: a figure that looks obvious, a correct value that differs, and a reason
    rooted in the data rather than in the code. On the reference project, one generation asked why the
@@ -250,7 +276,14 @@ exists to shed.
 ```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" handover-check \
   --doc .caddis/advisory-hub-reports/hub-NN.spawn.md
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" check \
+  --doc .caddis/advisory-hub-reports/hub-NN.spawn.md
 ```
+
+The second one blocks on a **commit hash or test count given as current state**. Both go stale
+within the hour — measured twice — and the fix is never a fresher number, it is to write the command
+that produces it. A historical hash is only noted, not blocked: those are durable, and flagging them
+is how a check earns a reputation for crying wolf.
 
 It fails when the prompt names a file that does not exist. **Validate the DOCUMENT, not just the
 reader.** The context self-check in Step 4 proves the incoming Hub read carefully; it proves nothing
