@@ -164,7 +164,7 @@ After loading state, read `_notes._routing_decision` and branch on `pipeline_mod
    - If `current_stage: intent` (state health is `active`):
      - **Artefact discovery (all modes):** Before running any intake interview, run `junai pipeline discover-artefacts --feature <feature-slug> --write-registry` and use its JSON result as the source of truth. If the command is unavailable, fall back to the disk-scan rules below.
      - **Disk-scan fallback:** Search for artefacts on disk using the `feature` slug from `pipeline-state.json`:
-       - **Plan:** `.github/plans/<feature-slug>.md`, then any `.md` file in `.github/plans/` whose filename contains the feature slug. Ignore `.github/plans/backlog/` because backlog items are not ready implementation plans. Also check legacy `plans/<feature-slug>.md` only as a fallback.
+       - **Plan:** `.github/plans/<feature-slug>.md`, then any `.md` file in `.github/plans/` whose filename contains the feature slug. Ignore `.caddis/parking-lot/` (and any legacy `.github/plans/backlog/`) because parked future-work items are not ready implementation plans. Also check legacy `plans/<feature-slug>.md` only as a fallback.
        - **PRD:** any `.md` file in `.github/agent-docs/prd/` or legacy `agent-docs/prd/` whose filename contains the feature slug.
        - **ADR/arch:** any `.md` file in `.github/agent-docs/architecture/`, legacy `agent-docs/architecture/`, `docs/architecture/agentic-adr/`, or `docs/architecture/` whose filename contains the feature slug.
 

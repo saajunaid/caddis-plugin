@@ -41,7 +41,7 @@ schema is layered, and only the first tier is required:
 When creating a **new** document, add YAML frontmatter at the top and include:
 
 ```yaml
-type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt
+type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot
 status: draft|current|done|superseded          # or OKF: draft|stable|deprecated — see the mapping below
 feature: <feature-slug or chain_id that owns this document>
 creation-agent: caddis
@@ -83,6 +83,15 @@ work a document describes is complete; use `superseded` when a newer document re
 **OKF v0.2 vocabulary (canonical for reference documents — KB notes, runbooks, guides):**
 `draft` → being written, do not rely on it yet. `stable` → trustworthy, the default reading.
 `deprecated` → still present but no longer to be relied on.
+
+**parking-lot vocabulary (`.caddis/parking-lot/*.md` ONLY — the one register of future work):**
+`open` → raised, not started. `doing` → someone is on it now. `done` → finished. `dropped` →
+deliberately abandoned, **and the body must say why** or the next session re-raises it. This list is
+**closed**: unlike plans, `wip`, `todo`, `pending` and `parked` are rejected, because "how many
+items are open?" has no answer when one state has several spellings. Items also carry
+`type: parking-lot` and an optional `future: yes|no`, a **separate axis** from `status` recording
+whether the work is committed rather than a candidate. `python scripts/caddis_tidy.py --check` and
+`python scripts/caddis_gate.py parking-lot` enforce all of this; see `.caddis/parking-lot/README.md`.
 - **When `status` is absent, read it as `stable`.** This is OKF's default and it is what makes the
   field safe to add: every existing document without a `status` line keeps its current meaning.
 

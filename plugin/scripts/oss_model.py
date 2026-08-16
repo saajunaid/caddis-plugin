@@ -85,12 +85,40 @@ def _resolve_key(provider: str, key_env: str, env: dict[str, str]) -> str:
         val = (file_keys.get(name) or "").strip()
         if val:
             return val
-    # 3. actionable error — name the var and the file, never a value
+    # 3. actionable error — name the var and the file, never a value.
+    #
+    # It also names the providers that DO have a key. When DeepSeek is unset but GLM is configured,
+    # the fix is `--provider glm`, not "go and find a key" — and the old message sent the reader
+    # hunting for a credential they already had. This fails at the moment of use, which is the
+    # least convenient moment to be told to go looking (`.caddis/parking-lot/003`).
+    others = [p for p in configured_providers(env) if p != provider]
+    have = (f"\nProviders that DO have a key here: {', '.join(others)}. "
+            f"To use one now: --provider {others[0]}." if others else "")
     raise ConfigError(
         f"no API key for provider {provider!r}. Set ${key_env} (or $OSS_API_KEY), or add\n"
         f"  {key_env}=<your-key>\n"
         f"to your keys file ({keys_path}). Override the file path with ${KEYS_FILE_ENV}."
+        + have
     )
+
+
+def configured_providers(env: dict[str, str]) -> list[str]:
+    """Every preset provider that currently has a usable key. Never returns or logs a key value.
+
+    Exists so a caller can find out BEFORE it needs one. `/caddis:cross-review` used to discover a
+    missing key mid-task, with a commit pending — and a command that fails once at an inconvenient
+    moment does not get retried, so the safety check it provides is simply lost and nobody records
+    that it was lost.
+    """
+    keys_path = env.get(KEYS_FILE_ENV) or DEFAULT_KEYS_FILE
+    file_keys = _parse_keys_file(keys_path)
+    generic = (env.get("OSS_API_KEY") or file_keys.get("OSS_API_KEY") or "").strip()
+    out = []
+    for name, preset in sorted(PROVIDERS.items()):
+        key_env = preset.get("key_env") or f"{name.upper()}_API_KEY"
+        if generic or (env.get(key_env) or "").strip() or (file_keys.get(key_env) or "").strip():
+            out.append(name)
+    return out
 
 
 def resolve(provider: str | None, env: dict[str, str]) -> dict[str, str]:

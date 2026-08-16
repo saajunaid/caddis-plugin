@@ -61,7 +61,37 @@ _PHASE_HEADING_RE = re.compile(r"^#{2,4}\s*Phase\s+.+$", re.MULTILINE)
 _DONE_MARKERS = ("✅",)
 _NOT_DONE_MARKERS = ("⏳", "🔨", "🔲")
 
-_KINDS = ("plans", "prompts")
+_KINDS = ("plans", "prompts", "parking-lot")
+
+# ── parking-lot: the ONE register of future work ────────────────────────────────────────────
+# Before this landed, future work lived in nine places at once (measured 2026-08-14 in this repo):
+# individual parking-lot files, a 90 KB `future-work-register.md`, parked plans, relay.md's
+# "things owed", KB notes, `.caddis/plans/backlog/`, the comms register, docket, and the Hub's
+# carried-open lists. Nothing was wrong with any single one; the DEFECT was that a reader had to
+# know all nine to answer "what is left to do?". Nobody did, so items were re-raised and dropped.
+#
+# The rule is now: one item, one file, in `.caddis/parking-lot/`. Everything else POINTS here.
+# These constants are what makes that a check instead of a sentence.
+PARKING_LOT_DIR = "parking-lot"
+PARKING_LOT_TYPE = "parking-lot"
+# Lifecycle. Deliberately four words and no synonyms — the plans/prompts vocabulary accreted three
+# legacy spellings of "done" and every consumer now has to know all of them.
+PARKING_LOT_STATUSES = {"open", "doing", "done", "dropped"}
+PARKING_LOT_TERMINAL = {"done", "dropped"}
+# `dropped` is terminal ON PURPOSE, and it must carry a reason in the body. An item deleted outright
+# gets re-raised by the next session that has the same idea; an item kept with "no, because ..."
+# does not. That is the whole difference between a backlog and a memory.
+#
+# COMMITMENT is a second, INDEPENDENT axis from status. `future: yes` means decided-and-owed;
+# absent or `no` means candidate. Folding this into `status:` was considered and rejected — an item
+# that is both committed AND in progress would have had no legal value.
+FUTURE_KEY = "future"
+FUTURE_VALUES = {"yes", "no"}
+# A parking-lot file over this size is a REGISTER wearing an item's clothes. This is the exact
+# shape being retired: `future-work-register.md` was 90,079 bytes and hid 3 open items among ~40
+# resolved ones, so in practice nobody read it and its open items went unworked for weeks. The
+# longest genuine single item in the same directory is 9,961 bytes, so 20 KB leaves real headroom.
+PARKING_LOT_MAX_BYTES = 20_000
 
 
 def _parse_frontmatter(text: str) -> dict:
@@ -93,11 +123,23 @@ def _phases_all_done(text: str) -> bool:
     return True
 
 
-def classify_status(status: str | None) -> str:
-    """`terminal` (move it) / `active` (leave it) / `none` (no status field at all)."""
+def classify_status(status: str | None, kind: str = "plans") -> str:
+    """`terminal` (move it) / `active` (leave it) / `none` (no status field) / `unknown` (bad word).
+
+    `unknown` is returned for parking-lot only. plans/prompts deliberately keep their open
+    vocabulary — `draft`, `current`, `ready` and friends all mean "not finished" and the mover only
+    ever needed to know "is this terminal?". parking-lot is a CLOSED vocabulary because its whole
+    job is to be countable: "how many open items are there?" has no answer if `wip`, `todo` and
+    `pending` are all legal spellings of the same state.
+    """
     if status is None:
         return "none"
-    return "terminal" if status.strip().lower() in TERMINAL_STATUSES else "active"
+    s = status.strip().lower()
+    if kind == PARKING_LOT_DIR:
+        if s not in PARKING_LOT_STATUSES:
+            return "unknown"
+        return "terminal" if s in PARKING_LOT_TERMINAL else "active"
+    return "terminal" if s in TERMINAL_STATUSES else "active"
 
 
 @dataclass
@@ -106,6 +148,7 @@ class Item:
     status: str | None
     frontmatter: dict
     phases_all_done: bool
+    size: int = 0
 
 
 def scan(dir_path: Path) -> list[Item]:
@@ -123,6 +166,7 @@ def scan(dir_path: Path) -> list[Item]:
             status=fm.get("status"),
             frontmatter=fm,
             phases_all_done=_phases_all_done(text),
+            size=len(text.encode("utf-8")),
         ))
     return items
 
@@ -138,9 +182,18 @@ class Report:
     # Subset of frontmatter_less/unknown_status that ISN'T grandfathered by
     # LEGACY_FRONTMATTER_EXEMPT - these are what actually fail --check.
     check_flagged: list[Path] = field(default_factory=list)
+    # parking-lot only. Each carries its own message because "your parking-lot item is wrong" is
+    # useless to the agent that has to fix it - it needs to know WHICH rule and WHAT the legal
+    # values are, in the failure text, without opening another document.
+    violations: list[tuple[Path, str]] = field(default_factory=list)
 
     def check_violations(self) -> int:
         return len(self.check_flagged)
+
+    def _flag(self, path: Path, message: str) -> None:
+        self.violations.append((path, message))
+        if path not in self.check_flagged:
+            self.check_flagged.append(path)
 
 
 def _is_git_repo(repo_root: Path) -> bool:
@@ -186,12 +239,59 @@ def _is_legacy_exempt(repo_root: Path, path: Path) -> bool:
     return rel in LEGACY_FRONTMATTER_EXEMPT
 
 
+def _check_parking_lot_item(item: Item, report: Report) -> None:
+    """Validate ONE future-work item against the closed contract. Records every violation it finds,
+    it does not stop at the first - an agent that fixes one rule per run needs three round trips."""
+    fm = item.frontmatter
+    if not fm:
+        report.frontmatter_less.append(item.path)
+        report._flag(item.path, "no frontmatter. A parking-lot item needs at least "
+                                "`type: parking-lot` and `status: open`.")
+        return
+
+    got_type = (fm.get("type") or "").strip().lower()
+    if got_type != PARKING_LOT_TYPE:
+        shown = got_type or "(missing)"
+        report._flag(item.path, f"type is `{shown}`, must be `{PARKING_LOT_TYPE}`. "
+                                "Everything in this directory is one future-work item, whatever "
+                                "it started life as.")
+
+    cls = classify_status(item.status, PARKING_LOT_DIR)
+    if cls == "none":
+        report.frontmatter_less.append(item.path)
+        report._flag(item.path, "no `status:` field. Use one of: "
+                                f"{', '.join(sorted(PARKING_LOT_STATUSES))}.")
+    elif cls == "unknown":
+        report.unknown_status.append(item.path)
+        report._flag(item.path, f"status is `{item.status}`, which is not a legal value. Use one "
+                                f"of: {', '.join(sorted(PARKING_LOT_STATUSES))}.")
+
+    if FUTURE_KEY in fm:
+        val = (fm.get(FUTURE_KEY) or "").strip().lower()
+        if val not in FUTURE_VALUES:
+            report._flag(item.path, f"`{FUTURE_KEY}:` is `{val or '(empty)'}`, must be "
+                                    f"{' or '.join(sorted(FUTURE_VALUES))}. `yes` means committed "
+                                    "work, not a candidate.")
+
+    if item.size > PARKING_LOT_MAX_BYTES:
+        report._flag(item.path, f"{item.size:,} bytes, over the {PARKING_LOT_MAX_BYTES:,} byte "
+                                "ceiling. This is a register, not one item. Split each open item "
+                                "into its own file and move the resolved history to done/.")
+
+
 def tidy(repo_root: Path, apply: bool = False, check: bool = False,
           kinds: tuple[str, ...] = _KINDS) -> Report:
     report = Report()
     for kind in kinds:
         items = scan(repo_root / ".caddis" / kind)
         for item in items:
+            if kind == PARKING_LOT_DIR:
+                _check_parking_lot_item(item, report)
+                # A terminal item still moves even if it broke another rule. Sweeping finished work
+                # out of the way is independent of whether its frontmatter was tidy.
+                if classify_status(item.status, PARKING_LOT_DIR) == "terminal":
+                    _move_one(repo_root, item, apply, report)
+                continue
             cls = classify_status(item.status)
             if cls == "terminal":
                 _move_one(repo_root, item, apply, report)
@@ -248,8 +348,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  stale-suspect (all phases done, status still active): {p.relative_to(repo_root)}")
     if args.check:
         exempt = [p for p in report.frontmatter_less if p not in report.check_flagged]
+        detailed = {p for p, _ in report.violations}
+        for p, msg in report.violations:
+            print(f"  CHECK VIOLATION: {p.relative_to(repo_root)}: {msg}")
         for p in report.check_flagged:
-            print(f"  CHECK VIOLATION: no status field: {p.relative_to(repo_root)}")
+            if p not in detailed:
+                print(f"  CHECK VIOLATION: no status field: {p.relative_to(repo_root)}")
         for p in exempt:
             print(f"  (legacy, grandfathered): {p.relative_to(repo_root)}")
 

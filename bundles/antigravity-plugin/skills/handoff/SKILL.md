@@ -26,8 +26,22 @@ is to run it.
 git status --short
 git branch --show-current
 git log --oneline -5
+python scripts/caddis_inventory.py          # what EXISTS — do not compose this from memory
 ```
 Then read the active plan in `.caddis/plans/` (falling back to legacy `.github/plans/` if present) and its tracker.
+
+**Read the inventory before writing anything.** It enumerates plans, PRDs, prompts, handoffs, KB
+notes, the parking-lot backlog, open comms, every script and its purpose, and any generated artefact
+committed before its generator last changed. Paste the parts a next session needs; do not retype
+them from memory.
+
+**Why this step is mechanical.** A handover used to be composed from what the outgoing session
+remembered, so it was only ever as complete as that memory. Bringing one Hub to a usable state took
+nine corrective round trips and the user caught six of them — including *"the handover listed no
+reports, documents, KB notes or scripts"*. None of those are judgement calls; every one is a
+directory listing. An agent recalls **what it did**; a generator enumerates **what exists**, and
+those are different sets. Your judgement is still needed for what matters and what to do next —
+that half cannot be derived and is the only half you should be writing.
 
 **Crash / interrupted-work check.** Cross-check the tracker against `git status` + `git log`: if a phase is
 marked in-progress but has **uncommitted changes** (work left mid-flight), or a phase is marked done with
@@ -43,6 +57,13 @@ plan A on the workstream stack — so its exact resume point survives and `/resu
 
 **Trigger:** the active plan found in Step 2 has a sibling `<slug>-advisory-context.md`. **No such file
 → skip this step entirely and silently** — no extra work on an ordinary handoff.
+
+> **First, say which command the user actually wants.** A context doc means a Hub is running, and
+> handing over a Hub is `/caddis:spawn-hub`, not this command. The two look interchangeable from
+> outside and are not: `/handoff` writes a resume doc for the same workstream, while `spawn-hub`
+> ends the Hub's tenure, runs the mechanical audit, conserves the carried-open ledger, and files
+> `hub-NN.spawn.md` in `.caddis/advisory-hub-reports/`. Tell the user plainly, then continue only if
+> they still want a plain handoff.
 
 **Why it is a distinct step:** a context doc is written *before* the work happens, so it is **always
 stale by the time it is needed**. The outgoing Hub's instinct is always "yes, this doc is designed for
@@ -119,6 +140,22 @@ skip this step** — it degrades open, same as the other machine gates; an older
 be blocked by a script it does not have. Include its report in your output. A **collision**
 (`done/<name>` already exists) is reported by the script, not fatal — surface it, do not fail the
 handoff over it.
+
+## Step 5 — check the handover you just wrote
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" handover-check --doc .caddis/relay.md
+```
+(falls back to `scripts/caddis_gate.py` in a source checkout; degrades open when the script is
+missing.) **Run it in the repo the handover is about** — a handover describing another repo will
+report that repo's paths as missing, which is the tool being right about the wrong question.
+
+It fails when the handover names a file that does not exist. The incoming session has **no other
+source** for those paths, so it cannot tell a typo from a real file: one live handover sent an
+incoming Hub looking for a prompt that was never written. Fix what it lists, then re-run.
+
+It also notes any generated artefact committed before its generator last changed. That is advisory,
+not blocking — but do not quote a report the note names without rebuilding it first.
 
 ## Rules
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in

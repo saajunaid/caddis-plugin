@@ -25,7 +25,7 @@ Evaluate the user's input:
 | **Vague idea** | No specifics, just a concept ("I want search to be better") | → Go to Step 2A (refine with Prompt Engineer) |
 | **Rough requirements** | Some specifics but missing constraints, success criteria | → Go to Step 2A (refine with Prompt Engineer) |
 | **Clear requirements** | Has goal, specifics, and some constraints | → Go to Step 2B (create Intent Document directly) |
-| **Backlog reference** | Points to a file in `plans/backlog/` | → Read the backlog item, then go to Step 2B |
+| **Backlog reference** | Points to a file in `.caddis/parking-lot/` | → Read the parked item, then go to Step 2B |
 
 ---
 

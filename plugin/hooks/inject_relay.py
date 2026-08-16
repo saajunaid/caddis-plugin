@@ -302,6 +302,39 @@ try:
 except Exception:
     pass
 
+# Output style provisioning: put `Plain.md` where the /config picker looks, once.
+#
+# This is the ONLY thing that runs "when someone installs caddis" — a Claude Code plugin has no
+# install script, so a first session is the first moment any caddis code executes on a new machine.
+# It writes a file and NEVER selects it: choosing an output style stays the human's call.
+# Prints only when it actually wrote something, because a SessionStart line that fires every
+# session is noise, and noise is why the AGENTS.md budget nudge went unread for 1,085 lines.
+# Fail-open & silent like every block here.
+try:
+    _sc3 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _sc3 not in sys.path:
+        sys.path.insert(0, _sc3)
+    import setup_project_ai as _spa  # noqa: E402
+
+    for _note in _spa.provision_output_style(dry=False):
+        if _note.startswith("output style: wrote") or _note.startswith("output style: updated"):
+            print("\n[caddis] output style `Plain` is available — pick it in /config > Output style.")
+            break
+
+    # Same one-time additive treatment for the todo-tools env key — and, more importantly, a LOUD
+    # report when settings.json does not parse. An invalid settings.json makes Claude Code ignore
+    # EVERY setting in it, silently: guard mode, permissions, hooks, statusline, plugins. Found
+    # live on 2026-08-16, caused by one missing comma in a hand-added line. This is the only place
+    # that would ever tell you.
+    for _note in _spa.ensure_user_env(dry=False):
+        if "NOT VALID JSON" in _note:
+            print("\n[caddis] " + _note)
+        elif _note.startswith("user env: added"):
+            print("\n[caddis] enabled CLAUDE_CODE_ENABLE_TODO_TOOLS in your global settings — "
+                  "restart Claude Code to pick it up.")
+except Exception:
+    pass
+
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
 # Prefer the current artifact dir, then the older .claude path.
 _STAMP = _first_existing(

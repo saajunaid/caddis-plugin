@@ -1,6 +1,6 @@
 ---
 name: advisory-hub
-description: Cross-session phase validation for multi-phase implementation plans — a long-lived "Hub" session RE-DERIVES each implementation phase's claims independently instead of trusting its self-assessment. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "advisory context", "who checks the implementing session", "the plan turned out to be wrong", "hand off the hub", "re-derive don't trust", or when a long, multi-session plan with expensive-to-reverse decisions (a migration, a security change, anything touching production data correctness) needs an independent session that verifies every phase before the next one starts. NOT for a three-phase feature — it costs a full extra session's context per phase, and a skill that doesn't say so gets applied everywhere and resented.
+description: Cross-session phase validation for multi-phase implementation plans — a long-lived "Hub" session RE-DERIVES each implementation phase's claims independently instead of trusting its self-assessment. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "advisory context", "who checks the implementing session", "the plan turned out to be wrong", "hand off the hub", "re-derive don't trust", or when a long, multi-session plan with expensive-to-reverse decisions (a migration, a security change, anything touching production data correctness) needs an independent session that verifies every phase before the next one starts. NOT for a three-phase feature — it costs a full extra session's context per phase, and a skill that doesn't say so gets applied everywhere and resented. Every Hub artefact belongs in `.caddis/advisory-hub-reports/` — a succession prompt is `hub-NN.spawn.md` there, never a generic prompts folder, even when you write it by hand instead of running `/caddis:spawn-hub`.
 ---
 
 # Advisory Hub — cross-session phase validation
@@ -93,6 +93,31 @@ A three-phase feature hits none of this. `/caddis:feature-plan` Step 3b runs thi
 it never creates the file silently. This is the test's only home — do not restate the thresholds
 elsewhere, or the copies drift.
 
+## Succession is not the same as a standing validator
+
+Two things look alike from outside and are not:
+
+- **`/caddis:spawn-hub` is SUCCESSION.** The outgoing Hub **ends**. It hands the role to a fresh
+  session and stops. There is one Hub afterwards, not two.
+- **`/caddis:validate-phase` assumes a Hub that PERSISTS** across phases, checking each one.
+
+Conflating them builds a review loop that has to be unwound. One session kept Hub-1 alive to check
+Hub-2, then dismantled the arrangement when the user said they were closing Hub-1. Both models are
+reasonable; running both at once is not.
+
+## Every Hub artefact has one home
+
+`.caddis/advisory-hub-reports/`. A succession prompt is `hub-NN.spawn.md` there, with frontmatter
+`type: hub-spawn`. **This holds even when you write one by hand** rather than running
+`/caddis:spawn-hub` — and by hand is exactly when it gets missed, because the instruction lives
+inside the command you skipped.
+
+The knock-on is the part that bites. `spawn-hub` rotates its comprehension trap by reading the last
+spawn prompt from that directory. A prompt filed anywhere else is invisible to it, so rotation
+silently runs against an empty set — the failure the artefact file was introduced to prevent,
+returning through a different door. `check_doc_coverage.py` now warns on a `type: hub-spawn` file
+found outside that directory.
+
 ## The Hub is a ROLE, not a conversation
 
 It outlives any one session and hands over through **files**, never chat history. Hand over with
@@ -101,6 +126,30 @@ It outlives any one session and hands over through **files**, never chat history
 **Your instinct that the context doc is current is measured-wrong.** Asked *"can we hand off?"*, an
 outgoing Hub's honest first answer was yes; a mechanical audit then found **seven gaps** — including
 that the single highest-value technique then in use was written down nowhere a fresh Hub would find it.
+
+## While you hold the role — maintain `relay.md`, not just the succession table
+
+**The succession table records WHO HELD THE ROLE. `.caddis/relay.md` records WHERE THE WORK IS. A
+Hub maintains both; they are not substitutes.**
+
+The succession table is written when a Hub **ends**. Nothing else covers the hours while a Hub is
+**working** — and that is the whole period this mechanism exists to protect, because its entire
+purpose is surviving session death.
+
+> **Mirror your working list into `.caddis/relay.md` as you go.** Your in-session task list does not
+> survive this session. `relay.md` does. Anything not written there is lost when the window closes.
+
+This gap was real. A spawned Hub read `relay.md`, answered a thirteen-question context check
+correctly, found four genuine defects in its handover — **and created no tracker at all**, because
+nothing asked it to. The user noticed before the agent did: *"I don't see it creating any todo list
+yet."* The work was only recoverable because the OUTGOING Hub had written a tracker into `relay.md`
+an hour earlier, on its own initiative.
+
+**`relay.md` is gitignored and machine-local.** That is deliberate — it is per-machine session state,
+not a shared artefact — but it has two consequences a Hub must plan around. It never reaches another
+machine, so anything a *successor on a different box* needs belongs in the advisory context or the
+spawn prompt instead. And no gate can check it through git, so keeping it current is a discipline,
+not something a build will catch for you.
 
 ## Where the detail lives
 

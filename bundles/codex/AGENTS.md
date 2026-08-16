@@ -73,9 +73,12 @@ On a fresh session read in order: `.caddis/relay.md` (if present) → the active
 | Need | Location |
 |---|---|
 | Reference-doc index (the meta-KB) — **read first** | `.caddis/kb/DOC-MAP.md` |
+| **Environment facts — hosts, logins, repo locations, what a folder really is** | `.caddis/kb/environment-map.md` |
 | Every UI page → endpoints → DB (frontend repos) | `UI_PAGE_GUIDE.md` |
 | Active plans | `.caddis/plans/<feature>.md` |
 | PRDs | `.caddis/prd/<feature-slug>.md` |
+| **Anything to do LATER — defect, proposal, parked plan, idea** | **`.caddis/parking-lot/<slug>.md`** |
+| Outbound asks only a human outside this repo can resolve | `.caddis/comms/` + its `register.md` |
 | Standing prompts / drivers / specs handed to an agent | `.caddis/prompts/` |
 | Review output (code-review, cross-review) | `.caddis/reviews/` |
 | ADRs, design docs, runbooks | `docs/adr/`, `docs/design/`, `docs/runbooks/` (team-facing, not tool scratch) |
@@ -91,6 +94,39 @@ synced tree in harness-authoring repos).
 
 > **A repo created before the rename uses `.claudster/` instead.** Run `/caddis:migrate-dir` to
 > convert it — everything under `.caddis/` above is invisible to caddis until you do.
+
+### Future work goes in ONE place
+**`.caddis/parking-lot/` is the whole backlog. One item, one file.** If it is not there, it is not
+on the backlog. Do **not** leave future work in a "things owed" section of a plan or `relay.md`, in
+a KB note, in a chat reply, or in a new register file — those all look like a record and none of
+them can be counted. File it with `/caddis:park`, or write it by hand with this frontmatter:
+
+```yaml
+type: parking-lot        # always
+status: open             # open | doing | done | dropped  (closed vocabulary)
+future: yes              # OPTIONAL. yes = committed. Absent or `no` = a candidate.
+```
+
+`status` and `future` answer different questions and must stay separate: where the item is in its
+life, and whether we have agreed to do it. `python scripts/caddis_tidy.py --check` and the
+`caddis_gate.py parking-lot` gate both fail on a non-conforming item, so this is enforced, not
+advised. Two neighbours that are NOT the backlog: `/caddis:digress` parks an interrupted task on a
+stack (`/caddis:resume` pops it), and `.caddis/backlog/` is written by **docket** as a projection of
+its board — never hand-edit that one.
+
+### Write environment facts down in the same turn
+**If you learn a fact about the environment, write it to `.caddis/kb/environment-map.md` before you
+use it.** A hostname, which login actually works, where another team's repo really lives, what a
+folder actually contains, which port a service listens on.
+
+A fact that exists only in a conversation is gone when that session ends, and the next session
+cannot know it was ever said. One project paid for the same three facts repeatedly — ten minutes
+lost to one SQL login **three separate times**, and a session that searched the filesystem for a
+repository that lived in Gitea while the project's own docs cited a file inside it by path.
+
+`relay.md` is not the place: it is current state and gets rewritten at every handover, so stable
+facts drown in the churn. **Never record a secret** — record where the credential lives and which
+account works, never the value.
 
 ### Doc discipline (the KB can't silently rot)
 Read `.caddis/kb/DOC-MAP.md` first to find the right reference doc, then read it on demand. When you

@@ -193,6 +193,64 @@ def version_drift() -> list[str]:
     return out
 
 
+def _is_caddis_source(dest: Path) -> bool:
+    """True for the caddis authoring repo, where `.github/tools/` is the MASTER, not a copy.
+
+    Without this the drift check fires permanently in the one repo where a difference is the
+    normal state — and a check that is always red is a check nobody reads."""
+    return (dest / "claude-harness").is_dir()
+
+
+def _norm(text: str) -> str:
+    return text.replace("\r\n", "\n").strip()
+
+
+def vendored_drift(dest: Path, plugin_root: Path | None = None) -> list[str]:
+    """Vendored `.github/tools/*.py` copies that no longer match the plugin's shipped copy.
+
+    WHY THIS EXISTS
+    ---------------
+    `/caddis:cross-review` resolved its tool as `.github/tools/oss_review.py` FIRST and the plugin
+    copy second, with nothing comparing them. On 2026-08-10 a repo ran a stale vendored
+    `oss_review.py` and got a false CLEAN on a database write path; the fixed copy was sitting
+    unused in the plugin the whole time. The bug had been fixed on 2026-08-01 and the fix simply
+    never reached the caller.
+
+    That is worse than an ordinary stale file. It means **any** caddis fix is untrustworthy in a
+    repo that vendored early, and nothing anywhere reports the skew. The vendoring itself was
+    reasonable when it happened — the plugin did not ship these scripts until 2026-07-30 — which is
+    exactly why the copies are still lying around.
+
+    Pure file comparison, no subprocess, safe for SessionStart. Returns [] when there is nothing to
+    compare against (no plugin root, no vendored dir) — silence, not a complaint.
+    """
+    # The SessionStart hook passes ROOT as a str, not a Path. Coerce rather than assume — the
+    # first version of this function assumed Path and broke the hook's own regression test.
+    dest = Path(dest)
+    if _is_caddis_source(dest):
+        return []
+    root = plugin_root or (Path(os.environ["CLAUDE_PLUGIN_ROOT"])
+                           if os.environ.get("CLAUDE_PLUGIN_ROOT") else None)
+    if root is None:
+        return []
+    tools = dest / ".github" / "tools"
+    if not tools.is_dir():
+        return []
+    out: list[str] = []
+    for local in sorted(tools.glob("*.py")):
+        shipped = root / "scripts" / local.name
+        if not shipped.is_file():
+            continue
+        try:
+            if _norm(local.read_text(encoding="utf-8", errors="ignore")) != \
+               _norm(shipped.read_text(encoding="utf-8", errors="ignore")):
+                out.append(f".github/tools/{local.name} differs from the caddis copy — "
+                           "probably a stale vendor; delete it or keep the change deliberately")
+        except OSError:
+            continue
+    return out
+
+
 def _file_signals(dest: Path) -> list[str]:
     """PURE FILE-CHECK signals only (no subprocess) — safe + fast for SessionStart. One line each."""
     signals: list[str] = []
@@ -206,6 +264,10 @@ def _file_signals(dest: Path) -> list[str]:
     days = days_since_last_doctor()
     if days is not None and days >= 30:
         signals.append(f"{days} days since last caddis doctor — run caddis-init --doctor")
+    # Listed LAST but it is the most dangerous signal here: the others degrade a session's quality,
+    # this one silently runs old code and reports success. It is cheap (a file compare) and almost
+    # always empty, so it costs nothing to carry.
+    signals += vendored_drift(dest)
     return signals
 
 

@@ -44,6 +44,7 @@ Stdlib-only (urllib) so it runs anywhere with no pip install.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import subprocess
@@ -88,6 +89,26 @@ FALLBACK_PROVIDERS: tuple[str, ...] = ("glm",)
 # silent false negative). 60,000 chars is comfortably under both observed failure points while still
 # covering an ordinary multi-file phase diff. REVIEW_MAX_DIFF_CHARS / --max-diff-chars override it.
 DEFAULT_MAX_DIFF_CHARS = 60_000
+
+# Every exception class that means "the request did not come back usable", so main() can route it
+# to provider failover instead of letting it escape.
+#
+# `http.client.HTTPException` is the load-bearing entry and was MISSING. Its subclass
+# `IncompleteRead` — a truncated response body, one of the two live failures behind
+# `.caddis/parking-lot/006` — is NOT a ValueError despite the name suggesting a parse problem; its
+# MRO is (IncompleteRead, HTTPException, Exception). So it escaped the handler entirely, Python
+# exited 1, and 1 is EXIT_BLOCKING. A transport truncation was being reported to scripted callers
+# as "the reviewer found blocking issues" — the same class of bug as the `content: null` crash
+# documented in call_llm, in the same file, unfixed on the sibling path.
+TRANSPORT_ERRORS = (
+    urllib.error.URLError, urllib.error.HTTPError, http.client.HTTPException,
+    RuntimeError, ValueError, TimeoutError, ConnectionError, OSError,
+)
+
+# How many times a failing chunk may be halved and retried before the run gives up. Two levels
+# turns one 8-file batch into at most four 2-file requests, which is enough to clear a
+# size-correlated truncation without turning a broken endpoint into sixteen doomed calls.
+RETRY_SPLIT_DEPTH = 2
 
 
 # A diff over the ceiling is split into batches on whole-FILE boundaries and each batch is
@@ -179,12 +200,44 @@ def resolve_config(
             if api_key:
                 break
     if not api_key:
+        # Name the providers that DO have a key. When DeepSeek is unset but GLM is configured, the
+        # fix is `--provider glm` — and without this line the reader goes hunting for a credential
+        # they already hold, at the least convenient possible moment (a commit pending).
+        keys_path = env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE
+        others = [p for p in configured_providers(env) if p != provider]
+        have = (f"\nProviders that DO have a key here: {', '.join(others)}. "
+                f"To use one now: --provider {others[0]}." if others else "")
         raise ConfigError(
             f"no API key for provider {provider!r}. Set $REVIEW_API_KEY or ${key_env}, or add\n"
             f"  {key_env}=<your-key>\n"
             f"to your keys file ({keys_path}). Override the file path with $CADDIS_KEYS_FILE."
+            + have
         )
     return base_url, api_key, model
+
+
+def configured_providers(env: dict[str, str]) -> list[str]:
+    """Every preset provider that currently has a usable key. Never returns or logs a key value.
+
+    Mirror of claude-harness/scripts/oss_model.py::configured_providers — duplicated for the same
+    documented reason as `_parse_keys_file` above: this tool stays a single stdlib-only file that
+    runs from any repo the runtime resources are exported into.
+
+    Exists so a caller can find out BEFORE it needs a key. `/caddis:cross-review` used to discover
+    a missing one mid-task with a commit pending, and a command that fails once at an inconvenient
+    moment does not get retried — so the safety check it provides is quietly lost, and nothing
+    records that it was lost (`.caddis/parking-lot/003`).
+    """
+    keys_path = env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE
+    file_keys = _parse_keys_file(keys_path)
+    generic = ((env.get("REVIEW_API_KEY") or env.get("OSS_API_KEY") or "").strip()
+               or (file_keys.get("OSS_API_KEY") or "").strip())
+    out = []
+    for name in sorted(PROVIDERS):
+        key_env = f"{name.upper()}_API_KEY"
+        if generic or (env.get(key_env) or "").strip() or (file_keys.get(key_env) or "").strip():
+            out.append(name)
+    return out
 
 
 def _untracked_files(cwd: str) -> list[str]:
@@ -435,7 +488,28 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     parser.add_argument("--model", default=None, help="override REVIEW_MODEL / the preset")
     parser.add_argument("--max-diff-chars", type=int, default=None,
                         help=f"override REVIEW_MAX_DIFF_CHARS (default {DEFAULT_MAX_DIFF_CHARS})")
+    parser.add_argument("--check-config", action="store_true",
+                        help="report whether a usable key exists and exit — no diff, no LLM call. "
+                             "Exit 0 = ready, 3 = nothing configured.")
     args = parser.parse_args(argv)
+
+    # --check-config is deliberately NON-INTERACTIVE. This script runs headless — from CI, from a
+    # docket runner, from a `claude -p` session — where a prompt on stdin does not ask a question,
+    # it hangs forever. The ASKING belongs in `/caddis:cross-review`, which is driven by an agent
+    # that can actually talk to a human. This half just answers "is it configured?" cheaply enough
+    # to call before you need it, instead of finding out mid-commit.
+    if args.check_config:
+        available = configured_providers(env)
+        if not available:
+            sys.stderr.write(
+                "no second-vendor API key is configured anywhere.\n"
+                "  Cross-review needs one — the whole point is a reviewer that does not share this\n"
+                "  model's blind spots, so a same-vendor fallback would be no review at all.\n"
+                f"  Add a key to {env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, e.g.\n"
+                "    DEEPSEEK_API_KEY=<your-key>\n")
+            return EXIT_CONFIG
+        print(f"cross-review is ready. Providers with a key: {', '.join(available)}")
+        return EXIT_CLEAN
 
     try:
         base_url, api_key, model = resolve_config(args, env)
@@ -541,23 +615,15 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                 continue  # no key for the spare — not an error, just nothing to fall back to
             chain.append((name, fb_url, fb_key, fb_model))
 
-    verdicts: list[bool | None] = []
-    for batch_no, batch in enumerate(batches, 1):
-        prompt = build_review_prompt(batch, branch, args.range)
-        if len(batches) > 1:
-            files = len(split_diff_by_file(batch))
-            print(f"\n===== batch {batch_no}/{len(batches)} — {files} file(s), "
-                  f"{len(batch):,} chars =====")
-
-        review = None
+    def _try_chain(prompt: str, label: str) -> str | None:
+        """One payload against every provider in the chain. None when all of them failed."""
         for idx, (name, url, key, mdl) in enumerate(chain):
             try:
                 review = call_llm(url, key, mdl, prompt)
-            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, ValueError,
-                    TimeoutError) as exc:
+            except TRANSPORT_ERRORS as exc:
                 remaining = len(chain) - idx - 1
                 sys.stderr.write(
-                    f"review request failed ({mdl} @ {url}): {exc}\n"
+                    f"review request failed{label} ({mdl} @ {url}): {exc}\n"
                     + (
                         f"  falling back to {chain[idx + 1][0]}...\n"
                         if remaining
@@ -571,23 +637,75 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                 # a material fact about the review, not an implementation detail — it belongs
                 # in the transcript the phase report quotes.
                 print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}).")
-            break
+            return review
+        return None
 
-        if review is None:
-            # Every provider failed on this batch. Do NOT continue to the next one: a partial
-            # sweep that still prints a verdict is the failure mode this whole tool guards.
+    def _review_chunk(chunk: str, label: str, depth: int = 0) -> list[str] | None:
+        """Review `chunk`, halving it and retrying once per level if every provider failed.
+
+        WHY HALVE RATHER THAN JUST FAIL. Both observed failures were transport truncation on a
+        long reply — an `http.client.IncompleteRead` on one provider and an empty HTTP 200 body on
+        another — and both were SIZE-CORRELATED. Retrying the same payload against the same
+        endpoint reproduces the same overflow; retrying a smaller one usually does not. The whole
+        run used to abort here, which is safe but throws away a review the user has already
+        waited minutes for.
+
+        Bounded at RETRY_SPLIT_DEPTH levels and never splits a single file, so it cannot loop and
+        cannot silently shrink a diff to nothing. Returns None when a chunk that cannot be split
+        any further still fails — the abort path stays reachable.
+        """
+        review = _try_chain(build_review_prompt(chunk, branch, args.range), label)
+        if review is not None:
+            return [review]
+        files = split_diff_by_file(chunk)
+        if depth >= RETRY_SPLIT_DEPTH or len(files) < 2:
+            return None
+        half = len(files) // 2
+        sys.stderr.write(
+            f"[cross-review] retrying{label} as 2 smaller chunks ({half} + {len(files) - half} "
+            "file(s)) — both observed failures were size-correlated truncation.\n")
+        out: list[str] = []
+        for part_no, part in enumerate(("".join(files[:half]), "".join(files[half:])), 1):
+            got = _review_chunk(part, f"{label} part {part_no}", depth + 1)
+            if got is None:
+                return None
+            out += got
+        return out
+
+    verdicts: list[bool | None] = []
+    for batch_no, batch in enumerate(batches, 1):
+        label = f" (batch {batch_no}/{len(batches)})" if len(batches) > 1 else ""
+        if len(batches) > 1:
+            files = len(split_diff_by_file(batch))
+            print(f"\n===== batch {batch_no}/{len(batches)} — {files} file(s), "
+                  f"{len(batch):,} chars =====")
+
+        reviews = _review_chunk(batch, label)
+        if reviews is None:
+            # Every provider failed, and splitting did not rescue it. Do NOT continue to the next
+            # batch: a partial sweep that still prints a verdict is the failure mode this whole
+            # tool guards against.
             sys.stderr.write(f"batch {batch_no}/{len(batches)} could not be reviewed — aborting.\n")
             return EXIT_ERROR
 
-        print(review)
-        verdicts.append(classify_verdict(review))
+        for review in reviews:
+            print(review)
+            verdicts.append(classify_verdict(review))
 
     verdict = aggregate_verdicts(verdicts)
     if len(batches) > 1:
+        # A LEDGER, not a summary. The live report behind `.caddis/parking-lot/006` said the
+        # reader's only defence was "count the REVIEW: lines against the announced batch count" —
+        # so print that arithmetic instead of making a human do it. `reviewed` can exceed
+        # `announced` when a batch was split and retried, and that is worth seeing.
+        clean = sum(1 for v in verdicts if v is True)
         blocking = sum(1 for v in verdicts if v is False)
         unparsed = sum(1 for v in verdicts if v is None)
-        print(f"\n[cross-review] {len(batches)} batches — {blocking} blocking, "
-              f"{unparsed} with no parseable verdict.")
+        print(f"\n[cross-review] announced {len(batches)} batches · reviewed {len(verdicts)} · "
+              f"clean {clean} · blocking {blocking} · no parseable verdict {unparsed}")
+        if unparsed:
+            print("[cross-review] a chunk with no verdict is NOT a pass — the overall result "
+                  "below is fail-closed.")
     if verdict is True:
         return EXIT_CLEAN
     if verdict is False:

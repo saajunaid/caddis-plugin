@@ -147,7 +147,28 @@ audit trail this pattern has.
 
 ## Step 4 — generate the prompt
 
-Build it from the files, not from memory. It must contain:
+**"From the files, not from memory" is an instruction you cannot follow by intending to. Run the
+generator:**
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_inventory.py" --with-tests
+```
+(falls back to `scripts/caddis_inventory.py` in a source checkout; skip the step if absent — it
+degrades open like every other machine step here.)
+
+Paste its output into the prompt as a **Repository inventory** section, verbatim. It enumerates
+plans, PRDs, prompts, handoffs, KB notes, the parking-lot backlog, open comms, every script and its
+purpose, and any generated artefact committed before its generator last changed. `--with-tests`
+runs the suite instead of reporting a remembered number — one handover claimed 20 tests when there
+were 19, and the incoming Hub found the discrepancy before anyone else.
+
+**Why a generator and not care.** Nine corrective round trips were needed to bring one Hub to a
+usable state, and the user caught six of the nine: no reports listed, no documents, no KB notes, no
+scripts, planned work absent, and confusion over which of two prompts actually existed. Every one of
+those is a directory listing. They were missed because an outgoing agent recalls *what it did*
+rather than enumerating *what exists* — and the incoming Hub cannot know what it was not told.
+
+Then write the judgement half yourself. It must contain:
 
 1. **The role and the one rule** — re-derive, do not trust; validate, do not implement.
 2. **The read order**: advisory context (all of it, especially the succession section and the
@@ -184,6 +205,35 @@ Build it from the files, not from memory. It must contain:
    an environment that is mid-change.
 7. **The standing authorisations**: deploys are user-authorised **every time**; a previous yes does not
    carry.
+8. **What comes after this, and why the order matters.** Not only what is done and what is carried
+   open — **what this is building towards**, for the next two or three phases. A Hub that does not
+   know what comes next can design the current phase in a way that blocks it, and it will never find
+   out, because nothing it can read says so. One live handover omitted a planned model comparison
+   entirely; the user caught it. A section covering only the past reads complete and is not.
+9. **The deliverable.** Name the thing this workstream must eventually produce, and the step that
+   produces it. One handover carried every phase faithfully and never mentioned the report that was
+   the whole point of the exercise. The user caught that too.
+10. **A standing instruction to maintain the tracker.** Put this in the prompt, in these words or
+    close to them:
+
+    > **Maintain the tracker.** Your in-session task list does not survive this session.
+    > `.caddis/relay.md` does. Mirror your working list into it as you go, and include its current
+    > state in every progress report. Anything not written there is lost.
+
+    The succession table records **who held the role**; `relay.md` records **where the work is**. The
+    table is written when a Hub *ends*, so nothing covers the hours while a Hub is *working* — which
+    is the whole period this mechanism exists to protect. A real spawned Hub read `relay.md`,
+    answered a thirteen-question context check correctly, found four genuine defects in its
+    handover, **and created no tracker at all**, because nothing asked it to.
+
+    Note for the incoming Hub: `relay.md` is gitignored and machine-local. Anything a successor **on
+    another machine** will need belongs in the advisory context or the next spawn prompt, not only
+    there.
+11. **`.caddis/kb/environment-map.md`, INLINE AND VERBATIM.** Hosts, which login works, where other
+    repositories actually live. It is short, it is the first thing an incoming Hub needs, and it is
+    the category most often missing — one incoming Hub searched the filesystem for a repository that
+    lived in Gitea, and the user had to stop it. A pointer is not enough here: this is exactly the
+    file a cold session does not know to open.
 
 **Write it to `.caddis/advisory-hub-reports/hub-NN.spawn.md`** (frontmatter `type: hub-spawn`,
 `hub: NN`), then print it. Until this file existed, every succession prompt lived and died in chat —
@@ -194,6 +244,27 @@ against.
 Print the prompt in a fenced block, ready to paste. **Say plainly that it starts a NEW session** — a
 Hub spawned inside the outgoing session's context inherits exactly the staleness this whole mechanism
 exists to shed.
+
+### Check the prompt before you hand it over
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" handover-check \
+  --doc .caddis/advisory-hub-reports/hub-NN.spawn.md
+```
+
+It fails when the prompt names a file that does not exist. **Validate the DOCUMENT, not just the
+reader.** The context self-check in Step 4 proves the incoming Hub read carefully; it proves nothing
+about whether what it read was true. One incoming Hub passed a thirteen-question check on a handover
+containing four factual errors — it found them *despite* the check, not because of it.
+
+### The single-writer rule — state it in the prompt
+
+**The outgoing Hub stops writing to the repository the moment the succession prompt is issued.** Say
+so in the prompt itself, so both sides know which one owns the tree.
+
+This is not tidiness. Two sessions committed to one repository concurrently and the incoming Hub's
+work landed inside the outgoing Hub's commit. Only committed objects are safe from another session's
+checkout; a shared working tree is process-shared state, not session-private.
 
 ## Step 5 — report
 

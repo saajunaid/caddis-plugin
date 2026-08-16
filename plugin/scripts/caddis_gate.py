@@ -294,6 +294,33 @@ def gate_hub_artifacts(reports: Path, extra_refs: list[Path] | None = None) -> i
     if not corpus:
         return _degrade(f"nothing references artifacts in {reports} (no index, no spawn doc)")
 
+    # A spawn prompt that never names the resume doc produces a Hub that keeps no tracker.
+    #
+    # Measured: a spawned Hub read relay.md, passed a thirteen-question context check, found four
+    # real defects in its handover — and created no tracker, because nothing asked it to. The work
+    # survived only because the OUTGOING Hub had written one into relay.md an hour earlier, unasked.
+    #
+    # The parking-lot note suggested checking that relay.md was "modified in the same commit range".
+    # That cannot work: relay.md is GITIGNORED by design, so git never sees it. What is checkable is
+    # the instruction — does the spawn prompt tell its successor to keep the tracker at all?
+    # ONLY the newest spawn doc, by hub number. Older ones are immutable history: a spawn prompt
+    # that was already used cannot be fixed, only falsified, and a gate that stays red on a record
+    # nobody may edit is the "always red, therefore ignored" failure this file keeps warning about.
+    spawns = sorted(reports.glob("hub-*.spawn.md"),
+                    key=lambda p: (int(m.group(1)) if (m := re.search(r"hub-(\d+)", p.name)) else 0,
+                                   p.name))
+    newest = spawns[-1] if spawns else None
+    if newest and "relay" not in newest.read_text(encoding="utf-8", errors="ignore").lower():
+        sys.stderr.write(
+            f"[caddis-gate] the newest spawn prompt never mentions the resume doc:\n"
+            f"    {newest.name}\n")
+        sys.stderr.write(
+            "  The succession table records WHO HELD THE ROLE; .caddis/relay.md records WHERE THE\n"
+            "  WORK IS. The table is only written when a Hub ends, so nothing covers the hours a\n"
+            "  Hub spends working — the exact period this mechanism exists to protect. Tell the\n"
+            "  incoming Hub to mirror its task list into relay.md as it goes.\n")
+        return EXIT_BLOCKED
+
     orphans = [f.name for f in artifacts if f.name not in corpus and f.stem not in corpus]
     if not orphans:
         return EXIT_OK
@@ -305,6 +332,151 @@ def gate_hub_artifacts(reports: Path, extra_refs: list[Path] | None = None) -> i
     sys.stderr.write(
         "  A successor will not know these exist, will regenerate them, and will lose whatever\n"
         "  reasoning they carried. Reference them in the spawn doc or the index before handing over.\n")
+    return EXIT_BLOCKED
+
+
+def gate_parking_lot(repo_root: Path) -> int:
+    """Every future-work item conforms to the one-register contract, or the push stops.
+
+    caddis had the parking-lot convention for months and it drifted anyway: on 2026-08-14 the
+    directory held four different `type:` values (`issue`, `proposal`, `plan`, `parking-lot`), four
+    different `status:` spellings, and one 89 KB file that was a second register wearing an item's
+    clothes. None of that was caught, because nothing was looking.
+
+    Docs alone were already tried. Parking-lot item 002 is the record of an agent that filed a hub
+    artifact in the wrong directory while the correct path sat unread on line 188 of the command it
+    skipped. The lesson generalises: a convention nothing can fail is a convention that decays.
+
+    Degrades open like every gate here — no `.caddis/`, no directory, an unreadable file: exit 0.
+    Only a positively identified violation blocks.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_tidy
+    except Exception as exc:
+        return _degrade(f"caddis_tidy unavailable: {type(exc).__name__}")
+
+    d = repo_root / ".caddis" / caddis_tidy.PARKING_LOT_DIR
+    if not d.is_dir():
+        return _degrade(f"no parking-lot at {d}")
+    report = caddis_tidy.tidy(repo_root, apply=False, kinds=(caddis_tidy.PARKING_LOT_DIR,))
+    if not report.violations:
+        return EXIT_OK
+    sys.stderr.write(
+        f"[caddis-gate] {len(report.violations)} parking-lot violation(s) — future work must be "
+        "one item per file, under one contract:\n")
+    for path, msg in report.violations:
+        try:
+            shown = path.relative_to(repo_root)
+        except ValueError:
+            shown = path
+        sys.stderr.write(f"    {shown}: {msg}\n")
+    sys.stderr.write(
+        "  Fix them, or run `/caddis:park` to file the item correctly. The contract is in\n"
+        "  .caddis/parking-lot/README.md.\n")
+    return EXIT_BLOCKED
+
+
+def gate_vendor_drift(repo_root: Path) -> int:
+    """A vendored `.github/tools/*.py` that no longer matches the caddis copy it came from.
+
+    This gate exists because of a FALSE PASS, not a crash. On 2026-08-10 `/caddis:cross-review`
+    returned CLEAN on a database write path that was never reviewed. The tool was fixed on
+    2026-08-01; the repo was running its own vendored copy from before that, because the command
+    resolves `.github/tools/` FIRST and nothing compared the two files.
+
+    The general shape is the dangerous part: a vendored copy makes every caddis fix conditional on
+    a file nobody remembers copying. It fails in the safe-looking direction, which is why it went
+    unnoticed for nine days.
+
+    Degrades open: no CLAUDE_PLUGIN_ROOT (nothing to compare), no vendored dir, or the caddis
+    authoring repo itself -> exit 0.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import claudster_doctor
+    except Exception as exc:
+        return _degrade(f"claudster_doctor unavailable: {type(exc).__name__}")
+
+    if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        return _degrade("CLAUDE_PLUGIN_ROOT unset — nothing to compare the vendored copies against")
+    drift = claudster_doctor.vendored_drift(repo_root)
+    if not drift:
+        return EXIT_OK
+    sys.stderr.write(
+        f"[caddis-gate] {len(drift)} vendored script(s) differ from the caddis copy:\n")
+    for line in drift:
+        sys.stderr.write(f"    {line}\n")
+    sys.stderr.write(
+        "  The vendored copy WINS at run time, so a caddis fix you already paid for may never\n"
+        "  reach you. Delete the vendored copy to use the shipped one, or diff them and keep the\n"
+        "  local change deliberately.\n")
+    return EXIT_BLOCKED
+
+
+# A backticked path in a handover. Placeholders (`<feature>`, `{slug}`, globs) are excluded here
+# rather than filtered later, because a gate that reports `\.caddis/plans/<feature>.md` as missing
+# teaches the reader to skim its output, and a skimmed gate catches nothing.
+_DOC_PATH = re.compile(r"`([^`\s<>{}*?]+?\.(?:md|py|ts|tsx|json|ya?ml|sh|ps1|html|toml|sql))`")
+
+
+def gate_handover_check(doc: Path, repo_root: Path) -> int:
+    """Every file a handover names must exist. Nothing else in a handover is machine-checkable.
+
+    A succession prompt is written from memory, so it names files the writer BELIEVES are there.
+    Bringing one Hub to a usable state took nine corrective round trips and the user caught six of
+    them; one was "which prompt exists — the legacy one or the contract-shaped one?", which is this
+    check exactly (`.caddis/parking-lot/004-handover-is-recalled-not-generated.md`).
+
+    SCOPE, STATED HONESTLY. The parking-lot note asks for four checks. Two are mechanical and are
+    implemented here: paths exist, and generated artefacts are not older than their generators. The
+    other two — "do the numbers match the live system" and "is a settled claim contradicted by a
+    later withdrawal" — need conventions that do not exist yet, and a gate that pretends to check
+    them would be worse than one that says it does not.
+
+    Degrades open on a missing/unreadable doc. Blocks only on a path the doc claims and the repo
+    does not have.
+    """
+    if not doc.is_file():
+        return _degrade(f"no handover doc at {doc}")
+    try:
+        text = doc.read_text(encoding="utf-8", errors="ignore")
+    except OSError as exc:
+        return _degrade(f"cannot read {doc}: {type(exc).__name__}")
+
+    missing: list[str] = []
+    for raw in sorted(set(_DOC_PATH.findall(text))):
+        # A backtick often wraps a whole command; the path is the token that looks like one.
+        cand = next((tok for tok in raw.split() if "/" in tok or tok.endswith(".md")), raw)
+        cand = cand.strip("(),;:'\"")
+        if cand.startswith(("http://", "https://", "~", "$")) or ".." in cand:
+            continue
+        if not (repo_root / cand).exists():
+            missing.append(cand)
+
+    stale: list[dict] = []
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_inventory
+        stale = caddis_inventory.stale_artifacts(repo_root)
+    except Exception:
+        pass  # advisory half — never let it decide the exit code
+
+    for s in stale:
+        sys.stderr.write(
+            f"[caddis-gate] note: {s['artifact']} was committed before {s['generator']} last "
+            "changed — rebuild it before quoting it\n")
+
+    if not missing:
+        return EXIT_OK
+    sys.stderr.write(
+        f"[caddis-gate] the handover names {len(missing)} path(s) that do not exist:\n")
+    for m in missing:
+        sys.stderr.write(f"    {m}\n")
+    sys.stderr.write(
+        "  The incoming session cannot know these are wrong — it has no other source for them.\n"
+        "  Fix the paths, or generate the inventory with `python scripts/caddis_inventory.py`\n"
+        "  instead of writing it from memory.\n")
     return EXIT_BLOCKED
 
 
@@ -320,6 +492,13 @@ def main(argv: list[str] | None = None) -> int:
     h = sub.add_parser("hub-artifacts")
     h.add_argument("--reports", required=True)
     h.add_argument("--refs", nargs="*", default=[])
+    pl = sub.add_parser("parking-lot")
+    pl.add_argument("--repo-root", default=".")
+    vd = sub.add_parser("vendor-drift")
+    vd.add_argument("--repo-root", default=".")
+    hc = sub.add_parser("handover-check")
+    hc.add_argument("--doc", required=True)
+    hc.add_argument("--repo-root", default=".")
     a = ap.parse_args(argv)
 
     plan = Path(getattr(a, "plan", "") or ".")
@@ -330,6 +509,12 @@ def main(argv: list[str] | None = None) -> int:
             return gate_verdict(plan, a.phase)
         if a.cmd == "hub-artifacts":
             return gate_hub_artifacts(Path(a.reports), [Path(r) for r in a.refs])
+        if a.cmd == "parking-lot":
+            return gate_parking_lot(Path(a.repo_root).resolve())
+        if a.cmd == "vendor-drift":
+            return gate_vendor_drift(Path(a.repo_root).resolve())
+        if a.cmd == "handover-check":
+            return gate_handover_check(Path(a.doc), Path(a.repo_root).resolve())
         return gate_tracker(plan)
     except Exception as exc:  # pragma: no cover — a gate must never crash the caller
         return _degrade(f"{type(exc).__name__}: {exc}")

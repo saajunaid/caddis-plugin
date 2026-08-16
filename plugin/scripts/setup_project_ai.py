@@ -21,7 +21,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 import shutil
@@ -743,6 +745,165 @@ states, and treating them as one is how work stalls while looking resolved.
 """
 
 
+# Scaffolded into <artifact-dir>/parking-lot/. Same reasoning as the comms register: a directory
+# alone fixes "never written down", and it takes a stated contract to fix "written down in six
+# different shapes so nothing can count them".
+PARKING_LOT_README_TEMPLATE = """# Parking lot - the ONE register of future work
+
+Anything that must happen later lives here. A defect you are not fixing now, a proposal, a parked
+plan, an idea worth keeping. **One item, one file.**
+
+**If it is not in this directory, it is not on the backlog.** That is the whole rule. Every other
+place work used to hide - a note inside a plan, a "things owed" section in `relay.md`, a KB note, a
+second register file - now POINTS here instead of holding the item itself.
+
+## Why one place
+
+Future work spread across many files looks organised and is not. Nobody can answer "what is left to
+do?" without reading all of them, so nobody asks, and items are re-raised or quietly dropped. One
+directory makes the answer a directory listing.
+
+## Frontmatter (this is checked, not suggested)
+
+```yaml
+---
+type: parking-lot        # always this, whatever the item started life as
+status: open             # open | doing | done | dropped
+future: yes              # OPTIONAL. yes = decided and owed. Absent or `no` = a candidate.
+severity: high           # OPTIONAL. high | medium | low
+found: 2026-08-14        # OPTIONAL. When it was raised.
+found-by: <repo/session> # OPTIONAL. Who or what raised it.
+---
+```
+
+`status` and `future` are **two independent questions**. `status` asks where the item is in its
+life. `future` asks whether we have committed to it. An item can be `status: open` and
+`future: yes` - agreed, not started. Do not fold them together.
+
+## Status vocabulary
+
+| Status | Means |
+|---|---|
+| `open` | Raised, not started. |
+| `doing` | Someone is on it now. |
+| `done` | Finished. `caddis_tidy.py --apply` moves it to `done/`. |
+| `dropped` | Deliberately abandoned. **Write why in the body**, or the next session re-raises it. |
+
+The list is closed on purpose. `wip`, `todo` and `pending` are not accepted, because "how many open
+items?" has no answer when one state has three spellings.
+
+## Writing one
+
+- Name it `<short-slug>.md`. No number prefix: two sessions filing at once would pick the same number.
+- Say what you saw, then what it costs, then the suggested fix. Evidence first.
+- Give it a `severity` an outsider could check, not one that reflects how annoyed you were.
+- **Do not start a second register.** A file here over 20 KB fails the check. If an item grew that
+  big it is several items.
+
+## What does NOT belong here
+
+| Not this | Where it goes | Why |
+|---|---|---|
+| Work in flight right now | `.caddis/plans/<feature>.md` | A plan is being executed. A parking-lot item is not. |
+| A task interrupted mid-session | `/caddis:digress` stack | That is a pause, not a backlog item. `/caddis:resume` pops it. |
+| An ask only an outsider can resolve | `.caddis/comms/register.md` | Blocked on a human, not on us. |
+| Board cards | `.caddis/backlog/` | **docket writes that directory.** It is a projection of the board, not a hand-written register. Never edit it by hand. |
+
+## Commands
+
+- `/caddis:park` - file an item correctly, or list what is open.
+- `python scripts/caddis_tidy.py --check` - fails (exit 1) on any item that breaks the contract.
+- `python scripts/caddis_tidy.py --apply` - sweeps `done` and `dropped` items into `done/`.
+"""
+
+
+# Scaffolded into <artifact-dir>/kb/environment-map.md. An empty file with the right headings gets
+# filled in; a blank page does not, and neither does a rule with nowhere to write.
+ENVIRONMENT_MAP_TEMPLATE = """---
+type: reference
+title: Environment map - hosts, logins, repos, and what is really where
+description: Durable facts about the environment this project runs in. Read on demand; not loaded every turn.
+tags: [environment, hosts, access, topology]
+---
+
+# Environment map
+
+**Facts about the world outside this repository.** Hostnames, which login actually works, where
+another team's repository lives, what a folder really contains, which port a service listens on.
+
+## The rule
+
+**If you learn an environment fact, write it here in the same turn.** A fact that exists only in a
+conversation is lost the moment that session ends, and the next session cannot know it was ever
+said.
+
+Three real examples of the cost:
+
+| Fact | Told in chat | What it cost |
+|---|---|---|
+| A reporting tool refused Windows auth; a named SQL login was required | yes | ~10 minutes, **three separate times** |
+| A queue table's true row count | measured, written to one file and not another | An incoming session found the contradiction and had to resolve it |
+| An app lived in the local Gitea, not on disk | yes | A session searched the filesystem for it; the user had to stop it |
+
+The third is the clearest. Documents cited a file in that repository **by path**, so somebody had
+read it - and nothing anywhere recorded **where the repository was**.
+
+## Why here and not in AGENTS.md
+
+`AGENTS.md` and `CLAUDE.md` load on **every** turn, so a connection string there costs context in
+every session forever. `AGENTS.md` is also for durable **rules**, and a hostname is not a rule. The
+KB is read on demand, indexed in `DOC-MAP.md`, and gate-checked. This is the right shelf.
+
+**Never put a secret here.** Record *where* a credential lives and *which* account works, never the
+value. Keys belong in a keys file outside every git repository.
+
+## Hosts and services
+
+| Host | What runs there | How to reach it | Notes |
+|---|---|---|---|
+| _(none recorded yet)_ | | | |
+
+## Databases
+
+| Database | Server | Which login works | Gotchas |
+|---|---|---|---|
+| _(none recorded yet)_ | | | |
+
+Record the login that **works**, and the one that looks right and does not. The second saves more
+time than the first.
+
+## Repositories that are not this one
+
+| Repository | Where it actually lives | Why we care |
+|---|---|---|
+| _(none recorded yet)_ | | |
+
+"Where it actually lives" means the clone URL or the host - not a guess that it is on disk.
+
+## Data outside the repository
+
+| What | Where | Refreshed how |
+|---|---|---|
+| _(none recorded yet)_ | | |
+
+## Accounts and access
+
+| What | Account or role | Requested from | Notes |
+|---|---|---|---|
+| _(none recorded yet)_ | | | |
+
+## Things that look like facts and are not
+
+Readings that mislead: a virtualisation flag that reads false because a hypervisor is already
+running, a file whose encoding mangles under an older shell, a command whose exit code means
+"nothing to do" rather than "failed". Record each one you hit, with what it actually means.
+
+| Reading | Looks like | Actually means |
+|---|---|---|
+| _(none recorded yet)_ | | |
+"""
+
+
 ARTIFACT_GITIGNORE = """\
 # caddis artifacts — commit plans/handoffs/agent-docs/prd; ignore transient state
 reviews/*.html
@@ -848,6 +1009,137 @@ def stamp_caddis_version(target: Path, dry: bool) -> list[str]:
     return notes
 
 
+# ── the `Plain` output style ────────────────────────────────────────────────────────────────
+# caddis SUPPLIES this style and never selects it. Claude Code offers `force-for-plugin: true`,
+# which would apply it automatically and override the user's own `outputStyle`; that was considered
+# and rejected. A plugin that silently repoints a global preference is the behaviour people file
+# bugs about, and it would make `Explanatory` unreachable for as long as caddis is enabled.
+# So: write the file where the picker looks, and let the human choose it in `/config`.
+OUTPUT_STYLE_SRC_REL = ("claude-md", "output-style-plain.md")
+OUTPUT_STYLE_DEST_NAME = "Plain.md"
+OUTPUT_STYLE_STAMP_NAME = ".caddis-plain.sha256"
+
+
+def _style_hash(text: str) -> str:
+    """Hash on LF-normalised text. Git checkouts flip line endings on Windows, and without this
+    a pure CRLF/LF difference reads as "the user edited it" and freezes updates forever."""
+    return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+
+def provision_output_style(dry: bool, home: Path | None = None) -> list[str]:
+    """Put `Plain.md` in the user's global output-styles dir. Never selects it, never edits settings.
+
+    Update rule: write when absent; refresh when the file on disk still matches the copy caddis last
+    shipped; otherwise leave it alone. The stamp file is what separates "unmodified, safe to update"
+    from "the user tuned this" — without it the only safe policy is never to update, and a shipped
+    wording fix would never reach anyone who installed once.
+    """
+    if os.environ.get("CADDIS_NO_OUTPUT_STYLE"):
+        return ["output style: skipped (CADDIS_NO_OUTPUT_STYLE set)"]
+    src = HARNESS_DIR.joinpath(*OUTPUT_STYLE_SRC_REL)
+    if not src.is_file():
+        return [f"output style: skipped (no source at {src})"]
+    try:
+        new_text = src.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"output style: skipped ({type(exc).__name__})"]
+
+    # CADDIS_HOME exists so a test (or a sandboxed run) can point this at a temp dir. Without it,
+    # merely importing and calling this function writes into the real user's home — which is exactly
+    # the kind of side effect a test suite must never have.
+    root = home or Path(os.environ.get("CADDIS_HOME") or Path.home())
+    dest_dir = root / ".claude" / "output-styles"
+    dest = dest_dir / OUTPUT_STYLE_DEST_NAME
+    stamp = dest_dir / OUTPUT_STYLE_STAMP_NAME
+    new_hash = _style_hash(new_text)
+
+    if dest.is_file():
+        cur_hash = _style_hash(dest.read_text(encoding="utf-8", errors="ignore"))
+        if cur_hash == new_hash:
+            return [f"output style: {dest} already current"]
+        prev = ""
+        if stamp.is_file():
+            prev = stamp.read_text(encoding="utf-8", errors="ignore").strip()
+        if prev and prev != cur_hash:
+            return [f"output style: {dest} kept — locally edited, not overwritten"]
+        action = "updated"
+    else:
+        action = "wrote"
+
+    if not dry:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest.write_text(new_text, encoding="utf-8")
+        stamp.write_text(new_hash + "\n", encoding="utf-8")
+    return [f"output style: {action} {dest} (select it in /config — caddis never sets it for you)"]
+
+
+# ── user-level settings.json ────────────────────────────────────────────────────────────────
+TODO_TOOLS_ENV_KEY = "CLAUDE_CODE_ENABLE_TODO_TOOLS"
+
+
+def _user_settings_path(home: Path | None = None) -> Path:
+    root = home or Path(os.environ.get("CADDIS_HOME") or Path.home())
+    return root / ".claude" / "settings.json"
+
+
+def ensure_user_env(dry: bool, home: Path | None = None) -> list[str]:
+    """Add `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` to the user's global settings, additively.
+
+    WHY THIS ONE IS SAFE TO SET WHEN `outputStyle` WAS NOT. Adding a key to `env` does not override
+    a preference the user expressed — it turns on a capability that is otherwise absent. An existing
+    value is ALWAYS left alone, including an explicit "0", so a deliberate opt-out survives every
+    reinstall.
+
+    NEVER REWRITE A FILE THAT DOES NOT PARSE. Found live on 2026-08-16: a hand-added line in this
+    exact file was missing its comma, so the JSON was invalid and Claude Code silently ignored
+    EVERY setting in it — guard mode, permissions, hooks, statusline, plugins. A "helpful" rewrite
+    of an unparseable file would have discarded all of it. So this reports the breakage and stops,
+    which also converts a silent total failure into a visible one. That report is most of the value
+    here; the key it adds is the smaller half.
+    """
+    if os.environ.get("CADDIS_NO_SETTINGS_ENV"):
+        return ["user env: skipped (CADDIS_NO_SETTINGS_ENV set)"]
+    path = _user_settings_path(home)
+
+    if path.is_file():
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return [f"user env: {path} is NOT VALID JSON ({exc.msg}, line {exc.lineno}) — "
+                    "every setting in it is being ignored. Left untouched; fix it by hand."]
+        if not isinstance(data, dict):
+            return [f"user env: {path} is not a JSON object — left untouched"]
+    else:
+        raw, data = "", {}
+
+    env_block = data.get("env")
+    if env_block is None:
+        env_block = {}
+    elif not isinstance(env_block, dict):
+        return [f"user env: {path} has a non-object `env` — left untouched"]
+
+    if TODO_TOOLS_ENV_KEY in env_block:
+        return [f"user env: {TODO_TOOLS_ENV_KEY} already set to "
+                f"{env_block[TODO_TOOLS_ENV_KEY]!r} — left alone"]
+
+    env_block[TODO_TOOLS_ENV_KEY] = "1"
+    data["env"] = env_block
+    if not dry:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Back up before touching a global config, and write via a temp file so an interrupted
+        # write cannot leave the user with a half-written settings.json — the failure mode this
+        # whole function exists to notice.
+        if raw:
+            path.with_suffix(".json.caddis-bak").write_text(raw, encoding="utf-8")
+        tmp = path.with_suffix(".json.caddis-tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    verb = "would add" if dry else "added"
+    return [f"user env: {verb} {TODO_TOOLS_ENV_KEY}=1 to {path}"
+            + ("" if not raw else " (previous version saved as settings.json.caddis-bak)")]
+
+
 def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
@@ -867,7 +1159,13 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     # `comms` holds outbound messages — anything only a human OUTSIDE this repo can resolve
     # (an access request, a firmware change, a decision from another team). Without a home,
     # those get written into a chat reply and evaporate when the session ends.
-    for sub in ("plans", "handoffs", "agent-docs", "reviews", "prd", "kb", "prompts", "comms"):
+    # `parking-lot` holds future work — the ONE register. It was a convention with no home until
+    # 2026-08-14: it appeared nowhere in the scaffold, nowhere in the AGENTS.md "Where things live"
+    # table, and nowhere in the tidy lifecycle. So future work scattered to nine places at once and
+    # no session could answer "what is left to do?". A directory the harness creates on every
+    # project is what makes "one place" true rather than aspirational.
+    for sub in ("plans", "handoffs", "agent-docs", "reviews", "prd", "kb", "prompts", "comms",
+                "parking-lot"):
         d = root / sub
         if d.is_dir():
             continue
@@ -887,6 +1185,30 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
             reg.parent.mkdir(parents=True, exist_ok=True)
             reg.write_text(COMMS_REGISTER_TEMPLATE, encoding="utf-8")
         notes.append(f"scaffold: wrote {label}/comms/register.md")
+    # The parking-lot README is the CONTRACT, not decoration. Without it the directory is just a
+    # folder, and a folder does not tell the next agent that `type: parking-lot` is mandatory or
+    # that a second register is forbidden. Same reasoning as comms/register.md above.
+    pl = root / "parking-lot" / "README.md"
+    if pl.exists():
+        notes.append(f"scaffold: {label}/parking-lot/README.md present — kept")
+    else:
+        if not dry:
+            pl.parent.mkdir(parents=True, exist_ok=True)
+            pl.write_text(PARKING_LOT_README_TEMPLATE, encoding="utf-8")
+        notes.append(f"scaffold: wrote {label}/parking-lot/README.md")
+    # The environment map. Same reasoning as the two registers above: the failure is not complexity,
+    # it is EVAPORATION. Environment facts used to land wherever the agent happened to be typing —
+    # relay.md (rewritten at every handover), mid-plan (nobody looks), a KB note (only when framed
+    # as a trap), or most often a chat reply that ends with the session. One project lost time to
+    # the same three facts repeatedly. A file with headings gets filled in; a blank page does not.
+    em = root / "kb" / "environment-map.md"
+    if em.exists():
+        notes.append(f"scaffold: {label}/kb/environment-map.md present — kept")
+    else:
+        if not dry:
+            em.parent.mkdir(parents=True, exist_ok=True)
+            em.write_text(ENVIRONMENT_MAP_TEMPLATE, encoding="utf-8")
+        notes.append(f"scaffold: wrote {label}/kb/environment-map.md")
     gi = root / ".gitignore"
     if gi.exists():
         notes.append(f"scaffold: {label}/.gitignore present — kept")
@@ -1068,6 +1390,14 @@ def main() -> int:
     for line in scaffold_artifact_dir(target, args.dry_run):
         print(f"   {line}")
     for line in stamp_caddis_version(target, args.dry_run):
+        print(f"   {line}")
+
+    print("-- output style (supplied, never selected for you)")
+    for line in provision_output_style(args.dry_run):
+        print(f"   {line}")
+
+    print("-- user settings (additive only, never overwrites a value you set)")
+    for line in ensure_user_env(args.dry_run):
         print(f"   {line}")
 
     print("-- doc-coverage discipline (DOC-MAP + page guide + checker)")

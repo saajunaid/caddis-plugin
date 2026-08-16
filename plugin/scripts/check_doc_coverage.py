@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -193,6 +194,7 @@ TRUST_STATUS_VALUES: frozenset[str] = frozenset({
     "draft", "stable", "deprecated",                      # OKF v0.2
     "current", "done", "superseded", "ready",             # caddis
     "shipped", "implemented",                             # caddis legacy synonyms for `done`
+    "open", "doing", "dropped",                           # caddis parking-lot (`done` shared above)
 })
 
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
@@ -260,6 +262,57 @@ def _split_list_entries(nested: list[str]) -> list[str]:
         elif entries:
             entries[-1] += "\n" + line.strip()
     return entries
+
+
+HUB_REPORTS_DIR = ".caddis/advisory-hub-reports"
+
+
+def misfiled_hub_spawns(root: Path) -> list[str]:
+    """Files whose FRONTMATTER declares `type: hub-spawn` but which live outside the reports dir.
+
+    `/caddis:spawn-hub` states the correct path, justifies it, and is gated — but the gate only
+    runs INSIDE the command. An agent asked for a handover "basically like what we do with caddis
+    spawn-hub" hand-wrote one without invoking it, never read the instruction, and filed the
+    artefact in `.caddis/prompts/` because that is where the project's generic prompts live. The
+    mechanism was self-enforcing only for those already using it.
+
+    The knock-on is the sharp part: spawn-hub's own trap-rotation step reads the last spawn prompt
+    from the reports dir to pick a fresh trap. A prompt filed elsewhere is invisible, so rotation
+    silently runs against an empty set — the exact failure the artefact file was introduced to
+    prevent, returning through a different door.
+
+    Frontmatter only, never a prose match: this repo's own documentation says `type: hub-spawn` in
+    running text, and flagging that would make the check permanently red where it is authored.
+    """
+    out: list[str] = []
+    try:
+        # --others --exclude-standard is load-bearing: a hand-rolled spawn prompt is UNTRACKED at
+        # the exact moment it is misfiled, and a plain `git ls-files` lists only tracked files. The
+        # first version of this check used one, so it passed cleanly on a live misfiled artefact —
+        # a check that cannot fail, guarding the case it was written for.
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.md"],
+            cwd=str(root), capture_output=True, text=True, timeout=30)
+        files = [root / p for p in listed.stdout.splitlines() if p.strip()] \
+            if listed.returncode == 0 else []
+    except Exception:
+        files = []
+    if not files:  # no git, or an empty listing — fall back to the artefact tree
+        files = sorted((root / ".caddis").rglob("*.md")) if (root / ".caddis").is_dir() else []
+    for f in files:
+        rel = f.relative_to(root).as_posix() if f.is_absolute() else str(f)
+        if rel.startswith(HUB_REPORTS_DIR):
+            continue
+        try:
+            block = frontmatter_block(f.read_text(encoding="utf-8", errors="ignore"))
+        except OSError:
+            continue
+        if block is None:
+            continue
+        field = _top_level_field(block, "type")
+        if field and _scalar(field[0]).strip().lower() == "hub-spawn":
+            out.append(rel)
+    return out
 
 
 def trust_signal_warnings(text: str) -> list[str]:
@@ -809,6 +862,13 @@ def run(root: Path, check: bool) -> int:
     for rel, issues in scan_trust_signals(root):
         for issue in issues:
             warnings.append(f"{rel}: {issue}")
+
+    # 5. Misfiled Hub artefacts (warning only).
+    for rel in misfiled_hub_spawns(root):
+        warnings.append(
+            f"{rel} is a hub-spawn artefact outside {HUB_REPORTS_DIR} — /caddis:spawn-hub's "
+            "trap rotation reads only that directory, so a prompt filed elsewhere is invisible "
+            "to it and the next succession rotates against an empty set")
 
     for w in warnings:
         print(f"  warning: {w}")

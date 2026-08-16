@@ -519,7 +519,10 @@ Golden-plan must create both files together. Never emit the plan without creatin
 Save the completed plan to:
 
 - `.caddis/plans/<feature-slug>.md` - default for both modes
-- `.caddis/plans/backlog/<feature-slug>.md` - optional backlog location
+- **Not ready to execute?** It is not a plan yet — file it as one future-work item at
+  `.caddis/parking-lot/<feature-slug>.md` (`type: parking-lot`, `status: open`), or run
+  `/caddis:park`. `.caddis/plans/backlog/` is retired: a second backlog location meant no session
+  could answer "what is left to do?" without knowing both.
 
 If mode is **`junai-pipeline`**, additionally register the artefact in `.github/agent-docs/ARTIFACTS.md` with `status: current`.
 

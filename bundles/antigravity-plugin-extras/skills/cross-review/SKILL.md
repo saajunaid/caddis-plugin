@@ -14,6 +14,27 @@ issue. This skill runs that second reviewer over the current changes and acts on
 - On a risky diff (auth, crypto, data-touching, concurrency) where a second opinion is cheap insurance.
 - NOT a replacement for the in-repo `/caddis:code-review` — this is the *cross-vendor* complement.
 
+## Check the key FIRST, and ask if it is missing
+
+```bash
+python "$TOOL" --check-config
+```
+
+Exit 0 prints which providers have a key. **Exit 3 means nothing is configured — stop and ask the
+user before reading any diff.** Do not proceed, and do not silently skip the review.
+
+Ask with `AskUserQuestion` which provider to set up, then write the key to `~/.caddis/keys.env` as
+`DEEPSEEK_API_KEY=<key>` (or the matching variable). That file sits outside every git repo, so it
+cannot be committed by accident. **Never put a key in the repo, in a command, or in a reply.**
+
+This used to fail mid-task with a commit pending — the worst moment to go hunting for a credential.
+A command that fails once at an inconvenient moment does not get retried, so the safety check is
+quietly lost and nothing records the loss. The script stays non-interactive because it also runs
+headless, where a stdin prompt hangs instead of asking; the asking is the agent's job.
+
+If a key exists for a *different* provider than the one requested, the error names it and gives the
+exact flag (`--provider glm`). Read the message before concluding anything is missing.
+
 ## Prerequisites (one-time)
 Only the key is mandatory — the tool ships **provider presets** (default `deepseek`, the cheapest + most
 architecturally distinct-from-Claude option; a review costs well under a cent):
@@ -31,15 +52,27 @@ churn — the preset table in `oss_review.py` is the one place to edit a rename,
 From the repo root. Resolve the tool path deterministically — check only these two exact
 locations, in order, and **never search the filesystem for it** (see Rules below):
 ```bash
-if [ -f ".github/tools/oss_review.py" ]; then
-  TOOL=".github/tools/oss_review.py"                              # this project vendors its own copy
-elif [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py" ]; then
-  TOOL="${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py"               # the plugin-bundled copy
+# THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
+# of whatever caddis shipped the day someone copied it, and it never updates again.
+if [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py" ]; then
+  TOOL="${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py"
+  # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
+  if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
+    echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"
+    echo "               being IGNORED. Delete it, or keep the local change deliberately."
+  fi
+elif [ -f ".github/tools/oss_review.py" ]; then
+  TOOL=".github/tools/oss_review.py"   # no plugin present — the vendored copy is all there is
 else
   echo "oss_review.py not found at either known location — report this and stop. Do NOT search for it."
   exit 3
 fi
 ```
+
+> **Why the plugin copy is first.** It used to be second. On 2026-08-10 a repo ran a stale vendored
+> `oss_review.py` and got `REVIEW: CLEAN` on a database write path that was never reviewed. The bug
+> had been fixed on 2026-08-01 — the fix just never reached the caller, because a file someone
+> copied weeks earlier silently won. `caddis_gate.py vendor-drift` now fails on the same condition.
 ```
 python "$TOOL"                                             # review the working tree (staged+unstaged)
 python "$TOOL" --range origin/main..HEAD                   # review a branch's commits

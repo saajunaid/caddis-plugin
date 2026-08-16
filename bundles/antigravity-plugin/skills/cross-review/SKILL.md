@@ -10,25 +10,59 @@ Run a cross-vendor review of the current changes with a DIFFERENT model family t
 is green and before you commit, or for a second opinion on a risky diff. This is the *cross-vendor*
 complement to `/caddis:code-review`, not a replacement.
 
-## Prerequisite (one-time)
-A provider key must be resolvable. Precedence: `REVIEW_API_KEY` > the provider's own env var
-(`DEEPSEEK_API_KEY` / `GLM_API_KEY`) > `OSS_API_KEY` > the keys file (`~/.caddis/keys.env`,
-overridable via `CADDIS_KEYS_FILE`). If your keys file is populated, no env setup is needed.
-Details: the `coding/cross-review` skill and the **Providers & keys** guide.
+## Step 0 — check the key BEFORE reading the diff
+
+```bash
+python "$TOOL" --check-config      # resolve $TOOL first, see "Run it" below
+```
+
+Exit 0 means ready; it prints which providers have a key. **Exit 3 means nothing is configured —
+STOP and ask the user now.** Do not proceed to the review, and do not silently skip it.
+
+Ask with `AskUserQuestion`: which provider to set up (DeepSeek, GLM, or another OpenAI-compatible
+endpoint), then write the key they give you to `~/.caddis/keys.env` as `DEEPSEEK_API_KEY=<key>` (or
+the matching variable) and re-run the check. **The keys file lives outside every git repo, so it
+cannot be committed by accident. Never put a key in the repo, in a command, or in your reply.**
+
+**Why asking is the fix, and why the script does not do it.** This used to fail at the point of use
+— mid-task, with a commit pending, which is the worst moment to go hunting for a credential. A
+command that fails once at an inconvenient moment does not get retried, so the safety check is
+quietly lost and nothing records that it was lost. But `oss_review.py` also runs headless, from CI
+and from `claude -p` sessions, where a prompt on stdin does not ask a question — it hangs forever.
+So the script answers *"is it configured?"* and **you** do the asking.
+
+If a key exists for a different provider than the one requested, the error names it and gives you
+the exact flag (`--provider glm`). Read the message before concluding anything is missing.
+
+**Key precedence:** `REVIEW_API_KEY` > the provider's own env var (`DEEPSEEK_API_KEY` /
+`GLM_API_KEY`) > `OSS_API_KEY` > the keys file (`~/.caddis/keys.env`, overridable via
+`CADDIS_KEYS_FILE`). Details: the `coding/cross-review` skill and the **Providers & keys** guide.
 
 ## Run it
 Resolve the tool path deterministically — check only these two exact locations, in order, and
 **never search the filesystem for it** (see Rules below):
 ```bash
-if [ -f ".github/tools/oss_review.py" ]; then
-  TOOL=".github/tools/oss_review.py"                              # this project vendors its own copy
-elif [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py" ]; then
-  TOOL="${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py"               # the plugin-bundled copy
+# THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
+# of whatever caddis shipped the day someone copied it, and it never updates again.
+if [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py" ]; then
+  TOOL="${CLAUDE_PLUGIN_ROOT}/scripts/oss_review.py"
+  # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
+  if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
+    echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"
+    echo "               being IGNORED. Delete it, or keep the local change deliberately."
+  fi
+elif [ -f ".github/tools/oss_review.py" ]; then
+  TOOL=".github/tools/oss_review.py"   # no plugin present — the vendored copy is all there is
 else
   echo "oss_review.py not found at either known location — report this and stop. Do NOT search for it."
   exit 3
 fi
 ```
+
+> **Why the plugin copy is first.** It used to be second. On 2026-08-10 a repo ran a stale vendored
+> `oss_review.py` and got `REVIEW: CLEAN` on a database write path that was never reviewed. The bug
+> had been fixed on 2026-08-01 — the fix just never reached the caller, because a file someone
+> copied weeks earlier silently won. `caddis_gate.py vendor-drift` now fails on the same condition.
 ```
 python "$TOOL"                                           # DeepSeek eyes (default)
 python "$TOOL" --provider glm                            # GLM eyes

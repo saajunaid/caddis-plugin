@@ -255,7 +255,7 @@ Produce a single, comprehensive document suitable for use as an **Implementation
 ```
 
 ### Output Location
-Place the final report at the path specified by the user (default: `.caddis/plans/backlog/migration_report.md`).
+Place the final report at the path specified by the user (default: `.caddis/agent-docs/migration_report.md` — it is an agent-produced report, not a backlog item).
 
 ---
 
