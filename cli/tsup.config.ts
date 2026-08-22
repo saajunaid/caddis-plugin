@@ -1,7 +1,14 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { cli: 'src/cli.ts' },
+  entry: {
+    cli: 'src/cli.ts',
+    // One bundle per lane binary. They are tiny — each is a two-line entry over the
+    // shared launcher — but npm needs a distinct file per `bin` name.
+    'claude-oss': 'src/lanes/claude-oss.ts',
+    'claude-glm': 'src/lanes/claude-glm.ts',
+    'claude-deepseek': 'src/lanes/claude-deepseek.ts',
+  },
   format: ['esm'],
   target: 'node20.19',
   platform: 'node',

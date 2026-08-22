@@ -55,9 +55,21 @@ A wholly new provider: add a row to `PROVIDERS` in `oss_model.py` (base_url, mod
 pass an unknown provider name with `OSS_BASE_URL`+`OSS_MODEL` set — no table edit required.
 
 ## First-time install
-Put `claude-harness/scripts/` (or your plugin's `scripts/` dir) on `PATH`, or add a shell profile
-function. `/setup-project-ai` documents the one-liner for your platform (PowerShell profile function /
-bash alias) — it does not silently edit your shell profile.
+
+```
+npm i -g @caddis/cli     # puts claude-oss / claude-glm / claude-deepseek on PATH
+caddis keys              # prompts for each provider key, validates it, writes ~/.caddis/keys.env
+claude-glm --print-config    # zero-token check: endpoint, model, key all resolved
+```
+
+npm does the PATH work on Windows, macOS and Linux. No profile edit, no script copying, no
+Python needed on the lane path — the resolver is ported into the CLI, because the npm tarball
+ships only `dist` and `bundles`.
+
+`npx` runs the default `caddis` binary only; the lane binaries need the global install above.
+
+**Plugin-only installs** (no npm CLI) keep the original route: put the plugin's `scripts/`
+directory on `PATH`, or add a shell profile function. caddis never silently edits your profile.
 
 ## Exit codes
 `claude-oss`/`claude-glm` propagate the wrapped `claude` process's exit code, except a resolver failure

@@ -71,6 +71,19 @@ withGlobalFlags(program.command('init'))
     );
   });
 
+withGlobalFlags(program.command('keys'))
+  .description('set up provider API keys for the model lanes (GLM, DeepSeek)')
+  .option('--check', 'validate configured keys and exit non-zero on failure; never prompts', false)
+  .action(async (options: GlobalFlags & { check?: boolean }) => {
+    const flags = mergeFlags(options);
+    const { keys } = await import('./commands/keys.js');
+    process.exitCode = await keys({
+      check: options.check === true,
+      dryRun: flags.dryRun,
+      yes: flags.yes,
+    });
+  });
+
 withGlobalFlags(program.command('update'))
   .description('update every detected agent to the caddis version shipped in this CLI')
   .option('-f, --force', 're-drive agents that already report the shipped version', false)

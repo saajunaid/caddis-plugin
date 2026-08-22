@@ -1,6 +1,6 @@
 {
   "name": "@caddis/cli",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "description": "Install, update and diagnose the caddis dev harness across every coding agent you use (Claude Code, agy/Antigravity, and more).",
   "keywords": [
     "caddis",
@@ -19,7 +19,10 @@
   },
   "bin": {
     "caddis": "./dist/cli.js",
-    "caddis-cli": "./dist/cli.js"
+    "caddis-cli": "./dist/cli.js",
+    "claude-oss": "./dist/claude-oss.js",
+    "claude-glm": "./dist/claude-glm.js",
+    "claude-deepseek": "./dist/claude-deepseek.js"
   },
   "files": [
     "dist",
