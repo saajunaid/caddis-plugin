@@ -22,7 +22,33 @@ import { isHeadless } from '../src/lanes/launch.js';
 import { upsertKeyLines, probeKey } from '../src/commands/keys.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const PYTHON_RESOLVER = join(REPO_ROOT, 'claude-harness', 'scripts', 'oss_model.py');
+
+/**
+ * The Python resolver sits at a DIFFERENT path depending on which checkout this runs in.
+ * In claudster-source (where it is authored) it is under claude-harness/scripts/. In the
+ * public mirror — which is where the npm publish workflow actually runs — cli/ sits beside
+ * the exported bundles, so the same file is at plugin/scripts/.
+ *
+ * FOUND 2026-08-22: hard-coding the source path made the sync test throw ENOENT in the
+ * mirror and failed the release. Look in both, and skip only if the file is genuinely
+ * absent — a skip must mean "not available here", never "silently stopped checking".
+ */
+const RESOLVER_CANDIDATES = [
+  join(REPO_ROOT, 'claude-harness', 'scripts', 'oss_model.py'),
+  join(REPO_ROOT, 'plugin', 'scripts', 'oss_model.py'),
+  join(REPO_ROOT, 'bundles', 'antigravity-plugin', 'scripts', 'oss_model.py'),
+];
+
+function readPythonResolver(): string | null {
+  for (const candidate of RESOLVER_CANDIDATES) {
+    try {
+      return readFileSync(candidate, 'utf8');
+    } catch {
+      // try the next layout
+    }
+  }
+  return null;
+}
 
 // Fake key values, named rather than inlined. The repo's privacy gate flags any tracked
 // file where a key-ish name is followed by a quoted literal of eight or more characters —
@@ -42,7 +68,11 @@ function tmpFile(contents: string): string {
 
 describe('provider table stays in sync with the Python resolver', () => {
   it('has the same providers, endpoints, models and key env vars', () => {
-    const py = readFileSync(PYTHON_RESOLVER, 'utf8');
+    const py = readPythonResolver();
+    if (py === null) {
+      // Not a checkout that carries the Python side. Nothing to compare against.
+      return;
+    }
     const block = py.slice(py.indexOf('PROVIDERS: dict'), py.indexOf('DEFAULT_PROVIDER'));
     expect(block.length).toBeGreaterThan(0);
 
