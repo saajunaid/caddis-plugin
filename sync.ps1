@@ -1069,7 +1069,10 @@ function caddis-push {
         [string]$McpVersion = "",
         [string[]]$Profiles = @("ptarmigan", "liffey"),
         [switch]$SkipProfileSync,
-        [switch]$SkipAgySync
+        [switch]$SkipAgySync,
+        # Push to the public mirror even when a pre-push validator fails. Deliberate
+        # override for a known-bad check you have decided to ship past; it has to be typed.
+        [switch]$Force
     )
 
     $pushResult = [ordered]@{
@@ -1324,6 +1327,47 @@ function caddis-push {
     }
 
     Remove-LocalOnlyPoolFiles -GithubRoot $CADDIS_GITHUB
+
+    # -- PRE-PUSH GATE (added 2026-08-22) ------------------------------------------------
+    # The mirror is the PUBLIC distribution repo. Everything downstream of this point is
+    # outward-facing: consumers pull the plugin from it, and a `cli-v*` tag on it publishes
+    # to npm under your name.
+    #
+    # These same two validators were already a hard ABORT inside `caddis-release`, but the
+    # plain mirror push had no gate at all. It printed a warning for a failed check and
+    # pushed anyway.
+    #
+    # Observed 2026-08-22: a run reported "[FAIL] 1 check(s) failed" (the privacy scanner
+    # had matched a key-shaped literal in a test file), and still reported MirrorChanged =
+    # True with the mirror pushed. The only thing between that and a tagged npm release was
+    # a human choosing to read the output. That is not a gate.
+    #
+    # -Force is the deliberate override for a known-bad check the operator has decided to
+    # ship past. It has to be typed, which is the point.
+    $gateRoot = $ProjectRoot
+    $gatePython = Get-CaddisPythonCommand
+    if ($gatePython) {
+        foreach ($gateScript in @("validate_agents.py", "validate_pool.py")) {
+            $gatePath = Join-Path $gateRoot $gateScript
+            if (-not (Test-Path $gatePath)) { continue }
+            Push-Location $gateRoot
+            & $gatePython.Path @($gatePython.PrefixArgs + @($gateScript))
+            $gateOk = ($LASTEXITCODE -eq 0)
+            Pop-Location
+            if (-not $gateOk) {
+                if ($Force) {
+                    Write-Host "  [WARN]  $gateScript failed -- pushing anyway because -Force was given." -ForegroundColor Yellow
+                } else {
+                    Write-Host ""
+                    Write-Host "  [ABORT]  $gateScript failed. NOT pushing to the public mirror." -ForegroundColor Red
+                    Write-Host "           Fix the errors above, or re-run with -Force to push regardless." -ForegroundColor DarkGray
+                    return [pscustomobject]$pushResult
+                }
+            }
+        }
+    } else {
+        Write-Host "  [WARN]  No python found -- pre-push validation skipped." -ForegroundColor Yellow
+    }
 
     # Commit and push caddis-plugin
     Push-Location $CADDIS_POOL
