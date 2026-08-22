@@ -32,7 +32,12 @@ export async function update(options: UpdateOptions): Promise<number> {
     }
   }
 
-  const targets = actionable(report, options.force === true);
+  // --force means both: re-drive agents already current, AND accept a downgrade of one that
+  // is ahead. Without it, neither.
+  const targets = actionable(report, {
+    includeCurrent: options.force === true,
+    allowDowngrade: options.force === true,
+  });
   if (targets.length === 0) {
     const supportedPresent = report.agents.filter((e) => e.detection.present && e.adapter.supported);
     const ahead = report.agents.filter((e) => e.drift === 'ahead');

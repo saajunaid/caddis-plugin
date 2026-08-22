@@ -283,6 +283,6 @@ st.plotly_chart(create_trend_chart(filter_type), use_container_width=True)
 |----------|------|
 | Streamlit dev skill | `skills/frontend/streamlit-dev/SKILL.md` |
 | FastAPI dev skill | `skills/coding/fastapi-dev/SKILL.md` |
-| SQL expert skill | `skills/coding/sql/SKILL.md` |
+| SQL expert skill | the `sql` skill |
 | Caching patterns | `skills/coding/caching-patterns/SKILL.md` |
 | UX design skill | `skills/frontend/ux-design/SKILL.md` |

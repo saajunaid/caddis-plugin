@@ -86,6 +86,7 @@
 | Ship Pr | `ship-pr/` | Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge). |
 | Spawn Hub | `spawn-hub/` | Hand the Advisory Hub role to a fresh session — run the mechanical audit, then generate the succession prompt with a context self-check the new Hub must pass |
 | Spawn Session | `spawn-session/` | Hand the WORK to a fresh session — generate the handover from the repo, then validate the successor by re-deriving its answers |
+| Statusline | `statusline/` | Install the caddis status line into Claude Code and agy — one renderer, once per machine |
 | Tdd | `tdd/` | Run a strict red-green-refactor TDD cycle for a unit of behavior |
 | Ui Brief | `ui-brief/` | Design-first UI brief — lock the aesthetic before writing any code |
 | Usage Review | `usage-review/` | Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step |

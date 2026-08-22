@@ -22,6 +22,25 @@ def _artifact_root(root: str) -> str:
     return os.path.join(str(root), ".caddis")
 
 
+
+def _hook_note(feature, exc, root=None):
+    """Record a swallowed failure in the caddis hook ledger. Never raises, never prints.
+
+    agy hooks ship FLAT at the plugin root while hook_log.py ships under scripts/, and in
+    the source repo this file sits in claude-harness/agy/ with hook_log.py one level up in
+    claude-harness/scripts/. Try both layouts.
+    """
+    try:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        for _cand in (os.path.join(_here, "scripts"),
+                      os.path.join(os.path.dirname(_here), "scripts")):
+            if os.path.isdir(_cand) and _cand not in sys.path:
+                sys.path.insert(0, _cand)
+        import hook_log as _hl  # noqa: E402
+        _hl.record(os.path.basename(__file__).replace(".py", ""), feature, exc, root)
+    except Exception:
+        pass
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -43,8 +62,8 @@ def main() -> None:
         }
         with open(os.path.join(art, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
-    except Exception:
-        pass  # never fail the turn
+    except Exception as _exc:
+        _hook_note("agy usage-log write", _exc)  # never fail the turn
     # No stdout: agy interprets a Stop hook's stdout as a decision object.
 
 

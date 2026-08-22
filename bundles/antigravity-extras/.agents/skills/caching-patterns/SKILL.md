@@ -382,4 +382,4 @@ This pattern is complementary to chunk retry (Step 6 + Gotcha 6) — the 3-layer
 |----------|------|
 | Streamlit dev skill | `skills/frontend/streamlit-dev/SKILL.md` |
 | Streamlit instructions | `instructions/streamlit.instructions.md` |
-| SQL expert skill | `skills/coding/sql/SKILL.md` |
+| SQL expert skill | the `sql` skill |

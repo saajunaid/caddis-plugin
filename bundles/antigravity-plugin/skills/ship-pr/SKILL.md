@@ -98,5 +98,5 @@ human-confirmed door.
 - Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.
 
 ## Skill reference
-Gitea API monitoring + failure triage: `skills/devops/deploy-local/SKILL.md`. GitHub `gh pr` / `gh run`
+Gitea API monitoring + failure triage: the `deploy-local` skill (ships in the optional `caddis-extras` plugin — enable it with `claude plugin enable caddis-extras`). GitHub `gh pr` / `gh run`
 usage: the `gh-cli` skill. Load whichever matches the detected lane.

@@ -103,5 +103,5 @@ Release tag:     <tag> → <sha> | n/a
 
 ## Skill reference
 Full procedures for the Gitea lane (CI monitoring, prod validation, queue triage, failure remediation)
-are in `skills/devops/deploy-local/SKILL.md`. For the GitHub lane, the `gh-cli` skill covers `gh run`
+are in the `deploy-local` skill (ships in the optional `caddis-extras` plugin — enable it with `claude plugin enable caddis-extras`). For the GitHub lane, the `gh-cli` skill covers `gh run`
 usage. Load whichever matches the detected lane when a step needs more detail.

@@ -42,7 +42,9 @@ export async function init(options: InitOptions): Promise<number> {
   // init is the install path, so it drives every present+supported agent —
   // including ones already current. Re-running a native installer over an
   // up-to-date plugin is a no-op in both Claude Code and agy.
-  const targets = actionable(report, true);
+  // includeCurrent, but NOT allowDowngrade: init reinstalls every detected agent, and must
+  // never roll one back to this package's older bundle.
+  const targets = actionable(report, { includeCurrent: true });
 
   if (targets.length === 0) {
     clack.outro(

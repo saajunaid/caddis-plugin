@@ -98,8 +98,8 @@ def _repo_root(start: str) -> str:
         root = out.stdout.strip()
         if out.returncode == 0 and root:
             return root
-    except Exception:
-        pass
+    except Exception as _exc:
+        _hook_note("git repo-root resolution", _exc)
     return start
 
 
@@ -115,6 +115,37 @@ try:
     from claudster_config import ARTIFACT_DIRS, artifact_root  # noqa: E402
 except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
     ARTIFACT_DIRS = (".caddis",)
+
+# ── hook error ledger ───────────────────────────────────────────────────────────────
+# Every optional surface below is wrapped in `try/except`, because a broken surface must
+# never break the session. Until 2026-08-22 the except body was a bare `pass`, so a
+# surface that stopped working and a surface with nothing to say looked identical. These
+# helpers keep the fail-open behaviour and add a throttled record. Both are themselves
+# fail-open: a ledger that cannot load costs nothing.
+def _hook_note(feature, exc, root=None):
+    """Record that `feature` failed. Never raises."""
+    try:
+        _hl_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if _hl_dir not in sys.path:
+            sys.path.insert(0, _hl_dir)
+        import hook_log as _hl  # noqa: E402
+        _hl.record("inject_relay", feature, exc, root)
+    except Exception:
+        pass
+
+
+def _hook_summary(root=None):
+    """One line about recent hook failures, or "" when clean. Never raises."""
+    try:
+        _hl_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if _hl_dir not in sys.path:
+            sys.path.insert(0, _hl_dir)
+        import hook_log as _hl  # noqa: E402
+        return _hl.summarise(root)
+    except Exception:
+        return ""
+
+
 
     def artifact_root(root):
         return os.path.join(str(root), ARTIFACT_DIRS[0])
@@ -225,8 +256,8 @@ try:
             if len(_stack) > 1:
                 _wlines.append(f"({len(_stack)} parked total)")
             print("\n".join(_wlines))
-except Exception:
-    pass
+except Exception as _exc:
+    _hook_note("parked-stack surface", _exc)
 
 if os.path.isfile(RELAY) and not _is_headless():
     try:
@@ -266,8 +297,8 @@ try:
             print("\n[memory] reinforced facts for this repo (auto; fades if not seen):")
             for _line in _dm._format_surface(_top):
                 print(_line)
-except Exception:
-    pass
+except Exception as _exc:
+    _hook_note("dream-memory surface", _exc)
 
 # Maintenance nudge (Phase 9): ONE deterministic line when a signal fires — an oversize always-loaded
 # AGENTS.md (curator), a dangling DOC-MAP link (/caddis:kb), or a stale doctor run. PURE FILE CHECKS
@@ -281,8 +312,8 @@ try:
     _nudge = _cd.nudge_line(ROOT)
     if _nudge:
         print("\n" + _nudge)
-except Exception:
-    pass
+except Exception as _exc:
+    _hook_note("rules-budget nudge", _exc)
 
 # Tidy nudge (artifact-lifecycle-tidy Phase 3): ONE line when a finished plan/prompt is sitting
 # outside done/. Strictly read-only (dry-run scan only, no move) - the actual move happens at
@@ -299,8 +330,8 @@ try:
     _tidy_nudge = _ct.nudge_line(_Path(ROOT))
     if _tidy_nudge:
         print("\n" + _tidy_nudge)
-except Exception:
-    pass
+except Exception as _exc:
+    _hook_note("tidy nudge", _exc)
 
 # Output style provisioning: put `Plain.md` where the /config picker looks, once.
 #
@@ -332,8 +363,8 @@ try:
         elif _note.startswith("user env: added"):
             print("\n[caddis] enabled CLAUDE_CODE_ENABLE_TODO_TOOLS in your global settings — "
                   "restart Claude Code to pick it up.")
-except Exception:
-    pass
+except Exception as _exc:
+    _hook_note("todo-tools env enable", _exc)
 
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
 # Prefer the current artifact dir, then the older .claude path.
@@ -363,7 +394,18 @@ try:
             _lines = [l for l in _fh if l.strip()]
         if len(_lines) >= 3:
             print("\n[USAGE-REVIEW] You have usage data — run `/usage-review` to review patterns and right-size your harness.\n")
+except Exception as _exc:
+    _hook_note("usage-review nudge", _exc)
+
+# Hook health: one line when something has been failing quietly. Throttled to one record
+# per hook/feature/error per day, so a hook broken on every call reports once, not always.
+# This is the ONLY place the user is told — a second channel is a channel to ignore.
+try:
+    _health = _hook_summary(ROOT)
+    if _health:
+        print("")
+        print(_health)
 except Exception:
-    pass
+    pass  # the health check must never be the thing that breaks the session
 
 sys.exit(0)

@@ -135,7 +135,14 @@ function classifyExtras(
   if (!adapter.supported) return 'unsupported';
   if (!status.extras.installed) return 'missing'; // normal: extras is opt-in
   if (!status.extras.version || !extrasVersion) return 'unknown';
-  return status.extras.version === extrasVersion ? 'current' : 'stale';
+  // Order the versions; do NOT compare them as strings. String equality has no concept of
+  // 'ahead', so an extras install NEWER than this package was labelled 'stale' — and
+  // actionable() drives 'stale', which downgraded it. This is the same defect commit
+  // 652dcfd fixed for core drift; extras was left on the old logic.
+  const order = compareVersions(status.extras.version, extrasVersion);
+  if (order === null) return status.extras.version === extrasVersion ? 'current' : 'stale';
+  if (order === 0) return 'current';
+  return order > 0 ? 'ahead' : 'stale';
 }
 
 /**
@@ -144,13 +151,27 @@ function classifyExtras(
  * is current — otherwise `update` would silently leave extras behind.
  * A `missing` extras does not, because extras is opt-in (`--extras` handles it).
  */
-export function actionable(report: Report, includeCurrent = false): AgentReport[] {
+export interface ActionableOptions {
+  /** Also drive agents already at this package's version (`init`, and `update --force`). */
+  includeCurrent?: boolean;
+  /**
+   * Allow driving an agent NEWER than this package's bundle. That is a DOWNGRADE, so only an
+   * explicit `--force` may ask for it — a deliberate rollback is a real thing to want.
+   */
+  allowDowngrade?: boolean;
+}
+
+export function actionable(report: Report, options: ActionableOptions = {}): AgentReport[] {
+  const { includeCurrent = false, allowDowngrade = false } = options;
   return report.agents.filter((entry) => {
     if (!entry.detection.present || !entry.adapter.supported) return false;
+    // The ahead-guard runs BEFORE includeCurrent, on purpose. These used to be one flag, so
+    // `init` — which passes includeCurrent to (re)install every detected agent — inherited
+    // `--force`'s permission to downgrade. `npx caddis init` on a machine whose agy install
+    // was newer than the CLI's bundle silently rolled it back and reported success.
+    if (entry.drift === 'ahead' && !allowDowngrade) return false;
+    if (entry.extrasDrift === 'ahead' && !allowDowngrade) return false;
     if (includeCurrent) return true;
-    // NEVER drive an agent that is ahead of this package's bundle. `--force` still can, because a
-    // deliberate rollback is a real thing to want; doing it by default is not.
-    if (entry.drift === 'ahead') return false;
     return entry.drift !== 'current' || entry.extrasDrift === 'stale' || entry.extrasDrift === 'unknown';
   });
 }

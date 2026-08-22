@@ -101,7 +101,7 @@ different number here) almost certainly contains bloat. Flag the file and count:
 
 > The pre-push doc-coverage checker (`scripts/check_doc_coverage.py`) also *warns* on an oversize
 > always-loaded rules file (`AGENTS.md` + its `CLAUDE.md` shim; `agents_md_budget`), and a
-> `PostToolUse` hook (`hooks/rules_budget_nudge.py`) re-warns mid-session on every edit to one that's
+> `PostToolUse` hook (the `rules_budget_nudge` hook) re-warns mid-session on every edit to one that's
 > already over — this agent is the deeper consolidation pass that actually fixes it.
 
 ## Step 4 — Return proposed changes (never write)

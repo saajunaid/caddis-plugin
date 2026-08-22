@@ -62,7 +62,16 @@ describe('drift classification', () => {
 
   it('--force can still drive an ahead agent — a deliberate rollback is a real thing to want', async () => {
     const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.4.0' } })]);
-    expect(actionable(report, true)).toHaveLength(1);
+    expect(actionable(report, { includeCurrent: true, allowDowngrade: true })).toHaveLength(1);
+  });
+
+  // REGRESSION 2026-08-22. `includeCurrent` and "may downgrade" used to be the SAME flag, and
+  // init.ts passed it to reinstall every detected agent. So `npx caddis init` on a machine whose
+  // agy install was newer than the CLI's bundle silently rolled it back and reported success —
+  // the same failure 652dcfd fixed for `update`, reachable through the other command.
+  it('init (includeCurrent, no --force) must NEVER drive an ahead agent', async () => {
+    const report = await gather([fakeAdapter({ id: 'claude', agentStatus: { installed: true, version: '1.4.0' } })]);
+    expect(actionable(report, { includeCurrent: true })).toHaveLength(0);
   });
 
   it('still drives an agent that is genuinely behind', async () => {
@@ -132,12 +141,15 @@ describe('actionable()', () => {
 
   it('includes already-current agents when asked (the init / --force path)', async () => {
     const report = await gather(adapters);
-    expect(actionable(report, true).map((entry) => entry.adapter.id)).toEqual(['claude', 'agy']);
+    expect(actionable(report, { includeCurrent: true }).map((entry) => entry.adapter.id)).toEqual([
+      'claude',
+      'agy',
+    ]);
   });
 
   it('never selects an unsupported or absent agent, even with includeCurrent', async () => {
     const report = await gather(adapters);
-    const ids = actionable(report, true).map((entry) => entry.adapter.id);
+    const ids = actionable(report, { includeCurrent: true }).map((entry) => entry.adapter.id);
     expect(ids).not.toContain('codex');
     expect(ids).not.toContain('copilot');
   });

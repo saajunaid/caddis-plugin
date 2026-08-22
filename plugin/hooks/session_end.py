@@ -128,8 +128,19 @@ def _summarise(transcript_path: str) -> dict | None:
     return tot
 
 
-def _extract_identity(transcript_path: str) -> tuple[set[str], set[str]]:
-    """Return ``(skills, commands)`` used in this session's transcript — names only.
+def _extract_identity(transcript_path: str) -> tuple[set[str], set[str], set[str]]:
+    """Return ``(skills, commands, skills_read)`` for this session — names only.
+
+    V16 (2026-08-22): ``skills`` counts only ``Skill`` tool_use events, so a skill that a
+    COMMAND told the model to read never registered. Every such skill scored zero, and a
+    zero was about to be read as "nobody uses this". ``skills_read`` closes that gap: a
+    ``Read`` of a ``SKILL.md`` under an INSTALL path is the model following a skill it was
+    pointed at. A read under the working repo is authoring the skill, not using it, so it
+    is excluded — otherwise editing caddis would look like using caddis.
+
+    Still invisible, and deliberately not guessed at: a skill inlined into a command's own
+    prose, and a skill file opened through ``Bash`` (``sed``/``cat``), which is equally
+    often authoring. Treat ``skills_read`` as a floor, never as a complete count.
 
     V15: the usage log carried token totals but no skill/command identity, so the pruning
     question (Phase 12) was unanswerable from evidence. This recovers that identity at the
@@ -147,8 +158,11 @@ def _extract_identity(transcript_path: str) -> tuple[set[str], set[str]]:
     """
     skills: set[str] = set()
     commands: set[str] = set()
+    skills_read: set[str] = set()
+    # A skill file under the session's own working tree is being authored, not followed.
+    _repo = os.path.abspath(os.getcwd()).replace("\\", "/").lower()
     if not transcript_path or not os.path.isfile(transcript_path):
-        return skills, commands
+        return skills, commands, skills_read
     try:
         with open(transcript_path, encoding="utf-8") as fh:
             for line in fh:
@@ -174,6 +188,17 @@ def _extract_identity(transcript_path: str) -> tuple[set[str], set[str]]:
                             sk = inp.get("skill")
                             if isinstance(sk, str) and sk.strip():
                                 skills.add(sk.strip())
+                        elif item.get("name") == "Read":
+                            # Deliberately Read only. Edit/Write is authoring; Bash is
+                            # ambiguous. A floor is more useful than a wrong number.
+                            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
+                            fp = inp.get("file_path")
+                            if isinstance(fp, str):
+                                norm = fp.replace("\\", "/")
+                                if norm.lower().endswith("/skill.md") and not norm.lower().startswith(_repo):
+                                    parts = [seg for seg in norm.split("/") if seg]
+                                    if len(parts) >= 2:
+                                        skills_read.add(parts[-2])
                 # Commands: <command-name>/plugin:cmd</command-name> marker on user turns.
                 if role == "user":
                     text = ""
@@ -188,7 +213,7 @@ def _extract_identity(transcript_path: str) -> tuple[set[str], set[str]]:
                         commands.add(m.group(1).strip().lstrip("/"))
     except Exception:
         pass
-    return skills, commands
+    return skills, commands, skills_read
 
 
 def _fmt(n: int) -> str:
@@ -236,10 +261,12 @@ print(
 )
 
 u = _summarise(data.get("transcript_path", ""))
-# V15: record which skills/commands fired (names only) alongside the token totals, so the
+# V15/V16: record which skills/commands fired (names only) alongside the token totals, so the
 # pruning question is answerable from the log instead of taste. Computed unconditionally so
-# identity is captured even when the token parse yields nothing.
-skills, commands = _extract_identity(data.get("transcript_path", ""))
+# identity is captured even when the token parse yields nothing. V16 adds skills_read, because
+# counting only Skill tool_use produced a zero for every skill a command pointed the model at —
+# and those zeros were about to be read as evidence of disuse.
+skills, commands, skills_read = _extract_identity(data.get("transcript_path", ""))
 if u:
     print(
         f"\n[USAGE] this session ~ in {_fmt(u['input'])} · out {_fmt(u['output'])} · "
@@ -250,7 +277,7 @@ if u:
 # Write a record whenever there is token data OR identity. Tying the write to tokens alone
 # would lose identity for any session whose usage parse returned nothing — pruning evidence
 # must not depend on token accounting succeeding.
-if u or skills or commands:
+if u or skills or commands or skills_read:
     try:
         caddis_dir = str(artifact_root(_repo_root(_session_cwd)))
         os.makedirs(caddis_dir, exist_ok=True)
@@ -265,6 +292,11 @@ if u or skills or commands:
             "models": u["models"] if u else [],
             "skills": sorted(skills),
             "commands": sorted(commands),
+            # V16: skills the model READ because something pointed it there, as opposed to
+            # skills it CHOSE via the Skill tool. Kept as a separate key on purpose — merging
+            # them would make "the model picked this" indistinguishable from "a command made
+            # it read this", and that difference is the whole point of the measurement.
+            "skills_read": sorted(skills_read),
         }
         with open(os.path.join(caddis_dir, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")

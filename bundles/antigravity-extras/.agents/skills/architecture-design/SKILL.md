@@ -241,4 +241,4 @@ def fetch_records(status: str = None, page: int = 1):
 | Architect agent | `agents/architect.agent.md` |
 | FastAPI dev skill | `skills/coding/fastapi-dev/SKILL.md` |
 | Streamlit dev skill | `skills/frontend/streamlit-dev/SKILL.md` |
-| SQL expert skill | `skills/coding/sql/SKILL.md` |
+| SQL expert skill | the `sql` skill |

@@ -287,6 +287,25 @@ def _emit(tier: str, reason: str) -> None:
     sys.stdout.write(payload)
 
 
+
+def _hook_note(feature, exc, root=None):
+    """Record a swallowed failure in the caddis hook ledger. Never raises, never prints.
+
+    agy hooks ship FLAT at the plugin root while hook_log.py ships under scripts/, and in
+    the source repo this file sits in claude-harness/agy/ with hook_log.py one level up in
+    claude-harness/scripts/. Try both layouts.
+    """
+    try:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        for _cand in (os.path.join(_here, "scripts"),
+                      os.path.join(os.path.dirname(_here), "scripts")):
+            if os.path.isdir(_cand) and _cand not in sys.path:
+                sys.path.insert(0, _cand)
+        import hook_log as _hl  # noqa: E402
+        _hl.record(os.path.basename(__file__).replace(".py", ""), feature, exc, root)
+    except Exception as _exc:
+        _hook_note("agy guard config read", _exc)
+
 def main() -> None:
     tier, reason = "allow", ""
     try:
@@ -294,8 +313,8 @@ def main() -> None:
         if _reconfig:
             try:
                 _reconfig(encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as _exc:
+                _hook_note("agy guard config read", _exc)
         try:
             data = json.load(sys.stdin)
         except Exception:
@@ -317,8 +336,8 @@ def main() -> None:
     finally:
         try:
             _emit(tier, reason)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _hook_note("agy guard config read", _exc)
         # Always exit 0: a non-zero code from a PreToolUse hook is an agy hook *error*.
         sys.exit(0)
 

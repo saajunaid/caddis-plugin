@@ -99,5 +99,5 @@ Cleanup:       remote branch ✗ deleted / local ✗ deleted / backup ref droppe
 - Local-only lane: no PR, no merge — refuse and point at `/ship`.
 
 ## Skill reference
-Gitea deploy monitoring, prod validation, failure triage: `skills/devops/deploy-local/SKILL.md`.
+Gitea deploy monitoring, prod validation, failure triage: the `deploy-local` skill (ships in the optional `caddis-extras` plugin — enable it with `claude plugin enable caddis-extras`).
 GitHub `gh pr merge` / `gh run` usage: the `gh-cli` skill.

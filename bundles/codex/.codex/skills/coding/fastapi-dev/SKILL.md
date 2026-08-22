@@ -295,6 +295,6 @@ async def create_record(record: RecordCreate, service: ...):
 | Resource | Path |
 |----------|------|
 | FastAPI instructions | `instructions/fastapi.instructions.md` |
-| SQL expert skill | `skills/coding/sql/SKILL.md` |
+| SQL expert skill | the `sql` skill |
 | Python instructions | `instructions/python.instructions.md` |
 | Security instructions | `instructions/security.instructions.md` |

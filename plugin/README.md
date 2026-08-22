@@ -100,4 +100,38 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   markers exist to detect (see `_HEADLESS_MARKERS` in `claude-harness/hooks/tests/test_hook_paths.py`
   and `test_warm_start_agy.py`). And a content lint that asserts a sentence appears verbatim in a
   prose doc must assert against a whitespace-flattened copy (`" ".join(text.split())`), or an
-  unrelated paragraph re-wrap fakes a failure — see `_flat()` in `scripts/tests/test_lane_routing.py`.
+  unrelated paragraph re-wrap fakes a failure — see `_flat()` in `scripts/tests/test_lane_routing.py` (source repo only).
+- **A narrow `except (...)` tuple must be checked against the exception's real MRO, not assumed from
+  its name.** `http.client.IncompleteRead` sounds like a parse problem but is not a `ValueError`; its
+  MRO is `(IncompleteRead, HTTPException, Exception)`. It escaped
+  `except (URLError, HTTPError, RuntimeError, ValueError, TimeoutError)` in `.github/tools/oss_review.py`,
+  so Python exited 1 — `EXIT_BLOCKING` — and a truncated network response was reported to scripted
+  callers as "the reviewer found blocking issues." Fixed with a named `TRANSPORT_ERRORS` tuple that
+  includes `http.client.HTTPException` (`.caddis/parking-lot/done/006-cross-review-exits-0-when-batches-never-ran.md`).
+- **`git ls-files` with no flags lists only TRACKED files — a check for a misfiled/untracked artifact
+  will miss it, because the artifact is untracked at the exact moment it is misfiled.** The fix is
+  `git ls-files --cached --others --exclude-standard`; see the misfiled-hand-rolled-spawn-prompt check
+  in `claude-harness/scripts/check_doc_coverage.py` (its first version, using plain `ls-files`, passed
+  cleanly on a live misfiled artefact — a check that cannot fail, guarding the case it exists for).
+- **An exemption in a stale-fact check must be anchored to the narrowest literal that matches the true
+  positive, not a broad prefix — and a check flagging durable-looking facts must separate CURRENT-state
+  claims from historical citations, or it cries wolf.** `scripts/caddis_spawn.py`'s handover-integrity
+  checker first exempted any line starting with `head`, which exempted "HEAD is currently abc1234" —
+  the single most common phrasing of the exact thing it exists to catch; its own test found it (now
+  anchored to the literal first token of `fingerprint_line()`). The same checker also learned to grade
+  hash/version hits in two tiers — CURRENT state blocks, a historical citation ("shipped in abc1234")
+  only advises — because flagging both produced seven harmless findings on one real handover, and a
+  check with that hit rate gets switched off before it ever catches the one that matters. See
+  `_FINGERPRINT_LINE` / `_CURRENT_STATE` / `DocFindings` in that file.
+- **A string-equality version comparison cannot tell "older" from "newer".** `cli/src/commands/report.ts`
+  used `!==` to flag drift, so the newest agent read "update available" *and* a twenty-releases-stale
+  one read "current" — wrong in both directions on the same run — and `caddis update` could silently
+  DOWNGRADE an agent while reporting success. Fixed with real ordering (`compareVersions`) plus a
+  distinct `ahead` state that a driver must never act on (`entry.drift === 'ahead'` short-circuits the
+  updater).
+- **A test can encode the bug it is meant to catch — a fix making an existing test go red is not
+  automatically a regression.** `cli/test/report.test.ts` asserted `'stale'` for an agent AHEAD of the
+  shipped pool, reasoning "a downgrade is still drift." Reasonable-sounding, but it mislabeled the
+  state and let the actual downgrade through (see the entry above). Changed 2026-08-16 to assert the
+  real `'ahead'` state with its own `never drive it` behavior. Before "fixing" a test back to green,
+  check whether the assertion itself is the bug.

@@ -10,4 +10,4 @@
 - **Subagents** (own context, report back) for heavy reads — `preflight`, `tester`, `code-reviewer`, `codebase-audit`, `security-analyst`: from `.claude/agents/` (if vendored) or the caddis plugin.
 - **Commands** — `/feature-plan`, `/tdd`, `/prd`, `/handoff`, `/implement`, `/ship`: from `.claude/commands/` or the plugin.
 - **Skills** — reusable how-to, invoked by name / auto-triggered, from the caddis plugin.
-- **Status line** — `.claude/statusline-command.sh`, wired in `.claude/settings.json`.
+- **Status line** — `caddis_statusline.py`, installed once per machine by `/caddis:statusline` (user scope, not per project).
