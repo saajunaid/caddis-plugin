@@ -805,128 +805,8 @@ def check_profile_manifest_alignment(profile: str, profile_root: Path) -> CheckR
     return r
 
 
-def check_ptarmigan_content_restrictions(profile_root: Path) -> CheckResult:
-    r = CheckResult(name="Ptarmigan ADLC restrictions — exact 6-agent roster and forbidden resources")
-
-    # --- Agent roster: exactly these 6 ---
-    required_agents = {
-        "orchestrator.agent.md",
-        "planner.agent.md",
-        "preflight.agent.md",
-        "implement.agent.md",
-        "tester.agent.md",
-        "code-reviewer.agent.md",
-    }
-    agents_dir = profile_root / "agents"
-    if agents_dir.exists():
-        present = {f.name for f in agents_dir.glob("*.agent.md")}
-        for expected in sorted(required_agents):
-            if expected not in present:
-                r.failures.append(f"Ptarmigan ADLC agent missing: {expected}")
-            for extra in sorted(present - required_agents):
-                r.failures.append(f"Ptarmigan ADLC unexpected agent present: {extra}")
-        r.info.append(f"agent files present: {len(present)}, required: {len(required_agents)}")
-    else:
-        r.failures.append("agents/ directory missing from Ptarmigan profile")
-
-    # --- Forbidden stack-specific resources ---
-    forbidden_paths = [
-        profile_root / "instructions" / "streamlit.instructions.md",
-        profile_root / "instructions" / "sql.instructions.md",
-        profile_root / "instructions" / "sql-stored-procedures.instructions.md",
-        profile_root / "instructions" / "mssql-dba.instructions.md",
-        profile_root / "instructions" / "docker.instructions.md",
-        profile_root / "instructions" / "github-actions.instructions.md",
-        profile_root / "skills" / "coding" / "sql",
-        profile_root / "skills" / "data",
-        profile_root / "skills" / "cloud",
-        profile_root / "skills" / "frontend" / "streamlit-dev",
-        profile_root / "skills" / "frontend" / "streamlit-animate",
-    ]
-    checked = 0
-    for forbidden in forbidden_paths:
-        checked += 1
-        if forbidden.exists():
-            rel = forbidden.relative_to(profile_root)
-            r.failures.append(f"Forbidden Ptarmigan resource present: {rel}")
-    r.info.append(f"checked {checked} forbidden resources")
-    r.passed = not r.failures
-    return r
 
 
-def check_liffey_content_restrictions(profile_root: Path) -> CheckResult:
-    r = CheckResult(name="Liffey ADLC restrictions — exact 8-agent roster and forbidden resources")
-
-    # --- Agent roster: exactly these 8 ---
-    required_agents = {
-        "orchestrator.agent.md",
-        "prd.agent.md",
-        "architect.agent.md",
-        "planner.agent.md",
-        "implement.agent.md",
-        "tester.agent.md",
-        "code-reviewer.agent.md",
-        "devops.agent.md",
-    }
-    agents_dir = profile_root / "agents"
-    if agents_dir.exists():
-        present = {f.name for f in agents_dir.glob("*.agent.md")}
-        for expected in sorted(required_agents):
-            if expected not in present:
-                r.failures.append(f"Liffey ADLC agent missing: {expected}")
-        for extra in sorted(present - required_agents):
-            r.failures.append(f"Liffey ADLC unexpected agent present: {extra}")
-        r.info.append(f"agent files present: {len(present)}, required: {len(required_agents)}")
-    else:
-        r.failures.append("agents/ directory missing from Liffey profile")
-
-    # --- Forbidden resources (stack-specific ones not in Liffey roster) ---
-    forbidden_paths = [
-        profile_root / "instructions" / "streamlit.instructions.md",
-        profile_root / "instructions" / "sql.instructions.md",
-        profile_root / "instructions" / "sql-stored-procedures.instructions.md",
-        profile_root / "instructions" / "mssql-dba.instructions.md",
-        profile_root / "skills" / "coding" / "sql",
-        profile_root / "skills" / "cloud",
-        profile_root / "skills" / "frontend" / "streamlit-dev",
-        profile_root / "skills" / "frontend" / "streamlit-animate",
-    ]
-    checked = 0
-    for forbidden in forbidden_paths:
-        checked += 1
-        if forbidden.exists():
-            rel = forbidden.relative_to(profile_root)
-            r.failures.append(f"Forbidden Liffey resource present: {rel}")
-    r.info.append(f"checked {checked} forbidden resources")
-    r.passed = not r.failures
-    return r
-
-
-# ---------------------------------------------------------------------------
-# Check 9 — Claude Code plugin-bundle validation (profiles: claude, claude-extras)
-# ---------------------------------------------------------------------------
-#
-# The shipped plugin bundle previously had ZERO validation (DECISIONS.md fix-regardless
-# item). These checks guard the packaged bundle under dist/runtime-resources/<profile>/
-# so a broken plugin (version drift, missing hook script, leaked secret) cannot publish.
-#
-#   claude        -> dist/runtime-resources/claude/plugin
-#   claude-extras -> dist/runtime-resources/claude-extras/plugin-extras
-#
-# Checks:
-#   (a) plugin.json shape + name/version match runtime-targets.json
-#   (b) flattened SKILL.md frontmatter + roster count
-#   (c) commands/agents/hooks present            (core plugin only)
-#   (d) hooks.json command references resolve     (core plugin only)
-#   (e) leak scan over the bundle                 (shared privacy scan)
-#   (f) scripts/ contains every module the hooks import  (core plugin only;
-#       catches the Dream Memory packaging bug — hooks importing scripts that
-#       were never copied into the bundle, silently disabling the layer)
-
-CLAUDE_PLUGIN_ROOTS = {
-    "claude": DIST_RUNTIME_ROOT / "claude" / "plugin",
-    "claude-extras": DIST_RUNTIME_ROOT / "claude-extras" / "plugin-extras",
-}
 
 
 def _claude_plugin_root(profile: str) -> Path:
@@ -1326,7 +1206,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--profile",
-        choices=["ptarmigan", "liffey", "claude", "claude-extras"],
+        choices=["claude", "claude-extras"],
         help="Validate a specific exported profile under dist/runtime-resources/<profile>/.",
     )
     args = parser.parse_args(argv)
@@ -1369,10 +1249,6 @@ def main(argv: list[str] | None = None) -> int:
             check_skill_registry_in_dir(profile_root / "skills", args.profile),
             check_document_frontmatter_contract_in_profile(profile_root, args.profile),
         ]
-        if args.profile == "ptarmigan":
-            results.append(check_ptarmigan_content_restrictions(profile_root))
-        elif args.profile == "liffey":
-            results.append(check_liffey_content_restrictions(profile_root))
     else:
         results = [
             check_manifest_contract(),

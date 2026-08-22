@@ -27,12 +27,9 @@ $EXT_REPOS_ROOT = Join-Path $REPO_ROOT "vscode-extensions"
 $CADDIS_POOL = Join-Path $EXT_REPOS_ROOT "caddis-plugin"
 $CADDIS_GITHUB = "$CADDIS_POOL\.github"
 $CADDIS_VSCODE = Join-Path $EXT_REPOS_ROOT "junai-vscode"
-$PTARMIGAN_REPO = Join-Path $EXT_REPOS_ROOT "ptarmigan"
-$LIFFEY_REPO = Join-Path $EXT_REPOS_ROOT "liffey"
 $CADDIS_ENV_FILE = Join-Path $REPO_ROOT ".env"
 $PYPI_KEY_FILE = Join-Path $CADDIS_POOL "pypimcp.key"
 $VSCE_PAT_FILE = Join-Path $CADDIS_VSCODE "vscode.pat"
-$PTARMIGAN_PAT_FILE = Join-Path $PTARMIGAN_REPO "ptarmigan.pat"
 $script:CaddisEnvLoaded = $false
 $script:CaddisEnv = @{}
 $LOCAL_ONLY_POOL_FILES = @(
@@ -686,10 +683,11 @@ function Get-AffectedProfileNamesFromSourcePaths {
 
     $manifest = Get-RuntimeTargetManifest
     if (-not $manifest) {
-        return @("ptarmigan", "liffey")
+        return @()
     }
 
-    $profileTargets = @($manifest.targets | Where-Object { $_.name -in @("ptarmigan", "liffey") })
+    # ptarmigan/liffey VS Code lanes retired 2026-08-23; no profile targets remain.
+    $profileTargets = @()
     if ($profileTargets.Count -eq 0) {
         return @()
     }
@@ -742,18 +740,6 @@ function Get-ReleaseRelevantRepoChangedPaths {
             "junai-vscode" {
                 $isRelevant = (
                     (Test-PathPrefixMatch -RelativePath $normalizedPath -Prefixes @("src", "media", "out", "scripts")) -or
-                    $normalizedPath -in @("package.json", "esbuild.mjs", "tsconfig.json", "README.md", "CHANGELOG.md", "LICENSE.md")
-                )
-            }
-            "ptarmigan" {
-                $isRelevant = (
-                    (Test-PathPrefixMatch -RelativePath $normalizedPath -Prefixes @("src", "media", "assets", "pool", "out", "scripts")) -or
-                    $normalizedPath -in @("package.json", "esbuild.mjs", "tsconfig.json", "README.md", "CHANGELOG.md", "PUBLISHING.md", "LICENSE.md")
-                )
-            }
-            "liffey" {
-                $isRelevant = (
-                    (Test-PathPrefixMatch -RelativePath $normalizedPath -Prefixes @("src", "media", "pool", "out", "scripts")) -or
                     $normalizedPath -in @("package.json", "esbuild.mjs", "tsconfig.json", "README.md", "CHANGELOG.md", "LICENSE.md")
                 )
             }
@@ -953,63 +939,6 @@ Write-Host 'SMOKE-OK: reached end of smoke script'
     }
 }
 
-function Publish-PtarmiganExtension {
-    if (-not (Test-Path $PTARMIGAN_REPO)) {
-        Write-Host "  [ERROR] Ptarmigan repo not found at $PTARMIGAN_REPO" -ForegroundColor Red
-        return $false
-    }
-
-    $pat = Get-CaddisSecretValue -EnvName "PTARMIGAN_VSCE_PAT" -LegacyFilePath $PTARMIGAN_PAT_FILE
-    if ([string]::IsNullOrWhiteSpace($pat)) {
-        Write-Host "  [ERROR] Missing Ptarmigan PAT. Set PTARMIGAN_VSCE_PAT in $CADDIS_ENV_FILE or keep $PTARMIGAN_PAT_FILE." -ForegroundColor Red
-        return $false
-    }
-
-    Push-Location $PTARMIGAN_REPO
-    $prevVscePat = $env:VSCE_PAT
-    try {
-        $env:VSCE_PAT = $pat
-        npx vsce publish --pat $pat --no-dependencies
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [WARN]  Ptarmigan publish failed." -ForegroundColor Yellow
-            return $false
-        }
-
-        Write-Host "  [OK]  Ptarmigan extension published." -ForegroundColor Green
-        $expectedVersion = Get-PackageJsonVersion -PackageJsonPath (Join-Path $PTARMIGAN_REPO "package.json")
-        if (-not [string]::IsNullOrWhiteSpace($expectedVersion)) {
-            Confirm-VscePublishedVersion -ExtensionId "junai-labs.ptarmigan" -ExpectedVersion $expectedVersion | Out-Null
-        }
-        return $true
-    } finally {
-        $env:VSCE_PAT = $prevVscePat
-        Pop-Location
-    }
-}
-
-function Package-LiffeyExtension {
-    Push-Location $LIFFEY_REPO
-    try {
-        $pkg = Get-Content (Join-Path $LIFFEY_REPO "package.json") -Raw | ConvertFrom-Json
-        $version = if ($pkg.version) { $pkg.version } else { "0.0.0" }
-
-        $distDir = Join-Path $LIFFEY_REPO "dist"
-        New-Item -ItemType Directory -Path $distDir -Force | Out-Null
-
-        $vsixOut = Join-Path $distDir "liffey-$version.vsix"
-        npx vsce package --out $vsixOut --no-dependencies
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [WARN]  Liffey VSIX packaging failed." -ForegroundColor Yellow
-            return $null
-        }
-
-        Write-Host "  [OK]  Liffey VSIX prepared: $vsixOut" -ForegroundColor Green
-        return $vsixOut
-    } finally {
-        Pop-Location
-    }
-}
-
 function caddis-pull {
     param([string]$ProjectRoot = (Get-Location).Path)
 
@@ -1067,7 +996,7 @@ function caddis-push {
         [switch]$Publish,
         [switch]$NoPublish,
         [string]$McpVersion = "",
-        [string[]]$Profiles = @("ptarmigan", "liffey"),
+        [string[]]$Profiles = @(),   # retired 2026-08-23: no downstream profile lanes remain
         [switch]$SkipProfileSync,
         [switch]$SkipAgySync,
         # Push to the public mirror even when a pre-push validator fails. Deliberate
@@ -1531,7 +1460,7 @@ function caddis-push {
         }
     }
 
-    $selectedProfiles = @($Profiles | Where-Object { $_ -in @("ptarmigan", "liffey") } | Select-Object -Unique)
+    $selectedProfiles = @()  # no profile lanes since the ptarmigan/liffey retirement
     $pushResult.SelectedProfiles = $selectedProfiles
     if ($SkipProfileSync -or $selectedProfiles.Count -eq 0) {
         Write-Host "  [--]  Profile sync skipped." -ForegroundColor DarkGray
@@ -1559,12 +1488,6 @@ function caddis-push {
         if (-not $profileExportOk) {
             Write-Host "  [WARN]  Profile export failed; skipping selected profile cascade for this run." -ForegroundColor Yellow
         } else {
-            if ($selectedProfiles -contains "ptarmigan") {
-                $pushResult.ProfileResults["ptarmigan"] = [bool](sync-ptarmigan -ProjectRoot $ProjectRoot -Message $Message)
-            }
-            if ($selectedProfiles -contains "liffey") {
-                $pushResult.ProfileResults["liffey"] = [bool](sync-liffey -ProjectRoot $ProjectRoot -Message $Message)
-            }
         }
     }
 
@@ -1667,7 +1590,7 @@ function Sync-CaddisProfileRepo {
 }
 
 function Sync-ExtensionRepo {
-    # Shared helper for ptarmigan and liffey.
+    # Shared helper for managed extension repos.
     # Runs bundle-pool.js in the repo (populates pool/ from the caddis-plugin mirror),
     # then copies the pre-built out/extension.js from junai-vscode, commits, and
     # optionally pushes.  Returns $true if a commit was made, $false otherwise.
@@ -1760,42 +1683,6 @@ function Sync-ExtensionRepo {
     Write-Host "  [OK]  $Label committed + pushed" -ForegroundColor Green
     Pop-Location
     return $true
-}
-
-function sync-ptarmigan {
-    param(
-        [string]$ProjectRoot = $PSScriptRoot,
-        [string]$Message = "",
-        [switch]$NoPush,
-        [switch]$Publish
-    )
-
-    Write-Host "  PTARMIGAN SYNC  caddis-plugin mirror --> $PTARMIGAN_REPO (pool/)" -ForegroundColor Cyan
-    $changed = Sync-ExtensionRepo -RepoPath $PTARMIGAN_REPO -Label "Ptarmigan" -ProjectRoot $ProjectRoot -Message $Message -NoPush:$NoPush -AutoBumpVersion
-    if (-not $changed -or $NoPush -or -not $Publish) {
-        return $changed
-    }
-
-    $null = Publish-PtarmiganExtension
-    return $changed
-}
-
-function sync-liffey {
-    param(
-        [string]$ProjectRoot = $PSScriptRoot,
-        [string]$Message = "",
-        [switch]$NoPush,
-        [switch]$Package
-    )
-
-    Write-Host "  LIFFEY SYNC   caddis-plugin mirror --> $LIFFEY_REPO (pool/)" -ForegroundColor Cyan
-    $changed = Sync-ExtensionRepo -RepoPath $LIFFEY_REPO -Label "Liffey" -ProjectRoot $ProjectRoot -Message $Message -NoPush:$NoPush -AutoBumpVersion
-    if (-not $changed -or -not $Package) {
-        return $changed
-    }
-
-    $null = Package-LiffeyExtension
-    return $changed
 }
 
 function caddis-publish-mcp {
@@ -2142,8 +2029,6 @@ function caddis-smoke-release {
     Write-Host "  CADDIS RELEASE SMOKE TEST" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
-    $escapedPtarmigan = $PTARMIGAN_REPO.Replace("'", "''")
-    $escapedLiffey = $LIFFEY_REPO.Replace("'", "''")
     $scriptText = @"
 `$pythonCommand = Get-CaddisPythonCommand
 if (-not `$pythonCommand) { throw 'Python resolution failed' }
@@ -2158,7 +2043,7 @@ Write-Host ('[OK] caddis-plugin pyproject.toml version: ' + `$mcpVersion)
 if (`$LASTEXITCODE -ne 0) { throw 'validate_agents.py failed' }
 Write-Host '[OK] validate_agents.py'
 
-& `$pythonCommand.Path @(`$pythonCommand.PrefixArgs + @('export_runtime_resources.py', '--profile', 'ptarmigan', '--profile', 'liffey', '--report'))
+& `$pythonCommand.Path @(`$pythonCommand.PrefixArgs + @('export_runtime_resources.py', '--report'))
 if (`$LASTEXITCODE -ne 0) { throw 'export_runtime_resources.py failed' }
 Write-Host '[OK] export_runtime_resources.py'
 
@@ -2166,17 +2051,7 @@ Write-Host '[OK] export_runtime_resources.py'
 if (`$LASTEXITCODE -ne 0) { throw 'validate_pool.py --include-dist failed' }
 Write-Host '[OK] validate_pool.py --include-dist'
 
-`$ptarmiganStage = Test-ManagedExtensionStaging -RepoPath '$escapedPtarmigan' -Label 'Ptarmigan'
-if (-not `$ptarmiganStage.Passed) {
-    throw ('Ptarmigan unmanaged staging leak: ' + ([string]::Join('; ', `$ptarmiganStage.Unexpected)))
-}
-Write-Host '[OK] Ptarmigan managed staging'
 
-`$liffeyStage = Test-ManagedExtensionStaging -RepoPath '$escapedLiffey' -Label 'Liffey'
-if (-not `$liffeyStage.Passed) {
-    throw ('Liffey unmanaged staging leak: ' + ([string]::Join('; ', `$liffeyStage.Unexpected)))
-}
-Write-Host '[OK] Liffey managed staging'
 "@
 
     $exitCode = Invoke-CaddisFreshShell -ScriptText $scriptText -WorkingDirectory $ProjectRoot
@@ -2200,8 +2075,6 @@ function caddis-ship {
         [string[]]$Profiles = @("auto"),
         [switch]$PublishMcp,
         [switch]$PublishCaddisExtension,
-        [switch]$PublishPtarmigan,
-        [switch]$PackageLiffey,
         [switch]$PublishAll,
         [switch]$SkipSmokeTest
     )
@@ -2209,8 +2082,6 @@ function caddis-ship {
     if ($PublishAll) {
         $PublishMcp = $true
         $PublishCaddisExtension = $true
-        $PublishPtarmigan = $true
-        $PackageLiffey = $true
     }
 
     Write-Host ""
@@ -2244,32 +2115,24 @@ function caddis-ship {
     $sourceChangedPaths = @(Get-RepoChangedPaths -RepoPath $ProjectRoot)
     $caddisChangedPaths = @(Get-RepoChangedPaths -RepoPath $CADDIS_POOL)
     $caddisVscodeChangedPaths = @(Get-RepoChangedPaths -RepoPath $CADDIS_VSCODE)
-    $ptarmiganChangedPaths = @(Get-RepoChangedPaths -RepoPath $PTARMIGAN_REPO)
-    $liffeyChangedPaths = @(Get-RepoChangedPaths -RepoPath $LIFFEY_REPO)
 
     $sourceReleaseTargets = @(Get-AffectedReleaseTargetsFromSourcePaths -ChangedPaths $sourceChangedPaths)
     $caddisVscodeDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "junai-vscode" -ChangedPaths $caddisVscodeChangedPaths)
-    $ptarmiganDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "ptarmigan" -ChangedPaths $ptarmiganChangedPaths)
-    $liffeyDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "liffey" -ChangedPaths $liffeyChangedPaths)
     $mcpDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "mcp" -ChangedPaths $caddisChangedPaths)
 
     $sourceDirty = $sourceChangedPaths.Count -gt 0
     $caddisVscodeDirty = $caddisVscodeChangedPaths.Count -gt 0
-    $ptarmiganDirty = $ptarmiganChangedPaths.Count -gt 0
-    $liffeyDirty = $liffeyChangedPaths.Count -gt 0
 
     $autoLaneMode = $normalizedLanes -contains "auto"
     $runSourceLane = if ($autoLaneMode) { $sourceDirty } else { $normalizedLanes -contains "source" }
     $runCaddisVscodeLane = if ($autoLaneMode) { $caddisVscodeDirty } else { $normalizedLanes -contains "junai-vscode" }
-    $runPtarmiganLane = if ($autoLaneMode) { $ptarmiganDirty } else { $normalizedLanes -contains "ptarmigan" }
-    $runLiffeyLane = if ($autoLaneMode) { $liffeyDirty } else { $normalizedLanes -contains "liffey" }
 
     if ($normalizedProfiles -contains "none") {
         $sourceProfiles = @()
     } elseif ($normalizedProfiles -contains "auto") {
         $sourceProfiles = if ($sourceDirty) { @(Get-AffectedProfileNamesFromSourcePaths -ChangedPaths $sourceChangedPaths) } else { @() }
     } else {
-        $sourceProfiles = @($normalizedProfiles | Where-Object { $_ -in @("ptarmigan", "liffey") } | Select-Object -Unique)
+        $sourceProfiles = @()
     }
 
     if (-not $runSourceLane) {
@@ -2286,12 +2149,6 @@ function caddis-ship {
 
     if ($runCaddisVscodeLane) {
         $null = Commit-RepoIfDirty -RepoPath $CADDIS_VSCODE -Label "junai-vscode" -Message "$Message (junai-vscode)" -Push
-    }
-    if ($runPtarmiganLane) {
-        $null = Commit-RepoIfDirty -RepoPath $PTARMIGAN_REPO -Label "Ptarmigan" -Message "$Message (ptarmigan)" -Push
-    }
-    if ($runLiffeyLane) {
-        $null = Commit-RepoIfDirty -RepoPath $LIFFEY_REPO -Label "Liffey" -Message "$Message (liffey)" -Push
     }
 
     if ($runSourceLane) {
@@ -2322,18 +2179,12 @@ function caddis-ship {
     }
 
     $sourceMirrorChanged = [bool]$sourcePushResult.MirrorChanged
-    $ptarmiganProfileChanged = [bool]$sourcePushResult.ProfileResults["ptarmigan"]
-    $liffeyProfileChanged = [bool]$sourcePushResult.ProfileResults["liffey"]
 
     $caddisExtensionReleaseStatus = "not requested"
     $mcpReleaseStatus = "not requested"
-    $ptarmiganReleaseStatus = "not requested"
-    $liffeyPackageStatus = "not requested"
 
     $shouldPublishCaddisExtension = $false
     $shouldPublishMcp = $false
-    $shouldPublishPtarmigan = $false
-    $shouldPackageLiffey = $false
 
     if ($PublishCaddisExtension) {
         $caddisExtensionChanged = (($sourceMirrorChanged -and ($sourceReleaseTargets -contains "junai-vscode")) -or $caddisVscodeDirectReleasePaths.Count -gt 0)
@@ -2377,47 +2228,7 @@ function caddis-ship {
         }
     }
 
-    if ($PublishPtarmigan) {
-        $ptarmiganChangedForRelease = ($ptarmiganProfileChanged -or $ptarmiganDirectReleasePaths.Count -gt 0)
-        if (-not $ptarmiganChangedForRelease) {
-            $ptarmiganReleaseStatus = "skipped - unchanged"
-        } else {
-            if (-not $ptarmiganProfileChanged -and $ptarmiganDirectReleasePaths.Count -gt 0) {
-                $ptarmiganNextVersion = Try-GetNextPatchVersion -VersionString (Get-PackageJsonVersion -PackageJsonPath (Join-Path $PTARMIGAN_REPO "package.json"))
-                if ([string]::IsNullOrWhiteSpace($ptarmiganNextVersion)) {
-                    $ptarmiganReleaseStatus = "skipped - no version bump path"
-                } else {
-                    $null = Commit-PackageJsonPatchVersion -RepoPath $PTARMIGAN_REPO -Label "Ptarmigan"
-                    $shouldPublishPtarmigan = $true
-                    $ptarmiganReleaseStatus = "pending"
-                }
-            } else {
-                $shouldPublishPtarmigan = $true
-                $ptarmiganReleaseStatus = "pending"
-            }
-        }
-    }
 
-    if ($PackageLiffey) {
-        $liffeyChangedForRelease = ($liffeyProfileChanged -or $liffeyDirectReleasePaths.Count -gt 0)
-        if (-not $liffeyChangedForRelease) {
-            $liffeyPackageStatus = "skipped - unchanged"
-        } else {
-            if (-not $liffeyProfileChanged -and $liffeyDirectReleasePaths.Count -gt 0) {
-                $liffeyNextVersion = Try-GetNextPatchVersion -VersionString (Get-PackageJsonVersion -PackageJsonPath (Join-Path $LIFFEY_REPO "package.json"))
-                if ([string]::IsNullOrWhiteSpace($liffeyNextVersion)) {
-                    $liffeyPackageStatus = "skipped - no version bump path"
-                } else {
-                    $null = Commit-PackageJsonPatchVersion -RepoPath $LIFFEY_REPO -Label "Liffey"
-                    $shouldPackageLiffey = $true
-                    $liffeyPackageStatus = "pending"
-                }
-            } else {
-                $shouldPackageLiffey = $true
-                $liffeyPackageStatus = "pending"
-            }
-        }
-    }
 
     if ($shouldPublishMcp -or $shouldPublishCaddisExtension) {
         $releaseOk = [bool](caddis-release -McpVersion $McpVersion -ExtensionVersion $CaddisExtensionVersion -SkipMcp:(-not $shouldPublishMcp) -SkipExtension:(-not $shouldPublishCaddisExtension) | Get-LastOutputValue)
@@ -2433,25 +2244,8 @@ function caddis-ship {
         }
     }
 
-    if ($shouldPublishPtarmigan) {
-        if (-not ([bool](Publish-PtarmiganExtension | Get-LastOutputValue))) {
-            Write-Host "  [ABORT]  Ptarmigan publish failed." -ForegroundColor Red
-            return $false
-        }
-        $ptarmiganReleaseStatus = "published"
-    }
 
-    if ($shouldPackageLiffey) {
-        $packagedVsix = Package-LiffeyExtension | Get-LastOutputValue
-        if (-not $packagedVsix) {
-            Write-Host "  [ABORT]  Liffey packaging failed." -ForegroundColor Red
-            return $false
-        }
-        $liffeyPackageStatus = "packaged"
-    }
 
-    $liffeyVersion = Get-PackageJsonVersion -PackageJsonPath (Join-Path $LIFFEY_REPO "package.json")
-    $liffeyVsix = if ([string]::IsNullOrWhiteSpace($liffeyVersion)) { $null } else { Join-Path $LIFFEY_REPO "dist\liffey-$liffeyVersion.vsix" }
 
     Write-Host ""
     Write-Host "  CADDIS SHIP SUMMARY" -ForegroundColor Cyan
@@ -2462,17 +2256,9 @@ function caddis-ship {
     Write-Host "  source committed      : $sourceCommitted" -ForegroundColor DarkGray
     Write-Host "  mcp release           : $mcpReleaseStatus" -ForegroundColor DarkGray
     Write-Host "  caddis-plugin release : $caddisExtensionReleaseStatus" -ForegroundColor DarkGray
-    Write-Host "  ptarmigan release     : $ptarmiganReleaseStatus" -ForegroundColor DarkGray
-    Write-Host "  liffey package        : $liffeyPackageStatus" -ForegroundColor DarkGray
     Write-Host "  source HEAD           : $(Get-RepoHeadLine -RepoPath $ProjectRoot)" -ForegroundColor DarkGray
     Write-Host "  caddis-plugin HEAD    : $(Get-RepoHeadLine -RepoPath $CADDIS_POOL)" -ForegroundColor DarkGray
     Write-Host "  junai-vscode HEAD     : $(Get-RepoHeadLine -RepoPath $CADDIS_VSCODE)" -ForegroundColor DarkGray
-    Write-Host "  ptarmigan HEAD        : $(Get-RepoHeadLine -RepoPath $PTARMIGAN_REPO)" -ForegroundColor DarkGray
-    Write-Host "  liffey HEAD           : $(Get-RepoHeadLine -RepoPath $LIFFEY_REPO)" -ForegroundColor DarkGray
-    if ($liffeyVsix) {
-        $vsixState = if (Test-Path $liffeyVsix) { $liffeyVsix } else { "missing ($liffeyVsix)" }
-        Write-Host "  liffey VSIX         : $vsixState" -ForegroundColor DarkGray
-    }
     Write-Host ""
     return $true
 }
