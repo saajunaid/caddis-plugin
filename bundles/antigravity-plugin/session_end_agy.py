@@ -41,16 +41,39 @@ def _hook_note(feature, exc, root=None):
     except Exception:
         pass
 
+
+def _workspace_roots(data):
+    """Every workspace root in the payload, as a list. Empty when the payload has none.
+
+    agy sends `workspacePaths` as a LIST. All three caddis agy hooks used to read
+    `workspacePaths[0]` and treat it as "the workspace" — silently, with no signal that a
+    choice had been made. In a single-root workspace that is correct and the behaviour here
+    is unchanged. In a MULTI-root workspace it is a coin toss: the hook acts on the first
+    root regardless of which one the session is actually working in.
+
+    Nothing on this machine is multi-root today, so this has never fired. It is a live trap
+    for exactly the multi-repo workspaces the leakage investigation was about, which is why
+    each caller below now handles the list rather than assuming its first element.
+    """
+    roots = data.get("workspacePaths") if isinstance(data, dict) else None
+    if not isinstance(roots, list):
+        return []
+    return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
     except Exception:
         data = {}
     try:
-        workspaces = data.get("workspacePaths") or []
-        workspace = workspaces[0] if workspaces else os.getcwd()
-        art = _artifact_root(workspace)
-        os.makedirs(art, exist_ok=True)
+        roots = _workspace_roots(data) or [os.getcwd()]
+        # Write the record to every root that ALREADY has a .caddis dir, rather than to
+        # whichever root happened to be first. A multi-root session's usage belongs to each
+        # repo that participates in it, and creating .caddis in a repo that never opted in
+        # would be caddis littering someone else's tree.
+        targets = [_artifact_root(r) for r in roots if os.path.isdir(_artifact_root(r))]
+        if not targets:
+            targets = [_artifact_root(roots[0])]  # single-root default: unchanged behaviour
         record = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "event": "session_end",
@@ -60,8 +83,10 @@ def main() -> None:
             "terminationReason": data.get("terminationReason"),
             "model": data.get("modelName"),
         }
-        with open(os.path.join(art, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record) + "\n")
+        for art in targets:
+            os.makedirs(art, exist_ok=True)
+            with open(os.path.join(art, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record) + "\n")
     except Exception as _exc:
         _hook_note("agy usage-log write", _exc)  # never fail the turn
     # No stdout: agy interprets a Stop hook's stdout as a decision object.

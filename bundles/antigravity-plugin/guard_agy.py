@@ -303,8 +303,27 @@ def _hook_note(feature, exc, root=None):
                 sys.path.insert(0, _cand)
         import hook_log as _hl  # noqa: E402
         _hl.record(os.path.basename(__file__).replace(".py", ""), feature, exc, root)
-    except Exception as _exc:
-        _hook_note("agy guard config read", _exc)
+    except Exception:
+        pass  # the ledger must never recurse into itself
+
+
+def _workspace_roots(data):
+    """Every workspace root in the payload, as a list. Empty when the payload has none.
+
+    agy sends `workspacePaths` as a LIST. All three caddis agy hooks used to read
+    `workspacePaths[0]` and treat it as "the workspace" — silently, with no signal that a
+    choice had been made. In a single-root workspace that is correct and the behaviour here
+    is unchanged. In a MULTI-root workspace it is a coin toss: the hook acts on the first
+    root regardless of which one the session is actually working in.
+
+    Nothing on this machine is multi-root today, so this has never fired. It is a live trap
+    for exactly the multi-repo workspaces the leakage investigation was about, which is why
+    each caller below now handles the list rather than assuming its first element.
+    """
+    roots = data.get("workspacePaths") if isinstance(data, dict) else None
+    if not isinstance(roots, list):
+        return []
+    return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
 
 def main() -> None:
     tier, reason = "allow", ""
@@ -314,7 +333,7 @@ def main() -> None:
             try:
                 _reconfig(encoding="utf-8")
             except Exception as _exc:
-                _hook_note("agy guard config read", _exc)
+                _hook_note("agy stdout utf-8 reconfigure", _exc)
         try:
             data = json.load(sys.stdin)
         except Exception:
@@ -324,12 +343,25 @@ def main() -> None:
         call = data.get("toolCall")
         if not isinstance(call, dict):
             return
-        workspaces = data.get("workspacePaths") or []
-        root = workspaces[0] if isinstance(workspaces, list) and workspaces else os.getcwd()
-        if guard_disabled(str(root)):
+        roots = _workspace_roots(data) or [os.getcwd()]
+
+        # Every per-repo guard setting RELAXES the guard: `enabled = false` bypasses all
+        # tiers, `mode = "deny-only"` drops the ask tier, and `[guard] allow` downgrades an
+        # ask. Reading them from workspacePaths[0] meant one repo's relaxation silently
+        # applied to every other repo in the workspace — repo A's kill switch unguarding
+        # repo B. Require UNANIMITY instead: a relaxation applies only when every root asks
+        # for it. One root is the common case and behaves exactly as before.
+        if all(guard_disabled(r) for r in roots):
             return  # kill switch: bypass every tier
-        tier, reason = decide(str(call.get("name") or ""), call.get("args"), _load_allow(str(root)))
-        if tier == "ask" and deny_only(str(root)):
+
+        # The allow-list downgrades an ask, so with several roots take only the entries
+        # present in ALL of them — the strictest reading, not the most permissive.
+        allow = _load_allow(roots[0])
+        for other in roots[1:]:
+            allow = [a for a in allow if a in _load_allow(other)]
+
+        tier, reason = decide(str(call.get("name") or ""), call.get("args"), allow)
+        if tier == "ask" and all(deny_only(r) for r in roots):
             tier = "allow"  # deny-only: keep catastrophe blocks, never force_ask (no plan interruption)
     except Exception:
         return  # ANY unexpected shape/error → no guard, never a crash and never a bad decision
@@ -337,7 +369,7 @@ def main() -> None:
         try:
             _emit(tier, reason)
         except Exception as _exc:
-            _hook_note("agy guard config read", _exc)
+            _hook_note("agy guard decision emit", _exc)
         # Always exit 0: a non-zero code from a PreToolUse hook is an agy hook *error*.
         sys.exit(0)
 

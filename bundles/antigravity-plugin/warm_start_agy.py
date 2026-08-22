@@ -150,6 +150,63 @@ def _hook_note(feature, exc, root=None):
     except Exception:
         pass
 
+
+
+def _injected_marker(root, conversation):
+    """Path of the per-conversation "relay already injected" marker, or None."""
+    try:
+        safe = "".join(c for c in str(conversation) if c.isalnum() or c in "-_")[:64]
+        if not safe:
+            return None
+        return os.path.join(str(root), ".caddis", ".relay-injected", safe)
+    except Exception:
+        return None
+
+
+def _already_injected(root, conversation):
+    """True when this conversation has had its relay injected before. Fail-open: on any
+    error return False, because a duplicate relay is a smaller harm than none at all."""
+    try:
+        marker = _injected_marker(root, conversation)
+        return bool(marker) and os.path.isfile(marker)
+    except Exception:
+        return False
+
+
+def _mark_injected(root, conversation):
+    """Record that this conversation received its relay. Never raises.
+
+    A failure here means the next truncation may re-inject — the pre-2026-08-22 behaviour,
+    which is exactly the fail-open direction we want.
+    """
+    try:
+        marker = _injected_marker(root, conversation)
+        if not marker:
+            return
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8") as fh:
+            fh.write("")
+    except Exception as _exc:
+        _hook_note("agy relay injection marker", _exc, root)
+
+def _workspace_roots(data):
+    """Every workspace root in the payload, as a list. Empty when the payload has none.
+
+    agy sends `workspacePaths` as a LIST. All three caddis agy hooks used to read
+    `workspacePaths[0]` and treat it as "the workspace" — silently, with no signal that a
+    choice had been made. In a single-root workspace that is correct and the behaviour here
+    is unchanged. In a MULTI-root workspace it is a coin toss: the hook acts on the first
+    root regardless of which one the session is actually working in.
+
+    Nothing on this machine is multi-root today, so this has never fired. It is a live trap
+    for exactly the multi-repo workspaces the leakage investigation was about, which is why
+    each caller below now handles the list rather than assuming its first element.
+    """
+    roots = data.get("workspacePaths") if isinstance(data, dict) else None
+    if not isinstance(roots, list):
+        return []
+    return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
+
 def main() -> None:
     try:
         _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -173,17 +230,47 @@ def main() -> None:
             return
         if is_headless():
             return
-        workspaces = data.get("workspacePaths") or []
-        if not (isinstance(workspaces, list) and workspaces):
+        roots = _workspace_roots(data)
+        if not roots:
             return
-        root = str(workspaces[0])
-        relay = resolve_relay(root)
-        if not relay:
+
+        # DOUBLE-INJECTION GUARD (2026-08-22). The gate above is `invocationNum == 0`, and
+        # agy RESTARTS invocation numbering after a CHECKPOINT truncation. A long session
+        # therefore hits invocation 0 a second time mid-conversation and injected the relay
+        # again — observed at steps 53 and 56 of one transcript, after a truncation at 50.
+        # A relay injected mid-task is worse than noise: it carries a "next step" from a
+        # PREVIOUS session, and that has been seen executed in place of the real prompt.
+        #
+        # Conversation ids are unique per session, so a marker file per id is enough. Stale
+        # markers are harmless — they only ever suppress a re-injection into a conversation
+        # that already received one.
+        conversation = str(data.get("conversationId") or "").strip()
+
+        blocks = []
+        for root in roots:
+            relay = resolve_relay(root)
+            if not relay:
+                continue
+            try:
+                text = open(relay, encoding="utf-8").read().strip()
+            except Exception as _exc:
+                _hook_note("agy relay read", _exc, root)
+                continue
+            if not text:
+                continue
+            if conversation and _already_injected(root, conversation):
+                continue
+            # Label the block ONLY when there is more than one root. A single-root session
+            # must produce byte-identical output to before this change.
+            if len(roots) > 1:
+                blocks.append("relay for " + os.path.basename(root.rstrip("/\\")) + ":")
+            blocks.append(truncate_relay(text))
+            if conversation:
+                _mark_injected(root, conversation)
+
+        if not blocks:
             return
-        text = open(relay, encoding="utf-8").read().strip()
-        if not text:
-            return
-        message = (RELAY_FRAME_HEADER + "\n" + truncate_relay(text)
+        message = (RELAY_FRAME_HEADER + "\n" + "\n\n".join(blocks)
                    + "\n\n" + RELAY_FRAME_FOOTER)
         payload = json.dumps({"injectSteps": [{"ephemeralMessage": message}]})
         sys.stdout.write(payload)
