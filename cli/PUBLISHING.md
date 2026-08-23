@@ -27,7 +27,7 @@ the workflow; the mirror's Action publishes on a tag.
 | | |
 | --- | --- |
 | `@caddis` npm org | ✅ claimed |
-| Package name | ✅ `@caddis/cli`, bins `caddis` + `caddis-cli` |
+| Package name | ✅ `@caddis/cli`, bins `caddis`, `caddis-cli`, `claude-oss`, `claude-glm`, `claude-deepseek` |
 | Pre-publish scrub | ✅ done (shipped 1.3.39) |
 | CLI build + tests | ✅ green |
 | `caddis-push` syncs `cli/` | ✅ wired (`sync.ps1`) |

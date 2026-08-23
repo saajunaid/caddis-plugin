@@ -10,7 +10,7 @@ Proven end-to-end in the Phase 0 spike (`E:\Projects\_harness-spike`); see that 
 ## Layout
 ```
 claude-harness/
-├── agents/            10 lean subagents (own context, report back) — deployed to .claude/agents/
+├── agents/            12 lean subagents (own context, report back) — deployed to .claude/agents/
 │   ├── tester.md · code-reviewer.md · preflight.md          (Phase 0 trio)
 │   ├── security-analyst.md · codebase-audit.md · debug.md   (Phase 2)
 │   ├── anchor.md · knowledge-transfer.md                    (Phase 2)
