@@ -34,9 +34,17 @@ from pathlib import Path
 # "openrouter" has no Anthropic-protocol endpoint: it only works through an
 # Anthropic-compatible gateway (e.g. LiteLLM — see claude-harness/LOCAL-MODELS.md) whose
 # URL you supply via OSS_BASE_URL.
+# The `[1m]` suffix on a model id is a CLAUDE CODE convention, not part of the model name.
+# Claude Code strips it before calling the API; it only tells the client the real context
+# window. Without it, an id Claude Code does not recognise is assumed to be 200k and
+# auto-compact throws away context the model could still hold. Both providers are 1M
+# (GLM-5.3: docs.z.ai; DeepSeek V4 Flash: 1,048,576 positions) — verified 2026-08-23 by
+# running with and without the suffix and diffing the cap warning.
+# NEVER put this suffix in the OpenAI-dialect tables (oss_review.py / oss_ask.py): those
+# send the id raw to /chat/completions, which would reject it.
 PROVIDERS: dict[str, dict[str, str]] = {
-    "deepseek":   {"base_url": "https://api.deepseek.com/anthropic",  "model": "deepseek-v4-flash",          "key_env": "DEEPSEEK_API_KEY"},
-    "glm":        {"base_url": "https://api.z.ai/api/anthropic",      "model": "glm-5.2",                    "key_env": "GLM_API_KEY"},
+    "deepseek":   {"base_url": "https://api.deepseek.com/anthropic",  "model": "deepseek-v4-flash[1m]",          "key_env": "DEEPSEEK_API_KEY"},
+    "glm":        {"base_url": "https://api.z.ai/api/anthropic",      "model": "glm-5.3[1m]",                    "key_env": "GLM_API_KEY"},
     "openrouter": {"base_url": "",                                    "model": "deepseek/deepseek-v4-flash", "key_env": "OPENROUTER_API_KEY"},
 }
 DEFAULT_PROVIDER = "deepseek"

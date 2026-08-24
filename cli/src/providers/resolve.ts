@@ -30,12 +30,12 @@ export interface ProviderPreset {
 export const PROVIDERS: Record<string, ProviderPreset> = {
   deepseek: {
     baseUrl: 'https://api.deepseek.com/anthropic',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-v4-flash[1m]',
     keyEnv: 'DEEPSEEK_API_KEY',
   },
   glm: {
     baseUrl: 'https://api.z.ai/api/anthropic',
-    model: 'glm-5.2',
+    model: 'glm-5.3[1m]',
     keyEnv: 'GLM_API_KEY',
   },
   // OpenRouter has no Anthropic-protocol endpoint. It works only through an
