@@ -93,6 +93,50 @@ A three-phase feature hits none of this. `/caddis:feature-plan` Step 3b runs thi
 it never creates the file silently. This is the test's only home — do not restate the thresholds
 elsewhere, or the copies drift.
 
+### Failing this test correctly does not mean "no discipline"
+
+A plan can fail the test above — properly, no Hub needed — and still be multi-phase, multi-session,
+and worth structuring. The trap is what happens next.
+
+The Hub's file conventions are *attractive*. Once one plan in a repo runs in Hub mode, its
+`phase-NN.prompt.md` / `phase-NN.report.md` / CONTINUE GATE artefacts are sitting right there as the
+most recent example of "how we structure a multi-session plan here." A second, smaller plan copies
+them by analogy. It gets the readability. It gets **none** of the safety, because the safety was
+never in the file names — it was in the role split and the verdict gate.
+
+That has happened. A six-phase UI plan borrowed the naming, and an implementing session filed its own
+batch report **and then wrote the next batch's prompt in the same session**, with nobody having
+looked at the work in between. Nothing was wrong that time. Nothing *checked*, either — and the good
+outcome is not evidence the mechanism worked, it is evidence nothing tested it.
+
+This skill already says why role separation is not decoration:
+
+> *An implementer that writes its own verdict has produced a self-assessment wearing a verdict's
+> name — worse than no verdict, because it looks like a check happened.*
+
+The same sentence holds with two words changed: **an implementer that writes the next phase's
+instructions** has produced a plan wearing an independently-authored prompt's name.
+
+### The one lightweight rule — cheap enough to always afford
+
+> **The session that files a phase's report must not also write the next phase's prompt without an
+> independent re-check in between.**
+
+That is the whole rule. It costs minutes, not a session:
+
+- re-run the test suite rather than trusting the report's claim that it passed
+- grep the source for the report's two or three load-bearing claims
+- open one or two of the screenshots it describes, rather than reading its description of them
+
+No switch file. No dedicated Hub session. No advisory-context doc. If the re-check finds nothing, you
+have lost ten minutes; if it finds something, it found it *before* the wrong instruction went into a
+fresh session that cannot know any better.
+
+**State which one you are doing, in the plan.** A plan that borrows Hub file conventions should say
+either "full Advisory Hub mode" or "Hub file conventions, lightweight re-check rule, no Hub" —
+because a reader six phases later cannot tell the two apart from the artefacts alone. That is the
+entire problem this section exists to prevent.
+
 ## Succession is not the same as a standing validator
 
 Two things look alike from outside and are not:

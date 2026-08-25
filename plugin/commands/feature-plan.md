@@ -349,6 +349,27 @@ this. But **always record the determination in the plan, pass or fail**: one lin
 > `Advisory Hub: not applicable — no REQUIRED trigger (not a migration / security change /
 > production data correctness / numbers published to stakeholders).`
 
+### If the test FAILS but this repo already runs a Hub for another plan
+
+Check for an existing `*-advisory-context.md` in `.caddis/plans/` belonging to a **different** plan.
+If one exists, add a second line under `## Constraints & decisions`:
+
+> `Hub conventions: this repo runs Advisory Hub for <other-plan>. This plan does NOT — if it borrows
+> the phase-NN.prompt.md / .report.md / CONTINUE GATE conventions, the lightweight rule applies: the
+> session that files a report must not write the next prompt without an independent re-check.`
+
+**Why this line exists.** A repo with one Hub plan has its artefacts sitting there as the most recent
+example of "how we structure a multi-session plan here", and the next plan copies them by analogy.
+It inherits the file names and none of the safety, because the safety was never in the names.
+Measured once already: an implementing session filed its own batch report and then wrote the next
+batch's prompt in the same session, with nobody having looked in between. Nothing was wrong that
+time — and nothing checked either.
+
+This is the cheapest possible place to catch it: when the second plan is created, before any
+artefact-mimicry has happened. See *"Failing this test correctly does not mean no discipline"* in the
+`advisory-hub` skill for the rule itself. Do not restate the rule here — one home, or the copies
+drift.
+
 Silent to the human, auditable in the artifact. "Say nothing" once meant *leave no trace anywhere*,
 and a wrong negative was then invisible — no line in the plan, no line in the chat, nothing for
 anyone to challenge. A rule whose failures leave no artifact cannot be reviewed.

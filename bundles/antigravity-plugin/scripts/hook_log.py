@@ -8,7 +8,7 @@ they fail open is ``except Exception: pass``, which is wrong: a hook that is bro
 and a hook that had nothing to say produce the identical result — nothing.
 
 There were 20 such swallows across 6 hook files. Each one guards a named feature.
-When ``dream_memory``'s surface stops printing, nobody learns that it stopped; they
+When the tidy nudge stops printing, nobody learns that it stopped; they
 learn that they have not seen it lately, months later, if at all.
 
 The fix keeps fail-open and adds a record. ``record()`` never raises, never prints,

@@ -940,12 +940,6 @@ allow = [
 #                                                # shim) exceeds N lines. `claude_md_budget` is the
 #                                                # accepted back-compat alias for this key.
 # ignore_routes = ["/health", "/__internal"]     # routes intentionally left out of the page guide
-
-# ── [dream_memory] — short-term fact store (scripts/dream_memory.py) ── LIVE ──
-# [dream_memory]
-# prune_age_days = 14    # single-hit facts older than this decay out
-# max_facts = 200        # hard cap on the store
-# surface_limit = 5      # how many facts SessionStart prints
 """
 
 
@@ -1132,7 +1126,7 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
     Phase A3) — kb/ and prompts/ round out plans/prd/agent-docs/reviews so nothing has to
     scatter to the repo root or .github/. Also drops a documented `config.toml.example`
-    (guard/doc_coverage/dream_memory). Idempotent; never clobbers an existing .gitignore or
+    (guard/doc_coverage). Idempotent; never clobbers an existing .gitignore or
     config example.
 
     Writes into the repo's `.caddis/`.

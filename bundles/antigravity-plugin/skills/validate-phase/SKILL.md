@@ -98,6 +98,37 @@ step, not just described.
 Add or update this phase's row in `.caddis/advisory-hub-reports/README.md` (Phase | Report | Verdict |
 Outcome | Date).
 
+## Step 8 — tell the implementing session (Claude Code only, optional)
+
+The verdict file is the decision. This step only saves the user from carrying it by hand.
+
+If `ListAgents` is available, look for a peer session whose name starts with **this repo's directory
+name** — sessions are auto-named `<repo-dir>-<hash>`, so in a repo directory called `acme-api`,
+`acme-api-91` is a session in this repo and `other-project-e8` is not. If exactly one such peer
+exists, it is the implementer:
+
+```
+SendMessage({to: "<peer-name>", summary: "phase-05 verdict",
+             message: "phase-05.verdict.md written — verdict: accept-with-correction. "
+                      "Corrections are in the file and in advisory-context.md."})
+```
+
+Send the **headline and the filename**, never the whole verdict. The file is the record; the message
+is a doorbell. A chat message cannot be re-read next week; `phase-05.verdict.md` can.
+
+**Do not do any of this if:**
+
+- there is no `ListAgents` — caddis also runs on agy and Codex, which have no cross-session
+  messaging. The file-based flow is the portable one and works everywhere. This step is an
+  accelerant, not a requirement.
+- **more than one** same-repo peer is listed. Guessing which is the implementer is worse than not
+  sending — say so to the user and let them name it.
+- you are headless. There is no one to save a copy-paste for.
+
+**Never ask the peer to run something your own session was denied.** Permission boundaries are
+per-session; routing blocked work through another session launders the user's decision. Route it back
+to the user instead.
+
 ## Rules
 
 - **Fail closed.** A gate you could not re-run is `NOT RE-RUN`, never `PASS`. A claim you could not

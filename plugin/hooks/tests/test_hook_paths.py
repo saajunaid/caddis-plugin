@@ -282,33 +282,6 @@ def _fact_line(kind: str, key: str, summary: str, hits: int = 1) -> str:
     })
 
 
-def test_inject_surfaces_memory_facts_when_present(tmp_path):
-    (tmp_path / ".caddis").mkdir()
-    (tmp_path / ".caddis" / "memory.jsonl").write_text(
-        "\n".join([
-            _fact_line("failure-mode", "npm build", "`npm run build` fails cold — run vite first", hits=4),
-            _fact_line("rejected-approach", "poll api", "don't poll the API — use the SSE stream", hits=2),
-        ]) + "\n",
-        encoding="utf-8",
-    )
-    r = _run(INJECT, tmp_path, "{}")
-    assert "[memory] reinforced facts for this repo" in r.stdout
-    assert "npm run build" in r.stdout
-    assert "⚠" in r.stdout  # weighted kinds get the warning mark
-
-
-def test_inject_memory_respects_surface_limit_config(tmp_path):
-    """A [dream_memory] surface_limit override caps how many facts SessionStart prints."""
-    (tmp_path / ".caddis").mkdir()
-    (tmp_path / ".caddis" / "memory.jsonl").write_text(
-        "\n".join(_fact_line("repo-fact", f"k{i}", f"fact number {i}", hits=i + 1) for i in range(5)) + "\n",
-        encoding="utf-8",
-    )
-    (tmp_path / ".caddis" / "config.toml").write_text("[dream_memory]\nsurface_limit = 2\n", encoding="utf-8")
-    r = _run(INJECT, tmp_path, "{}")
-    # Count surfaced fact lines (the indented "  ... repo-fact:" bullets), not the header.
-    surfaced = [ln for ln in r.stdout.splitlines() if "repo-fact:" in ln]
-    assert len(surfaced) == 2
 
 
 def test_inject_no_memory_block_when_store_absent(tmp_path):
@@ -325,20 +298,6 @@ def test_inject_memory_survives_malformed_store(tmp_path):
     assert "[memory]" not in r.stdout  # nothing valid to surface
 
 
-def test_inject_memory_anchors_to_repo_root_in_subdir(tmp_path):
-    """Facts surface for a session launched from a subfolder (root-anchored, like relay)."""
-    _git_init(tmp_path)
-    (tmp_path / ".caddis").mkdir()
-    (tmp_path / ".caddis" / "memory.jsonl").write_text(
-        _fact_line("failure-mode", "k", "root-anchored fact", hits=3) + "\n", encoding="utf-8",
-    )
-    sub = tmp_path / "src"
-    sub.mkdir()
-    r = _run(INJECT, sub, "{}")
-    assert "root-anchored fact" in r.stdout
-
-
-# ── session_end: usage-log write → .caddis, never .claude ────────────────
 
 def test_session_end_writes_new_usage_log(tmp_path):
     transcript = tmp_path / "transcript.jsonl"
@@ -411,49 +370,10 @@ def _transcript_with_failed_bash(path: Path, command: str, output: str) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_session_end_captures_failure_to_memory_store(tmp_path):
-    transcript = tmp_path / "transcript.jsonl"
-    _transcript_with_failed_bash(transcript, "pytest tests/test_api.py", "ImportError: no module 'app'")
-    payload = json.dumps({"transcript_path": str(transcript), "session_id": "t"})
-    _run(SESSION_END, tmp_path, payload)
-    store = tmp_path / ".caddis" / "memory.jsonl"
-    assert store.is_file()
-    facts = [json.loads(l) for l in store.read_text(encoding="utf-8").splitlines() if l.strip()]
-    assert any(f["kind"] == "failure-mode" and "pytest" in f["summary"] for f in facts)
 
 
-def test_session_end_anchors_store_to_session_cwd_not_process_cwd(tmp_path):
-    """Facts land in the session's repo (payload cwd), not the hook process's launch cwd.
-
-    Launching a session in one repo while it operates in another must not leak the
-    second repo's facts into the first's Dream Memory store.
-    """
-    session_repo = tmp_path / "session_repo"   # where the work actually happened
-    launch_repo = tmp_path / "launch_repo"      # the hook process's cwd
-    session_repo.mkdir()
-    launch_repo.mkdir()
-    transcript = tmp_path / "transcript.jsonl"
-    _transcript_with_failed_bash(transcript, "pytest tests/test_api.py", "ImportError: no module 'app'")
-    payload = json.dumps(
-        {"transcript_path": str(transcript), "session_id": "t", "cwd": str(session_repo)}
-    )
-    # Run the hook with its process cwd in launch_repo, but the session cwd is session_repo.
-    _run(SESSION_END, launch_repo, payload)
-    assert (session_repo / ".caddis" / "memory.jsonl").is_file()
-    assert not (launch_repo / ".caddis" / "memory.jsonl").exists()
-    # The usage log follows the same anchor.
-    assert not (launch_repo / ".caddis" / "usage-log.jsonl").exists()
 
 
-def test_session_end_capture_redacts_secret_in_store(tmp_path):
-    """A token in a failing command must never land in the persisted store (privacy end-to-end)."""
-    transcript = tmp_path / "transcript.jsonl"
-    _transcript_with_failed_bash(transcript, "deploy --token ghp_0123456789abcdefABCDEF", "auth failed")
-    payload = json.dumps({"transcript_path": str(transcript), "session_id": "t"})
-    _run(SESSION_END, tmp_path, payload)
-    store = tmp_path / ".caddis" / "memory.jsonl"
-    assert store.is_file()
-    assert "ghp_" not in store.read_text(encoding="utf-8")
 
 
 def test_session_end_no_store_when_no_signals(tmp_path):
@@ -469,44 +389,8 @@ def test_session_end_no_store_when_no_signals(tmp_path):
     assert not (tmp_path / ".caddis" / "memory.jsonl").exists()
 
 
-def test_session_end_consolidates_existing_store_without_new_candidates(tmp_path):
-    """The knowledge-transfer path: facts appended out-of-band (duplicate fingerprint) are
-    consolidated on the next Stop even when the transcript yields no Bash candidates."""
-    store = tmp_path / ".caddis" / "memory.jsonl"
-    store.parent.mkdir(parents=True)
-    dup = json.dumps({
-        "kind": "rejected-approach", "key": "poll-api", "summary": "use SSE not polling",
-        "hitCount": 1, "firstSeen": "2026-07-01T09:00:00Z", "lastSeen": "2026-07-01T09:00:00Z",
-        "source": "knowledge-transfer",
-    })
-    store.write_text(dup + "\n" + dup + "\n", encoding="utf-8")  # two identical lines
-    transcript = tmp_path / "transcript.jsonl"
-    transcript.write_text(  # usage only, no Bash tool calls → no capture candidates
-        json.dumps({"message": {"model": "claude-sonnet-4-6",
-                                "usage": {"input_tokens": 10, "output_tokens": 5}}}) + "\n",
-        encoding="utf-8",
-    )
-    payload = json.dumps({"transcript_path": str(transcript), "session_id": "t"})
-    _run(SESSION_END, tmp_path, payload)
-    facts = [json.loads(l) for l in store.read_text(encoding="utf-8").splitlines() if l.strip()]
-    assert len(facts) == 1  # the two identical lines merged
-    assert facts[0]["hitCount"] == 2  # reinforced
 
 
-def test_session_end_capture_anchors_store_to_repo_root(tmp_path):
-    """Capture writes the store at the git root even when the Stop fires from a subfolder."""
-    _git_init(tmp_path)
-    sub = tmp_path / "backend"
-    sub.mkdir()
-    transcript = tmp_path / "transcript.jsonl"
-    _transcript_with_failed_bash(transcript, "npm run build", "build error")
-    payload = json.dumps({"transcript_path": str(transcript), "session_id": "t"})
-    _run(SESSION_END, sub, payload)
-    assert (tmp_path / ".caddis" / "memory.jsonl").is_file()
-    assert not (sub / ".caddis" / "memory.jsonl").exists()
-
-
-# ── repo-root anchoring: state lands at the git root, never the launch subdir ──
 
 def test_session_end_anchors_log_to_repo_root(tmp_path):
     """A session launched from a subfolder must append to the repo-root log,

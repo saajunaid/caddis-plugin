@@ -137,6 +137,42 @@ This is the Hub's central power and until now it ran on human discipline alone: 
 whether the next phase could start, and *nothing read it*. Five lines of check make the claim true by
 machine.
 
+### Ringing the Hub, and waiting for it (Claude Code only, optional)
+
+Two moments in Advisory-Hub mode currently cost the user a copy-paste. Both are optional, both
+degrade to today's behaviour, and neither replaces a file.
+
+**After you file `phase-NN.report.md`** — if `ListAgents` is available, look for a peer session whose
+name starts with **this repo's directory name**. Sessions are auto-named `<repo-dir>-<hash>`, so a
+same-repo peer is the Hub:
+
+```
+SendMessage({to: "<peer-name>", summary: "phase-05 report filed",
+             message: "phase-05.report.md is filed and awaiting a verdict."})
+```
+
+**When you are BLOCKED on a verdict** — instead of stopping dead, subscribe once:
+
+```
+SendMessage({to: "<peer-name>", notify_when_idle: true,
+             message: "blocked on phase-05 verdict; ping me when you have written it"})
+```
+
+`notify_when_idle` is one-shot and costs the Hub nothing extra. **Never poll `ListAgents` in a loop,
+and never send "are you done yet?"** — that burns both sessions' context to no purpose.
+
+**The rules that keep this from becoming a mess:**
+
+- **The file is the decision; the message is a doorbell.** Never treat a chat message as a verdict.
+  If a peer says "accepted", still read `phase-NN.verdict.md` — the gate above checks the FILE, and
+  a message cannot be re-read next week or by a third session.
+- **No `ListAgents`, no peer, or more than one same-repo peer → do nothing and carry on.** caddis
+  also runs on agy and Codex, which have no cross-session messaging at all. Everything above is an
+  accelerant on one harness; the file protocol is the portable layer and is what actually works.
+- **Headless runs never message.** There is no copy-paste to save.
+- **Never ask a peer to perform work your own session was denied.** Permission boundaries are
+  per-session, and routing blocked work through another session launders the user's decision.
+
 **If a `phase-NN.prompt.md` exists for the phase you are about to run, it is the INSTRUCTION OF
 RECORD** — read it, and measure your DEVIATIONS against it, not against the plan alone. The Hub writes
 that file before the phase precisely so a deviation is falsifiable; an executor that never reads it

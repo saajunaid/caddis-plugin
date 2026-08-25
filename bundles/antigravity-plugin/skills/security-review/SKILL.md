@@ -6,6 +6,15 @@ description: "Security review workflow — OWASP, code scanning, cloud infrastru
 
 # Security Review
 
+> **On Claude Code, prefer the native `/security-review`.** It is a command, not a skill, so it always
+> fires — including headless — and it has grown capabilities this one does not have: Reach for it first.
+>
+> This surface remains because caddis ships to harnesses that have **no** native equivalent — agy,
+> Codex and Copilot. There it is the only review you get. Do not delete it to tidy up Claude Code.
+>
+> `/caddis:cross-review` is NOT replaced by either. It sends the diff to a **different vendor's**
+> model, which neither this nor the native reviewer can do.
+
 Security review workflow covering OWASP Top 10, code scanning, and cloud infrastructure.
 
 ## When to Use

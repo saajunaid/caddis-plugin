@@ -277,28 +277,11 @@ if _DOC_MAP:
     print(f"\n[DOC-MAP] reference index available — read {os.path.relpath(_DOC_MAP, ROOT).replace(os.sep, '/')} "
           "first to find the right doc, then read it on demand (dispatch a subagent for heavy reads).")
 
-# Dream Memory (fann Phase 5): surface the top reinforced facts for this repo — the
-# "don't step on the same rake twice" nudge. ≤5 lines, weighted/capped by the engine.
-# Fail-open & silent: a missing store, an unparseable file, or an import error must never
-# disrupt a session start (same bar as every other block here).
-try:
-    _scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
-    if _scripts not in sys.path:
-        sys.path.insert(0, _scripts)
-    import dream_memory as _dm  # noqa: E402
-
-    _store = _dm.store_path(ROOT)
-    _facts = _dm.load_facts(_store)
-    if _facts:
-        from datetime import datetime as _dtm, timezone as _tzm
-        _limit = _dm.load_tunables(ROOT)["surface_limit"]
-        _top = _dm.rank_for_surfacing(_facts, _limit, now=_dtm.now(_tzm.utc).isoformat())
-        if _top:
-            print("\n[memory] reinforced facts for this repo (auto; fades if not seen):")
-            for _line in _dm._format_surface(_top):
-                print(_line)
-except Exception as _exc:
-    _hook_note("dream-memory surface", _exc)
+# Dream Memory surfacing was RETIRED 2026-08-26. It ranked facts by hit count, so the most-repeated
+# shell typo always outranked a real insight: 128 of 131 records were `failure-mode`, the top six were
+# a month stale with counts of 69-77, and the two genuinely useful records sat at hitCount 1 and never
+# surfaced. A count of 77 means that command failed 77 times WHILE its own warning held the top slot —
+# the mechanism did not change behaviour. Claude Code's own per-repo memory does the curated job.
 
 # Maintenance nudge (Phase 9): ONE deterministic line when a signal fires — an oversize always-loaded
 # AGENTS.md (curator), a dangling DOC-MAP link (/caddis:kb), or a stale doctor run. PURE FILE CHECKS

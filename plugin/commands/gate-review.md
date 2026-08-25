@@ -5,6 +5,17 @@ argument-hint: "[git range, defaults to the working diff]"
 
 # /caddis:gate-review — headless adversarial code review (self-contained)
 
+> **On Claude Code, prefer the native `/code-review`.** It is a command, not a skill, so it always
+> fires — including headless — and it has grown capabilities this one does not have: effort levels
+> (`low`…`max`), an `ultra` mode that runs a multi-agent review in the cloud, `--comment` to post
+> findings as inline PR comments, and `--fix` to apply them to the working tree. Reach for it first.
+>
+> This surface remains because caddis ships to harnesses that have **no** native equivalent — agy,
+> Codex and Copilot. There it is the only review you get. Do not delete it to tidy up Claude Code.
+>
+> `/caddis:cross-review` is NOT replaced by either. It sends the diff to a **different vendor's**
+> model, which neither this nor the native reviewer can do.
+
 Perform an adversarial code review of **$ARGUMENTS** (a git range, e.g. `abc123..HEAD` — defaults
 to the current working diff when empty).
 

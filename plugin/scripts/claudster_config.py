@@ -23,11 +23,6 @@ Config schema (see ``.caddis/config.toml.example``)::
     page_guide = "UI_PAGE_GUIDE.md"
     claude_md_budget = 200
     ignore_routes = ["/health"]
-
-    [dream_memory]
-    prune_age_days = 14
-    max_facts = 200
-    surface_limit = 5
 """
 
 from __future__ import annotations

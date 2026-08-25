@@ -96,8 +96,6 @@ knowledge_transfer:
     - file: <path>   section: <heading>   nugget: <one-line summary>
   secondary_writes:
     - <session-log entry, or "none">
-  dream_memory:
-    - <kind + key of each fact appended to .caddis/memory.jsonl, or "none">
   promotions:
     - <fact key promoted to <curated doc> and removed from the store, or "none">
   adr_flag:
