@@ -58,36 +58,22 @@ Pre-empt it before writing the relay (use Grep/Read — you don't run the checke
 - Fix gaps directly — keeping these docs current is knowledge-doc work, squarely in your remit. Record the
   edits under `live_writes` in your return block.
 
-## Feed Dream Memory (the short-term fact store)
-Dream Memory (`.caddis/memory.jsonl`, one JSON fact per line) is caddis's automatic, **decaying
-short-term** memory — reinforced when a fact recurs, pruned when it doesn't. The Stop hook already
-captures the *mechanical* kinds (a command that failed, a build that went red→green). You are the only
-place that can capture the **reasoned** kinds, so add them as a byproduct — cheap insurance that a
-hard-won "don't do that" resurfaces next session even before it graduates into a curated doc. This does
-**not** replace the durable write above — do both; this is short-term, that is long-term.
+## Dream Memory — RETIRED 2026-08-26. Do not write to `.caddis/memory.jsonl`.
+Both halves of the mechanism this section used to describe are gone: the Stop hook's automatic
+capture (`dream_capture.py`) and the SessionStart surfacing in `inject_relay.py` were both removed
+the same day. Reason, verbatim from the retirement comment (`inject_relay.py`): it ranked facts by
+hit count, so the most-repeated shell typo always outranked a real insight — 128 of 131 records were
+`failure-mode`, the top six were a month stale with counts of 69-77, and the two genuinely useful
+records sat at `hitCount: 1` and never surfaced. A count of 77 meant that command failed 77 times
+**while its own warning held the top slot** — the mechanism never changed behaviour.
 
-**Append** — for each `rejected-approach` (an approach tried and abandoned, so no one retries it) or
-`repo-fact` (a non-obvious, durable truth about how this repo works) from this session, append ONE line
-to `.caddis/memory.jsonl` (create it if absent; never rewrite or reorder existing lines — the next
-Stop consolidates and dedups). Every field is required:
-```
-{"kind":"rejected-approach","key":"poll-api-for-status","summary":"don't poll the API for status — use the SSE stream","hitCount":1,"firstSeen":"2026-07-01T00:00:00Z","lastSeen":"2026-07-01T00:00:00Z","source":"knowledge-transfer"}
-```
-- `kind` is ONLY `rejected-approach` or `repo-fact` — the mechanical kinds are the hook's job, not yours.
-- `key` is a short, stable, lowercase dedup phrase (it's the identity; the same lesson must reuse the
-  same key so it reinforces instead of duplicating). `summary` is ≤1 imperative line.
-- **Redact secrets** — never put a token, password, env value, or credentialed URL in `key`/`summary`.
-  Store the lesson, not the secret; if you can't state it without a secret, don't store it.
-- Use today's date for both timestamps (a date-precision ISO like `2026-07-01T00:00:00Z` is fine).
-- Malformed lines are silently dropped on load, so a fumbled line is safe — but aim to get it right.
-
-**Promote (the boundary — do this when you see it):** if the store already holds a fact with
-`hitCount >= 3` (it has recurred across sessions), it has earned a permanent home. Write it into the
-right curated doc — a `.caddis/kb/*.md` note or the most specific live `AGENTS.md` (same routing as
-above) — then **delete that one fact's line** from `.caddis/memory.jsonl` so it doesn't double-surface.
-Promotion is one-way and one-at-a-time: the curated docs hold what survived; Dream Memory holds what's
-still proving itself. (Dream Memory is gitignored/local; promotion is how a repeatedly-useful fact
-becomes durable and shareable.)
+The file (`.caddis/memory.jsonl`) is left on disk but nothing reads it anymore — appending a fact
+there now has zero effect, good or bad. **Do not append to it.** Claude Code's own per-repo memory
+(`~/.claude/projects/<slug>/memory/*.md` + `MEMORY.md`) does the short-term/reasoned-fact job instead;
+it is maintained by the harness natively, not by this agent writing a file. If you land a
+`rejected-approach` or `repo-fact` this session, it goes straight into the durable write above (a
+`.caddis/kb/*.md` note or the most specific `AGENTS.md`) — there is no more intermediate decaying
+tier to stage it in first.
 
 ## Return format (always end with this)
 ```
@@ -97,7 +83,8 @@ knowledge_transfer:
   secondary_writes:
     - <session-log entry, or "none">
   promotions:
-    - <fact key promoted to <curated doc> and removed from the store, or "none">
+    - <legacy field, kept for callers that still read it — Dream Memory retired 2026-08-26, so this is
+      always "none" now>
   adr_flag:
     - <decision worth formalizing as an ADR, or "none">
   skipped:

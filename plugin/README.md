@@ -135,3 +135,23 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   state and let the actual downgrade through (see the entry above). Changed 2026-08-16 to assert the
   real `'ahead'` state with its own `never drive it` behavior. Before "fixing" a test back to green,
   check whether the assertion itself is the bug.
+- **Before building new cross-session coordination machinery, check what the host harness already
+  ships.** One session was a step from building a file-watcher + SessionStart nudge for Hub↔implementer
+  coordination when it turned out Claude Code already provides `ListAgents` + `SendMessage` +
+  `notify_when_idle` — peer discovery, direct addressing, and one-shot idle subscription, with the
+  cross-session permission boundary already handled. Sessions are auto-named `<repo-dir>-<hash>`, so a
+  same-repo peer is findable by name prefix with no registry to build. The wiring now lives in
+  `commands/implement.md` and `commands/validate-phase.md`, gated behind `if ListAgents is available`
+  so it degrades to the portable file-based flow on agy/Codex, which have no cross-session messaging at
+  all. Check the harness's own primitives before adding a caddis-side mechanism that duplicates one.
+- **Before deleting an apparent duplicate command/skill, check what non-Claude export targets depend
+  on it.** `/caddis:gate-review` and the `code-review`/`security-review` skills looked like pure
+  duplicates of Claude Code's native `/code-review` and were nearly deleted. Both assumptions behind
+  that were wrong: the skills ship in the CORE plugin (not `caddis-extras`), and `/gate-review` is also
+  exported to the `antigravity-plugin` target. agy ships exactly 5 built-in skills
+  (`agy-customizations`, `antigravity_guide`, `generative_ui`, `migrate-workflows`,
+  `permissioned-github`) and none of them reviews code — deleting the caddis-native reviewer would have
+  removed review capability from every agy (and Codex/Copilot) install. `gate-review.md` now carries an
+  explicit note: prefer the native command on Claude Code, but the surface stays because other targets
+  have no equivalent. Defer to a native capability where one exists; never delete what a
+  non-Claude-Code consumer still depends on.
