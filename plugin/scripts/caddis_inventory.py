@@ -290,10 +290,80 @@ def collect(root: Path, with_tests: bool = False) -> Inventory:
     if with_tests:
         # Run it. A handover once claimed 20 tests when there were 19, and the incoming Hub found
         # the discrepancy before anyone else did.
-        out = _run([sys.executable, "-m", "pytest", "-q", "--tb=no"], root)
-        tail = [l for l in out.splitlines() if "passed" in l or "failed" in l]
-        inv.tests = tail[-1] if tail else "suite did not report a summary — investigate"
+        summary, shown = _run_tests(_test_command(root), root)
+        # Name the command. "932 passed" means nothing on its own — a reader who cannot see
+        # the command cannot tell a scoped run from a whole-tree one, which is exactly the
+        # ambiguity that produced this defect.
+        inv.tests = f"{summary}  _(`{shown}`)_"
     return inv
+
+
+
+# Generated/vendored trees hold COPIES of the harness. They have no node_modules and no
+# import path, so collecting them is never right — it only produces collection errors that
+# mask the real result. Excluded by default; `[handover] test_cmd` overrides everything.
+_GENERATED_TREES = ("vscode-extensions", "dist", "node_modules", ".venv")
+
+# The suite is the one thing here that is not a directory listing, so it gets its own
+# runner rather than `_run`. Three reasons `_run` is wrong for it:
+#   * it returns "" on a non-zero exit — and pytest exits non-zero when tests FAIL, so a
+#     genuinely red suite became "did not report a summary", indistinguishable from a
+#     broken invocation. A red suite MUST report "3 failed".
+#   * its 30s timeout is shorter than a real suite. This repo's takes 112s, so
+#     `--with-tests` could never have produced a number here whatever else was fixed.
+#   * it discards stderr, where pytest writes collection errors.
+def _run_tests(cmd: list[str], cwd: Path, timeout: int = 900) -> tuple[str, str]:
+    """Return ``(summary_line, command_string)``. Never raises."""
+    shown = " ".join(cmd[1:]) if cmd and cmd[0] == sys.executable else " ".join(cmd)
+    shown = shown.replace("-m pytest", "pytest", 1)
+    try:
+        r = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return (f"suite exceeded {timeout}s — not run to completion", shown)
+    except Exception as exc:
+        return (f"could not run the suite ({type(exc).__name__})", shown)
+
+    blob = (r.stdout or "") + chr(10) + (r.stderr or "")
+    # pytest's summary line is the last one naming passed/failed/error.
+    tail = [l.strip() for l in blob.splitlines()
+            if ("passed" in l or "failed" in l or "error" in l.lower()) and "==" not in l[:2]]
+    if tail:
+        return (tail[-1], shown)
+    return (f"suite did not report a summary (exit {r.returncode}) — investigate", shown)
+
+
+def _test_command(root: Path) -> list[str]:
+    """The repo's test command.
+
+    A repo's test command is a PROJECT FACT, and this used to guess it. Bare `pytest` is a
+    guess that is right in a single-package repo and wrong in any repo carrying a vendored
+    or generated tree — which describes caddis itself and every consumer that vendors
+    anything. Set `[handover] test_cmd` in `.caddis/config.toml` to state it.
+    """
+    # In the SHIPPED bundle this file and claudster_config.py are co-located under
+    # scripts/. In the source repo they are not: this lives in scripts/, that one in
+    # claude-harness/scripts/. Try both, or the config is silently never read — which is
+    # how the first version of this fix looked like it worked and did not.
+    here = Path(__file__).resolve().parent
+    configured = ""
+    for cand in (here, here.parent / "claude-harness" / "scripts"):
+        try:
+            if str(cand) not in sys.path:
+                sys.path.insert(0, str(cand))
+            import claudster_config as _cc  # noqa: E402
+            configured = _cc.get_str(_cc.load_config(root, "handover"), "test_cmd", "")
+            break
+        except Exception:
+            continue
+    if configured:
+        import shlex
+        return shlex.split(configured)
+    cmd = [sys.executable, "-m", "pytest", "-q", "--tb=no"]
+    for name in _GENERATED_TREES:
+        if (root / name).exists():
+            cmd += ["--ignore", name]
+    return cmd
 
 
 def _table(rows: list[dict], cols: list[tuple[str, str]]) -> list[str]:

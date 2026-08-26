@@ -940,6 +940,15 @@ allow = [
 #                                                # shim) exceeds N lines. `claude_md_budget` is the
 #                                                # accepted back-compat alias for this key.
 # ignore_routes = ["/health", "/__internal"]     # routes intentionally left out of the page guide
+
+# ── [handover] — what /caddis:handoff measures (scripts/caddis_inventory.py) ── LIVE ──
+# [handover]
+# test_cmd = "pytest tests/ -q"   # THIS REPO'S test command. Without it the inventory
+#                                 # guesses `pytest` at the root, which is right in a
+#                                 # single-package repo and wrong in any repo carrying a
+#                                 # vendored or generated tree. Generated trees
+#                                 # (vscode-extensions/, dist/, node_modules/, .venv/) are
+#                                 # excluded automatically; set this when that is not enough.
 """
 
 
