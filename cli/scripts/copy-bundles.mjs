@@ -67,7 +67,7 @@ const BUNDLE_SOURCES = [
  * deliver 1.4 MB of used content (plan risk #4). Add a name here when the
  * adapter that consumes it lands — the size tripwire below will flag the cost.
  */
-const SHIPPED_BUNDLES = ['antigravity-plugin', 'antigravity-plugin-extras'];
+const SHIPPED_BUNDLES = ['antigravity-plugin', 'antigravity-plugin-extras', 'codex'];
 
 /**
  * Bundles whose version is NOT the core pool version. `caddis-extras` ships and
@@ -119,7 +119,10 @@ function fail(message) {
 }
 
 const sourceRoot = BUNDLE_SOURCES.find((candidate) =>
-  SHIPPED_BUNDLES.every((name) => existsSync(path.join(candidate, name, 'plugin.json'))),
+  // codex is a file-drop with no plugin.json — probe its AGENTS.md instead, or the
+  // whole export directory is judged "not built" because one bundle lacks a manifest.
+  SHIPPED_BUNDLES.every((name) =>
+    existsSync(path.join(candidate, name, name === 'codex' ? 'AGENTS.md' : 'plugin.json'))),
 );
 
 if (!sourceRoot) {
@@ -152,8 +155,32 @@ for (const name of SHIPPED_BUNDLES) {
 
 const poolVersion = (await poolVersionFromManifest()) ?? versions[SHIPPED_BUNDLES[0]] ?? 'unknown';
 
+// A file-drop bundle has no plugin.json and therefore no version of its own. Comparing it
+// against the pool version reports "unknown != 1.3.82" on every single run, and a warning
+// that always fires is a warning nobody reads. It gets a SHAPE check below instead.
+//
+// Be honest about what that does NOT cover: a stale codex bundle is caught by the export
+// step, not here. If codex ever grows a manifest, delete this set and let it be compared.
+const MANIFESTLESS = new Set(['codex']);
+
+for (const name of SHIPPED_BUNDLES) {
+  if (!MANIFESTLESS.has(name)) continue;
+  const dir = path.join(destRoot, name);
+  const required = ['AGENTS.md', path.join('.codex', 'skills')];
+  for (const rel of required) {
+    if (!existsSync(path.join(dir, rel))) {
+      console.error(
+        `[copy-bundles] FAIL bundle ${name} is missing ${rel}.
+` +
+          `                    The export shape changed and the codex adapter will not work.`,
+      );
+      process.exitCode = 1;
+    }
+  }
+}
+
 for (const [name, version] of Object.entries(versions)) {
-  if (INDEPENDENTLY_VERSIONED.has(name)) continue;
+  if (INDEPENDENTLY_VERSIONED.has(name) || MANIFESTLESS.has(name)) continue;
   if (version !== poolVersion) {
     console.warn(
       `[copy-bundles] WARN bundle ${name} is ${version} but the pool manifest says ${poolVersion}.\n` +

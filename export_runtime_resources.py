@@ -38,6 +38,20 @@ def ensure_clean_dir(path: Path) -> None:
 
 CACHE_DIR_NAMES = {"__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".coverage", "htmlcov"}
 
+# Vendored binary assets that NOTHING in the pool references, and that dominate the shipped
+# payload. Measured 2026-08-27: `canvas-fonts/` alone is 81 files and 5.16 MB — 42% of
+# everything `npm i -g @caddis/cli` downloads — and a grep across the whole pool for
+# `canvas-fonts` or any bundled `.ttf` returns ZERO hits. The only .ttf references anywhere
+# are to SYSTEM fonts (C:\Windows\Fonts, /System/Library/Fonts) in an unrelated skill.
+#
+# Excluded at EXPORT, deliberately NOT deleted from the pool: canvas-design is vendored
+# Apache-2.0 from upstream, and deleting its assets would fight the next re-sync. The pool
+# stays a faithful copy; the bundle stops carrying what nothing asks for.
+#
+# If a skill ever DOES need a bundled font, delete its entry here rather than working around
+# it — and say in the skill which file it loads, so the reference check can see it.
+UNREFERENCED_ASSET_DIRS = {"canvas-fonts"}
+
 
 @dataclass
 class ExportStats:
@@ -98,6 +112,12 @@ def copy_tree(
             if d in CACHE_DIR_NAMES:
                 if stats is not None:
                     stats.bump_skip("cache_dir")
+                continue
+            # Unreferenced vendored assets — see UNREFERENCED_ASSET_DIRS. Any depth: these
+            # sit under a skill, not at the top level.
+            if d in UNREFERENCED_ASSET_DIRS:
+                if stats is not None:
+                    stats.bump_skip("unreferenced_asset_dir")
                 continue
             # depth-0: top-level included_names allowlist
             if is_depth0 and included_names and d not in included_names:

@@ -16,16 +16,19 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 beforeEach(() => mockWhich.mockReset());
 
-describe('v0.2 stub adapters', () => {
-  it('are registered as unsupported', () => {
-    expect(codexAdapter.supported).toBe(false);
+describe('stub adapters', () => {
+  // Codex graduated to a real adapter on 2026-08-27, after its export target was
+  // live-fired. Copilot is the last remaining stub — this file keeps covering the stub
+  // MACHINERY through it, so retiring the final stub stays a deliberate act.
+  it('copilot is the only adapter still unsupported', () => {
     expect(copilotAdapter.supported).toBe(false);
+    expect(codexAdapter.supported).toBe(true);
   });
 
   it('detect via the binary and say why they are not driven', async () => {
-    mockWhich.mockResolvedValue('C:\\bin\\codex.CMD');
-    const detected = await codexAdapter.detect();
-    expect(detected).toMatchObject({ present: true, path: 'C:\\bin\\codex.CMD', note: NOT_YET_SUPPORTED });
+    mockWhich.mockResolvedValue('C:\\bin\\copilot.CMD');
+    const detected = await copilotAdapter.detect();
+    expect(detected).toMatchObject({ present: true, path: 'C:\\bin\\copilot.CMD', note: NOT_YET_SUPPORTED });
   });
 
   it('detect via a config path when no binary exists', async () => {
@@ -55,8 +58,8 @@ describe('v0.2 stub adapters', () => {
   });
 
   it('NEVER drive anything, even when detected', async () => {
-    mockWhich.mockResolvedValue('/bin/codex');
-    const result = await codexAdapter.drive('update', { dryRun: false });
+    mockWhich.mockResolvedValue('/bin/copilot');
+    const result = await copilotAdapter.drive('update', { dryRun: false });
     expect(result).toMatchObject({ ok: true, skipped: true, steps: [] });
     expect(result.message).toContain(NOT_YET_SUPPORTED);
   });

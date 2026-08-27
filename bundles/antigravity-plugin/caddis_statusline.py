@@ -631,9 +631,31 @@ def install(hosts, dry_run: bool = False) -> int:
     failures = 0
     for host in hosts:
         settings = HOST_SETTINGS[host]
-        # agy runs its status-line command through cmd.exe on Windows, where a quoted
-        # path containing spaces breaks. Home is space-free here; keep it native.
-        command = '%s "%s" --profile %s' % (py, str(INSTALLED_SCRIPT), host)
+        # QUOTING DIFFERS BY HOST, and getting it wrong breaks the line silently.
+        #
+        # Claude Code runs its statusLine command through a SHELL, so a quoted path is
+        # correct and a path containing spaces works.
+        #
+        # agy does NOT. It splits the string itself, so quotes survive as literal path
+        # characters and the result is resolved against the session cwd. Observed live
+        # 2026-08-27: agy reported it could not open a file whose path was the session
+        # cwd with the quoted absolute path appended inside it. The user own working agy
+        # line had always been unquoted; mine was not.
+        #
+        # Consequence to be honest about: an agy install whose home contains a space
+        # cannot be expressed this way. Detect it and say so, rather than writing a
+        # command that fails at render time with a confusing message.
+        target = str(INSTALLED_SCRIPT)
+        if host == "agy":
+            if " " in target:
+                print("  !! agy    home path contains a space (%s)." % target)
+                print("            agy does not parse statusLine through a shell, so the path")
+                print("            cannot be quoted. Wire agy statusLine by hand. Skipped.")
+                failures += 1
+                continue
+            command = "%s %s --profile %s" % (py, target, host)
+        else:
+            command = '%s "%s" --profile %s' % (py, target, host)
         try:
             failures += wire_host(host, settings, command, dry_run)
         except Exception as exc:  # never leave a half-written settings file unexplained

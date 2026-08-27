@@ -51,8 +51,20 @@ export function packageInfo(): PackageInfo {
 }
 
 /** Absolute path to a shipped bundle directory, or null if it was not packed. */
-export function bundlePath(name: string): string | null {
+export interface BundlePathOptions {
+  /**
+   * Require a `plugin.json` at the bundle root. True for agy's plugin bundles, whose
+   * manifest IS the install contract. FALSE for codex, which is a file-drop with no
+   * manifest of any kind — requiring one there would report a present bundle as missing.
+   */
+  requireManifest?: boolean;
+}
+
+export function bundlePath(name: string, options: BundlePathOptions = {}): string | null {
+  const { requireManifest = true } = options;
   const dir = path.join(packageInfo().root, 'bundles', name);
+  if (!existsSync(dir)) return null;
+  if (!requireManifest) return dir;
   return existsSync(path.join(dir, 'plugin.json')) ? dir : null;
 }
 
