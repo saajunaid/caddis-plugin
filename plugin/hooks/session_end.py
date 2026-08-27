@@ -30,6 +30,14 @@ except Exception:  # pragma: no cover — defensive
     def artifact_root(root):
         return os.path.join(str(root), ".caddis")
 
+# Session-state capture. Optional by construction: if the module is missing or fails to
+# import, the hook still does everything else. A recovery aid that could break a turn would
+# cost more than the sessions it saves.
+try:
+    from session_state import extract_state, render, write_state  # noqa: E402
+except Exception:  # pragma: no cover — defensive
+    extract_state = None
+
 _reconfig = getattr(sys.stdout, "reconfigure", None)
 if _reconfig:
     try:
@@ -302,6 +310,34 @@ if u or skills or commands or skills_read:
             fh.write(json.dumps(rec) + "\n")
     except Exception:
         pass
+
+# ── auto-captured session state ──────────────────────────────────────────────────────────
+# Runs LAST, after the usage log, so a failure here cannot cost the usage record.
+#
+# This is the answer to "the editor closed and I lost track of what I was doing". Nothing was
+# ever actually lost — Claude Code writes the transcript live and `claude --continue` reopens
+# it — but nobody reads back an 8 MB JSONL. This renders the small part a human needs, every
+# turn, with no command to remember. That is the whole point: the failure mode being solved
+# is precisely "there was no time to run /handoff".
+if extract_state is not None:
+    try:
+        state = extract_state(data.get("transcript_path", ""))
+        _root = _repo_root(_session_cwd)
+        _text = render(state, {
+            "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "session": data.get("session_id", ""),
+            "branch": state.get("branch", ""),
+            "root": _root,
+        })
+        _target = os.path.join(str(artifact_root(_root)), "session-state.md")
+        if write_state(_target, _text):
+            _shown = os.path.relpath(_target, _root).replace(os.sep, "/")
+            print(
+                "[STATE]   %s refreshed — after an abrupt close, read it or run "
+                "`claude --continue`." % _shown
+            )
+    except Exception:
+        pass  # never let a recovery aid break the turn it is trying to protect
 
 # Dream Memory capture RETIRED 2026-08-26 — see the note in inject_relay.py. The store it fed
 # (.caddis/memory.jsonl) is left in place; nothing reads it. Claude Code's per-repo memory
