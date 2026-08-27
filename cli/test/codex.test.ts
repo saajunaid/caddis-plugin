@@ -22,13 +22,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // not a test. Mocked, it asserts the adapter's logic and nothing else.
 vi.mock('../src/util/which.js', () => ({ findBin: vi.fn() }));
 
+// Mock the bundle lookup too. `cli/bundles/` is GENERATED at build time, and the CI publish
+// workflow runs tests BEFORE that build — so in CI bundlePath() returns null while on a dev
+// machine it returns a real path. That difference made the dry-run test below pass locally
+// and fail in CI. A test whose precondition depends on whether someone has built recently is
+// not a test; here the precondition is stated outright.
+vi.mock('../src/util/pkg.js', () => ({
+  bundlePath: vi.fn(),
+  bundleManifest: vi.fn(() => ({ poolVersion: '1.3.83' })),
+}));
+
 import { caddisSkillsDir, codexAdapter, statusFromHome, versionFile } from '../src/agents/codex.js';
 import { findBin } from '../src/util/which.js';
+import { bundlePath } from '../src/util/pkg.js';
 
 const mockWhich = vi.mocked(findBin);
+const mockBundle = vi.mocked(bundlePath);
 beforeEach(() => {
   mockWhich.mockReset();
   mockWhich.mockResolvedValue(null); // default: codex absent
+  mockBundle.mockReset();
+  mockBundle.mockReturnValue(null);  // default: no bundle shipped
 });
 
 const scratches: string[] = [];
@@ -132,14 +146,32 @@ describe('drive', () => {
 
   it('a dry run writes nothing even when codex IS present', async () => {
     mockWhich.mockResolvedValue('/usr/bin/codex');
+    // A bundle laid out the way the exporter produces one: skills under .codex/skills/.
+    const bundle = mkdtempSync(path.join(tmpdir(), 'caddis-bundle-'));
+    scratches.push(bundle);
+    mkdirSync(path.join(bundle, '.codex', 'skills'), { recursive: true });
+    mockBundle.mockReturnValue(bundle);
+
     const home = tmpHome();
     const before = existsSync(caddisSkillsDir(home));
     const result = await codexAdapter.drive('install', { dryRun: true });
 
+    expect(result.ok).toBe(true);
     expect(result.skipped).toBe(true);
-    expect(existsSync(caddisSkillsDir(home))).toBe(before);
-    if (result.ok) expect(result.message).toMatch(/dry run/i);
-    else expect(result.message).toMatch(/bundle/i); // only legitimate failure: unbuilt bundle
+    expect(result.message).toMatch(/dry run/i);
+    expect(existsSync(caddisSkillsDir(home))).toBe(before); // nothing written
+  });
+
+  it('fails loudly when the shipped bundle is missing, rather than half-installing', async () => {
+    // The case CI actually hits when tests run before the build. It must be a clean,
+    // explanatory failure — never a silent skip that reads as success.
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockBundle.mockReturnValue(null);
+    const result = await codexAdapter.drive('install', { dryRun: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toBe(false);
+    expect(result.message).toMatch(/bundle is missing/i);
   });
 
   it('is registered as supported, and says config is never merged', () => {
