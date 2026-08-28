@@ -896,6 +896,7 @@ agent-log.jsonl
 .last-usage-review
 relay.md
 relay/
+session-state.md
 PROJECT-FACTS.md
 memory.jsonl
 """
@@ -1131,12 +1132,13 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
     Committed subdirs: plans, handoffs, agent-docs, prd, kb, prompts, comms. Transient state
-    (reviews/*.html, usage-log.jsonl, .last-usage-review, relay*, PROJECT-FACTS.md, memory.jsonl)
-    is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
+    (reviews/*.html, usage-log.jsonl, .last-usage-review, relay*, session-state.md,
+    PROJECT-FACTS.md, memory.jsonl) is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
     Phase A3) — kb/ and prompts/ round out plans/prd/agent-docs/reviews so nothing has to
     scatter to the repo root or .github/. Also drops a documented `config.toml.example`
-    (guard/doc_coverage). Idempotent; never clobbers an existing .gitignore or
-    config example.
+    (guard/doc_coverage). Idempotent. An existing .caddis/.gitignore is never clobbered or
+    reordered, but MISSING entries are appended — otherwise a repo set up before an entry
+    existed would never receive it. The config example is left alone entirely.
 
     Writes into the repo's `.caddis/`.
     """
@@ -1198,7 +1200,34 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
         notes.append(f"scaffold: wrote {label}/kb/environment-map.md")
     gi = root / ".gitignore"
     if gi.exists():
-        notes.append(f"scaffold: {label}/.gitignore present — kept")
+        # APPEND what is missing rather than keeping the file frozen. The old behaviour was
+        # "present -> kept", so a repo scaffolded before an entry was added NEVER received it.
+        # That is not hypothetical: `session-state.md` is rewritten by the Stop hook on every
+        # turn and contains the operator's verbatim words, and an already-scaffolded repo was
+        # sitting one hook-fire away from committing it.
+        #
+        # Only ever adds; a line the user wrote themselves is never touched or reordered.
+        try:
+            existing = gi.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+        have = {ln.strip() for ln in existing.splitlines()}
+        missing = [
+            ln for ln in ARTIFACT_GITIGNORE.splitlines()
+            if ln.strip() and not ln.startswith("#") and ln.strip() not in have
+        ]
+        if not missing:
+            notes.append(f"scaffold: {label}/.gitignore present — up to date")
+        else:
+            if not dry:
+                block = "" if existing.endswith("\n") or not existing else "\n"
+                block += "\n# added by caddis — newer transient artifacts\n"
+                block += "\n".join(missing) + "\n"
+                gi.write_text(existing + block, encoding="utf-8")
+            notes.append(
+                f"scaffold: {label}/.gitignore — added {len(missing)} missing entry(ies): "
+                + ", ".join(missing)
+            )
     else:
         if not dry:
             root.mkdir(parents=True, exist_ok=True)

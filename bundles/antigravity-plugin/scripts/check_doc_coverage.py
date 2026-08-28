@@ -728,7 +728,7 @@ def remove_rows_with_targets(text: str, targets: list[str]) -> str:
 def _atomic_write(path: Path, text: str) -> bool:
     """Write ``text`` via a same-dir, per-process temp file + atomic replace. Returns True on success.
 
-    A crash mid-write can't leave a truncated DOC-MAP (mirrors dream_memory.save_facts). The temp name
+    A crash mid-write can't leave a truncated DOC-MAP. The temp name
     is PID-tagged so two concurrent runs don't fight over one temp. Returns **False (never raises)** if
     the target is locked — on Windows an open editor / AV can hold it — so a maintenance run degrades to
     a clear message instead of a stack trace.
