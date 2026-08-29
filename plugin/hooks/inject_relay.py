@@ -280,10 +280,20 @@ if os.path.isfile(RELAY) and not _is_headless():
 _STATE = _first_existing(_art("session-state.md"), "")
 if _STATE and not _is_headless():
     try:
+        # A GRACE WINDOW, not a bare comparison. `/handoff` writes relay.md during a turn and
+        # the Stop hook rewrites session-state.md at the END of that same turn — so the state
+        # file is ALWAYS a few seconds newer, and a strict `>` made this fire every single
+        # time, including immediately after a handoff. Measured at +331 s on a real handoff
+        # before this was fixed.
+        #
+        # Under the window, the handoff covered whatever the state file holds. Beyond it, real
+        # work happened after the last clean stop and the relay no longer describes it.
+        _STATE_GRACE_SECONDS = 300
         _state_newer = True
         if os.path.isfile(RELAY):
-            # Strictly newer: equal mtimes mean the handoff wrote last, so the relay wins.
-            _state_newer = os.path.getmtime(_STATE) > os.path.getmtime(RELAY)
+            _state_newer = (
+                os.path.getmtime(_STATE) - os.path.getmtime(RELAY)
+            ) > _STATE_GRACE_SECONDS
         if _state_newer:
             _stext = open(_STATE, encoding="utf-8").read()
             # Drop the file's own preamble ("do not edit by hand", how to use claude --continue).
