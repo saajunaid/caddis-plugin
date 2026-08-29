@@ -17,6 +17,10 @@
           "destination": "agent-docs/README.md"
         },
         {
+          "source": "agent-docs/GLOSSARY.md",
+          "destination": "agent-docs/CADDIS-GLOSSARY.md"
+        },
+        {
           "source": "handoffs/README.md",
           "destination": "handoffs/README.md"
         }
@@ -193,6 +197,10 @@
           "root": "harness",
           "source": "scripts/caddis_statusline.py",
           "destination": "caddis_statusline.py"
+        },
+        {
+          "source": "agent-docs/GLOSSARY.md",
+          "destination": "CADDIS-GLOSSARY.md"
         },
         {
           "root": "harness",
@@ -393,7 +401,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.90",
+        "version": "1.3.91",
         "description": "caddis \u2014 agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -452,6 +460,10 @@
           "root": "harness",
           "source": "LOCAL-MODELS.md",
           "destination": "LOCAL-MODELS.md"
+        },
+        {
+          "source": "agent-docs/GLOSSARY.md",
+          "destination": "CADDIS-GLOSSARY.md"
         },
         {
           "root": "harness",

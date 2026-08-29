@@ -919,6 +919,10 @@ English does not, and marks which already have an entry:
 It cannot write the definitions - only a person or the model reading the code can say what
 a coined word MEANS here. Run `/caddis:glossary` to have them drafted, or write them.
 
+This file is for YOUR project's vocabulary. caddis's own coined words - pool, relay, drift,
+export target - are defined separately in `CADDIS-GLOSSARY.md` at the plugin root, which also
+serves as a worked example of what a good entry looks like. Do not copy those terms in here.
+
 | Term | Definition | DO NOT USE |
 |---|---|---|
 | _example_ | Replace this row. Say what the word means HERE, and why the ordinary reading is wrong. | the synonyms that cause confusion |

@@ -52,6 +52,10 @@ Each row gets three things:
 | **Definition** | What it means HERE, and — where it helps — why the ordinary reading misleads. Say the thing a newcomer would get wrong. |
 | **DO NOT USE** | The synonyms actually causing confusion in this repo. Leave blank rather than inventing some. |
 
+**A worked example ships with caddis.** `CADDIS-GLOSSARY.md` at the plugin root defines caddis's
+own coined vocabulary the same way — read a few entries before writing yours. It is caddis's
+words, not this project's: never copy its terms into a project glossary.
+
 Good: *"pool — the single source of every shipped resource, in `.github/`. Everything installed is EXPORTED from it; nothing is authored in a bundle."*
 
 Bad: *"pool — a pool of resources."*
