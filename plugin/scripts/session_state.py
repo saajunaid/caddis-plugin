@@ -53,13 +53,25 @@ _TASK_ID_RE = re.compile(r"Task #(\d+)", re.I)
 # "what you were doing" would be worse than surfacing nothing.
 _COMMAND_BODY_RE = re.compile(r"^#\s*/[a-z0-9][\w:-]*", re.I)
 
+# Measured, not guessed: these are the shapes that actually appear as user-role turns in the
+# transcripts on this machine, found by counting the first 60 characters of every such turn
+# across the six most recent sessions. Each one is the harness talking, not the operator.
 _NOISE_PREFIXES = (
     "<system-reminder",
     "<command-name",
-    "<local-command",
+    "<local-command",              # includes <local-command-caveat>
     "[HARNESS]",
     "Caveat: The messages below",
+    "[Request interrupted by user]",
+    "Another Claude session sent a message",   # cross-session relay, not this operator
+    "This session is being continued from",    # the compaction preamble
+    "Launching skill:",
 )
+
+# "Skill /caddis:handoff is already loaded above; instructions unchanged." — a re-invocation
+# notice. Matched as a pattern rather than a prefix so it cannot swallow a real message that
+# happens to start with the word "Skill".
+_SKILL_NOTICE_RE = re.compile(r"^Skill\s+/\S+\s+is already loaded\b", re.I)
 
 _STATUS_ORDER = {"in_progress": 0, "pending": 1, "completed": 2}
 _MAX_TASKS = 20
@@ -131,6 +143,8 @@ def _user_text(event) -> str:
         return ""
     if _COMMAND_BODY_RE.match(text):
         return ""  # the expanded body of a slash command, not something the operator typed
+    if _SKILL_NOTICE_RE.match(text):
+        return ""  # "Skill /x is already loaded" — the harness, not the operator
     return text
 
 

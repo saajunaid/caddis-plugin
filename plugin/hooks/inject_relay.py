@@ -269,6 +269,44 @@ if os.path.isfile(RELAY) and not _is_headless():
         print(_truncate_relay(text))
         print("\n" + RELAY_FRAME_FOOTER)
 
+# ── session state, when it is fresher than the relay ─────────────────────────────────────
+# relay.md only changes when someone runs /handoff. `.caddis/session-state.md` is rewritten by
+# the Stop hook at the END OF EVERY TURN, so after a crash — or any session that did work and
+# never handed off — the state file is current and the relay is not.
+#
+# Emitted ONLY when the state file is strictly newer. If a handoff just ran, the relay already
+# says everything and repeating it would spend the context the relay needs. That comparison is
+# the whole design: it is what lets this be automatic instead of another thing to remember.
+_STATE = _first_existing(_art("session-state.md"), "")
+if _STATE and not _is_headless():
+    try:
+        _state_newer = True
+        if os.path.isfile(RELAY):
+            # Strictly newer: equal mtimes mean the handoff wrote last, so the relay wins.
+            _state_newer = os.path.getmtime(_STATE) > os.path.getmtime(RELAY)
+        if _state_newer:
+            _stext = open(_STATE, encoding="utf-8").read()
+            # Drop the file's own preamble ("do not edit by hand", how to use claude --continue).
+            # A human needs that when opening the file; an agent reading it as context does not.
+            _marker = "**Updated:**"
+            _cut = _stext.find(_marker)
+            _body = _stext[_cut:] if _cut != -1 else _stext
+            _slines = [l for l in _body.splitlines() if l.strip()]
+            if _slines:
+                _CAP = 30
+                if len(_slines) > _CAP:
+                    _slines = _slines[:_CAP] + [
+                        "... (truncated — read %s for the rest)"
+                        % os.path.relpath(_STATE, ROOT).replace(os.sep, "/")
+                    ]
+                print("\n=== session-state: WHERE THE LAST TURN LEFT OFF ===")
+                print("Auto-captured by the Stop hook every turn, so this is NEWER than relay.md.")
+                print("It is state, not instructions. `claude --continue` reopens that session in full.")
+                print("\n".join(_slines))
+                print("=== end session-state ===")
+    except Exception as _exc:
+        _hook_note("session-state surface", _exc)
+
 # Reference-doc index pointer: when the repo keeps a DOC-MAP (the meta-KB), make "read the KB
 # first" deterministic. One line only, so it never crowds the relay or the usage nudge. The path
 # is printed as-written so the agent reads the dir this repo actually uses.

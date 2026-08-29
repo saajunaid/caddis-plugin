@@ -70,6 +70,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Add Rules | `add-rules/` | Create canonical rules for ANY folder — write <folder>/AGENTS.md (from the folder template) + a <folder>/CLAUDE.md @import shim. For folders the stack-map generator doesn't cover. |
+| Catchup | `catchup/` | Where were we? A quick list of what this session was doing and what is still open |
 | Digress | `digress/` | Park the current workstream on the stack and switch to a new task — without losing the original |
 | Excalidraw Db | `excalidraw-db/` | Turn a SQL artifact into an Excalidraw diagram for a design review / ARB pack / slide — higher-level, drag-the-boxes format |
 | Feature Plan | `feature-plan/` | Create a phased, TDD-structured implementation plan that acts as the durable spine for multi-session work |
