@@ -174,13 +174,3 @@ This:
 service-a      OK   declared=24  missing=0     <- every declared dep imported
 service-b      OK   declared=19  missing=0
 ```
-
-## Reference implementation
-
-The estate this skill came from keeps working tools at `.caddis/tools/`:
-
-- `venv-audit.py` - imports every dependency each `pyproject.toml` declares
-- `rebuild-venv.ps1` - renames aside, rebuilds, restarts services, refuses on links or live processes
-- `README-venv-safety.md` - the incident record
-
-Adapt rather than copy: the rules matter more than the scripts.

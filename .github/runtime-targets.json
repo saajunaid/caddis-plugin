@@ -388,7 +388,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.86",
+        "version": "1.3.87",
         "description": "caddis \u2014 agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -645,6 +645,7 @@
             "docs": [
               "code-documentation",
               "explainer-doc",
+              "tech-explainer",
               "technical-writing",
               "writing-plans"
             ],
@@ -685,7 +686,7 @@
       "workspace_root": "plugin-extras",
       "plugin": {
         "name": "caddis-extras",
-        "version": "1.3.27",
+        "version": "1.3.28",
         "description": "caddis-extras \u2014 the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
         "author": {
           "name": "junaid",
@@ -734,6 +735,7 @@
             "skill-creator",
             "code-documentation",
             "explainer-doc",
+            "tech-explainer",
             "technical-writing",
             "writing-plans",
             "ci-cd-pipeline",

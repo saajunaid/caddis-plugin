@@ -1,0 +1,50 @@
+{
+  "skill_name": "tech-explainer",
+  "evals": [
+    {
+      "id": 0,
+      "name": "answer-a-senior-colleagues-recommendations",
+      "prompt": "Our infra lead Priya sent three recommendations after our Postgres slowdown: (1) move the DB to NVMe, (2) bump shared_buffers to 32GB, (3) switch the connection pooler from pgbouncer to pgcat. I spent two weeks benchmarking. What I actually found: the p99 is dominated by one N+1 query in the orders service that fires ~340 round trips per page load — that's ~85% of the latency. Disk is already NVMe (she didn't know). shared_buffers helped 4% at 32GB. pgcat vs pgbouncer measured within 2%. I also had two results I had to retract along the way — my first benchmark used a warm cache so it showed a fake 3x win from shared_buffers, and I misread a pooler metric that made pgcat look 40% faster. Write this up for Priya. She's more senior than me and I need her to not feel dismissed.",
+      "expected_output": "A markdown explainer, STE, with: audience line naming Priya; vocabulary table; a ranked-effect Mermaid diagram putting the N+1 query at LAYER 1 ~85% and the pooler at the bottom with the measured 2%; a withdrawn-results section listing both retractions with what caught them; a 'where the advice is right' steelman; questions back to Priya; five-line summary.",
+      "assertions": [
+        "Contains a Mermaid flowchart TB whose subgraph titles carry effect magnitudes (e.g. LARGEST EFFECT / NO EFFECT plus a number or percentage), ordered largest effect first",
+        "The N+1 query is ranked as the largest effect and the connection pooler is ranked with its measured ~2%",
+        "All three of Priya's recommendations appear, each with a verdict and an evidence column",
+        "Contains a section that concedes where Priya is right before refuting anything",
+        "Contains a withdrawn/retracted-results section naming both wrong results and what caught each one",
+        "Contains a controlled-vocabulary table defining terms with one meaning each",
+        "Contains an audience line naming Priya and an explicit Simplified Technical English declaration",
+        "Contains a summary of about five numbered lines",
+        "No sentence exceeds 30 words in the body prose",
+        "Every headline number carries a unit and a basis (sample, date, or method)"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "explain-an-architecture-to-a-non-specialist",
+      "prompt": "My manager keeps asking why our nightly ETL takes 5 hours when 'it's just copying data'. Can you write something plain-English with diagrams that explains what the pipeline actually does end to end and where the 5 hours goes? Breakdown from last night's run: extract from Salesforce API 3h12m (rate limited to 100 req/min, 19k accounts), transform in dbt 41m, load to Snowflake 22m, dbt tests 45m. He's not technical but he's sharp and he'll ask good questions.",
+      "expected_output": "An explainer with a left-to-right pipeline flowchart, a pie chart of where the time goes with the run date, a vocabulary table defining rate limit / extract / transform / load / dbt, a ranked view showing the API rate limit dominates, and next steps. Should NOT invent numbers beyond those given.",
+      "assertions": [
+        "Contains a Mermaid flowchart LR showing extract -> transform -> load with the sizes on the nodes",
+        "Contains a Mermaid pie chart with showData whose slices match the given timings",
+        "Identifies the Salesforce API rate limit as the dominant cost with its share of the 5 hours",
+        "Contains a vocabulary table defining at least extract, transform, load, and rate limit",
+        "Invents no measurement not present in the prompt, or marks any inferred number as calculated",
+        "Contains a next-steps section that names which step matters most and why"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "negative-should-defer-to-explainer-doc",
+      "prompt": "Write the implementation spec for the Genesys-to-warehouse ETL that we're handing to the Infosys contractor team next week. They need the DDL, the extract queries, the load procedure, the schedule, and the acceptance criteria.",
+      "expected_output": "This is a build-handoff, not an understanding document. The correct behaviour is to route to the explainer-doc skill rather than produce a tech-explainer with a vocabulary table and ranked-layer diagram.",
+      "assertions": [
+        "Does not produce a tech-explainer-shaped document (no ranked-effect layer diagram, no five-line summary)",
+        "Routes to explainer-doc or otherwise produces an actionable build spec"
+      ],
+      "files": []
+    }
+  ]
+}
