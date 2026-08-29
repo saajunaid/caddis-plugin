@@ -902,6 +902,35 @@ memory.jsonl
 """
 
 
+GLOSSARY_TEMPLATE = """\
+# Glossary
+
+The words this project invented out of ordinary English, defined once.
+
+**Admission test:** a term belongs here when its meaning in this project is *distinct
+enough from its ordinary technical sense that a newcomer would misread it*. `commit` does
+not belong. A word this team uses in its own way does.
+
+To find candidates, run the measurer. It ranks the words this repo says often that plain
+English does not, and marks which already have an entry:
+
+    python <caddis>/scripts/caddis_glossary.py
+
+It cannot write the definitions - only a person or the model reading the code can say what
+a coined word MEANS here. Run `/caddis:glossary` to have them drafted, or write them.
+
+| Term | Definition | DO NOT USE |
+|---|---|---|
+| _example_ | Replace this row. Say what the word means HERE, and why the ordinary reading is wrong. | the synonyms that cause confusion |
+
+## Flagged ambiguities
+
+Name the words that are still overloaded rather than pretending the vocabulary is clean. A
+glossary that hides its own dirt starts lying. Delete this section only when there is
+genuinely nothing to flag.
+"""
+
+
 ARTIFACT_CONFIG_EXAMPLE = """\
 # caddis per-repo configuration — a documented template.
 #
@@ -1198,6 +1227,20 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
             em.parent.mkdir(parents=True, exist_ok=True)
             em.write_text(ENVIRONMENT_MAP_TEMPLATE, encoding="utf-8")
         notes.append(f"scaffold: wrote {label}/kb/environment-map.md")
+    # A vocabulary stub, seeded but never auto-filled. `caddis_glossary.py` can measure
+    # which words a repo coined, but only a person or the model reading the code can say
+    # what they MEAN - and a file of correct words with empty meanings looks authoritative
+    # while teaching nothing. The stub carries the admission test so whoever fills it in
+    # knows what qualifies.
+    gl = root / "kb" / "GLOSSARY.md"
+    if gl.exists():
+        notes.append(f"scaffold: {label}/kb/GLOSSARY.md present - kept")
+    else:
+        if not dry:
+            gl.parent.mkdir(parents=True, exist_ok=True)
+            gl.write_text(GLOSSARY_TEMPLATE, encoding="utf-8")
+        notes.append(f"scaffold: wrote {label}/kb/GLOSSARY.md (run /caddis:glossary to fill it)")
+
     gi = root / ".gitignore"
     if gi.exists():
         # APPEND what is missing rather than keeping the file frozen. The old behaviour was

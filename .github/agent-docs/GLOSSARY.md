@@ -3,6 +3,16 @@
 Canonical terms used across all agents, skills, and pipeline infrastructure.
 When writing agent instructions, skills, or documentation, use ONLY these terms.
 
+Two vocabularies live here and they are NOT interchangeable. **Core Terms** onward describe the
+agent PIPELINE (orchestrator, stages, `pipeline-state.json`). **Toolchain Terms** describe caddis
+as a distributed product (pool, mirror, export target). A word can be canonical in one and absent
+from the other; where they genuinely collide, the collision is named under Flagged ambiguities
+rather than resolved by fiat.
+
+Admission test, borrowed from `last30days-skill`'s CONCEPTS.md: a term belongs here when its
+project meaning is **distinct enough from its ordinary technical sense that a newcomer would
+misread it**. `commit` does not belong. `pool` does.
+
 ---
 
 ## Core Terms
@@ -88,3 +98,48 @@ All writes to `pipeline-state.json` go through MCP tools. Only `stages[*].status
 | "Run the onboarding skill" | "Run the onboarding prompt" | `.prompt.md` files are prompts, not skills |
 | "Route to the agent" | "Hand off to the agent" | Routing is Orchestrator's internal logic; handoff is the transfer act |
 | `[Stage/Phase N]` | `[Phase N]` (within Plan) or `[Stage: implement]` (pipeline-level) | Don't conflate the two with a slash |
+
+---
+
+## Toolchain Terms
+
+caddis-the-product, as opposed to the agent pipeline above. These are the words caddis invented
+out of ordinary English, which is exactly why they need defining: a reader who guesses from the
+plain word gets them wrong. Usage counts were measured across 444 markdown files on 2026-08-29.
+
+| Canonical Term | Definition | DO NOT USE |
+|---|---|---|
+| pool | The single source of every shipped resource, living in `.github/` (skills, agents, commands, prompts). Everything a user installs is EXPORTED from the pool; nothing is authored in a bundle. Versioned independently of the CLI, and bumped only by `caddis-push` — never by hand. *(222 uses)* | bundle (for the source), library |
+| bundle | One EXPORTED copy of the pool, shaped for a single target — `dist/runtime-resources/<target>/`. A bundle is generated output; editing one is always a mistake. | pool (for a built copy) |
+| export target | A named consumer in `.github/runtime-targets.json` — claude, antigravity, antigravity-plugin, codex, copilot, plus `-extras` variants. Each takes a different subset and layout from the same pool. | platform, host (for a target) |
+| mirror | The public repo `saajunaid/caddis-plugin`, refreshed by `caddis-push`. The SOURCE repo is private, so the mirror is what any other machine can actually reach. | upstream, remote |
+| relay | `.caddis/relay.md` — the durable resume doc, rewritten by `/caddis:handoff` and injected at SessionStart. Machine-local and gitignored. Only changes when someone runs a handoff, so it is stale between them by design. *(168 uses)* | handoff doc, session notes |
+| session state | `.caddis/session-state.md` — auto-captured by the `Stop` hook at the end of EVERY turn. Distinct from the relay: current without anyone deciding to make it current, and it holds no agreed next step. | relay (they are different files with different guarantees) |
+| drift | A gap between what a consumer HAS installed and what the pool currently ships. `caddis status` reports it per agent. Not code drift, not schema drift. *(160 uses)* | staleness, lag |
+| live-fire | Driving a real binary end to end rather than asserting against a manifest. Coined because three defects in one month passed every test and still gave a human a broken install: the tests asked "does the export match the manifest", never "would this work". An export target is not trusted until it has been live-fired once. | smoke test, integration test, manual test |
+| parking-lot | `.caddis/parking-lot/` — the ONE register of future work. It exists because future work previously scattered to nine places and no session could answer "what is left". Items carry `severity` and `status`; the backlog IS the plan when no plan is active. *(41 uses)* | backlog file, TODO list, icebox |
+| model lane | A named provider route reached by its own binary — `claude-oss`, `claude-glm`, `claude-deepseek` — all speaking the Anthropic protocol. A lane is a route, not a model. | provider, backend, endpoint |
+| core / extras | The two shipping tiers. Core is an EXPLICIT allowlist in `.github/runtime-targets.json`; anything not named there lands in extras. A skill defaults to extras, so placement is a decision, never an accident. | tier 1 / tier 2, full / lite |
+| harness | The agent runtime that loads caddis — Claude Code, agy, Codex, Copilot. caddis is agent-agnostic; "the harness" without a name means whichever one is running. *(135 uses)* | client, IDE, platform |
+
+## Flagged ambiguities
+
+Named rather than resolved. Pretending the vocabulary is clean is how a glossary starts lying.
+
+- **`gate` is overloaded, badly.** Core Terms defines it as a supervision checkpoint requiring
+  approval. That is one of at least twelve senses in live use: *exit gate* (20), *quality gate*
+  (9), *evidence gate* (5), *decision gate* (3), plus pre-publish, handover and privacy gates —
+  none of which involve pipeline supervision. The word appears 1019 times across 168 files.
+  **Prefer the full two-word term everywhere**; a bare "gate" is ambiguous and the reader cannot
+  tell which one you meant.
+
+- **`artefact` vs `artifact`.** Core Terms makes `artefact` canonical, and for pipeline outputs it
+  is. But the toolchain's own code says `artifact_root` and "artifact dir" (17 uses in
+  `scripts/setup_project_ai.py` alone), and those are API names that cannot be respelled without
+  a breaking change. So: **artefact** in pipeline prose and field names; **artifact dir /
+  `artifact_root`** when naming the `.caddis/` directory mechanism. Do not "fix" one into the other.
+
+- **`skill` means two things across harnesses.** In the pool it is
+  `.github/skills/<category>/<name>/SKILL.md`. But agy CONVERTS commands into skills at install
+  time, so `/caddis:catchup` ships as a command and arrives as an agy skill. A skill count that
+  disagrees between two agents is usually this, not a bug.
