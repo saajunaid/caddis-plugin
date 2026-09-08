@@ -50,6 +50,33 @@ are uncommitted.)
 - Without a named guard, apply the generic infra-vs-product mixed-diff heuristic as a **warning
   only** — surface it and proceed (repos without a guard allow mixed PRs by construction).
 
+## Step 3b — Cross-review trigger (before anything is pushed)
+
+**Run the trigger, do not eyeball the diff:**
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
+```
+
+Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
+Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
+picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
+gets switched off inside a week.
+
+It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
+over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
+what failed.
+
+> **Why this is mechanical and not "consider a review here".** serve-sight shipped four
+> production releases in one day — sixteen fixes across SQL, caches, refresh jobs and React — and
+> `/caddis:cross-review` ran **zero times**. Nothing was broken: the tool reported itself ready
+> with two providers keyed. Nothing decided *when* to call it. Measured there: 4 of 39 plan files
+> mention cross-review, and all four came from `/caddis:feature-plan`, which writes the line into
+> the plan template it emits. So planned feature work got reviewed and a bug batch did not —
+> **review coverage inversely correlated with urgency.** Two of that day's sixteen fixes were
+> diff-visible defects, including a cache whose docstring said "cached for the instance's life"
+> while a dependency rebuilt the object per request, so the cache was never once read.
+
 ## Step 4 — Rebase-safe currency
 
 - If the branch is **behind** the default branch, offer to rebase onto it (stale branches are how

@@ -44,6 +44,23 @@ git rev-parse HEAD      # record SHA for monitoring
 ```
 Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope = affected module.
 
+**2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
+
+**Run the trigger, do not eyeball the diff:**
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
+```
+
+Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
+Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
+picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
+gets switched off inside a week.
+
+It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
+over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
+what failed.
+
 **3. PUSH** — to the repo's default branch (confirm the branch first; don't assume `main`):
 ```
 git push origin <branch>

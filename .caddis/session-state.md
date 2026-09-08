@@ -4,40 +4,20 @@ Written by the caddis `Stop` hook at the end of every assistant turn. **Do not e
 
 This is a recovery aid, not a record. The full conversation is already on disk and nothing was lost; run **`claude --continue`** in this folder to reopen it exactly, or `claude --resume` to pick an older session.
 
-**Updated:** 2026-08-29T03:41:11+00:00 · **Branch:** main · **Session:** `f036eaf2-1134-4caa-87e6-b08a8b330e5a`
+**Updated:** 2026-09-08T20:34:30+00:00 · **Branch:** main · **Session:** `239fb433-aa45-4c15-beaa-b92859c55025`
 
 ## Last thing you asked
 
-> publish it
+> why is this happening I never had to run any commands by hand previously when publishing updates or adding features to caddis.
 
 ## Tasks
 
 | # | Status | Task |
 |---|---|---|
-| 1 | done | Reference-integrity check, both directions |
-| 2 | done | Re-enable the guard with zero permission prompts |
-| 3 | done | Hook health ledger |
-| 4 | done | Make skill instrumentation see auto-activation |
-| 5 | done | Fix caddis init downgrading agents |
-| 6 | done | Publish caddis so this machine gets today's fixes |
-| 7 | done | Native multi-provider install (lanes + keys) |
-| 8 | done | Remove the ptarmigan and liffey targets |
-| 9 | done | Fix the doc drift |
-| 10 | done | Update the commands diagram |
+| 4 | **IN PROGRESS** | shared-checkout-collision items 1 and 2 |
+| 1 | done | Fold sendmessage-successor-validation into 008, then close it |
+| 2 | done | 008 §4 — write the capture ORDER into spawn-session.md |
+| 3 | done | 008 §3 — the two-way handshake over SendMessage |
+| 5 | done | Correct the stale claim in caddis-minor-housekeeping |
 
-## Files changed this session
-
-Most recent first.
-
-- `E:/Projects/claudster-source/claude-harness/commands/catchup.md`
-- `E:/Projects/claudster-source/.caddis/kb/publishing-two-paths.md`
-- `E:/Projects/claudster-source/.caddis/kb/agy-plugin-install-never-prunes.md`
-- `E:/Projects/claudster-source/scripts/tests/test_bundle_imports_resolve.py`
-- `E:/Projects/claudster-source/scripts/tests/test_session_state.py`
-- `E:/Projects/claudster-source/claude-harness/scripts/session_state.py`
-- `E:/Projects/claudster-source/claude-harness/scripts/new-machine.ps1`
-- `E:/Projects/claudster-source/cli/test/codex.test.ts`
-- `E:/Projects/claudster-source/cli/src/agents/codex.ts`
-- `E:/Projects/claudster-source/.caddis/relay.md`
-- `E:/Projects/claudster-source/.caddis/kb/codex-cli-contract.md`
-- `E:/Projects/claudster-source/scripts/tests/test_inventory_test_command.py`
+**Task 4 note:** The remaining half of shared-checkout-collision item 2. The RULE is now written in spawn-session.md and .caddis/kb/shared-worktree-branch-switch.md, and the SessionStart live-peer warning shipped in 4e3d950 — but nothing in the harness passes isolation: "worktree" to the Agent tool. Items 1 and 3 o…

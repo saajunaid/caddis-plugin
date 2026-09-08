@@ -480,6 +480,107 @@ def gate_handover_check(doc: Path, repo_root: Path) -> int:
     return EXIT_BLOCKED
 
 
+# ── cross-review trigger ────────────────────────────────────────────────────────────────────
+# serve-sight shipped FOUR production releases in one day, sixteen fixes across SQL, caches,
+# refresh jobs and React. `/caddis:cross-review` ran ZERO times. Not because it was broken:
+# `oss_review.py --check-config` reported it ready with two providers keyed. Nothing called it.
+#
+# Measured there: 4 of 39 plan files mention cross-review, and all four are /feature-plan outputs,
+# because that command writes the line into the plan template it emits. So planned feature work
+# got reviewed and a bug batch did not — REVIEW COVERAGE INVERSELY CORRELATED WITH URGENCY.
+#
+# Two of that day's sixteen fixes were diff-visible defects: a cache whose docstring said "cached
+# for the instance's life" while a FastAPI dependency rebuilt the object per request, so the cache
+# was never once read (5.03s per call, and the docstring described the bug while reading as a
+# design note); and two endpoints with no cache at all on a page with a 1s standard.
+#
+# Every rule below is checkable from `git diff --name-only` plus a line count. NO JUDGEMENT — that
+# is the point, because judgement is exactly what failed. Prose in a command would be one more
+# thing to remember, and 008 section 2 is this repo's record of a rule that lived only in a
+# document and lost to the artefact.
+REVIEW_BIG_DIFF_LINES = 400
+
+# (label, why, path-segment needles). Matched against lowercased POSIX path segments and the file
+# stem, never a bare substring of the whole path — `services` must be a directory or a filename
+# part, so `deprecated_services_notes.md` matches and `microservices-README` in a docs tree does
+# not sneak in through a parent directory nobody meant.
+REVIEW_TRIGGERS = [
+    ("sql", "where a wrong number is born — presence is not correctness",
+     ("sql", "queries", "query", "repositories", "repository", "migrations", "migration")),
+    ("services", "the layer the 2026-08-31 cache defects lived in, with no SQL in the diff",
+     ("services", "service")),
+    ("caching", "hit twice in one day at serve-sight",
+     ("cache", "caches", "caching", "refresh", "memo", "memoize")),
+    ("auth", "a mistake here is a breach, not a bug",
+     ("auth", "rbac", "permission", "permissions", "role", "roles", "authz", "authn")),
+]
+
+
+def _changed(repo_root: Path, rev_range: str | None) -> tuple[list[str], int]:
+    """(paths, changed-line-count) for the working tree, or for an explicit range."""
+    args = ["git", "-C", str(repo_root), "diff", "--numstat"]
+    if rev_range:
+        args.append(rev_range)
+    out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
+    paths, lines = [], 0
+    for row in out.splitlines():
+        parts = row.split("	")
+        if len(parts) != 3:
+            continue
+        add, dele, path = parts
+        paths.append(path.strip())
+        for n in (add, dele):
+            if n.isdigit():
+                lines += int(n)
+    return paths, lines
+
+
+def review_triggers(paths: list[str], changed_lines: int) -> list[tuple[str, str, list[str]]]:
+    """[(label, why, matching paths)] — empty means the diff does not warrant a second opinion."""
+    fired: list[tuple[str, str, list[str]]] = []
+    for label, why, needles in REVIEW_TRIGGERS:
+        hits = []
+        for p in paths:
+            segs = [seg.lower() for seg in p.replace("\\", "/").split("/")]
+            stem = segs[-1].rsplit(".", 1)[0] if segs else ""
+            parts = set(segs[:-1]) | set(stem.replace("-", "_").split("_")) | {stem}
+            # `.sql` belongs to the sql rule ONLY. Left in the shared condition it made every
+            # trigger fire on any .sql file, so one migration reported sql+services+caching+auth
+            # and the reason column became noise.
+            if parts & set(needles) or (label == "sql" and segs[-1].endswith(".sql")):
+                hits.append(p)
+        if hits:
+            fired.append((label, why, sorted(hits)))
+    if changed_lines > REVIEW_BIG_DIFF_LINES:
+        fired.append(("size", f"{changed_lines} changed lines — size alone stops being reviewable",
+                      []))
+    return fired
+
+
+def gate_review_trigger(repo_root: Path, rev_range: str | None = None) -> int:
+    """EXIT_NOTE when the diff warrants cross-review, EXIT_OK when it does not.
+
+    NOTE, never BLOCKED. This decides when to ASK for a second opinion; it is not itself a verdict
+    and must not stop a ship. The honest limit, from the item that raised it: a trigger does not
+    make the review good, it makes it happen — and on the measured evidence that was the binding
+    constraint, with a configured, capable tool idle through sixteen chances to use it.
+    """
+    paths, changed = _changed(repo_root, rev_range)
+    if not paths:
+        print("[gate] review-trigger: empty diff — nothing to review")
+        return EXIT_OK
+    fired = review_triggers(paths, changed)
+    if not fired:
+        print(f"[gate] review-trigger: {len(paths)} file(s), {changed} line(s) — no trigger")
+        return EXIT_OK
+    print(f"[gate] review-trigger: RUN CROSS-REVIEW — {len(paths)} file(s), {changed} line(s)")
+    for label, why, hits in fired:
+        shown = ", ".join(hits[:4]) + (", ..." if len(hits) > 4 else "")
+        print(f"    {label}: {why}" + (f"{chr(10)}      {shown}" if hits else ""))
+    print("    /caddis:cross-review   (or: python .github/tools/oss_review.py)")
+    return EXIT_NOTE
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="caddis machine gates")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -494,6 +595,10 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("--refs", nargs="*", default=[])
     pl = sub.add_parser("parking-lot")
     pl.add_argument("--repo-root", default=".")
+    rt = sub.add_parser("review-trigger")
+    rt.add_argument("--repo-root", default=".")
+    rt.add_argument("--range", dest="rev_range", default=None,
+                    help="revision range, e.g. origin/main...HEAD (default: the working tree)")
     vd = sub.add_parser("vendor-drift")
     vd.add_argument("--repo-root", default=".")
     hc = sub.add_parser("handover-check")
@@ -511,6 +616,8 @@ def main(argv: list[str] | None = None) -> int:
             return gate_hub_artifacts(Path(a.reports), [Path(r) for r in a.refs])
         if a.cmd == "parking-lot":
             return gate_parking_lot(Path(a.repo_root).resolve())
+        if a.cmd == "review-trigger":
+            return gate_review_trigger(Path(a.repo_root).resolve(), a.rev_range)
         if a.cmd == "vendor-drift":
             return gate_vendor_drift(Path(a.repo_root).resolve())
         if a.cmd == "handover-check":
