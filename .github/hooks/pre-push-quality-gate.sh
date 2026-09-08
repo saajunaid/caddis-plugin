@@ -14,6 +14,28 @@ PY=""
 for cand in .venv/Scripts/python.exe .venv/bin/python venv/Scripts/python.exe venv/bin/python; do
   if [ -x "$cand" ]; then PY="$cand"; break; fi
 done
+# A LINKED WORKTREE has no .venv of its own: the venv is gitignored and lives in the
+# MAIN checkout. Without this the gate sees a project that declares ruff/mypy, finds
+# neither runnable, and reports "environment is broken" - which is a false positive, and
+# blocks a push that is perfectly legitimate. The reflex it trains is `--no-verify`, and
+# a gate people habitually bypass has stopped being a gate.
+#
+# The venv is not missing, it is elsewhere. `git rev-parse --git-common-dir` points at the
+# MAIN repository's .git even from inside a linked worktree, so its parent is the main
+# working tree - look for the interpreter there before falling back to PATH.
+if [ -z "$PY" ]; then
+  common=$(git rev-parse --git-common-dir 2>/dev/null || true)
+  if [ -n "$common" ]; then
+    main=$(dirname "$common")
+    for cand in "$main/.venv/Scripts/python.exe" "$main/.venv/bin/python"                 "$main/venv/Scripts/python.exe" "$main/venv/bin/python"; do
+      if [ -x "$cand" ]; then
+        PY="$cand"
+        echo "[hook] linked worktree: using the main checkout's interpreter ($PY)"
+        break
+      fi
+    done
+  fi
+fi
 if [ -z "$PY" ]; then PY=$(command -v python || command -v python3 || true); fi
 
 # Runnable IN $PY, not merely present on PATH: `command -v mypy` answers a question about

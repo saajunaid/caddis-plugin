@@ -18,6 +18,33 @@ $py = $null
 foreach ($cand in @(".venv\Scripts\python.exe", ".venv/bin/python", "venv\Scripts\python.exe", "venv/bin/python")) {
     if (Test-Path $cand) { $py = $cand; break }
 }
+# A LINKED WORKTREE has no .venv of its own: the venv is gitignored and lives in the MAIN
+# checkout. Without this the gate sees a project that declares ruff/mypy, finds neither
+# runnable, reports "environment is broken" and blocks a push that is perfectly
+# legitimate. The reflex that trains is --no-verify, and a gate people habitually bypass
+# has stopped being a gate.
+#
+# The venv is not missing, it is elsewhere. `git rev-parse --git-common-dir` points at the
+# MAIN repository's .git even from inside a linked worktree, so its parent is the main
+# working tree - look there before falling back to PATH.
+if (-not $py) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $common = (& git rev-parse --git-common-dir 2>$null | Select-Object -First 1)
+    $ErrorActionPreference = $prev
+    $global:LASTEXITCODE = 0
+    if ($common) {
+        $main = Split-Path -Parent $common
+        foreach ($cand in @("$main\.venv\Scripts\python.exe", "$main/.venv/bin/python",
+                            "$mainenv\Scripts\python.exe", "$main/venv/bin/python")) {
+            if (Test-Path $cand) {
+                $py = $cand
+                Write-Host "[hook] linked worktree: using the main checkout's interpreter ($py)"
+                break
+            }
+        }
+    }
+}
 if (-not $py) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
 if (-not $py) { $py = (Get-Command python3 -ErrorAction SilentlyContinue).Source }
 

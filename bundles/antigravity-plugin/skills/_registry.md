@@ -85,6 +85,7 @@
 | Park | `park/` | File a future-work item in the one backlog — .caddis/parking-lot/ — or list what is open |
 | Prd | `prd/` | Capture requirements through structured discovery and write a PRD |
 | Resume | `resume/` | Pop the most recently parked workstream off the stack and resume it at its exact resume point |
+| Review | `review/` | Review someone else's OPEN pull request end to end — what changed, what CI says, what is risky — then approve or request changes. Never approves on its own. |
 | Ship | `ship/` | Commit, push, and monitor the deploy pipeline (auto-detects Gitea, GitHub Actions, or local-only) |
 | Ship Merge | `ship-merge/` | Merge an already-green, already-reviewed PR behind an explicit deploy-confirm, monitor the deploy, validate prod, then clean up the branch — only on green. |
 | Ship Pr | `ship-pr/` | Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge). |
