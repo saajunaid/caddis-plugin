@@ -897,6 +897,8 @@ agent-log.jsonl
 relay.md
 relay/
 session-state.md
+session-state/
+context-window.json
 PROJECT-FACTS.md
 memory.jsonl
 """

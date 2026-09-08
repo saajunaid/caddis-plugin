@@ -319,6 +319,35 @@ if u or skills or commands or skills_read:
 # it — but nobody reads back an 8 MB JSONL. This renders the small part a human needs, every
 # turn, with no command to remember. That is the whole point: the failure mode being solved
 # is precisely "there was no time to run /handoff".
+# Keep the per-session directory bounded. One file per session id grows without limit
+# otherwise, and these are recovery aids with a short useful life — the transcript is the
+# real record. Kept deliberately small: anything older than the newest few is describing a
+# session nobody is coming back to. Defined here rather than in session_state.py so a
+# version-skewed bundled copy of that module cannot break the import and cost ALL state
+# capture — the same fail-open discipline as the rest of this file.
+_STATE_KEEP = 8
+
+
+def _prune_session_states(directory: str, keep: int = _STATE_KEEP) -> None:
+    try:
+        entries = []
+        for name in os.listdir(directory):
+            if not name.endswith(".md"):
+                continue  # never touch the .session-state-*.tmp atomic-write scratch files
+            path = os.path.join(directory, name)
+            try:
+                entries.append((os.path.getmtime(path), path))
+            except OSError:
+                continue
+        for _mtime, path in sorted(entries, reverse=True)[keep:]:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    except Exception:
+        pass  # pruning is housekeeping; it must never cost the write that just succeeded
+
+
 if extract_state is not None:
     try:
         state = extract_state(data.get("transcript_path", ""))
@@ -329,8 +358,25 @@ if extract_state is not None:
             "branch": state.get("branch", ""),
             "root": _root,
         })
-        _target = os.path.join(str(artifact_root(_root)), "session-state.md")
+        # ONE FILE PER SESSION, not one shared name. Two Claude sessions routinely share a
+        # single working tree on this fleet, so a flat `session-state.md` meant whichever
+        # session's Stop hook fired last overwrote the other's — every turn — and the next
+        # SessionStart then surfaced a PEER's state as "where the last turn left off". The
+        # session id was already being rendered INTO the file; only the filename was
+        # unqualified. Falls back to the flat name when the payload carries no session id,
+        # which is also the pre-2026-09-08 layout that inject_relay.py still reads.
+        _art_dir = str(artifact_root(_root))
+        _sid = str(data.get("session_id", "") or "").strip()
+        _slug = "".join(c for c in _sid if c.isalnum() or c in "-_")[:64]
+        if _slug:
+            _state_dir = os.path.join(_art_dir, "session-state")
+            _target = os.path.join(_state_dir, _slug + ".md")
+        else:
+            _state_dir = ""
+            _target = os.path.join(_art_dir, "session-state.md")
         if write_state(_target, _text):
+            if _state_dir:
+                _prune_session_states(_state_dir)
             _shown = os.path.relpath(_target, _root).replace(os.sep, "/")
             print(
                 "[STATE]   %s refreshed — after an abrupt close, read it or run "

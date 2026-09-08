@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 # relay.md may contain any Unicode; force UTF-8 so a narrow Windows console
 # (cp1252/cp437) can't raise UnicodeEncodeError or mangle the output.
@@ -269,6 +270,69 @@ if os.path.isfile(RELAY) and not _is_headless():
         print(_truncate_relay(text))
         print("\n" + RELAY_FRAME_FOOTER)
 
+# ── live peers in this same checkout ────────────────────────────────────────────────────────
+# Three Claude sessions worked in one shared tree on 2026-09-06. One switched branches
+# continuously; the other two discovered it by watching the branch change underneath them and
+# reported it as an anomaly. Nothing was lost only because both happened to have clean trees.
+#
+# The mitigation each of them eventually reached -- do parallel work in a `git worktree` off
+# origin/main -- was rediscovered independently three times in one day. That is the signature of
+# a missing default, so it is stated here rather than left to be rediscovered a fourth time.
+#
+# `.caddis/parking-lot/shared-checkout-collision.md` asks for `ListAgents`. A hook is a
+# subprocess and cannot call a model tool, and it does not need to: the per-session state
+# directory is already a registry, one file per session id, rewritten by that session's Stop hook
+# every turn. KNOWN LIMIT -- a peer that has not yet finished a turn has written nothing, so this
+# detects working peers, not just-started ones. Under-reporting is the safe direction: the
+# warning is advice to be careful, never a licence to assume you are alone.
+PEER_FRESH_S = 1800
+
+
+def _live_peers(own_session_id: str, now: float | None = None) -> list[tuple[str, int]]:
+    """[(session-id, seconds since it last wrote)] for OTHER sessions active in this repo."""
+    now = time.time() if now is None else now
+    peers: list[tuple[str, int]] = []
+    for base in _art("session-state"):
+        try:
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".md"):
+                continue
+            sid = name[:-3]
+            if own_session_id and sid == own_session_id:
+                continue  # `claude --continue` resumes the same id; that is not a peer
+            try:
+                age = int(now - os.path.getmtime(os.path.join(base, name)))
+            except OSError:
+                continue
+            if 0 <= age <= PEER_FRESH_S:
+                peers.append((sid, age))
+        if peers:
+            break
+    return sorted(peers, key=lambda p: p[1])
+
+
+# Peer warning goes FIRST. A fresh session's instinct on seeing a dirty tree is to tidy it, and
+# `git checkout` / `stash` / `reset` in a shared tree destroys a peer's uncommitted work.
+try:
+    _peers = _live_peers(str(_payload.get("session_id", "") or "") if isinstance(_payload, dict)
+                         else "")
+    if _peers and not _is_headless():
+        print("\n=== ANOTHER SESSION IS LIVE IN THIS CHECKOUT ===")
+        for _sid, _age in _peers[:3]:
+            print(f"  session {_sid} wrote state {_age}s ago")
+        print("This working tree is process-shared, not session-private. Do NOT run `git "
+              "checkout`, `switch`, `stash`, `reset`, `rebase` or `clean` while a peer is live "
+              "— a branch switch is visible to every session in the tree and carries or destroys "
+              "their uncommitted work.")
+        print("Commit early. For parallel work use a `git worktree` off origin/main rather than "
+              "checking out here; `git worktree list` also shows peers this check cannot see.")
+        print("=== end peer warning ===")
+except Exception as _exc:
+    _hook_note("live-peer warning", _exc)
+
 # ── session state, when it is fresher than the relay ─────────────────────────────────────
 # relay.md only changes when someone runs /handoff. `.caddis/session-state.md` is rewritten by
 # the Stop hook at the END OF EVERY TURN, so after a crash — or any session that did work and
@@ -277,7 +341,41 @@ if os.path.isfile(RELAY) and not _is_headless():
 # Emitted ONLY when the state file is strictly newer. If a handoff just ran, the relay already
 # says everything and repeating it would spend the context the relay needs. That comparison is
 # the whole design: it is what lets this be automatic instead of another thing to remember.
-_STATE = _first_existing(_art("session-state.md"), "")
+def _resolve_state() -> str:
+    """Newest per-session state file, else the legacy flat one.
+
+    Preference (first artifact dir that holds anything wins, mirroring _resolve_relay):
+      1. <artifact-dir>/session-state/<session-id>.md   — newest by mtime
+      2. <artifact-dir>/session-state.md                — pre-2026-09-08 flat layout
+
+    The current session has not written its own file yet at SessionStart, so "newest" is
+    always a PREVIOUS session's or a LIVE PEER's. Those two cases want opposite handling and
+    the filesystem cannot tell them apart — telling them apart needs liveness (ListAgents),
+    which is a separate parking-lot item. Until then the banner names the owning session so
+    a reader can see it is not theirs, instead of silently reading a peer's work as its own.
+    """
+    for base in _art("session-state"):
+        newest, newest_mtime = "", -1.0
+        try:
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".md"):
+                continue  # skip the .session-state-*.tmp atomic-write scratch files
+            path = os.path.join(base, name)
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue
+            if mtime > newest_mtime:
+                newest, newest_mtime = path, mtime
+        if newest:
+            return newest
+    return _first_existing(_art("session-state.md"), "")
+
+
+_STATE = _resolve_state()
 if _STATE and not _is_headless():
     try:
         # A GRACE WINDOW, not a bare comparison. `/handoff` writes relay.md during a turn and
@@ -312,6 +410,11 @@ if _STATE and not _is_headless():
                 print("\n=== session-state: WHERE THE LAST TURN LEFT OFF ===")
                 print("Auto-captured by the Stop hook every turn, so this is NEWER than relay.md.")
                 print("It is state, not instructions. `claude --continue` reopens that session in full.")
+                # Sessions share working trees on this fleet. One file per session id stops them
+                # overwriting each other, but the newest file still may not be THIS session's —
+                # so say whose it is rather than let it read as continuous with your own work.
+                print("Check the Session id below: if it is not yours, a PARALLEL session in "
+                      "this checkout wrote it.")
                 print("\n".join(_slines))
                 print("=== end session-state ===")
     except Exception as _exc:

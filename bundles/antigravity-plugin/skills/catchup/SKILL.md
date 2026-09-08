@@ -13,9 +13,14 @@ be a coin toss every time.
 
 ## Read these, in this order, and stop as soon as you can answer
 
-1. **`.caddis/session-state.md`** — the primary source. The `Stop` hook rewrites it at the end of
-   every turn, so it is current even when the session ended abruptly and nobody ran `/handoff`.
-   It holds the last real request, the task list with statuses, and the files touched.
+1. **`.caddis/session-state/<session-id>.md`** — the primary source; read the NEWEST. The `Stop`
+   hook rewrites one per session at the end of every turn, so it is current even when the session
+   ended abruptly and nobody ran `/handoff`. It holds the last real request, the task list with
+   statuses, and the files touched. Repos that have not stopped a session since 2026-09-08 have a
+   single `.caddis/session-state.md` instead; read that when the directory is absent.
+   **Check the `Session:` id in the header.** Sessions share working trees here, so the newest file
+   can belong to a live PEER rather than to the session you are catching up on — if the id is not
+   the one you are resuming, say so instead of reporting its work as yours.
 2. **`.caddis/relay.md`** — only refreshed by `/handoff`, so it may be days behind, but it carries
    what the state file cannot: the agreed **next step** and the open blockers.
 3. **The current turn's own context**, if this session has already done work. What you have done

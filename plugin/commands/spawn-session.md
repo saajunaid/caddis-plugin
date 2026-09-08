@@ -29,6 +29,51 @@ and the active plan).
 
 ---
 
+## The capture ORDER — it is an order, not a list
+
+**Out of sequence, you produce a handover that describes a state that never existed.**
+
+| # | Step | Why it must be here |
+|---|---|---|
+| 1 | **Capture the knowledge** — KB notes for anything that generalises | FIRST, while the reasoning is still in context. Written last it becomes a summary of a summary |
+| 2 | **Update the durable state** — the register, the parking lot | These are the authority. The relay quotes them, so they must be true before it does |
+| 3 | **Write the TASK LIST to a file** | A task widget does not survive a `/clear`. This project has already lost one |
+| 4 | **Write the relay** — what happened, who owns what, what is blocked | It CITES 1-3. Written earlier, it cites things that have since moved |
+| 5 | **Derive the questions** | LAST. They must target what steps 1-4 actually say. Questions written first test **your memory**, which is the thing under suspicion |
+
+Named, so a fresh session knows what to open with no prompt engineering:
+
+```
+.caddis/parent-relay.md            what happened, who owns what, what blocks
+.caddis/parent-session-state.md    the task list
+```
+
+**`parent-` rather than overwriting `relay.md`:** the live relay belongs to the WORK and outlives
+any one session. A handover is a snapshot.
+
+> **Do not confuse `.caddis/parent-session-state.md` with `.caddis/session-state/`.** The names
+> are close and the handling is opposite. The directory is written by the Stop hook every turn,
+> one file per session id, and is **gitignored** — a recovery aid. The `parent-` file is written
+> by you, once, deliberately, and is **committed** — a handover artefact. Reaching for the wrong
+> one means either handing over an auto-generated stub, or committing conversation text.
+
+Check the order before you issue anything:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" capture-check --id <id>
+```
+
+It compares write times, which is the one property here that is mechanically knowable. It cannot
+tell you a step was done *well* — nothing can — but it refuses a relay written before the task
+list it cites, and questions derived before the relay they are supposed to target. It also flags
+any KB note or register item that changed **after** the relay was written, because the relay
+quotes those and they have since moved.
+
+**A step that produced nothing is a note, not a failure — but you must SAY it produced nothing.**
+A missing task list that the reader has to infer is worse than one declared empty.
+
+---
+
 ## Round 0 — validate your OWN handover. No relay trip.
 
 **Do this before writing the prompt.** It is the cheapest round and the one this whole command is
@@ -43,6 +88,33 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" fingerprint --with-tests
 
 `preflight` **refuses on a dirty tree** — the successor pulls, so uncommitted work is invisible to
 it and it will either redo that work or build on a state that does not exist. Commit first.
+
+### It also refuses above 95% context
+
+**A refusal, not a warning.** Under 85% it runs normally; between 85% and 95% it runs and prints
+the figure, which you must then **state in the handover** so the reader can weigh it.
+
+Why a refusal: the thing that degrades first is the thing this command depends on. The failure is
+not forgetting, it is **confident recall of superseded facts** — so a handover written from a
+nearly-full context comes out fluent, cited and wrong. A warning cannot help, because the agent
+that most needs to heed it is the one least able to judge that it should. The costs are not
+symmetric either: refusing early costs this session's remaining headroom, while a confident wrong
+handover costs the successor's whole session and everything built on the error.
+
+**Where the number comes from.** Claude Code hands `context_window.used_percentage` to the status
+line and to nothing else, so the caddis status line caches it per repo and `preflight` reads it
+back. **No status line on this machine?** Pass your own reading:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" preflight --context-pct 72
+```
+
+**A self-reported figure may only tighten the gate, never loosen it** — the higher of the two
+always wins, so it can refuse earlier but can never talk its way through. That asymmetry is what
+makes the fallback safe: the faculty being gated is the faculty doing the reporting.
+
+With **no figure from either source, it refuses** — an unmeasurable gate that defaults to proceed
+is not a gate — and the refusal names both ways out rather than leaving you stuck.
 
 ### Capture from the repo, never from recall
 
@@ -102,7 +174,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" verify-question \
 A question whose answer is not written down tests memory — the thing being replaced. It is not a
 harder question; it is the old failure wearing an exam's clothes.
 
-### Store NO answer key
+### Store NO answer key — and `check` now REFUSES one
 
 Do not write `<id>-key.md`. Two reasons, and the second is the one that matters:
 
@@ -110,13 +182,109 @@ Do not write `<id>-key.md`. Two reasons, and the second is the one that matters:
 2. **A stored key freezes your belief at capture time.** If you were wrong, the key is wrong, and
    the check certifies the error.
 
+**This rule is no longer only written down.** It was written down before — in `007` §5, in these
+words — and a session that had it available wrote a key anyway: into the file the successor reads,
+inside a collapsed `details`/`summary` block, as though that were a lock. A model reads the whole file, so the
+questionnaire tested nothing.
+
+`caddis_spawn.py check` now **refuses** three shapes, and does not merely warn:
+
+| Refused | Why |
+|---|---|
+| any collapsed `details` element | a rendering hint for a browser, not an access control |
+| an answer-key heading | `ANSWER KEY`, `Expected answers`, `Correct answers`, `answers — for the …` |
+| a numbered question and its answer on the same line | the questions may ship; the answers may not |
+
+Questions on their own still pass — a check that blocked those would be switched off within a day.
+The check is structural, not semantic, on purpose: judging whether prose *reveals* an answer is
+wrong in both directions, and a check that cries wolf gets skimmed.
+
+**The general class is bigger than this command.** A rule and an artefact that contradict each
+other do not fail loudly. The artefact wins, silently, because the artefact is what gets read. So
+put the check in the tooling, never in a document that says the tooling should have one.
+
 **Re-derive each answer from the repo at validation time instead.** That validates the DOCUMENT and
 the READER at once — which is exactly what `.caddis/parking-lot/done/004-*` said was missing, where
 a successor passed a thirteen-question check on a handover containing four factual errors.
 
+### The handshake — who sends what, and in which direction
+
+007 routed every round trip through a human paste. Sessions can message each other now, so the
+human becomes an approver rather than a transport — **where a transport exists.** Open the
+handshake when you issue the prompt, not when the child replies:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake open --id <id>
+```
+
+It reports which route you are on. **`SendMessage` is Claude Code only** — the harness ships an
+`agy/` directory and targets Codex — so detection tests `CLAUDE_CODE_MESSAGING_SOCKET`, the
+transport itself, rather than the vendor. **The paste route is a supported path, not a broken
+one.** On it, say so in the printed instructions, or the user watches nothing happen and concludes
+the command is broken.
+
+| Direction | When |
+|---|---|
+| **child → parent** | **Primary.** As soon as it has answers. It cannot message before it has them, so the message IS evidence it did the reading |
+| **parent → child** | **A chase**, after the timeout, or whenever the product owner asks |
+| **parent → child** | **The verdict.** Always, and always after re-deriving |
+| child → parent | An acknowledgement, so the parent knows it may close |
+
+**The parent chases, because child-initiated alone cannot see the worst failure.** A successor
+that skips the gate and starts working produces silence — and silence is indistinguishable from
+"still reading". Check it:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake status --id <id>
+```
+
+**A chase carries two FRESH questions, not just a reminder.** A reminder invites a hurried reply.
+Two questions asked at chase time cannot have been pre-read in the handover, which is a stronger
+test than the original set — and it costs nothing, since you are holding the context anyway.
+
+Record each step, and the parent may not finish until the child has acknowledged:
+
+```bash
+... handshake record --id <id> --event answers    # the child replied
+... handshake record --id <id> --event verdict    # you replied, after re-deriving
+... handshake record --id <id> --event ack        # the child confirmed
+... handshake close  --id <id>                    # REFUSES unless acknowledged
+```
+
+**`close` refuses on an open handshake, and that is the point.** A handover nobody has read is not
+a handover, it is a file — and grading RE-DERIVES, so it audits the document as well as the
+reader. In the manual run that pass found a defect in the parent's own handover. `/clear` in your
+terminal destroys the only thing that can do that.
+
+> **You stay ALIVE. You stop WRITING.** `/caddis:spawn-hub` carries a single-writer rule — the
+> outgoing session stops writing to the repository the moment the prompt is issued, because two
+> sessions committed to one repo concurrently and one's work landed inside the other's commit.
+> That is a different rule from this one and **both hold.** Said no other way, a reader reconciles
+> them by closing the parent early, which removes the grader.
+
+Note the handshake file lands in `.caddis/spawn-session/`, so commit it with the others before
+re-running `preflight`, which refuses on a dirty tree.
+
+### Tell the child it does not own the tree
+
+**Say this in the prompt.** A fresh session's instinct on seeing a dirty tree is to tidy it, and
+you are still in that tree.
+
+> While both sessions are live, do **not** run `git checkout`, `switch`, `stash`, `reset`,
+> `rebase` or `clean`. A branch switch is visible to every session in this working tree and
+> carries or destroys the other's uncommitted work. For parallel work, add a `git worktree` off
+> `origin/main` instead of checking out here. Commit early — only committed objects are safe
+> from another session's checkout.
+
+The harness prints a live-peer warning at SessionStart when it can see one, but it **under-reports
+by design**: a peer that has not finished a turn has written no state yet. No warning means no
+evidence of a peer, not "you are alone". `git worktree list` finds what it cannot.
+
+See `.caddis/kb/shared-worktree-branch-switch.md` for detection and the recovery pattern.
+
 ### What the child sends back
 
-Three lines, carried by the user:
+Three lines — messaged directly, or carried by the user on the paste route:
 
 ```
 SPAWN <id> | head <sha> | <n> tests | answers in .caddis/spawn-session/<id>-answers.md
@@ -206,8 +374,12 @@ chat cannot be reviewed**, and cannot be re-read when the next handover asks wha
 | Refusal | Why |
 |---|---|
 | Run with a dirty tree | uncommitted work is invisible to the successor |
+| Run above 95% context | the handover would be written by the faculty that is failing — fluently, with citations, and wrong |
+| Run with no context figure at all | a gate that defaults to proceed is not a gate |
 | Write a commit hash or test count as current state | both went stale within the hour, twice |
 | Write a question whose answer is not in a committed file | it would test memory |
-| Store an answer key | it freezes your belief, and the child can read it |
+| Store an answer key | it freezes your belief, and the child can read it. **`check` enforces this** — see round 1 |
 | Grade your own answers | you validate; the child answers |
+| Close on an unanswered handshake | it is the same as never running one. `handshake close` refuses |
+| Read silence as success | a child that skipped the gate looks exactly like one still reading |
 | Proceed when the open-item count is unknown | that count is the integrity check |

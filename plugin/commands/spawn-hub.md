@@ -186,6 +186,27 @@ Then write the judgement half yourself. It must contain:
    - name **one thing a green automated check does NOT prove**, with the example that taught it
    - **verify the tree independently** — `git fetch`, count divergence, and `git status`/diff any dirty
      file before treating it as authority
+   > **THE NEW HUB MUST NOT MARK ITS OWN SELF-CHECK.** Until 2026-09-08 nothing graded these
+   > answers: this command does not start the new session, so nothing routed them back. A
+   > self-marked exam tests willingness, not comprehension. Run the handshake instead — the
+   > incoming Hub answers, **you re-derive each answer from the files**, then you send the
+   > verdict:
+   >
+   > ```bash
+   > python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake open   --id <id>
+   > python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake status --id <id>
+   > python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake record --id <id> --event answers
+   > python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake close  --id <id>
+   > ```
+   >
+   > It reports whether this runtime can message a peer at all and falls back to the paste route
+   > on agy and Codex, which have no `SendMessage`. `close` refuses until the incoming Hub has
+   > acknowledged the verdict. See `/caddis:spawn-session` for the full direction table and the
+   > chase rule.
+   >
+   > **This does not soften the single-writer rule below.** You stay ALIVE to grade; you stop
+   > WRITING when the prompt is issued. Both hold.
+
 4. **At least one question whose naive answer is WRONG.** This is the load-bearing part. A Hub that
    only skimmed must fail *visibly* rather than silently.
 

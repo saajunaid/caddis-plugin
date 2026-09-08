@@ -292,6 +292,42 @@ def ram_facts():
     return None
 
 
+def record_context(cwd: str, pct: float) -> None:
+    """Cache the runtime context figure for tools that never see the statusline payload.
+
+    Claude Code hands `context_window.used_percentage` to the statusline and to NOTHING else.
+    `/caddis:spawn-session` must refuse above 95% (008 section 7a) and runs as a plain bash
+    command, so without this it would have to ask the model to estimate its own usage — which
+    is the one thing that section forbids, because the faculty being gated is the faculty
+    doing the reporting.
+
+    Only writes when the value CHANGED, so an idle statusline does not rewrite a file on every
+    render. Only writes where `.caddis/` already exists, so cd-ing into an unrelated folder
+    never scatters artifact dirs. Fail-open and silent: a status line must never break a
+    prompt, and this is the least important thing it does.
+    """
+    try:
+        if not cwd:
+            return
+        art = os.path.join(cwd, ".caddis")
+        if not os.path.isdir(art):
+            return
+        target = os.path.join(art, "context-window.json")
+        payload = {"used_percentage": round(float(pct), 1), "at": int(time.time())}
+        try:
+            with open(target, encoding="utf-8") as fh:
+                if json.load(fh).get("used_percentage") == payload["used_percentage"]:
+                    return
+        except Exception:
+            pass
+        tmp = target + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        os.replace(tmp, target)
+    except Exception:
+        pass
+
+
 def relay_present(cwd: str) -> bool:
     """A parked resume pointer exists for this repo. `.caddis/relay.md` is canonical;
     a bare `relay.md` at the root is the pre-rename legacy location."""
@@ -428,6 +464,7 @@ def render_claude(data: dict, cfg: dict) -> str:
             used = as_int(cw.get("total_input_tokens"))
         max_tokens = as_int(cw.get("context_window_size"))
         pct = float(as_int(cw.get("used_percentage")))
+        record_context(cwd, pct)  # feeds /caddis:spawn-session's 95% gate; see record_context
         parts.append(context_segment(c, cfg, used, max_tokens, pct))
         loud = cached_segment(c, cfg, cached)
         if loud:
