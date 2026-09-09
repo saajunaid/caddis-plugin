@@ -1292,17 +1292,28 @@ SESSION_LEAK_PATHS = (
 
 
 def check_session_state_stays_private() -> CheckResult:
-    """Session state must never be TRACKED in the public mirror.
+    """NOTHING under `.caddis/` may be TRACKED in the public mirror.
 
-    Tracked, not merely present: the file is written into the mirror folder every turn by the Stop
-    hook, so its existence on disk is normal and expected. What is not normal is git following it.
+    Tracked, not merely present: the Stop hook writes into whatever folder a session runs in, so
+    these files existing on disk in the mirror folder is normal and expected. What is not normal is
+    git following them.
 
-    Found live on 2026-09-09: two files, four sync commits, naming the machine's temp path, the
-    session id, the last prompt and the files that session touched. A .gitignore rule alone would
-    not have caught it — the files were already tracked, which is how they survived the rules added
-    beside them.
+    Found live on 2026-09-09: two session-state files, four sync commits, naming the machine's temp
+    path, the session id, the last prompt and the files that session touched. A .gitignore rule
+    alone would not have caught it — the files were already tracked, and .gitignore does nothing for
+    a tracked file. That is exactly how they survived the rules added beside them.
+
+    **Why the whole subtree, and not a list of paths.** `check_privacy_scan_tracked` skips
+    `.caddis/` entirely, and its comment gives the reason: the mirror carries "zero `.caddis/` ...
+    files (verified against the mirror's index)". That was verified by hand, once, and then stopped
+    being true. So an internal hostname in a plan or a parking-lot note was exempt from scanning on
+    the strength of a fact that nothing was checking — exempt from scanning AND published, at the
+    same time. This check is that fact, asserted on every publish instead of assumed.
+
+    SESSION_LEAK_PATHS now exists only to give a sharper message for the paths already known to
+    leak. It is not the scope.
     """
-    result = CheckResult(name="Session state — must not be TRACKED in the public mirror")
+    result = CheckResult(name=".caddis/ — nothing under it may be TRACKED in the mirror")
     mirror = REPO_ROOT / "vscode-extensions" / "caddis-plugin"
     if not (mirror / ".git").exists():
         result.info.append("no mirror checkout here — nothing to check")
@@ -1319,8 +1330,15 @@ def check_session_state_stays_private() -> CheckResult:
                 f"{rel} is tracked in the PUBLIC mirror — it names the machine's paths and the "
                 "session id. `git rm --cached` it; a .gitignore rule alone will not untrack it"
             )
+        else:
+            result.failures.append(
+                f"{rel} is tracked in the PUBLIC mirror. Nothing under .caddis/ may be: the "
+                "tracked-file privacy scan skips that whole subtree BECAUSE it never reaches the "
+                "mirror, so a file here is exempt from scanning and published at once. "
+                "`git rm --cached` it and add it to the mirror's .gitignore"
+            )
     if not result.failures:
-        result.info.append(f"{len(list(filter(None, tracked)))} file(s) tracked under .caddis/")
+        result.info.append("nothing tracked under .caddis/ — the privacy scan's exclusion holds")
     result.passed = not result.failures
     return result
 

@@ -70,6 +70,14 @@ it and should leave it off (default). Claude Code sends `anthropic-beta` headers
 backends reject (400). Keep the seam **optional, default-off**, same posture as the pipeline MCP.
 
 ## Design rules (learned in Phase 0)
+- **A step that must be PROVED to have happened needs a state machine, not a sentence.** A skill
+  whose contract said "STOP and interview the user" had that stop in prose only: nothing anywhere
+  proved the interview ran or that a human answered, so a model in a hurry wrote the output, the
+  checker passed clean, and the confirmation that determined the whole result never happened — with
+  the wrong output indistinguishable from a correct one. The pattern that works is already in
+  `scripts/caddis_spawn.py`: named states, one-step-at-a-time transitions, and a terminal operation
+  that REFUSES until the prior state is reached. Copy that. A gate that cannot fail is worse than no
+  gate, because it is mistaken for one.
 - **Deterministic vs generative split.** Mechanical steps (placeholder substitution, venv/deps,
   frontend test harness, file deploy) are pure Python — they must not vary. AGENTS.md *curation*
   (enriching fragments with project-specific facts from STACK.md/code) is the skill's AI step.
