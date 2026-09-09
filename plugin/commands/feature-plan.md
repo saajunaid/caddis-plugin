@@ -22,6 +22,13 @@ description**, and there may be **no codebase, PROJECT-FACTS, or prior PRD** to 
 write a complete best-effort plan anyway.
 
 Absolute rules in this mode (they override everything below):
+
+> **The same policy exists in `/caddis:prd`, and the two are deliberately NOT identical.**
+> Each is specialised to the artefact its command writes — where the output goes, and
+> where an unresolved decision is recorded. **Do not merge them, and do not replace
+> either with a pointer:** headless mode is precisely when no human is present and the
+> session will not go and read another command to find its own rules.
+
 - **NEVER ask a question, request clarification, or end your turn with questions.** Replying with a list
   of scoping questions is a hard failure. Never use AskUserQuestion, never pause, never wait for input.
 - **A bare title (or PRD path) is sufficient input.** Where information is missing, invent a reasonable,
@@ -112,7 +119,7 @@ escalation, never a planned default.
 
 ### Assign an execution LANE per phase (which harness runs it — not just which model)
 A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
-`docs/guide/multi-model-workflow.md`; wiring: the caddis repo's `.caddis/plans/model-access.md`):
+`docs/guide/multi-model-workflow.md` (in the caddis **source** repo — `docs/` is not shipped inside the installed plugin); wiring: the caddis repo's `.caddis/plans/model-access.md`):
 - **claude** (default) — this session, `/model <alias>` as above. Required for judgment-heavy,
   security-sensitive, or novel-architecture phases.
 - **glm-headless** — mechanical, fully-specced phases run on GLM without touching Claude quota:

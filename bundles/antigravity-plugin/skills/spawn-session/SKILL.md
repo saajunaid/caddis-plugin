@@ -24,6 +24,36 @@ A long session does not forget. **It recalls superseded facts fluently.** Measur
 Each was stated with conviction and was wrong. Asking that agent what it knows cannot find any of
 it.
 
+## Start the successor FIRST, then name it
+
+**Preferred flow.** Start the child with a name you choose, then pass that same name here:
+
+```
+claude --name successor-9c2                                   # in a new terminal
+/caddis:spawn-session successor-9c2 finish the harvester      # here
+```
+
+`claude -n/--name` sets the session's display name, and that is exactly the name `SendMessage`
+addresses. You pick it, so nothing has to be looked up.
+
+**Check the row before you trust the name.** Run `ListAgents` once and confirm the child is there
+and reads `interactive`, not `offline` — a listing carries long-dead sessions, so presence alone
+proves nothing. Names are also **not unique**: if two rows share one, `SendMessage` needs the
+` [ref]` shown beside it. Pick a short distinct name and this never arises.
+
+**Why this ordering.** With the child already running you hold its address from the start, so the
+parent messages it directly and nothing has to be pasted. The older flow printed a prompt for a
+human to carry, which meant the child did not exist yet and its address could not be known.
+
+**What you give up, and how it is replaced.** In the older flow the child spoke first, so its
+first message was itself proof it had read the handover. Here the parent speaks first, so that
+proof is a separate step: **your opening message asks the child to reply with WHICH FILES it
+opened, before it answers anything.** Ask for paths — a summary can be written without opening
+anything. Record it with `--event readback`; until you do, the handshake refuses `--event answers`.
+
+**No name given?** The command falls back to the older printed-prompt flow. That is also the only
+route on agy and Codex, which have no `SendMessage`.
+
 The successor is what to pick up first: **$ARGUMENTS** (if empty, derive it from the parking-lot
 and the active plan).
 

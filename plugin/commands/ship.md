@@ -46,6 +46,7 @@ Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope
 
 **2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
 
+<!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
 **Run the trigger, do not eyeball the diff:**
 
 ```bash
@@ -60,6 +61,7 @@ gets switched off inside a week.
 It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
 over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
 what failed.
+<!-- /shared:cross-review-trigger -->
 
 **3. PUSH** — to the repo's default branch (confirm the branch first; don't assume `main`):
 ```

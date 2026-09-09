@@ -45,6 +45,7 @@ surface the `[DOC-MAP]` "read the index first" pointer for future sessions in th
 
 ## Step 5 — was any of it the harness?
 
+<!-- shared:harness-friction-question — keep byte-identical across commands; a test pins it -->
 **One question, asked here because here is where you are already reflecting.** The observations
 that reach caddis today are the ones someone happened to recall days later — so small, frequent
 friction never arrives, which is exactly the friction worth fixing.
@@ -57,6 +58,7 @@ harness, not this repo.
 ```
 
 Nothing to say is the normal answer. Say nothing and move on — this must not become a ritual.
+<!-- /shared:harness-friction-question -->
 
 ## KB note format (OKF-lite — mandatory for every new note)
 
@@ -82,7 +84,7 @@ generated: { by: caddis/<model-id>, at: 2026-07-28T09:00:00Z }
 
 The full schema, the caddis↔OKF `status` mapping, and what caddis deliberately skips from OKF v0.2
 (`sources:`, `Attested Computation`) live in
-[`.github/instructions/document-frontmatter.instructions.md`](../../.github/instructions/document-frontmatter.instructions.md).
+`.github/instructions/document-frontmatter.instructions.md` in the caddis source repo. (Not a link: a relative path out of the plugin directory resolves nowhere once installed.)
 
 **Backward compatible:** an existing note with no trust fields is still correct. Do not bulk-migrate
 old notes — add the fields as notes are next touched.

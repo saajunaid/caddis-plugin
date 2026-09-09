@@ -7,7 +7,7 @@ description: Explain (or apply) the model lanes — claude / claude-glm / cross-
 
 Explain the model-switching lanes so the user (or you, on their behalf) can move a session onto an
 OSS provider (GLM, DeepSeek, OpenRouter, or a custom endpoint) in one command, with no hardcoded key
-path. Full detail lives in the **Providers & keys** guide (`docs/guide/providers-and-keys.md`) — this
+path. Full detail lives in the **Providers & keys** guide (`docs/guide/providers-and-keys.md` (in the caddis **source** repo — `docs/` is not shipped inside the installed plugin)) — this
 command is the quick-reference + do-it-now version.
 
 ## The lanes

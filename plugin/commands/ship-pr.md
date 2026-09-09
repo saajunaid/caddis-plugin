@@ -52,6 +52,7 @@ are uncommitted.)
 
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
+<!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
 **Run the trigger, do not eyeball the diff:**
 
 ```bash
@@ -66,6 +67,7 @@ gets switched off inside a week.
 It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
 over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
 what failed.
+<!-- /shared:cross-review-trigger -->
 
 > **Why this is mechanical and not "consider a review here".** serve-sight shipped four
 > production releases in one day — sixteen fixes across SQL, caches, refresh jobs and React — and

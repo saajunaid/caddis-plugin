@@ -470,8 +470,17 @@ def capture_order(repo_root: Path, spawn_id: str) -> tuple[list[str], list[str]]
 CHASE_AFTER_S = 1800
 
 # Ordered. Each event may only move the handshake forward.
-HANDSHAKE_STATES = ("awaiting-answers", "answered", "verdict-sent", "acknowledged")
-_EVENT_STATE = {"answers": "answered", "verdict": "verdict-sent", "ack": "acknowledged"}
+# Ordered. An event may only move the handshake FORWARD along this list.
+#
+# Two entry points, one list. PARENT-FIRST (the product owner starts the child, then names it)
+# begins at `awaiting-readback`, because the parent speaks first and must not take the answers on
+# trust. CHILD-FIRST (008's original: print a prompt, a human pastes it) begins at
+# `awaiting-answers`, because there the child's first message is itself the evidence of reading
+# and a read-back would be asking for something already proven.
+HANDSHAKE_STATES = ("awaiting-readback", "awaiting-answers", "answered", "verdict-sent",
+                    "acknowledged")
+_EVENT_STATE = {"readback": "awaiting-answers", "answers": "answered",
+                "verdict": "verdict-sent", "ack": "acknowledged"}
 
 
 def detect_transport(env: dict | None = None) -> tuple[str, str]:
@@ -511,7 +520,8 @@ def handshake_open(repo_root: Path, spawn_id: str, transport: str = "auto",
         chosen, why = transport, "forced with --transport"
     state = {
         "id": spawn_id,
-        "state": HANDSHAKE_STATES[0],
+        # Parent-first only when we can actually reach the child: a name AND a transport.
+        "state": HANDSHAKE_STATES[0] if (peer and chosen == "message") else HANDSHAKE_STATES[1],
         "transport": chosen,
         "transport_reason": why,
         # HOW TO ADDRESS THE CHILD. `SendMessage` takes the name `ListAgents` shows, and until
@@ -545,10 +555,19 @@ def handshake_record(repo_root: Path, spawn_id: str, event: str,
     if state is None:
         return None, f"no handshake for {spawn_id} — run `handshake open --id {spawn_id}` first"
     target = _EVENT_STATE[event]
-    if HANDSHAKE_STATES.index(target) <= HANDSHAKE_STATES.index(state["state"]):
-        return state, (f"already at `{state['state']}`; `{event}` would not move it forward. "
-                       "Refusing rather than rewriting — an out-of-order event means the round "
-                       "is not the one you think it is.")
+    here = HANDSHAKE_STATES.index(state["state"])
+    there = HANDSHAKE_STATES.index(target)
+    # EXACTLY one step. Monotonic-only let `answers` jump straight over `awaiting-readback`,
+    # which silently skipped the read-back gate — the one thing the parent-first flow adds.
+    # Backwards is an operator who has lost track of the round; forwards-by-two is a gate not run.
+    if there != here + 1:
+        expected = HANDSHAKE_STATES[here + 1] if here + 1 < len(HANDSHAKE_STATES) else "nothing"
+        wanted = next((e for e, st in _EVENT_STATE.items() if st == expected), "—")
+        return state, (f"at `{state['state']}`, so the only event that fits is `{wanted}` "
+                       f"(-> `{expected}`). `{event}` would "
+                       + ("skip a step" if there > here + 1 else "move backwards")
+                       + " — refusing rather than rewriting, because a skipped step here is a "
+                         "gate that never ran.")
     if peer:
         state["peer"] = peer
     state["history"].append({"event": event, "at": int(time.time()),
@@ -562,6 +581,10 @@ def handshake_record(repo_root: Path, spawn_id: str, event: str,
 def chase_instruction(state: dict) -> str:
     """What to actually DO when a chase is due — addressed if we can, honest if we cannot."""
     peer = (state.get("peer") or "").strip()
+    if state.get("state") == HANDSHAKE_STATES[0] and peer:
+        return (f'No read-back from "{peer}". It was messaged and has not said what it READ, which '
+                "is the cheapest signal that it skipped the gate and started working. Ask again, "
+                "and ask for file paths — a summary can be written without opening anything.")
     if state.get("transport") != "message":
         return ("This handshake is on the paste route, so the chase goes through the human. Say "
                 "so explicitly — otherwise they watch nothing happen and conclude it is broken.")
@@ -581,7 +604,7 @@ def handshake_chase_due(state: dict, now: int | None = None) -> int:
     pre-read in the handover file — a stronger test than the original set, and free, because the
     parent is holding the context anyway.
     """
-    if state.get("state") != HANDSHAKE_STATES[0]:
+    if state.get("state") not in (HANDSHAKE_STATES[0], HANDSHAKE_STATES[1]):
         return 0
     now = int(time.time()) if now is None else now
     return max(0, now - int(state.get("opened_at", now)) - CHASE_AFTER_S)
@@ -708,7 +731,15 @@ def main(argv: list[str] | None = None) -> int:
         if a.action == "open":
             st = handshake_open(root, a.id, a.transport, a.peer)
             print(f"[spawn] handshake {a.id} open — transport `{st['transport']}` "
-                  f"({st['transport_reason']})")
+                  f"({st['transport_reason']}), state `{st['state']}`")
+            if st["state"] == HANDSHAKE_STATES[0]:
+                print(f"  PARENT-FIRST. You have the address, so message \"{st['peer']}\" now: "
+                      "tell it what to read, then ask it to reply with WHICH FILES it opened "
+                      "before it answers anything. Record that with `--event readback`.")
+            elif st["transport"] == "message" and not st["peer"]:
+                print("  No --peer given, so this is the child-first flow: print the prompt and "
+                      "wait. If you already started the child, re-open with `--peer <its "
+                      "ListAgents name>` to message it directly instead.")
             if st["transport"] == "paste":
                 print("  The child cannot message you. Print the prompt for the human to carry, "
                       "and say so — otherwise they watch nothing happen and conclude it is "

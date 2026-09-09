@@ -35,7 +35,7 @@ alias claude-glm="<path-to>/claude-harness/scripts/claude-oss.sh"
 ```
 Resolve `<path-to>` per the same plugin-vs-source rule as the generator itself (`${CLAUDE_PLUGIN_ROOT}`
 for a plugin install, the harness checkout path for caddis). Also set `CADDIS_KEYS_FILE`
-(default `~/.caddis/keys.env`) with the provider keys — see `docs/guide/providers-and-keys.md`.
+(default `~/.caddis/keys.env`) with the provider keys — see `docs/guide/providers-and-keys.md` (in the caddis **source** repo — `docs/` is not shipped inside the installed plugin).
 
 ## After the deterministic step — deploy private harness skills (optional)
 

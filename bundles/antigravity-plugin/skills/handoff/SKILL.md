@@ -87,6 +87,7 @@ Record the outcome in relay.md's `## Learnings captured` line (below).
 
 ## Step 2c — was any of it the harness?
 
+<!-- shared:harness-friction-question — keep byte-identical across commands; a test pins it -->
 **One question, asked here because here is where you are already reflecting.** The observations
 that reach caddis today are the ones someone happened to recall days later — so small, frequent
 friction never arrives, which is exactly the friction worth fixing.
@@ -99,6 +100,7 @@ harness, not this repo.
 ```
 
 Nothing to say is the normal answer. Say nothing and move on — this must not become a ritual.
+<!-- /shared:harness-friction-question -->
 
 ## Step 3 — write the resume doc (overwrite) with exactly these sections
 > **Where to write:** solo / single active branch → `.caddis/relay.md` (default).

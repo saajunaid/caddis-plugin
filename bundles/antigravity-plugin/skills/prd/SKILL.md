@@ -30,6 +30,13 @@ forbidden**. This mode exists for one-line ideas: the card may be nothing more t
 fully actionable — a terse title is enough to write a complete draft PRD.
 
 Absolute rules in this mode (they override everything above):
+
+> **The same policy exists in `/caddis:feature-plan`, and the two are deliberately NOT identical.**
+> Each is specialised to the artefact its command writes — where the output goes, and
+> where an unresolved decision is recorded. **Do not merge them, and do not replace
+> either with a pointer:** headless mode is precisely when no human is present and the
+> session will not go and read another command to find its own rules.
+
 - **NEVER ask a question. NEVER request clarification. NEVER end your turn with questions.** Replying with
   something like *"a few questions to scope this before I write the PRD"* is a hard failure. Never use
   AskUserQuestion, never pause for approval, never wait for input.
