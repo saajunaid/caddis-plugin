@@ -53,10 +53,18 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# ONE SCALE ACROSS caddis (see claude-harness/README.md):
+#   0 clean · 1 blocked · 2 advisory note · 3 could not run · 4 malformed
+# ERROR moved 2 -> 4 on 2026-09-09. It sat on 2, which caddis_gate uses for "proceed, this is
+# worth saying" — the exact opposite, and in the dangerous direction: a caller treating 2 as
+# advisory silently accepts a review that never ran. That is the 2026-08-10 shape, where a stale
+# copy of this file returned CLEAN on a database write path nobody had reviewed.
+# 2 is left FREE here. This tool has no advisory verdict; a slot that means one thing everywhere
+# is worth more than a slot reused for something else.
 EXIT_CLEAN = 0
 EXIT_BLOCKING = 1
-EXIT_ERROR = 2
-EXIT_CONFIG = 3
+EXIT_CONFIG = 3     # could not run: no key, no provider, bad configuration
+EXIT_ERROR = 4      # ran, produced nothing usable: no verdict line, transport failure, unsplittable file
 
 # Provider presets — the SINGLE place a renamed model id or moved endpoint is edited. Adding a new
 # provider (Qwen, a local vLLM, …) is one new row. Callers can always bypass this via env/flags.

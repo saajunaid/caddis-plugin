@@ -81,7 +81,7 @@ writes. This line used to prefix the flag itself, which turned that into a doubl
 Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
 
 **A large diff is batched, not refused.** Over `REVIEW_MAX_DIFF_CHARS` (default 60,000) the tool splits
-on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. Exit 2
+on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. Exit **4**
 now means the narrower case — a **single file** too big to split, or more batches than the cap. When you
 see it, the fix is usually to review that one file separately, not to narrow `--range`; don't raise
 `--max-diff-chars` blind.
@@ -102,7 +102,10 @@ as a diff that silently is not read. Name a provider explicitly only when you ha
 
 ## Rules
 - Read-only second opinion — the tool never edits, commits, or pushes. YOU apply fixes in the main thread.
-- Treat exit 2/3 as blocking-unknown, never as approval (the tool is fail-closed by design).
+- Treat exit **3 or 4** as blocking-unknown, never as approval (the tool is fail-closed by
+  design). 3 = could not run, 4 = ran and produced nothing usable. **Exit 2 is not
+  emitted by this tool** — across caddis 2 always means an advisory note, and a review
+  has no advisory verdict.
 - A different vendor means a different style; weigh its findings on merit, don't cargo-cult them.
 - **Never use `find`, `Get-ChildItem -Recurse`, or any other filesystem-wide search to locate
   `oss_review.py`.** Check only the two paths above. On Git Bash under Windows, `find /` (or any

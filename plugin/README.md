@@ -155,3 +155,74 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   explicit note: prefer the native command on Claude Code, but the surface stays because other targets
   have no equivalent. Defer to a native capability where one exists; never delete what a
   non-Claude-Code consumer still depends on.
+- **One exit-code scale, and one verdict vocabulary per QUESTION** (settled 2026-09-09).
+
+  | Code | Means | `caddis_gate` | `oss_review` |
+  |---|---|---|---|
+  | 0 | clean | `EXIT_OK` | `EXIT_CLEAN` |
+  | 1 | blocked — a real negative verdict | `EXIT_BLOCKED` | `EXIT_BLOCKING` |
+  | 2 | **advisory note** — proceed, worth saying | `EXIT_NOTE` | *not emitted* |
+  | 3 | cannot proceed as asked | `EXIT_WRONG_LANE` | `EXIT_CONFIG` |
+  | 4 | ran, produced nothing usable | `EXIT_MALFORMED` | `EXIT_ERROR` |
+
+  **`EXIT_ERROR` moved 2 → 4.** It sat on 2, where `caddis_gate` means "proceed, this is worth
+  saying" — the opposite, in the dangerous direction: a caller reading 2 as advisory silently
+  accepts a review that never ran. That is the 2026-08-10 shape, where a stale `oss_review.py`
+  returned CLEAN on a database write path nobody had reviewed. **Be honest about slot 3:** the two
+  meanings are cousins, not twins, and only 0/1/2/4 are strictly interchangeable.
+
+  Verdicts follow the QUESTION, not the tool — three sets, because there are three questions:
+
+  | Question | Vocabulary | Used by |
+  |---|---|---|
+  | Is this change safe? | `CLEAN` / `BLOCKING` | `gate-review`, `code-reviewer` |
+  | Does the plan match reality? | `PASS` / `FAIL` | `preflight` |
+  | Did the claim hold? | `VERIFIED` / `REGRESSED` / `INCOMPLETE` | `anchor` |
+  | Should the next phase proceed? | `ACCEPT` / `ACCEPT-WITH-CORRECTION` / `REJECT` | `validate-phase`, `spawn-session` |
+
+  Two contradictions were removed, not two styles merged. `code-reviewer` carried BOTH
+  `approved | changes-requested` and `REVIEW: CLEAN | BLOCKING` for one job. `spawn-session` said
+  it "matches validate-phase on purpose" and then used `PASS` where validate-phase uses `ACCEPT`.
+  A vocabulary that a doc claims to share and does not is worse than two openly different ones.
+
+- **An empty output directory is not a failed step — check whether something downstream moved
+  it.** `.github/runtime-targets.json` declares a `commands` copy for `antigravity-plugin`,
+  identical in shape to the `claude` target's, and the exported agy bundle has no `commands/`
+  directory at all while `claude` gets 31. That looks exactly like a copy that silently produced
+  nothing. It is not: `convert_commands_to_agy_skills()` in `export_runtime_resources.py` reshapes
+  every command into `skills/<stem>/SKILL.md` — because agy's runtime only discovers skills and
+  never ingests `commands/*.md`, verified empirically on agy 1.1.7 — and then removes the dead
+  directory. **The empty path is the evidence the step RAN.** Re-derived: 31 of 31 commands are
+  present as agy skills, none missing.
+  **This was filed as a high-severity bug and dropped the next day**
+  (`.caddis/parking-lot/agy-commands-declared-but-never-exported.md`) — the function that answers
+  the question sits in the same file that was already open, and its docstring says so in its first
+  sentence.
+  **The half-check is the real hazard.** The claim was caught by verifying a sentence before
+  writing it into a commit message, which is a genuinely useful habit — but the verification
+  stopped at "the directory is empty" and never asked what the emptiness meant. A half-check
+  produces a confident wrong answer WITH evidence attached, which is harder to dislodge than no
+  check at all. Verify the outcome, not the intermediate you happened to look at.
+- **A pattern/anchor match used for editing or rule-enforcement does not distinguish a real
+  occurrence from a quoted or duplicated one — verify the result, not that the match happened.**
+  Three instances, one session (2026-09-08/09): (1) `caddis_spawn.py check`'s answer-key-shape
+  refusal fired on the *documentation describing the refusal*, because the doc named the forbidden
+  shapes literally in prose — reworded, and a test now asserts both command docs pass their own
+  check (`.caddis/parking-lot/done/009-answer-key-and-context-gate-shipped.md`). (2) `handoff.md`
+  embeds a relay-markdown template as a fenced example inside its own body; an insertion anchored on
+  the heading `## Read first on resume` nearly landed *inside that quoted template* instead of the
+  command's real content, because the heading string exists in both places — guarded now by
+  `test_the_handoff_relay_template_was_not_corrupted` (`scripts/tests/test_caddis_gate.py`).
+  (3) `handoff.md` shipped two sections both numbered `## Step 2b` after an insert — caught by an
+  audit re-reading the file, not by the change itself, because the insertion anchor was verified and
+  the output never re-read — guarded now by `test_command_step_headings_are_unique_within_a_command`.
+  Checking that an anchor/pattern exists to act on is a precondition check; it says nothing about
+  whether the result is unique or landed where intended.
+- **A verification that records an ABSENCE expires the moment someone creates the thing, silently,
+  with nothing pointing back at the claim that made it.** `.caddis/parking-lot/caddis-minor-housekeeping.md`
+  item 1 recorded "no `/caddis:statusline` command exists" on 2026-08-15; the command existed seven
+  days later and the note was re-trusted for a week before anyone re-derived it. A verification that
+  records a PRESENCE (a count, a line number) degrades slowly and visibly — the number just drifts,
+  and the drift is checkable. An absence claim degrades to zero warning the instant it's falsified.
+  Date any absence claim and treat it as perishable; prefer recording what IS there and its shape,
+  since that form ages honestly.

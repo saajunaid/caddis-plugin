@@ -348,7 +348,7 @@ immediately.
 
 | Verdict | Condition | You write |
 |---|---|---|
-| **PASS** | every answer correct, citations check out | a short go-ahead naming the first task |
+| **ACCEPT** | every answer correct, citations check out | a short go-ahead naming the first task |
 | **ACCEPT WITH CORRECTIONS** | broadly right; one or two facts stale or a citation wrong | the corrections, each with the file that proves it |
 | **REJECT** | a settled decision misremembered, a withdrawn figure quoted, or a hazard misunderstood | an instruction to re-read named sections and re-answer. **Do not let it start work** |
 
@@ -383,7 +383,7 @@ Round 1's verdict sets round 2's size:
 
 | Round 1 | Round 2 task |
 |---|---|
-| PASS | a normal next item; review the outcome |
+| ACCEPT | a normal next item; review the outcome |
 | ACCEPT WITH CORRECTIONS | a **small, reversible** item that writes nothing permanent; review closely |
 | REJECT | no task — re-read and re-answer |
 

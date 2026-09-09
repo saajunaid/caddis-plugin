@@ -10,7 +10,7 @@ model change, context pressure, a cheaper lane, or a distracted session — and 
 guarantees, which is worse than reading as advice.
 
 The things that actually held under pressure were the ones with exit codes: pytest,
-validate_pool, the hooks, oss_review's exit 2.
+validate_pool, the hooks, oss_review's exit 4.
 
 So this script measures the ratio of rules that a machine can fail on, to rules that only a
 model can choose to honour. That number is the health metric for the plugin. It is expected to
