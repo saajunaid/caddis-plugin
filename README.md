@@ -2,6 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
+**[Browse every command, skill, agent and hook -> saajunaid.github.io/caddis-plugin](https://saajunaid.github.io/caddis-plugin/)** — the reference site, rebuilt on every publish.
+
 **caddis** is a Claude Code harness — a plugin (plus a shared pool of skills, subagents,
 slash-commands, and hooks) that makes a single Claude Code session dramatically more capable and much
 harder to derail. It's *agent-agnostic*: the same pool is exported to other AI CLIs (Codex,
