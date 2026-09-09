@@ -360,7 +360,7 @@
     },
     {
       "name": "codex-plugin",
-      "_comment": "Codex CLI plugin. Codex reads the CLAUDE plugin format verbatim — .claude-plugin/marketplace.json, .claude-plugin/plugin.json, flat skills/<name>/SKILL.md — verified against a live `codex plugin list` showing caddis@caddis 1.3.97 installed from our own marketplace. It has NO command concept (its config keys are skills, orchestrator_skills, plugins_instructions), so `commands_as_skills` reshapes all 31 commands into skills, exactly as the agy bundle does. Skills are FLAT: measured 134 flat vs 6 nested in Codex's own ~/.codex/skills.",
+      "_comment": "Codex CLI plugin. Codex reads the CLAUDE plugin format verbatim — .claude-plugin/marketplace.json, .claude-plugin/plugin.json, flat skills/<name>/SKILL.md — verified against a live `codex plugin list` showing caddis@caddis 1.3.97 installed from our own marketplace. It has NO command concept (its config keys are skills, orchestrator_skills, plugins_instructions), so `commands_as_skills` reshapes all 31 commands into skills, exactly as the agy bundle does. Skills are FLAT: measured 134 flat vs 6 nested in Codex's own ~/.codex/skills. Its version FOLLOWS the caddis plugin rather than storing a literal: a copied value froze at 1.3.97 while caddis moved to 1.3.98, and because this target sits first in the file it then became the fallback 'canonical' version and broke two tests.",
       "workspace_root": "plugin-codex",
       "extra_roots": {
         "harness": "claude-harness",
@@ -369,7 +369,6 @@
       "commands_as_skills": true,
       "plugin": {
         "name": "caddis-codex",
-        "version": "1.3.97",
         "description": "caddis for Codex CLI — the same harness, with every command reshaped into a skill because Codex has no command concept.",
         "author": {
           "name": "junaid",
@@ -547,7 +546,8 @@
           "destination": "README.md"
         }
       ],
-      "plugin_root_var": "CADDIS_PLUGIN_ROOT"
+      "plugin_root_var": "CADDIS_PLUGIN_ROOT",
+      "version_follows": "caddis"
     },
     {
       "name": "antigravity-extras",

@@ -677,6 +677,12 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
     # Plugin packaging (Phase 4): emit .claude-plugin manifests + a bundle-scoped skill registry.
     # marketplace.json at the bundle root (output_root); plugin.json + content under workspace_root.
     if target.get("plugin"):
+        # A plugin-shaped target may FOLLOW another plugin's version instead of storing its own.
+        # sync.ps1 bumps by plugin NAME ("caddis", "caddis-extras"), so any other name would
+        # never be bumped and would silently freeze — which is exactly what codex-plugin did.
+        follows = target.get("version_follows")
+        if follows:
+            target["plugin"]["version"] = _canonical_plugin_version(manifest, follows)
         write_plugin_manifests(output_root, workspace_root, target)
         # Build a full skill→category map from the source pool so the flattened registry
         # keeps real categories (works for both allowlist and denylist rosters).

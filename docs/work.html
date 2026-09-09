@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>caddis — the work</title>
+<meta name="description" content="The applications, the platform they share, and the harness that built them.">
+<style>
+:root{
+  --bg:#070a10; --bg2:#0b111b; --card:#0e1521; --line:#1b2536; --line2:#243149;
+  --ink:#e9eefb; --soft:#93a3c4; --dim:#6b7c9c;
+  --accent:#3b9dff; --accent-2:#a78bfa; --good:#33d17a; --warn:#ffb020; --bad:#ff5a4d;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.62 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1160px;margin:0 auto;padding:0 22px}
+
+/* header — the same mark and the same switch as the reference page */
+.top{position:sticky;top:0;z-index:30;background:rgba(7,10,16,.86);
+  backdrop-filter:blur(11px);border-bottom:1px solid var(--line)}
+.top .in{max-width:1160px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:680;letter-spacing:.02em;font-size:16px;display:flex;align-items:center;gap:9px}
+.mark{width:26px;height:26px;display:block;flex:0 0 auto}
+nav{margin-left:auto;display:flex;gap:20px;align-items:center;font-size:13.5px}
+nav a{color:var(--soft)}
+nav a:hover{color:var(--ink);text-decoration:none}
+.plogo rect{transform-box:fill-box;transform-origin:50% 50%}
+html[data-motion="on"] .plogo rect{
+  animation:pixin .46s cubic-bezier(.2,1.3,.4,1) both calc(var(--d) * .62s)}
+@keyframes pixin{from{opacity:0;transform:scale(.2) rotate(-35deg)}to{opacity:1;transform:none}}
+.motionbtn{font:inherit;font-size:11px;letter-spacing:.04em;margin-left:6px;cursor:pointer;
+  background:transparent;border:1px solid var(--line);border-radius:999px;
+  color:var(--dim);padding:3px 11px;transition:color .15s,border-color .15s}
+.motionbtn:hover{color:var(--soft);border-color:var(--soft)}
+.motionbtn::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:currentColor;margin-right:6px;vertical-align:1px;opacity:.4}
+.motionbtn[aria-pressed="true"]{color:var(--accent);border-color:rgba(59,157,255,.45)}
+.motionbtn[aria-pressed="true"]::before{opacity:1;box-shadow:0 0 7px currentColor}
+
+/* hero */
+.hero{padding:64px 0 30px;
+  background:radial-gradient(1100px 420px at 22% -12%,rgba(59,157,255,.16),transparent 62%),
+             radial-gradient(760px 340px at 88% 6%,rgba(167,139,250,.11),transparent 60%)}
+h1{font-size:clamp(30px,4.6vw,50px);line-height:1.08;margin:0 0 16px;letter-spacing:-.022em}
+.lede{color:var(--soft);font-size:17px;max-width:66ch;margin:0 0 30px}
+.stats{display:flex;flex-wrap:wrap;gap:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:13px 18px;min-width:126px}
+.stat b{display:block;font-size:27px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat i{font-style:normal;font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim)}
+
+/* timeline */
+.tl{margin:52px 0 8px;border:1px solid var(--line);border-radius:14px;background:var(--card);
+  padding:20px 22px 12px;overflow-x:auto}
+.tlhead{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}
+.tlhead h2{margin:0;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft)}
+.tlhead span{font-size:12px;color:var(--dim)}
+.tlrow{display:grid;grid-template-columns:220px 1fr;align-items:center;gap:14px;
+  min-width:660px;padding:3px 0}
+.tlrow em{font-style:normal;font-size:12.5px;color:var(--soft);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.tltrack{position:relative;height:12px;background:linear-gradient(90deg,var(--line),transparent);
+  border-radius:6px}
+.tlbar{position:absolute;top:0;height:12px;border-radius:6px;transform-origin:left center}
+html[data-motion="on"] .tlbar{animation:grow .7s cubic-bezier(.2,.9,.3,1) both var(--delay)}
+@keyframes grow{from{transform:scaleX(.02);opacity:0}to{transform:scaleX(1);opacity:1}}
+.tlaxis{display:grid;grid-template-columns:220px 1fr;gap:14px;min-width:660px;
+  margin-top:8px;font-size:10.5px;color:var(--dim);font-family:var(--mono)}
+.tlaxis div:last-child{display:flex;justify-content:space-between}
+
+/* groups */
+section{padding:46px 0 6px;scroll-margin-top:64px}
+.shead{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+.shead h2{margin:0;font-size:23px;letter-spacing:-.015em}
+.shead .n{font-family:var(--mono);font-size:12px;color:var(--dim)}
+.sblurb{color:var(--soft);max-width:74ch;margin:0 0 22px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 19px;
+  display:flex;flex-direction:column;gap:11px;transition:border-color .18s,transform .18s}
+.card:hover{border-color:var(--line2);transform:translateY(-2px)}
+.card h3{margin:0;font-size:16.5px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+.card p{margin:0;color:var(--soft);font-size:13.6px;line-height:1.58}
+.card .note{color:var(--dim);font-size:12.6px;border-left:2px solid var(--line2);padding-left:10px}
+.badge{font-size:10px;letter-spacing:.11em;text-transform:uppercase;padding:2px 8px;
+  border-radius:999px;border:1px solid currentColor;font-weight:600;white-space:nowrap}
+.badge.live{color:var(--good)}
+.badge.poc,.badge.early{color:var(--warn)}
+.badge.retiring{color:var(--bad)}
+.badge.archived{color:var(--dim)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--mono);font-size:10.5px;color:var(--soft);background:var(--bg2);
+  border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+.m{display:flex;gap:16px;flex-wrap:wrap;margin-top:auto;padding-top:9px;
+  border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--dim)}
+.m b{color:var(--soft);font-weight:600}
+
+/* infrastructure + the honest bit */
+.infra{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.ic{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:17px 18px}
+.ic h4{margin:0 0 7px;font-size:14px;letter-spacing:-.005em}
+.ic p{margin:0;color:var(--soft);font-size:13.2px;line-height:1.6}
+.honest{margin:34px 0 0;border:1px solid rgba(255,176,32,.34);border-radius:14px;
+  background:linear-gradient(180deg,rgba(255,176,32,.07),transparent);padding:20px 22px}
+.honest h4{margin:0 0 8px;font-size:14.5px;color:var(--warn)}
+.honest p{margin:0;color:var(--soft);max-width:82ch}
+footer{margin:64px 0 40px;padding-top:20px;border-top:1px solid var(--line);
+  color:var(--dim);font-size:12.4px;display:flex;flex-wrap:wrap;gap:14px}
+@media (prefers-reduced-motion:reduce){html:not([data-motion="on"]) *
+  {transition:none!important;scroll-behavior:auto}}
+@media(max-width:640px){.tlrow,.tlaxis{grid-template-columns:130px 1fr;min-width:520px}}
+</style></head><body>
+<script>/* before first paint: stored choice wins, else the OS preference */
+(function(){var v;try{v=localStorage.getItem('caddis-motion')}catch(e){}
+ if(v!=='on'&&v!=='off')v=matchMedia('(prefers-reduced-motion:reduce)').matches?'off':'on';
+ document.documentElement.dataset.motion=v;})();</script>
+
+<div class="top"><div class="in">
+  <div class="brand"><svg class="plogo mark" viewBox="0 0 16 16" shape-rendering="crispEdges" role="img" aria-label="caddis"><rect x="5" y="0" width="1" height="1" fill="#3b9dff" style="--d:0.249"/><rect x="6" y="0" width="1" height="1" fill="#3b9dff" style="--d:0.224"/><rect x="7" y="0" width="1" height="1" fill="#ffb020" style="--d:0.197"/><rect x="8" y="0" width="1" height="1" fill="#ffb020" style="--d:0.171"/><rect x="9" y="0" width="1" height="1" fill="#ffb020" style="--d:0.144"/><rect x="10" y="0" width="1" height="1" fill="#ffb020" style="--d:0.119"/><rect x="11" y="0" width="1" height="1" fill="#ffb020" style="--d:0.096"/><rect x="12" y="0" width="1" height="1" fill="#ffb020" style="--d:0.075"/><rect x="3" y="1" width="1" height="1" fill="#3b9dff" style="--d:0.306"/><rect x="4" y="1" width="1" height="1" fill="#3b9dff" style="--d:0.283"/><rect x="5" y="1" width="1" height="1" fill="#3b9dff" style="--d:0.258"/><rect x="6" y="1" width="1" height="1" fill="#3b9dff" style="--d:0.230"/><rect x="7" y="1" width="1" height="1" fill="#ffb020" style="--d:0.199"/><rect x="8" y="1" width="1" height="1" fill="#ffb020" style="--d:0.169"/><rect x="9" y="1" width="1" height="1" fill="#ffb020" style="--d:0.138"/><rect x="10" y="1" width="1" height="1" fill="#ffb020" style="--d:0.110"/><rect x="11" y="1" width="1" height="1" fill="#ffb020" style="--d:0.085"/><rect x="12" y="1" width="1" height="1" fill="#ffb020" style="--d:0.062"/><rect x="13" y="1" width="1" height="1" fill="#ffb020" style="--d:0.043"/><rect x="14" y="1" width="1" height="1" fill="#ffb020" style="--d:0.026"/><rect x="2" y="2" width="1" height="1" fill="#3b9dff" style="--d:0.342"/><rect x="3" y="2" width="1" height="1" fill="#3b9dff" style="--d:0.322"/><rect x="4" y="2" width="1" height="1" fill="#3b9dff" style="--d:0.298"/><rect x="5" y="2" width="1" height="1" fill="#3b9dff" style="--d:0.270"/><rect x="9" y="2" width="1" height="1" fill="#ffb020" style="--d:0.131"/><rect x="10" y="2" width="1" height="1" fill="#ffb020" style="--d:0.098"/><rect x="11" y="2" width="1" height="1" fill="#ffb020" style="--d:0.070"/><rect x="12" y="2" width="1" height="1" fill="#ffb020" style="--d:0.046"/><rect x="13" y="2" width="1" height="1" fill="#ffb020" style="--d:0.026"/><rect x="14" y="2" width="1" height="1" fill="#ffb020" style="--d:0.009"/><rect x="1" y="3" width="1" height="1" fill="#3b9dff" style="--d:0.378"/><rect x="2" y="3" width="1" height="1" fill="#3b9dff" style="--d:0.362"/><rect x="3" y="3" width="1" height="1" fill="#3b9dff" style="--d:0.342"/><rect x="4" y="3" width="1" height="1" fill="#3b9dff" style="--d:0.317"/><rect x="12" y="3" width="1" height="1" fill="#ffb020" style="--d:0.026"/><rect x="13" y="3" width="1" height="1" fill="#ffb020" style="--d:0.006"/><rect x="14" y="3" width="1" height="1" fill="#ffb020" style="--d:0.000"/><rect x="1" y="4" width="1" height="1" fill="#3b9dff" style="--d:0.401"/><rect x="2" y="4" width="1" height="1" fill="#3b9dff" style="--d:0.386"/><rect x="3" y="4" width="1" height="1" fill="#3b9dff" style="--d:0.367"/><rect x="0" y="5" width="1" height="1" fill="#3b9dff" style="--d:0.435"/><rect x="1" y="5" width="1" height="1" fill="#3b9dff" style="--d:0.426"/><rect x="2" y="5" width="1" height="1" fill="#3b9dff" style="--d:0.414"/><rect x="0" y="6" width="1" height="1" fill="#3b9dff" style="--d:0.460"/><rect x="1" y="6" width="1" height="1" fill="#3b9dff" style="--d:0.454"/><rect x="2" y="6" width="1" height="1" fill="#3b9dff" style="--d:0.446"/><rect x="0" y="7" width="1" height="1" fill="#3b9dff" style="--d:0.487"/><rect x="1" y="7" width="1" height="1" fill="#3b9dff" style="--d:0.485"/><rect x="2" y="7" width="1" height="1" fill="#3b9dff" style="--d:0.482"/><rect x="0" y="8" width="1" height="1" fill="#3b9dff" style="--d:0.513"/><rect x="1" y="8" width="1" height="1" fill="#3b9dff" style="--d:0.515"/><rect x="2" y="8" width="1" height="1" fill="#3b9dff" style="--d:0.518"/><rect x="0" y="9" width="1" height="1" fill="#3b9dff" style="--d:0.540"/><rect x="1" y="9" width="1" height="1" fill="#3b9dff" style="--d:0.546"/><rect x="2" y="9" width="1" height="1" fill="#3b9dff" style="--d:0.554"/><rect x="0" y="10" width="1" height="1" fill="#3b9dff" style="--d:0.565"/><rect x="1" y="10" width="1" height="1" fill="#3b9dff" style="--d:0.574"/><rect x="2" y="10" width="1" height="1" fill="#3b9dff" style="--d:0.586"/><rect x="1" y="11" width="1" height="1" fill="#33d17a" style="--d:0.599"/><rect x="2" y="11" width="1" height="1" fill="#33d17a" style="--d:0.614"/><rect x="3" y="11" width="1" height="1" fill="#33d17a" style="--d:0.633"/><rect x="1" y="12" width="1" height="1" fill="#33d17a" style="--d:0.622"/><rect x="2" y="12" width="1" height="1" fill="#33d17a" style="--d:0.638"/><rect x="3" y="12" width="1" height="1" fill="#33d17a" style="--d:0.658"/><rect x="4" y="12" width="1" height="1" fill="#33d17a" style="--d:0.683"/><rect x="12" y="12" width="1" height="1" fill="#ff5a4d" style="--d:0.974"/><rect x="13" y="12" width="1" height="1" fill="#ff5a4d" style="--d:0.994"/><rect x="14" y="12" width="1" height="1" fill="#ff5a4d" style="--d:1.000"/><rect x="2" y="13" width="1" height="1" fill="#33d17a" style="--d:0.658"/><rect x="3" y="13" width="1" height="1" fill="#33d17a" style="--d:0.678"/><rect x="4" y="13" width="1" height="1" fill="#33d17a" style="--d:0.702"/><rect x="5" y="13" width="1" height="1" fill="#33d17a" style="--d:0.730"/><rect x="9" y="13" width="1" height="1" fill="#ff5a4d" style="--d:0.869"/><rect x="10" y="13" width="1" height="1" fill="#ff5a4d" style="--d:0.902"/><rect x="11" y="13" width="1" height="1" fill="#ff5a4d" style="--d:0.930"/><rect x="12" y="13" width="1" height="1" fill="#ff5a4d" style="--d:0.954"/><rect x="13" y="13" width="1" height="1" fill="#ff5a4d" style="--d:0.974"/><rect x="14" y="13" width="1" height="1" fill="#ff5a4d" style="--d:0.991"/><rect x="3" y="14" width="1" height="1" fill="#33d17a" style="--d:0.694"/><rect x="4" y="14" width="1" height="1" fill="#33d17a" style="--d:0.717"/><rect x="5" y="14" width="1" height="1" fill="#33d17a" style="--d:0.742"/><rect x="6" y="14" width="1" height="1" fill="#33d17a" style="--d:0.770"/><rect x="7" y="14" width="1" height="1" fill="#33d17a" style="--d:0.801"/><rect x="8" y="14" width="1" height="1" fill="#33d17a" style="--d:0.831"/><rect x="9" y="14" width="1" height="1" fill="#ff5a4d" style="--d:0.862"/><rect x="10" y="14" width="1" height="1" fill="#ff5a4d" style="--d:0.890"/><rect x="11" y="14" width="1" height="1" fill="#ff5a4d" style="--d:0.915"/><rect x="12" y="14" width="1" height="1" fill="#ff5a4d" style="--d:0.938"/><rect x="13" y="14" width="1" height="1" fill="#ff5a4d" style="--d:0.957"/><rect x="14" y="14" width="1" height="1" fill="#ff5a4d" style="--d:0.974"/><rect x="5" y="15" width="1" height="1" fill="#33d17a" style="--d:0.751"/><rect x="6" y="15" width="1" height="1" fill="#33d17a" style="--d:0.776"/><rect x="7" y="15" width="1" height="1" fill="#33d17a" style="--d:0.803"/><rect x="8" y="15" width="1" height="1" fill="#33d17a" style="--d:0.829"/><rect x="9" y="15" width="1" height="1" fill="#ff5a4d" style="--d:0.856"/><rect x="10" y="15" width="1" height="1" fill="#ff5a4d" style="--d:0.881"/><rect x="11" y="15" width="1" height="1" fill="#ff5a4d" style="--d:0.904"/><rect x="12" y="15" width="1" height="1" fill="#ff5a4d" style="--d:0.925"/></svg><span>cad<span style="color:var(--accent)">dis</span></span></div>
+  <nav>
+    <a href="./">Reference</a><a href="#apps">Applications</a><a href="#platform">Platform</a>
+    <a href="#tooling">Tooling</a><a href="#infra">Infrastructure</a>
+    <button class="motionbtn" id="motion" type="button" aria-pressed="false">motion</button>
+  </nav>
+</div></div>
+
+<div class="hero"><div class="wrap">
+  <h1>What was built with it.</h1>
+  <p class="lede" id="intro"></p>
+  <div class="stats" id="stats"></div>
+  <div class="tl">
+    <div class="tlhead"><h2>First commit to last</h2>
+      <span id="tlnote"></span></div>
+    <div id="tl"></div>
+    <div class="tlaxis"><div></div><div id="axis"></div></div>
+  </div>
+</div></div>
+
+<div class="wrap"><main id="groups"></main>
+
+<section id="infra">
+  <div class="shead"><h2>The estate underneath</h2></div>
+  <p class="sblurb">Nine applications is a number. Nine applications that deploy the same way,
+     authenticate the same way and are checked for drift by the same scripts is a platform.</p>
+  <div class="infra" id="infragrid"></div>
+  <div class="honest" id="honest"></div>
+</section>
+
+<footer>
+  <span>Generated from <code>scripts/portfolio.json</code> — numbers measured, names written by hand.</span>
+  <span id="meas"></span>
+  <span><a href="./">The caddis reference &rarr;</a></span>
+</footer>
+</div>
+
+<script id="DATA" type="application/json">{"measured": "2026-09-09", "intro": "Applications, the platform they share, and the harness that built them. Everything here runs on-premise on Windows: no containers, no cloud, no runtime licence cost. The names describe what each system does.", "infrastructure": [{"title": "On-premise, Windows, no containers", "body": "No Docker, no Terraform, no cloud. The constraint is deliberate: on-premise only, Windows-native, no runtime licence cost. Deployment is Windows services, a web-server edge and PowerShell."}, {"title": "One process per application", "body": "Each application is a single Python process that serves both its compiled front end and its API. The production edge routes to it by path, top down, first match wins \u2014 so the legacy catch-all has to stay last."}, {"title": "Single sign-on, built rather than bought", "body": "Domain sign-on is handled by a purpose-built .NET sidecar running in front of each application. It authenticates the Windows user itself and stamps a verified identity header, always overwriting anything the client sent. It exists because the web server authenticates too late in its own pipeline for the usual rewrite rules to capture the user."}, {"title": "Permissions are data, not role names", "body": "The shared access-control package follows one rule: code asks whether the user may perform an action, never which role they hold. The catalogue of actions lives in code; the grants live in the database."}, {"title": "Source control moved, without a freeze", "body": "Eleven repositories moved from a self-hosted server to hosted enterprise git, with zero differing references. The old server was kept as a read-only mirror rather than switched off, so a rollback stayed possible."}, {"title": "One pipeline, every repository", "body": "Push to the main branch runs lint and tests on a development runner, then deploys from a production runner: sync the exact commit, stamp its identifier into the build, restart, health-check, then verify the deployed commit is the one expected. Releases are date-versioned and readable from every application at a version endpoint."}, {"title": "Drift is checked, not remembered", "body": "Scripts check mirror freshness, shared-package drift, template drift and interface-shell parity. Each one exists because one of them was previously assumed rather than measured."}, {"title": "Language models run in-house", "body": "Call summarisation and appointment scoring both run against self-hosted models on local hardware. No customer data leaves the estate for inference."}], "honest": {"title": "What is not done", "body": "Measured across the fleet on the date above, not estimated. Every application exposes a health endpoint, but only one of them checks its own database. A shared structured-logging template exists and is imported by none of them. No application records endpoint latency anywhere that survives a restart, and there is no error sink at all \u2014 no table, no tracing, no metrics. Production logs are plain text files on the box. This is written down because the observability work is next, and a portfolio that omits it would make the next decision harder."}, "groups": [{"key": "apps", "label": "Applications", "blurb": "Nine full-stack applications, all generated from one template and all deployed the same way. Each is a single Python process serving both its API and its compiled front end.", "items": [{"name": "Revenue Assurance Platform", "one": "Revenue analysis over mobile call-detail records, with a fraud console and monitoring for the file-delivery pipeline.", "stack": ["FastAPI", "SQL Server", "React 19", "ECharts", "CodeMirror"], "status": "live", "notes": "The largest of the fleet by commits. Carries nine scheduled data-refresh jobs.", "metrics": {"commits": 1019, "first": "2026-04-25", "last": "2026-09-08", "files": 713, "tests": 222}}, {"name": "Customer Management System", "one": "One screen for one customer: every interaction, case, call recording and AI call summary across four source systems.", "stack": ["FastAPI", "SQL Server", "React 19", "TanStack", "Recharts"], "status": "live", "notes": "Replaces an older dashboard. The only app with request-timing middleware and a real database health probe.", "metrics": {"commits": 801, "first": "2026-06-11", "last": "2026-09-04", "files": 759, "tests": 244}}, {"name": "Appointment Intelligence Platform", "one": "Screens field-technician appointments and supports dispatch decisions, scored by a self-hosted language model.", "stack": ["FastAPI", "SQL Server", "React 19", "vLLM"], "status": "live", "metrics": {"commits": 346, "first": "2026-04-06", "last": "2026-08-29", "files": 343, "tests": 41}}, {"name": "Customer Experience Intelligence", "one": "Executive dashboard for customer-satisfaction scoring, with drill-down from headline number to individual verbatim.", "stack": ["FastAPI", "SQL Server", "React 19", "D3", "Leaflet"], "status": "live", "notes": "The oldest app still in service. A progressive-web-app rebuild is planned.", "metrics": {"commits": 204, "first": "2026-03-26", "last": "2026-08-29", "files": 350, "tests": 43}}, {"name": "Enterprise Architecture Workspace", "one": "Database-first application-portfolio management: the live architecture inventory, plus proposals, approval workflow, export and audit.", "stack": ["FastAPI", "SQL Server", "PostgreSQL", "React 19", "CLI"], "status": "live", "notes": "Ships a command-line interface as well as a web front end.", "metrics": {"commits": 112, "first": "2026-05-08", "last": "2026-08-29", "files": 309, "tests": 39}}, {"name": "Operational Assurance Dashboard", "one": "Order operations and service assurance. A port of a legacy dashboard onto the shared stack.", "stack": ["FastAPI", "SQL Server", "React 19", "Leaflet"], "status": "live", "notes": "The first app moved onto the new pipeline end to end, and the only one running role-based access control in development.", "metrics": {"commits": 86, "first": "2026-08-17", "last": "2026-09-09", "files": 198, "tests": 24}}, {"name": "Data Estate Observability", "one": "Health of the data estate: database probes and scheduled-job history across the SQL servers.", "stack": ["FastAPI", "SQL Server", "React 19"], "status": "poc", "notes": "Deployed, but the probes are not yet wired to the pages. Recorded as such rather than presented as finished.", "metrics": {"commits": 11, "first": "2026-09-05", "last": "2026-09-09", "files": 174, "tests": 12}}, {"name": "Unified Customer Gateway", "one": "One entry point and one API gateway over four of the applications above, keyed by customer rather than by system.", "stack": ["FastAPI", "React 19", "MCP"], "status": "early", "metrics": {"commits": 38, "first": "2026-07-04", "last": "2026-08-29", "files": 97, "tests": 5}}, {"name": "Fraud Investigation Console", "one": "Case console for fraud detection and investigation.", "stack": ["FastAPI", "SQL Server", "React 19"], "status": "early", "metrics": {"commits": 7, "first": "2026-09-03", "last": "2026-09-05", "files": 136, "tests": 8}}]}, {"key": "platform", "label": "Platform", "blurb": "The applications are not nine separate builds. They are nine instances of one platform: one template, one deployment pipeline, one identity model, and five shared packages.", "items": [{"name": "Shared Platform Infrastructure", "one": "Bootstrap, deployment and five shared packages, plus a purpose-built single-sign-on sidecar service.", "stack": ["PowerShell", "ASP.NET Core", "Python", "IIS"], "status": "live", "notes": "Publishes the access-control, refresh-scheduler, observability, design-system and data packages every application depends on.", "metrics": {"commits": 412, "first": "2026-03-14", "last": "2026-09-09", "files": 221, "tests": 37}}, {"name": "Golden Project Template", "one": "The scaffold every application is generated from, with seven interchangeable interface shells.", "stack": ["FastAPI", "React 19", "Vite", "Alembic"], "status": "live", "notes": "Drift between the template and its children is checked by a script, not by memory.", "metrics": {"commits": 244, "first": "2026-03-25", "last": "2026-09-08", "files": 549, "tests": 9}}, {"name": "Project Bootstrap Console", "one": "A wizard and template gallery over the bootstrap scripts, so a new project starts from a form rather than a runbook.", "stack": ["FastAPI", "React 19"], "status": "live", "metrics": {"commits": 93, "first": "2026-07-09", "last": "2026-08-29", "files": 215, "tests": 16}}]}, {"key": "tooling", "label": "Developer tooling", "blurb": "Two tools built to make the work above possible, both open and both used daily.", "items": [{"name": "caddis", "one": "The harness this page documents: commands, skills, subagents and hooks that make one coding-agent session harder to derail, on any agent.", "stack": ["Python", "TypeScript", "PowerShell"], "status": "live", "public": "https://github.com/saajunaid/caddis-plugin", "notes": "Published as a plugin marketplace, an npm package and a server. Open source.", "metrics": {"commits": 832, "first": "2026-02-21", "last": "2026-09-09", "files": 1088, "tests": 96}}, {"name": "docket", "one": "A task board your coding agent drives. The source of truth is an append-only event log in the repository itself; the board is a rebuildable cache.", "stack": ["Python", "React", "MCP", "FastAPI"], "status": "live", "notes": "One engine behind four surfaces: a command line, a server, an API and a board.", "metrics": {"commits": 316, "first": "2026-06-29", "last": "2026-09-04", "files": 151, "tests": 55}}]}, {"key": "legacy", "label": "Superseded", "blurb": "Kept here because a portfolio that shows only the survivors is not an honest one.", "items": [{"name": "Call Centre Analytics", "one": "The original unified customer view. Still serving in production as the catch-all route while its replacement takes over screen by screen.", "stack": ["Streamlit", "pandas", "FAISS", "Ollama"], "status": "retiring", "metrics": {"commits": 376, "first": "2026-01-28", "last": "2026-08-29", "files": 358, "tests": 71}}, {"name": "Agent Pipeline Sandbox", "one": "The research workspace the harness and the task board were both extracted from.", "stack": ["Python", "PowerShell"], "status": "archived", "metrics": {"commits": 338, "first": "2026-02-21", "last": "2026-08-29", "files": 182, "tests": 17}}]}], "totals": {"projects": 16, "commits": 5235, "files": 5843, "tests": 939, "since": "2026-01"}}</script>
+<script>
+const D = JSON.parse(document.getElementById('DATA').textContent);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf = n => n.toLocaleString('en');
+
+/* one switch for the page — the OS preference is only the DEFAULT */
+const MOTION_KEY='caddis-motion';
+const moving = () => document.documentElement.dataset.motion === 'on';
+function setMotion(v){
+  document.documentElement.dataset.motion=v;
+  try{localStorage.setItem(MOTION_KEY,v)}catch(e){}
+  const b=document.getElementById('motion');
+  b.setAttribute('aria-pressed', v==='on');
+  b.textContent = v==='on' ? 'motion on' : 'motion off';
+}
+document.getElementById('motion').addEventListener('click',()=>setMotion(moving()?'off':'on'));
+setMotion(document.documentElement.dataset.motion || 'on');
+
+document.getElementById('intro').textContent = D.intro;
+document.getElementById('meas').textContent = 'Measured ' + D.measured + '.';
+
+const T = D.totals;
+document.getElementById('stats').innerHTML = [
+  [T.projects,'projects'],[T.commits,'commits'],[T.files,'source files'],
+  [T.tests,'test files']
+].map(([n,l])=>`<div class="stat"><b data-to="${n}">0</b><i>${esc(l)}</i></div>`).join('')
+ + `<div class="stat"><b style="font-size:22px;padding-top:4px">${esc(T.since)}</b><i>first commit</i></div>`;
+
+document.querySelectorAll('.stat b[data-to]').forEach((el,i)=>{
+  const to=+el.dataset.to;
+  if(!moving()){el.textContent=nf(to);return;}
+  const t0=performance.now()+i*70, dur=780;
+  (function step(now){const p=Math.min(1,Math.max(0,(now-t0)/dur));
+    el.textContent=nf(Math.round(to*(1-Math.pow(1-p,3))));
+    if(p<1)requestAnimationFrame(step);})(performance.now());
+});
+
+/* timeline — one bar per project, from its first commit to its last */
+(function(){
+  const items = D.groups.flatMap(g=>g.items.map(i=>({...i,kind:g.key})))
+    .filter(i=>i.metrics && i.metrics.first && i.metrics.last)
+    .sort((a,b)=> a.metrics.first < b.metrics.first ? -1 : 1);
+  if(!items.length) return;
+  const day = s => Date.parse(s+'T00:00:00Z')/864e5;
+  const lo = Math.min(...items.map(i=>day(i.metrics.first)));
+  const hi = Math.max(...items.map(i=>day(i.metrics.last)));
+  const span = Math.max(1, hi-lo);
+  const hue = {apps:'var(--accent)',platform:'var(--accent-2)',
+               tooling:'var(--good)',legacy:'var(--dim)'};
+  document.getElementById('tl').innerHTML = items.map((i,n)=>{
+    const a=(day(i.metrics.first)-lo)/span*100, b=(day(i.metrics.last)-lo)/span*100;
+    return `<div class="tlrow"><em title="${esc(i.name)}">${esc(i.name)}</em>
+      <div class="tltrack"><div class="tlbar" style="left:${a}%;width:${Math.max(b-a,1.2)}%;
+        background:${hue[i.kind]};--delay:${(n*0.045).toFixed(2)}s"
+        title="${esc(i.metrics.first)} to ${esc(i.metrics.last)} · ${nf(i.metrics.commits)} commits"></div></div>
+    </div>`;}).join('');
+  const fmt = d => new Date(d*864e5).toISOString().slice(0,7);
+  document.getElementById('axis').innerHTML =
+    `<span>${fmt(lo)}</span><span>${fmt((lo+hi)/2)}</span><span>${fmt(hi)}</span>`;
+  document.getElementById('tlnote').textContent =
+    items.length + ' projects · ' + fmt(lo) + ' to ' + fmt(hi);
+})();
+
+const STATUS = {"live": "in production", "poc": "proof of concept", "early": "early", "retiring": "being retired", "archived": "archived"};
+document.getElementById('groups').innerHTML = D.groups.map(g=>`
+  <section id="${esc(g.key)}">
+    <div class="shead"><h2>${esc(g.label)}</h2><span class="n">${g.items.length}</span></div>
+    <p class="sblurb">${esc(g.blurb)}</p>
+    <div class="grid">${g.items.map(i=>{
+      const m=i.metrics||{};
+      return `<article class="card">
+        <h3>${esc(i.name)}<span class="badge ${esc(i.status)}">${esc(STATUS[i.status]||i.status)}</span></h3>
+        <p>${esc(i.one)}</p>
+        ${i.notes?`<div class="note">${esc(i.notes)}</div>`:''}
+        <div class="chips">${(i.stack||[]).map(s=>`<span class="chip">${esc(s)}</span>`).join('')}</div>
+        <div class="m">
+          ${m.commits?`<span><b>${nf(m.commits)}</b> commits</span>`:''}
+          ${m.files?`<span><b>${nf(m.files)}</b> files</span>`:''}
+          ${m.tests?`<span><b>${nf(m.tests)}</b> tests</span>`:''}
+          ${m.first?`<span>${esc(m.first.slice(0,7))} &rarr; ${esc(m.last.slice(0,7))}</span>`:''}
+          ${i.public?`<span><a href="${esc(i.public)}">source &rarr;</a></span>`:''}
+        </div>
+      </article>`;}).join('')}</div>
+  </section>`).join('');
+
+document.getElementById('infragrid').innerHTML = D.infrastructure.map(x=>
+  `<div class="ic"><h4>${esc(x.title)}</h4><p>${esc(x.body)}</p></div>`).join('');
+document.getElementById('honest').innerHTML =
+  `<h4>${esc(D.honest.title)}</h4><p>${esc(D.honest.body)}</p>`;
+</script></body></html>

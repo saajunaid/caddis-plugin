@@ -1280,6 +1280,111 @@ def check_second_brain_stays_private() -> CheckResult:
 
 
 
+# Per-machine, per-session, and written by a hook rather than by anyone's intent. None of it is a
+# deliverable and caddis-plugin is PUBLIC.
+SESSION_LEAK_PATHS = (
+    ".caddis/session-state.md",
+    ".caddis/session-state/",
+    ".caddis/relay.md",
+    ".caddis/relay/",
+    ".caddis/hook-errors.jsonl",
+)
+
+
+def check_session_state_stays_private() -> CheckResult:
+    """Session state must never be TRACKED in the public mirror.
+
+    Tracked, not merely present: the file is written into the mirror folder every turn by the Stop
+    hook, so its existence on disk is normal and expected. What is not normal is git following it.
+
+    Found live on 2026-09-09: two files, four sync commits, naming the machine's temp path, the
+    session id, the last prompt and the files that session touched. A .gitignore rule alone would
+    not have caught it — the files were already tracked, which is how they survived the rules added
+    beside them.
+    """
+    result = CheckResult(name="Session state — must not be TRACKED in the public mirror")
+    mirror = REPO_ROOT / "vscode-extensions" / "caddis-plugin"
+    if not (mirror / ".git").exists():
+        result.info.append("no mirror checkout here — nothing to check")
+        result.passed = True
+        return result
+
+    tracked = subprocess.run(
+        ["git", "-C", str(mirror), "ls-files", "-z", "--", ".caddis"],
+        capture_output=True, text=True,
+    ).stdout.split("\0")
+    for rel in filter(None, tracked):
+        if any(rel == p or rel.startswith(p) for p in SESSION_LEAK_PATHS):
+            result.failures.append(
+                f"{rel} is tracked in the PUBLIC mirror — it names the machine's paths and the "
+                "session id. `git rm --cached` it; a .gitignore rule alone will not untrack it"
+            )
+    if not result.failures:
+        result.info.append(f"{len(list(filter(None, tracked)))} file(s) tracked under .caddis/")
+    result.passed = not result.failures
+    return result
+
+
+# Hostnames and infrastructure identifiers. Separate from INTERNAL_NAMES because those are project
+# codenames and these are machines — a page about infrastructure is exactly where one slips in.
+INTERNAL_HOSTS = ("iegbcoppoc", "iegbaigpu", "ievxcoppoc", "iegew3ccdr", "dbuatl", "ieroxapp",
+                  "git.local", "chorus.lan")
+EMPLOYER_NAMES = ("vmie", "virgin media", "liberty global")
+
+
+def check_portfolio_page() -> CheckResult:
+    """The portfolio page must carry no codename, no hostname and no employer name.
+
+    Checked against the RENDERED HTML, not the data file. `scripts/portfolio.json` deliberately
+    KEEPS the codename in each entry's `repo` field so `--refresh` can find the checkout; a single
+    dict comprehension in `public_view()` is all that drops it before rendering. That is the whole
+    safety mechanism, so the assertion belongs on its output.
+    """
+    result = CheckResult(
+        name="Portfolio page — no codenames, hosts or employer on the public page")
+    page = REPO_ROOT / "vscode-extensions" / "caddis-plugin" / "docs" / "work.html"
+    if not page.exists():
+        result.info.append("not built yet — caddis-push builds it into docs/ before this check")
+        result.passed = True
+        return result
+
+    low = page.read_text(encoding="utf-8", errors="ignore").lower()
+    for name in INTERNAL_NAMES:
+        if name.lower() in low:
+            result.failures.append(
+                f"docs/work.html names the internal project '{name}' — public_view() is meant to "
+                "drop `repo`; describe the system by what it does"
+            )
+    for host in INTERNAL_HOSTS:
+        if host in low:
+            result.failures.append(
+                f"docs/work.html names the host '{host}' — describe servers by their role")
+    for org in EMPLOYER_NAMES:
+        if org in low:
+            result.failures.append(
+                f"docs/work.html names '{org}' — the page must not name the employer")
+
+    data = REPO_ROOT / "scripts" / "portfolio.json"
+    if data.exists():
+        import datetime as _dt
+        import json as _json
+        d = _json.loads(data.read_text(encoding="utf-8"))
+        items = [i for g in d["groups"] for i in g["items"]]
+        measured = sum(1 for i in items if i.get("metrics", {}).get("commits"))
+        result.info.append(f"{len(items)} project(s), {measured} with measured numbers")
+        if measured < len(items):
+            result.info.append("  some have none — run `python scripts/build_portfolio.py --refresh`")
+        try:
+            age = (_dt.date.today() - _dt.date.fromisoformat(d["measured"])).days
+            result.info.append(f"last measured {age} day(s) ago")
+            if age > 45:
+                result.info.append("  stale — `python scripts/build_portfolio.py --refresh`")
+        except (KeyError, ValueError):
+            result.info.append("no `measured` date in portfolio.json")
+    result.passed = not result.failures
+    return result
+
+
 STAGES = ("plan", "build", "review", "ship", "continuity", "knowledge", "setup")
 
 
@@ -1331,20 +1436,22 @@ def check_reference_site() -> CheckResult:
     Degrades open when the mirror is absent — a source-only checkout has nothing to publish.
     """
     result = CheckResult(name="Reference site — present and matching the shipped version")
-    site = REPO_ROOT / "vscode-extensions" / "caddis-plugin" / "site" / "index.html"
+    site = REPO_ROOT / "vscode-extensions" / "caddis-plugin" / "docs" / "index.html"
     if not site.exists():
-        result.info.append("no site yet — caddis-push builds it before this check")
+        result.info.append("no site yet — caddis-push builds it into docs/ before this check")
         return result
     text = site.read_text(encoding="utf-8", errors="ignore")
     man = json.loads((GITHUB_DIR / "runtime-targets.json").read_text(encoding="utf-8"))
     version = next(t["plugin"]["version"] for t in man["targets"] if t["name"] == "claude")
-    if f'"version": "{version}"' not in text:
+    m = re.search(r'"version":\s*"([0-9.]+)"', text)
+    built = m.group(1) if m else "unknown"
+    if built != version:
         result.failures.append(
-            f"site/index.html does not carry version {version} — it was built from an older "
-            "pool, or the build failed and left the previous page in place")
+            f"docs/index.html was built at v{built} but the pool ships v{version} — rebuild it "
+            "after the version bump, or the published page lags one patch")
     for name in INTERNAL_NAMES:
         if name in text:
-            result.failures.append(f"site/index.html names '{name}' — this page is PUBLIC")
+            result.failures.append(f"docs/index.html names '{name}' — this page is PUBLIC")
     result.info.append(f"site carries v{version}")
     result.passed = not result.failures
     return result
@@ -1415,6 +1522,8 @@ def main(argv: list[str] | None = None) -> int:
             check_privacy_scan_tracked(),
             check_no_internal_names_in_public_source(),
             check_second_brain_stays_private(),
+            check_session_state_stays_private(),
+            check_portfolio_page(),
             check_command_stage(),
             check_reference_site(),
             check_enforcement_ratio(),

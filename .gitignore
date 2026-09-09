@@ -33,6 +33,15 @@ pypimcp.key
 # covered .caddis/*.jsonl but not the pre-rename name, so these stayed published.
 .claudster/
 
+# Session state, written by the Stop hook into whatever folder a session runs in. It names the
+# local temp path, the session id and the files that session touched. Per-machine, never a
+# deliverable, and this repo is PUBLIC. Two of them were published before this rule existed.
+.caddis/session-state.md
+.caddis/session-state/
+.caddis/relay.md
+.caddis/relay/
+.caddis/hook-errors.jsonl
+
 # Per-machine telemetry - never a deliverable, and this repo is PUBLIC.
 agent-log.jsonl
 usage-log.jsonl

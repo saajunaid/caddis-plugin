@@ -1281,17 +1281,31 @@ function caddis-push {
     # -- and carries no fleet data. That is the opposite of the second brain below, which names
     # 18 internal repos and must never ship. Two pages, two audiences, one rule each.
     #
-    # GitHub Pages serves it from /site on the mirror.
+    # GitHub Pages serves them from /docs on the mirror.
     if ($gatePython) {
         $refScript = Join-Path $gateRoot "scripts/build_reference.py"
         if (Test-Path $refScript) {
-            $siteOut = Join-Path $CADDIS_POOL "site/index.html"
+            $siteOut = Join-Path $CADDIS_POOL "docs/index.html"
             Push-Location $gateRoot
             & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/build_reference.py", "--out", $siteOut))
             if ($LASTEXITCODE -eq 0) {
-                Write-Host "  [OK]  reference site -> site/index.html (public)" -ForegroundColor Green
+                Write-Host "  [OK]  reference site -> docs/index.html (GitHub Pages)" -ForegroundColor Green
             } else {
                 Write-Host "  [WARN]  build_reference.py failed -- the site will be stale." -ForegroundColor Yellow
+            }
+            Pop-Location
+        }
+        # The portfolio page. RENDERED here, never re-measured: `--refresh` walks sixteen
+        # checkouts, and a publish that silently changed the numbers would put figures on a
+        # public page nobody had read. check_portfolio_page() reports how stale they are.
+        $wrkScript = Join-Path $gateRoot "scripts/build_portfolio.py"
+        if (Test-Path $wrkScript) {
+            Push-Location $gateRoot
+            & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/build_portfolio.py", "--out", (Join-Path $CADDIS_POOL "docs/work.html")))
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [OK]  portfolio -> docs/work.html (GitHub Pages)" -ForegroundColor Green
+            } else {
+                Write-Host "  [WARN]  build_portfolio.py failed -- the page will be stale." -ForegroundColor Yellow
             }
             Pop-Location
         }
@@ -1388,6 +1402,29 @@ function caddis-push {
                     Write-Host "  [WARN]  claude re-export failed; plugin.json may lag the $bumpedCaddis bump." -ForegroundColor Yellow
                 }
             }
+        }
+    }
+
+    # Rebuild the reference site AFTER the version bump.
+    #
+    # Found by shipping it: the site is built before the pre-push gate, but caddis-push bumps the
+    # pool version AFTER that gate. So the first published page said 1.3.97 while the plugin was
+    # already 1.3.98 -- a page that lags one patch, every release, forever. The gate then failed
+    # on the NEXT push, which is the design working but a release too late.
+    #
+    # Cheap to redo (a few hundred files, under a second) and it is the only way the page can
+    # carry the version it actually ships with.
+    if ($bumpedCaddis -and $gatePython) {
+        $refScript2 = Join-Path $gateRoot "scripts/build_reference.py"
+        if (Test-Path $refScript2) {
+            Push-Location $gateRoot
+            & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/build_reference.py", "--out", (Join-Path $CADDIS_POOL "docs/index.html")))
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [OK]  reference site rebuilt at $bumpedCaddis" -ForegroundColor Green
+            } else {
+                Write-Host "  [WARN]  site rebuild failed -- it will report the pre-bump version." -ForegroundColor Yellow
+            }
+            Pop-Location
         }
     }
 
