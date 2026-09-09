@@ -1327,8 +1327,16 @@ def check_session_state_stays_private() -> CheckResult:
 
 # Hostnames and infrastructure identifiers. Separate from INTERNAL_NAMES because those are project
 # codenames and these are machines — a page about infrastructure is exactly where one slips in.
-INTERNAL_HOSTS = ("iegbcoppoc", "iegbaigpu", "ievxcoppoc", "iegew3ccdr", "dbuatl", "ieroxapp",
-                  "git.local", "chorus.lan")
+INTERNAL_HOSTS = ("iegbcoppoc", "iegbaigpu", "ievxcoppoc", "iegew3ccdr", "ievxrbtprd", "dbuatl",
+                  "ieroxapp", "git.local", "chorus.lan")
+
+# A list of hostnames only grows when somebody notices a new one, and that is precisely how this
+# gate was found to be blind: a batch-worker host appeared in a survey, matched nothing in the
+# tuple above, and would have published clean. Every internal host follows one shape -- "ie", two
+# site letters, a role, and a trailing index -- so match the SHAPE and let the tuple carry the
+# exceptions that do not fit it. Checked against every known host, and against a list of ordinary
+# English and code words, for false positives.
+INTERNAL_HOST_RE = re.compile(r"\bie[a-z]{2}[a-z0-9]{3,}[0-9]{1,2}\b", re.I)
 EMPLOYER_NAMES = ("vmie", "virgin media", "liberty global")
 
 
@@ -1359,6 +1367,10 @@ def check_portfolio_page() -> CheckResult:
         if host in low:
             result.failures.append(
                 f"docs/work.html names the host '{host}' — describe servers by their role")
+    for m in set(INTERNAL_HOST_RE.findall(low)) - {h for h in INTERNAL_HOSTS if h in low}:
+        result.failures.append(
+            f"docs/work.html names something shaped like an internal host ('{m}') — "
+            "describe servers by their role")
     for org in EMPLOYER_NAMES:
         if org in low:
             result.failures.append(
