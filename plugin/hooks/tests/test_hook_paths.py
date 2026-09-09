@@ -224,11 +224,11 @@ def test_wrong_version_injects_nothing(tmp_path):
 
 def test_cross_repo_frame_shows_repo_path(tmp_path):
     _write_workstreams(tmp_path, [
-        _frame("plans/serve-sight.md", repo="E:/Projects/serve-sight"),
+        _frame("plans/demo-app.md", repo="E:/Projects/demo-app"),
     ])
     r = _run(INJECT, tmp_path, "{}")
     assert _PARKED in r.stdout
-    assert "E:/Projects/serve-sight" in r.stdout
+    assert "E:/Projects/demo-app" in r.stdout
 
 
 # ── inject_relay: usage-review nudge stamp (new + legacy fallback) ───────────

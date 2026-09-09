@@ -1,6 +1,7 @@
 ---
 description: Turn a SQL artifact into an Excalidraw diagram for a design review / ARB pack / slide — higher-level, drag-the-boxes format
 argument-hint: [file path | object name | pasted SQL]
+stage: knowledge
 ---
 
 # /excalidraw-db — diagram a SQL artifact as Excalidraw

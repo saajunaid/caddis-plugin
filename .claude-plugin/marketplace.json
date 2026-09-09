@@ -14,6 +14,11 @@
       "name": "caddis-extras",
       "source": "./plugin-extras",
       "description": "caddis-extras — the full caddis skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."
+    },
+    {
+      "name": "caddis-codex",
+      "source": "./plugin-codex",
+      "description": "caddis for Codex CLI — every command reshaped into a skill, because Codex has no command concept. Install this INSTEAD of caddis when using Codex."
     }
   ]
 }

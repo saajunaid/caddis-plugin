@@ -1,6 +1,7 @@
 ---
 description: File a future-work item in the one backlog — .caddis/parking-lot/ — or list what is open
-argument-hint: [what to park] | list | done <slug>
+argument-hint: [--harness] <what to park> | list | done <slug> | drop <slug>
+stage: continuity
 ---
 
 # /caddis:park — put future work in the ONE place it belongs

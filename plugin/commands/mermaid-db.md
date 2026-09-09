@@ -1,6 +1,7 @@
 ---
 description: Turn a SQL artifact (proc, view, query, .sql file, or table name) into a Mermaid diagram that explains it — git-diffable, saved as .md
 argument-hint: [file path | object name | pasted SQL] [output path]
+stage: knowledge
 ---
 
 # /mermaid-db — diagram a SQL artifact as Mermaid

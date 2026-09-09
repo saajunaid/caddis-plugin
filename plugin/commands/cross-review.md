@@ -1,6 +1,7 @@
 ---
 description: Cross-vendor code review of the current diff — a second-vendor model (DeepSeek/GLM/any OpenAI-compatible endpoint) reviews your changes to catch bugs a same-vendor reviewer misses
 argument-hint: [git range, e.g. origin/main..HEAD]
+stage: review
 ---
 
 # /caddis:cross-review — a second-vendor set of eyes on your diff

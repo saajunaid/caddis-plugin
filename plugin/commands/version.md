@@ -1,5 +1,7 @@
 ---
 description: Report the installed caddis version
+argument-hint: (no arguments — prints the installed caddis version)
+stage: setup
 ---
 
 # /version — what caddis am I running?

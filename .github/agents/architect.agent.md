@@ -120,7 +120,7 @@ Auto-load these skills when the condition matches — do not skip.
 | SQL query standards | `.github/skills/coding/sql/SKILL.md` |
 | Data analysis patterns | `.github/skills/data/data-analysis/SKILL.md` |
 | Architecture diagrams (draw.io) | `.github/skills/media/draw-io/SKILL.md` |
-| Relay | `.github/skills/workflow/relay/SKILL.md` |
+| Relay | `/caddis:handoff` (the relay skill was retired 2026-09-09) |
 | Working with unfamiliar codebase | `.github/skills/coding/codebase-audit/SKILL.md` |
 | Observability / monitoring design | `.github/skills/coding/observability/SKILL.md` |
 | Monorepo architecture decisions | `.github/skills/devops/monorepo/SKILL.md` |
@@ -521,7 +521,7 @@ Phase 4: Integration & Polish
 
 If work needs to be resumed in a future session:
 - User can invoke `/relay`
-- This loads `.github/skills/workflow/relay/SKILL.md`
+- This runs `/caddis:handoff`, which writes `.caddis/relay.md`
 - Creates or updates root `relay.md`
 
 **Primary approach**: Design with phases → Implementation follows phases

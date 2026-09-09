@@ -1,6 +1,7 @@
 ---
 description: Deterministic headless code review — adversarial diff review, self-contained (never depends on a skill activating)
-argument-hint: "[git range, defaults to the working diff]"
+argument-hint: [git range, defaults to the working diff]
+stage: review
 ---
 
 # /caddis:gate-review — headless adversarial code review (self-contained)

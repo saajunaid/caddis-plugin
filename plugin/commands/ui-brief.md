@@ -1,6 +1,7 @@
 ---
 description: Design-first UI brief — lock the aesthetic before writing any code
 argument-hint: <what you're building, e.g. "dashboard for NPS scores" or "login page">
+stage: plan
 ---
 
 # /ui-brief — design first, code second

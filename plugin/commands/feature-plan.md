@@ -1,6 +1,8 @@
 ---
 description: Create a phased, TDD-structured implementation plan that acts as the durable spine for multi-session work
 argument-hint: <feature description>
+stage: plan
+daily: true
 ---
 
 # /feature-plan — phased plan (the durable spine)

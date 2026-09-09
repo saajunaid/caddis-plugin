@@ -1,5 +1,7 @@
 ---
 description: Where were we? A quick list of what this session was doing and what is still open
+argument-hint: (no arguments — reads this repo's session-state and relay for you)
+stage: continuity
 ---
 
 # /catchup — where are we?

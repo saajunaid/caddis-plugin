@@ -1,5 +1,7 @@
 ---
 description: Define the words this project invented, in one place — .caddis/kb/GLOSSARY.md
+argument-hint: (no arguments — scans this repo for coined terms)
+stage: knowledge
 ---
 
 # /glossary — define what this project coined

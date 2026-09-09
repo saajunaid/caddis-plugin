@@ -1,6 +1,7 @@
 ---
 description: Hand the WORK to a fresh session — generate the handover from the repo, then validate the successor by re-deriving its answers
-argument-hint: [<new-session-name>] <what the successor should pick up first>
+argument-hint: <name-of-the-session-you-just-started> <what it should work on first>
+stage: continuity
 ---
 
 # /caddis:spawn-session — generate the handover, then validate the successor

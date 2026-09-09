@@ -1,6 +1,7 @@
 ---
 description: Run a strict red-green-refactor TDD cycle for a unit of behavior
 argument-hint: <behavior to build>
+stage: build
 ---
 
 # /tdd — red → green → refactor

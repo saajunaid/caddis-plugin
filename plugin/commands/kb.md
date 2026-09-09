@@ -1,5 +1,7 @@
 ---
 description: Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links
+argument-hint: (no arguments — rebuilds .caddis/kb/DOC-MAP.md from the notes on disk)
+stage: knowledge
 ---
 
 # /kb — bring the knowledge-base index up to date

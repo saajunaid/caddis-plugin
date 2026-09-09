@@ -44,8 +44,8 @@ Start by understanding the current project context, then ask questions one at a 
 
 **Implementation (if continuing):**
 - Ask: "Ready to set up for implementation?"
-- Use superpowers:using-git-worktrees to create isolated workspace
-- Use superpowers:writing-plans to create detailed implementation plan
+- Use the `using-git-worktrees` skill (caddis, devops/) to create an isolated workspace
+- Use `/caddis:feature-plan` for a phased plan, or the `writing-plans` skill (caddis, docs/)
 
 ## Key Principles
 

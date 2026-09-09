@@ -13,7 +13,7 @@ either follows it blindly or argues with it. **The fix is not "add more detail" 
 
 Proven in anger on a Genesys→ETL cutover spec handed to an external vendor team. The user's verdict:
 *"nailed it — the document was perfect, simple, this should be the standard for explainer documents."*
-Reference implementation to study: `serve-sight/docs/genesys-cutover/etl-implementation-spec.md` (full
+Reference implementation to study: `a fleet app/docs/genesys-cutover/etl-implementation-spec.md` (full
 spec) and `pega-cticallid-change-request.md` (the same pattern compressed to one page for a single ask).
 
 ## When this is NOT the right skill

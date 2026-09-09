@@ -1,6 +1,7 @@
 ---
 description: Hand the Advisory Hub role to a fresh session — run the mechanical audit, then generate the succession prompt with a context self-check the new Hub must pass
 argument-hint: [path to .caddis/plans/<slug>-advisory-context.md, or omit to auto-detect]
+stage: continuity
 ---
 
 # /caddis:spawn-hub — hand the Hub role to a fresh session

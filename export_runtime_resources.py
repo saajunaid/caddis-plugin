@@ -409,14 +409,15 @@ def strip_agent_frontmatter_for_agy(agents_dir: Path) -> int:
     return n
 
 
-def convert_commands_to_agy_skills(commands_dir: Path, skills_dir: Path) -> int:
+def convert_commands_to_skills(commands_dir: Path, skills_dir: Path) -> int:
     """agy's runtime only discovers skills at ``skills/<name>/SKILL.md`` (name+description BOTH required);
     it never ingests ``commands/*.md`` — the install "N converted to skills" line is a count message only,
     verified empirically on agy 1.1.7 (a command surfaces only once relocated to ``skills/`` AND given a
     ``name:``; adding ``name:`` while it stays in ``commands/`` does nothing). Reshape each command into
     ``skills/<stem>/SKILL.md`` with an injected ``name: <stem>`` (agy has no command concept, so caddis
-    commands surface AS skills, like the rest), then drop the now-dead ``commands/`` dir. Runs ONLY on the
-    agy-plugin bundle — Claude Code keeps consuming ``commands/*.md`` unchanged. Fails closed on a name
+    commands surface AS skills, like the rest), then drop the now-dead ``commands/`` dir. Runs on any bundle whose
+    target sets `commands_as_skills: true` — agy and Codex both, since neither has a command
+    concept — Claude Code keeps consuming ``commands/*.md`` unchanged. Fails closed on a name
     collision with an existing skill. Returns the count converted."""
     if not commands_dir.is_dir():
         return 0
@@ -692,13 +693,36 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
             stats.bump_skip("registry_rows_written", rows)
 
     # Antigravity (agy) plugin packaging: plugin.json at the plugin ROOT + a bundle-scoped registry.
+    # Neither agy nor Codex has a command concept, so a bundle for either reshapes commands
+    # into skills. Keyed on an explicit manifest flag rather than the target NAME, so adding a
+    # third command-less runtime is a data change.
+    if target.get("commands_as_skills"):
+        n = convert_commands_to_skills(workspace_root / "commands", workspace_root / "skills")
+        if n:
+            print(f"[OK] {target['name']}: {n} command(s) reshaped into skills")
+
+    # Codex sets NO plugin-root variable — verified live: CLAUDE_PLUGIN_ROOT is UNSET, and the
+    # only CODEX_* vars are session/sandbox ones. 16 of the 31 converted skills shell out via
+    # that variable, so they would fail silently. Rewrite it to one the user can set, with the
+    # deterministic install path documented in the bundle's own README.
+    if target.get("plugin_root_var"):
+        var = target["plugin_root_var"]
+        n = 0
+        for md in (workspace_root / "skills").rglob("SKILL.md"):
+            t = md.read_text(encoding="utf-8")
+            if "CLAUDE_PLUGIN_ROOT" in t:
+                md.write_text(t.replace("CLAUDE_PLUGIN_ROOT", var), encoding="utf-8")
+                n += 1
+        if n:
+            print(f"[OK] {target['name']}: CLAUDE_PLUGIN_ROOT -> {var} in {n} skill(s)")
+
     if target.get("agy_plugin"):
         write_agy_plugin_manifest(workspace_root, target, manifest)
         strip_agent_frontmatter_for_agy(workspace_root / "agents")  # drop Claude-only tools/model keys
         # agy discovers skills only under skills/<name>/SKILL.md — reshape commands there so /handoff,
         # /kb, /ship etc. actually surface (they never do from commands/*.md). Before write_bundle_registry
         # so the converted command-skills get registered too.
-        converted = convert_commands_to_agy_skills(workspace_root / "commands", workspace_root / "skills")
+        converted = convert_commands_to_skills(workspace_root / "commands", workspace_root / "skills")
         if converted:
             stats.bump_skip("agy_commands_converted", converted)
         cat_map = {}

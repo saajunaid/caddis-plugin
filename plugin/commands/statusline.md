@@ -1,5 +1,7 @@
 ---
 description: Install the caddis status line into Claude Code and agy — one renderer, once per machine
+argument-hint: (no arguments — installs the caddis status line for Claude Code and agy)
+stage: setup
 ---
 
 # /statusline — set up the status bar

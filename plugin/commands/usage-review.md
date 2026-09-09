@@ -1,6 +1,7 @@
 ---
 description: Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step
-argument-hint: "[days]"
+argument-hint: [days]
+stage: setup
 ---
 
 # /usage-review — harness self-tuning

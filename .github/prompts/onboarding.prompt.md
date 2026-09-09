@@ -6,7 +6,7 @@ tools: ['codebase', 'editFiles']
 
 # /onboarding — Set Up AI Resources for This Project
 
-Read and follow the skill at `skills/workflow/onboard-project/SKILL.md`.
+Run `/caddis:setup-project-ai` (the onboard-project skill was retired 2026-09-09 — it wrote `copilot-instructions.md`, which the AGENTS.md model replaced).
 
 **Your task**: Bootstrap the AI configuration for this project.
 

@@ -1,6 +1,8 @@
 ---
 description: Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge).
-argument-hint: "[PR title override]"
+argument-hint: [PR title override]
+stage: ship
+daily: true
 ---
 
 # /ship-pr — the reviewed lane, half 1: branch → green PR
@@ -69,7 +71,7 @@ over 400 changed lines. No judgement in any of those — deliberately, because j
 what failed.
 <!-- /shared:cross-review-trigger -->
 
-> **Why this is mechanical and not "consider a review here".** serve-sight shipped four
+> **Why this is mechanical and not "consider a review here".** a fleet app shipped four
 > production releases in one day — sixteen fixes across SQL, caches, refresh jobs and React — and
 > `/caddis:cross-review` ran **zero times**. Nothing was broken: the tool reported itself ready
 > with two providers keyed. Nothing decided *when* to call it. Measured there: 4 of 39 plan files

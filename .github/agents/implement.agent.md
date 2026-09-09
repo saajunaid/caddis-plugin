@@ -921,7 +921,7 @@ If user starts large work without a plan, suggest creating one:
 
 ### Relay (For Session Continuation)
 
-Use relay skill when:
+Run `/caddis:handoff` when:
 - Interrupted mid-phase unexpectedly
 - Complexity was underestimated
 - Work should resume cleanly in a later session
@@ -930,7 +930,7 @@ Use relay skill when:
 
 ```bash
 # Session continuation
-"Read .github/skills/workflow/relay/SKILL.md and create or update relay.md"
+"Run /caddis:handoff to write .caddis/relay.md"
 ```
 
 **Don't do**: Handoff → New Chat → Handoff → repeat (this is inefficient)

@@ -15,12 +15,12 @@
 
 ### Background
 
-The `.github/` folder contains 22 agents, 40+ skills, 22 instructions, and 25 prompts. Currently, most files have VMIE/Customer360/ServeSight-specific values hardcoded (brand colors, table names, paths, API names). The goal is to make this pool fully portable — copy `.github/` to any project, run the onboard skill, and everything works.
+The `.github/` folder contains 22 agents, 40+ skills, 22 instructions, and 25 prompts. Currently, most files have VMIE/a customer-data app/ServeSight-specific values hardcoded (brand colors, table names, paths, API names). The goal is to make this pool fully portable — copy `.github/` to any project, run the onboard skill, and everything works.
 
 ### Key Decisions (confirmed by user)
 
 1. **Portable package**: All paths relative, all values generic with `<PLACEHOLDER>` tokens resolved via `project-config.md`
-2. **`copilot-instructions.md`**: NOT part of the portable package. Generated per-project via onboard skill. The existing one for Customer360 is kept as-is (battle-tested).
+2. **`copilot-instructions.md`**: NOT part of the portable package. Generated per-project via onboard skill. The existing one for a customer-data app is kept as-is (battle-tested).
 3. **`project-config.md`**: Part of portable package as a template. Filled in per-project (or via onboard skill).
 4. **`skills/vmie/` folder**: DELETE entirely. Promote unique skills to generic categories with placeholder tokens. Remove the profile-based skill fallback system (all skills become generic).
 5. **`agent-docs/` folder**: New folder for inter-agent artifacts (not `docs/`). Agents write structured output here with lifecycle metadata (current/superseded/archived).
@@ -28,7 +28,7 @@ The `.github/` folder contains 22 agents, 40+ skills, 22 instructions, and 25 pr
 7. **Planner agent**: Move agent/prompt block to TOP of each phase (before implementation details).
 8. **`360Customer-newchat.prompt.md`**: DELETE (100% project-specific, duplicates `copilot-instructions.md`).
 9. **Onboard skill behavior**: Idempotent — create `copilot-instructions.md` if missing, merge/append if exists. NEVER overwrite or degrade existing content.
-10. **Current project**: We ARE inside Customer360's `.github/`. After fixing the portable pool, update `project-config.md` in-place (no need to run onboard skill for this project).
+10. **Current project**: We ARE inside a customer-data app's `.github/`. After fixing the portable pool, update `project-config.md` in-place (no need to run onboard skill for this project).
 
 ### The Streamlit Chat Widget Disaster (Reference Pattern)
 
@@ -543,7 +543,7 @@ For each skill promoted from `vmie/` to a generic category:
 
 ### Step 7.1 — Grep for remaining hardcoding
 
-- [ ] Search entire `.github/` for: `VMIE`, `vmie`, `Virgin`, `Customer360`, `ServeSight`, `Customer_FeedBack_JIT`, `IECLONDBUAT01`
+- [ ] Search entire `.github/` for: `VMIE`, `vmie`, `Virgin`, `a customer-data app`, `ServeSight`, `Customer_FeedBack_JIT`, `IECLONDBUAT01`
 - [ ] Any hits that are NOT in `project-config.md` or `copilot-instructions.md` → fix
 - [ ] Allowed exceptions: `project-config.md` (profile definitions), `copilot-instructions.md` (project-specific)
 

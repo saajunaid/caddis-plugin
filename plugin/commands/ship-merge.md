@@ -1,6 +1,8 @@
 ---
 description: Merge an already-green, already-reviewed PR behind an explicit deploy-confirm, monitor the deploy, validate prod, then clean up the branch — only on green.
-argument-hint: "[PR number or URL — else inferred from the current branch's open PR]"
+argument-hint: [PR number or URL — else inferred from the current branch's open PR]
+stage: ship
+daily: true
 ---
 
 # /ship-merge — the reviewed lane, half 2: green PR → deployed → cleaned up

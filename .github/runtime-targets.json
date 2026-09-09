@@ -2,7 +2,7 @@
   "version": 1,
   "canonical_root": ".github",
   "output_root": "dist/runtime-resources",
-  "_comment_privacy": "No exclusions block: this repo (caddis) holds ONLY public, publishable source. Privacy is structural \u2014 the private vmie/ skills and .github/plans never existed here, so there is nothing to exclude. (Removed the old exclusions/private_roots/private_paths gating during the extraction from the predecessor repo.)",
+  "_comment_privacy": "No exclusions block: this repo (caddis) holds ONLY public, publishable source. Privacy is structural — the private vmie/ skills and .github/plans never existed here, so there is nothing to exclude. (Removed the old exclusions/private_roots/private_paths gating during the extraction from the predecessor repo.)",
   "targets": [
     {
       "name": "copilot",
@@ -61,7 +61,7 @@
     },
     {
       "name": "codex",
-      "_comment": "Codex CLI bundle \u2014 lite tier (skills + AGENTS.md + MCP example). No subagents/commands (Claude-native only). Skills mirror the claude bundle exactly. workspace_root='.' so bundle dirs map to project-root layout: .codex/skills/ (project skills root probed from codex 0.137 \u2014 see docs/analysis/codex-cli-contract.md; .agents/ is the PLUGINS root, not skills), AGENTS.md, .codex/config.toml.example.",
+      "_comment": "Codex CLI bundle — lite tier (skills + AGENTS.md + MCP example). No subagents/commands (Claude-native only). Skills mirror the claude bundle exactly. workspace_root='.' so bundle dirs map to project-root layout: .codex/skills/ (project skills root probed from codex 0.137 — see docs/analysis/codex-cli-contract.md; .agents/ is the PLUGINS root, not skills), AGENTS.md, .codex/config.toml.example.",
       "workspace_root": ".",
       "extra_roots": {
         "harness": "claude-harness"
@@ -91,7 +91,7 @@
     },
     {
       "name": "codex-extras",
-      "_comment": "Codex EXTRAS tier \u2014 the long tail (all pool skills MINUS the ~41 core). Laid over the core codex bundle by `caddis-init --target codex --extras`. Denylist single-sourced from claude-extras (one core/extras split; no third tier).",
+      "_comment": "Codex EXTRAS tier — the long tail (all pool skills MINUS the ~41 core). Laid over the core codex bundle by `caddis-init --target codex --extras`. Denylist single-sourced from claude-extras (one core/extras split; no third tier).",
       "workspace_root": ".",
       "copies": [
         {
@@ -106,7 +106,7 @@
     },
     {
       "name": "antigravity",
-      "_comment": "Antigravity bundle \u2014 follows the CLI/2.0 contract (agy v1.1.5, probed 2026-07-23 \u2014 docs/analysis/antigravity-contract.md): AGENTS.md read as rules; skills auto-discovered at .agents/skills/<name>/SKILL.md, FLAT (hence flatten_skills; SKILL.md must START with name+description frontmatter). NOTE: IDE 1.107 used .claude/skills/ (legacy \u2014 see contract doc). Roster mirrors the codex bundle. .agents/rules and ~/.gemini/config/mcp_config.json are Phase-5 seams, not shipped yet.",
+      "_comment": "Antigravity bundle — follows the CLI/2.0 contract (agy v1.1.5, probed 2026-07-23 — docs/analysis/antigravity-contract.md): AGENTS.md read as rules; skills auto-discovered at .agents/skills/<name>/SKILL.md, FLAT (hence flatten_skills; SKILL.md must START with name+description frontmatter). NOTE: IDE 1.107 used .claude/skills/ (legacy — see contract doc). Roster mirrors the codex bundle. .agents/rules and ~/.gemini/config/mcp_config.json are Phase-5 seams, not shipped yet.",
       "workspace_root": ".",
       "extra_roots": {
         "harness": "claude-harness"
@@ -132,7 +132,7 @@
     },
     {
       "name": "antigravity-plugin",
-      "_comment": "Installable agy plugin (agy 1.1.5 contract \u2014 docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (all 12, ported 2026-07-30 after live-fire validation of code-reviewer + preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (caddis_ping MCP tool).",
+      "_comment": "Installable agy plugin (agy 1.1.5 contract — docs/analysis/antigravity-plugin-contract.md): plugin.json at the plugin ROOT (name+version required) + skills/<name>/SKILL.md (flat) + commands/<name>.md (agy converts commands to skills). Version single-sourced from the claude plugin (one manifest bump propagates). Skill roster referenced from the claude core target (single source; Phase 7b tiers core/extras). Phase 8: agents/ (all 12, ported 2026-07-30 after live-fire validation of code-reviewer + preflight) + hooks.json (PostToolUse) + mcp_config.json wiring the self-contained mcp_ping_server.py (caddis_ping MCP tool).",
       "workspace_root": ".",
       "extra_roots": {
         "harness": "claude-harness",
@@ -140,7 +140,7 @@
       },
       "agy_plugin": {
         "name": "caddis",
-        "description": "caddis \u2014 agent-agnostic dev harness as an Antigravity (agy) plugin: TDD skills + commands, single-sourced with the Claude Code plugin."
+        "description": "caddis — agent-agnostic dev harness as an Antigravity (agy) plugin: TDD skills + commands, single-sourced with the Claude Code plugin."
       },
       "copies": [
         {
@@ -359,8 +359,199 @@
       ]
     },
     {
+      "name": "codex-plugin",
+      "_comment": "Codex CLI plugin. Codex reads the CLAUDE plugin format verbatim — .claude-plugin/marketplace.json, .claude-plugin/plugin.json, flat skills/<name>/SKILL.md — verified against a live `codex plugin list` showing caddis@caddis 1.3.97 installed from our own marketplace. It has NO command concept (its config keys are skills, orchestrator_skills, plugins_instructions), so `commands_as_skills` reshapes all 31 commands into skills, exactly as the agy bundle does. Skills are FLAT: measured 134 flat vs 6 nested in Codex's own ~/.codex/skills.",
+      "workspace_root": "plugin-codex",
+      "extra_roots": {
+        "harness": "claude-harness",
+        "scriptsrc": "scripts"
+      },
+      "commands_as_skills": true,
+      "plugin": {
+        "name": "caddis-codex",
+        "version": "1.3.97",
+        "description": "caddis for Codex CLI — the same harness, with every command reshaped into a skill because Codex has no command concept.",
+        "author": {
+          "name": "junaid",
+          "url": "https://github.com/saajunaid/caddis-plugin"
+        }
+      },
+      "copies": [
+        {
+          "source": "skills",
+          "destination": "skills",
+          "flatten_skills": true,
+          "excluded_names": [
+            "_registry.md"
+          ],
+          "included_skills_from": "claude"
+        },
+        {
+          "root": "harness",
+          "source": "commands",
+          "destination": "commands"
+        },
+        {
+          "root": "harness",
+          "source": "agents",
+          "destination": "agents"
+        }
+      ],
+      "files": [
+        {
+          "source": "agent-docs/GLOSSARY.md",
+          "destination": "CADDIS-GLOSSARY.md"
+        },
+        {
+          "root": "harness",
+          "source": "claude-md/folder-agents.md.tmpl",
+          "destination": "claude-md/folder-agents.md.tmpl"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "setup_project_ai.py",
+          "destination": "scripts/setup_project_ai.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "usage_review.py",
+          "destination": "scripts/usage_review.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "claudster_init.py",
+          "destination": "scripts/claudster_init.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "claudster_migrate_rules.py",
+          "destination": "scripts/claudster_migrate_rules.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_migrate_dir.py",
+          "destination": "scripts/caddis_migrate_dir.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "claudster_doctor.py",
+          "destination": "scripts/claudster_doctor.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/check_doc_coverage.py",
+          "destination": "scripts/check_doc_coverage.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claudster_config.py",
+          "destination": "scripts/claudster_config.py"
+        },
+        {
+          "source": "tools/oss_review.py",
+          "destination": "scripts/oss_review.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/oss_model.py",
+          "destination": "scripts/oss_model.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/caddis_statusline.py",
+          "destination": "scripts/caddis_statusline.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/new-machine.ps1",
+          "destination": "scripts/new-machine.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/hook_log.py",
+          "destination": "scripts/hook_log.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/caddis_glossary.py",
+          "destination": "scripts/caddis_glossary.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/oss_ask.py",
+          "destination": "scripts/oss_ask.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_gate.py",
+          "destination": "scripts/caddis_gate.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "enforcement_inventory.py",
+          "destination": "scripts/enforcement_inventory.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_tidy.py",
+          "destination": "scripts/caddis_tidy.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_inventory.py",
+          "destination": "scripts/caddis_inventory.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_spawn.py",
+          "destination": "scripts/caddis_spawn.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_harness_path.py",
+          "destination": "scripts/caddis_harness_path.py"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claude-oss.ps1",
+          "destination": "scripts/claude-oss.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claude-oss.sh",
+          "destination": "scripts/claude-oss.sh"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claude-glm.ps1",
+          "destination": "scripts/claude-glm.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claude-glm.sh",
+          "destination": "scripts/claude-glm.sh"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claude-deepseek.ps1",
+          "destination": "scripts/claude-deepseek.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/claude-deepseek.sh",
+          "destination": "scripts/claude-deepseek.sh"
+        },
+        {
+          "root": "harness",
+          "source": "CODEX-README.md",
+          "destination": "README.md"
+        }
+      ],
+      "plugin_root_var": "CADDIS_PLUGIN_ROOT"
+    },
+    {
       "name": "antigravity-extras",
-      "_comment": "Antigravity (CLI) EXTRAS tier \u2014 the long tail over the core .agents/skills bundle (caddis-init --target antigravity --extras). Denylist single-sourced from claude-extras.",
+      "_comment": "Antigravity (CLI) EXTRAS tier — the long tail over the core .agents/skills bundle (caddis-init --target antigravity --extras). Denylist single-sourced from claude-extras.",
       "workspace_root": ".",
       "copies": [
         {
@@ -376,11 +567,11 @@
     },
     {
       "name": "antigravity-plugin-extras",
-      "_comment": "The caddis-extras agy PLUGIN \u2014 the long-tail skills as a SECOND installable plugin (mirrors claude/claude-extras). `agy plugin install` it alongside the core caddis plugin. plugin.json at root; denylist single-sourced from claude-extras.",
+      "_comment": "The caddis-extras agy PLUGIN — the long-tail skills as a SECOND installable plugin (mirrors claude/claude-extras). `agy plugin install` it alongside the core caddis plugin. plugin.json at root; denylist single-sourced from claude-extras.",
       "workspace_root": ".",
       "agy_plugin": {
         "name": "caddis-extras",
-        "description": "caddis-extras \u2014 the long-tail skills for the Antigravity (agy) caddis plugin; install alongside caddis for the full set."
+        "description": "caddis-extras — the long-tail skills for the Antigravity (agy) caddis plugin; install alongside caddis for the full set."
       },
       "copies": [
         {
@@ -396,7 +587,7 @@
     },
     {
       "name": "claude",
-      "_comment": "Claude Code bundle \u2014 the lean Phase 0-2 harness (subagents + commands + CLAUDE.md fragments) sourced from claude-harness/, plus the tiered dev skill set (core + frontend) from .github/skills. Flat layout (workspace_root='.') feeds Phase 4 plugin packaging. Skills tier table: .github/plans/phase-3-commands-skills-export.md \u00a7Step 1.",
+      "_comment": "Claude Code bundle — the lean Phase 0-2 harness (subagents + commands + CLAUDE.md fragments) sourced from claude-harness/, plus the tiered dev skill set (core + frontend) from .github/skills. Flat layout (workspace_root='.') feeds Phase 4 plugin packaging. Skills tier table: .github/plans/phase-3-commands-skills-export.md §Step 1.",
       "_comment_private": "No include_private here: the core bundle is public, so the private vmie/ category is excluded. golden-workflow and vm-ppt (proprietary: internal hostnames/repos, third-party .pptx) live in vmie/ (private, local-use only) and are NOT published in any public bundle. windows-deployment is a generic Windows deploy skill (the vmie service-name prefix is just an example NSSM convention) and stays in the public core (devops).",
       "_comment_layout": "Two-level bundle: marketplace.json at the bundle root (= junai repo root after publish), the plugin under plugin/ (= junai/plugin/). The junai repo hosts other content (.github mirror, src/), so the plugin cannot sit at repo root with source '.'; it lives in plugin/ and the marketplace points there.",
       "workspace_root": "plugin",
@@ -406,8 +597,8 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.97",
-        "description": "caddis \u2014 agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
+        "version": "1.3.98",
+        "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
           "url": "https://github.com/saajunaid/caddis-plugin"
@@ -435,12 +626,17 @@
           {
             "name": "caddis",
             "source": "./plugin",
-            "description": "caddis \u2014 agent-agnostic dev harness: lean subagents, TDD commands, a core dev skill set, loop hooks, and a CLAUDE.md generator."
+            "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, a core dev skill set, loop hooks, and a CLAUDE.md generator."
           },
           {
             "name": "caddis-extras",
             "source": "./plugin-extras",
-            "description": "caddis-extras \u2014 the full caddis skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."
+            "description": "caddis-extras — the full caddis skill library (cloud, data, the long tail of frontend/coding, media, productivity). Disabled by default; enable on demand to keep always-on context lean."
+          },
+          {
+            "name": "caddis-codex",
+            "source": "./plugin-codex",
+            "description": "caddis for Codex CLI — every command reshaped into a skill, because Codex has no command concept. Install this INSTEAD of caddis when using Codex."
           }
         ]
       },
@@ -640,7 +836,7 @@
           ]
         },
         {
-          "_comment": "CORE tier \u2014 ~38 high-frequency dev skills, flattened to skills/<name>/ so Claude Code's plugin loader (flat discovery) actually registers them. The long tail lives in the claude-extras target. Office skills (pdf/docx/pptx/xlsx) are Anthropic-proprietary and ship via Anthropic's own document-skills, not here.",
+          "_comment": "CORE tier — ~38 high-frequency dev skills, flattened to skills/<name>/ so Claude Code's plugin loader (flat discovery) actually registers them. The long tail lives in the claude-extras target. Office skills (pdf/docx/pptx/xlsx) are Anthropic-proprietary and ship via Anthropic's own document-skills, not here.",
           "source": "skills",
           "destination": "skills",
           "flatten_skills": true,
@@ -670,7 +866,6 @@
               "best-practices",
               "brainstorming",
               "context-curator",
-              "golden-plan",
               "preflight",
               "skill-creator"
             ],
@@ -713,13 +908,13 @@
     },
     {
       "name": "claude-extras",
-      "_comment": "EXTRAS tier \u2014 the full skill library MINUS the core (and minus the proprietary document-skills bundle). Ships as a second plugin (caddis-extras) under plugin-extras/, listed in the same marketplace. Disabled by default; users enable it on demand so the long tail costs zero always-on context. Skills-only: agents/commands/hooks live in the core plugin. Uses excluded_skills (denylist) rather than an allowlist so new pool skills join extras automatically.",
+      "_comment": "EXTRAS tier — the full skill library MINUS the core (and minus the proprietary document-skills bundle). Ships as a second plugin (caddis-extras) under plugin-extras/, listed in the same marketplace. Disabled by default; users enable it on demand so the long tail costs zero always-on context. Skills-only: agents/commands/hooks live in the core plugin. Uses excluded_skills (denylist) rather than an allowlist so new pool skills join extras automatically.",
       "_comment_private": "No include_private / no purge: the private vmie/ category (golden-workflow, vm-ppt) is globally excluded, so none of these proprietary skills ship to extras. New non-vmie pool skills still join extras automatically via the everything-minus-core denylist.",
       "workspace_root": "plugin-extras",
       "plugin": {
         "name": "caddis-extras",
-        "version": "1.3.28",
-        "description": "caddis-extras \u2014 the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
+        "version": "1.3.29",
+        "description": "caddis-extras — the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
         "author": {
           "name": "junaid",
           "url": "https://github.com/saajunaid/caddis-plugin"
@@ -762,7 +957,6 @@
             "best-practices",
             "brainstorming",
             "context-curator",
-            "golden-plan",
             "preflight",
             "skill-creator",
             "code-documentation",

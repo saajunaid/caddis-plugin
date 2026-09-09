@@ -1,6 +1,7 @@
 ---
 description: Advisory Hub phase validation — consume a phase report, RE-DERIVE its claims independently, and return ACCEPT / ACCEPT-WITH-CORRECTION / REJECT
 argument-hint: [path to .caddis/advisory-hub-reports/phase-NN.report.md]
+stage: review
 ---
 
 # /caddis:validate-phase — the Advisory Hub validates a phase (never trusts it)

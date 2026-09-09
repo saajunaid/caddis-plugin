@@ -1,6 +1,7 @@
 ---
 description: Capture requirements through structured discovery and write a PRD
 argument-hint: <feature or problem>
+stage: plan
 ---
 
 # /prd — requirements discovery

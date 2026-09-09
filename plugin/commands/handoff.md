@@ -1,5 +1,8 @@
 ---
 description: End-of-session handoff — capture exact state so the next session resumes with zero re-discovery
+argument-hint: (no arguments — writes .caddis/relay.md from the repo's current state)
+stage: continuity
+daily: true
 ---
 
 # /handoff — stop cleanly, write the resume doc

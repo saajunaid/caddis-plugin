@@ -1,6 +1,7 @@
 ---
 description: Deterministic headless preflight — validates a plan against the actual codebase, self-contained (never depends on a skill activating)
 argument-hint: <path to plan.md>
+stage: plan
 ---
 
 # /caddis:gate-preflight — headless plan-vs-codebase validation (self-contained)

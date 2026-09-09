@@ -11,12 +11,12 @@ This runbook covers the complete process from empty directory to a fully configu
 
 | System | Repo | Responsibility |
 |--------|------|----------------|
-| **platform-infra** | `E:\Projects\platform-infra` | Project scaffolding, port allocation, Gitea CI, environment setup |
+| **the infra repo** | `E:\Projects\the infra repo` | Project scaffolding, port allocation, Gitea CI, environment setup |
 | **project-template** | `E:\Projects\project-template` | Golden skeleton — FastAPI backend, React 19 frontend, Alembic migrations |
 | **junai extension** | VS Code Marketplace | Agent pool deployment — agents, skills, instructions, recipes, MCP config |
 
 ```
-platform-infra                     junai extension
+the infra repo                     junai extension
      │                                   │
      │ new-vmie-project.ps1              │ auto-deploy on workspace open
      │ (copies project-template)         │ (copies pool from extension bundle)
@@ -35,21 +35,21 @@ platform-infra                     junai extension
 │         ← user content preserved             │
 │         ← junai managed section with recipe  │
 │           discovery (inside sentinels)        │
-│  .gitea/workflows/  ← from platform-infra    │
+│  .gitea/workflows/  ← from the infra repo    │
 └─────────────────────────────────────────────┘
 ```
 
 ---
 
-## Step 1: Bootstrap with platform-infra
+## Step 1: Bootstrap with the infra repo
 
-Run the project generator from `platform-infra/bootstrap/`:
+Run the project generator from `the infra repo/bootstrap/`:
 
 ```powershell
-cd E:\Projects\platform-infra
+cd E:\Projects\the infra repo
 
 .\bootstrap\new-vmie-project.ps1 `
-    -ProjectName "appointment-assist" `
+    -ProjectName "another fleet app" `
     -ProjectShort "apas" `
     -Description "Appointment management dashboard" `
     -Port 0
@@ -59,7 +59,7 @@ cd E:\Projects\platform-infra
 
 | Parameter | Description | Example |
 |-----------|------------|---------|
-| `-ProjectName` | Lowercase, hyphenated name | `appointment-assist` |
+| `-ProjectName` | Lowercase, hyphenated name | `another fleet app` |
 | `-ProjectShort` | 3-8 char abbreviation | `apas` |
 | `-Description` | One-line description | `Appointment management dashboard` |
 
@@ -77,18 +77,18 @@ cd E:\Projects\platform-infra
 ### What It Does
 
 1. **Pre-flight checks**: Validates port availability, template existence, Python/Node.js in PATH, Gitea connectivity
-2. **Copy template**: Copies `E:\Projects\project-template` → `E:\Projects\appointment-assist`
+2. **Copy template**: Copies `E:\Projects\project-template` → `E:\Projects\another fleet app`
 3. **Token replacement**: Replaces `{{PROJECT_NAME}}`, `{{PROJECT_SHORT}}`, `{{DESCRIPTION}}`, port placeholders across all files
-4. **CI overlay**: Copies Gitea Actions workflows from `platform-infra/templates/workflows/` → `.gitea/workflows/`
+4. **CI overlay**: Copies Gitea Actions workflows from `the infra repo/templates/workflows/` → `.gitea/workflows/`
 5. **Environment setup**: Creates Python `.venv`, runs `pip install`, runs `npm install` for frontend
 6. **Gitea**: Creates repo on Gitea, pushes initial commit
-7. **Port registry**: Registers allocated ports in `platform-infra/infra-setup/port-registry.json`
+7. **Port registry**: Registers allocated ports in `the infra repo/infra-setup/port-registry.json`
 
 ### Validate First (Recommended)
 
 ```powershell
 .\bootstrap\new-vmie-project.ps1 `
-    -ProjectName "appointment-assist" `
+    -ProjectName "another fleet app" `
     -ProjectShort "apas" `
     -Description "Appointment management dashboard" `
     -Validate
@@ -101,7 +101,7 @@ This runs all pre-flight checks without creating anything. Fix any FAIL results 
 ## Step 2: Open in VS Code
 
 ```powershell
-code E:\Projects\appointment-assist
+code E:\Projects\another fleet app
 ```
 
 On workspace open, the **junai extension** fires automatically:
@@ -188,7 +188,7 @@ The recipe's UI-DESIGN phase will use these for the Mockup-to-React Contract (5 
 Open Copilot Chat and invoke the Orchestrator:
 
 ```
-@Orchestrator Start a new pipeline for appointment-assist.
+@Orchestrator Start a new pipeline for another fleet app.
 I have data files in scratch/data/ and an HTML mockup in scratch/mockups/.
 Build an appointment management dashboard with light and dark mode support.
 ```
@@ -214,7 +214,7 @@ No MCP server, no pipeline state, no stage machine. The recipe still provides st
 ### Option C: Initialize Pipeline Manually
 
 ```
-@Orchestrator Initialize pipeline for "appointment-assist" feature "appointment-dashboard"
+@Orchestrator Initialize pipeline for "another fleet app" feature "appointment-dashboard"
 ```
 
 This creates a pipeline-state.json entry and begins the deterministic stage sequence.
@@ -289,7 +289,7 @@ Gitea Actions workflows are in `.gitea/workflows/`:
 
 ```powershell
 # 1. Bootstrap
-cd E:\Projects\platform-infra
+cd E:\Projects\the infra repo
 .\bootstrap\new-vmie-project.ps1 -ProjectName "my-project" -ProjectShort "mypr" -Description "My project"
 
 # 2. Open in VS Code (extension auto-initializes)

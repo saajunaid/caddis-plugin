@@ -1,6 +1,8 @@
 ---
 description: Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase
 argument-hint: <path to .caddis/plans/<slug>.md>
+stage: build
+daily: true
 ---
 
 # /caddis:implement — execute an approved plan (headless driver)

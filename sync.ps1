@@ -1275,6 +1275,28 @@ function caddis-push {
     # ship past. It has to be typed, which is the point.
     $gateRoot = $ProjectRoot
     $gatePython = Get-CaddisPythonCommand
+    # Build the reference site into the mirror, BEFORE the gate, so validate_pool can assert it.
+    #
+    # This one is PUBLIC by design: it describes caddis itself -- commands, skills, agents, hooks
+    # -- and carries no fleet data. That is the opposite of the second brain below, which names
+    # 18 internal repos and must never ship. Two pages, two audiences, one rule each.
+    #
+    # GitHub Pages serves it from /site on the mirror.
+    if ($gatePython) {
+        $refScript = Join-Path $gateRoot "scripts/build_reference.py"
+        if (Test-Path $refScript) {
+            $siteOut = Join-Path $CADDIS_POOL "site/index.html"
+            Push-Location $gateRoot
+            & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/build_reference.py", "--out", $siteOut))
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [OK]  reference site -> site/index.html (public)" -ForegroundColor Green
+            } else {
+                Write-Host "  [WARN]  build_reference.py failed -- the site will be stale." -ForegroundColor Yellow
+            }
+            Pop-Location
+        }
+    }
+
     if ($gatePython) {
         foreach ($gateScript in @("validate_agents.py", "validate_pool.py")) {
             $gatePath = Join-Path $gateRoot $gateScript
@@ -1296,6 +1318,32 @@ function caddis-push {
         }
     } else {
         Write-Host "  [WARN]  No python found -- pre-push validation skipped." -ForegroundColor Yellow
+    }
+
+    # Regenerate the second brain -- the LOCAL fleet instrument.
+    #
+    # It is a 1,097-line generator that nothing ever called. Its committed page went 34 days
+    # stale (2026-08-06 -> 2026-09-09) because regenerating it depended on somebody remembering.
+    # That is the same rot the harness exists to prevent, so it now runs on every push.
+    #
+    # PRIVATE, DELIBERATELY. The page scans the whole fleet and names 18 internal repos and two
+    # internal hostnames. The source repo is private; the mirror is PUBLIC. It is written into
+    # .caddis/ in THIS repo and is never copied into a bundle. Do not "helpfully" ship it.
+    #
+    # Non-fatal: a fleet scan touching 19 repos can fail for reasons that have nothing to do with
+    # publishing caddis, and it must never block a release.
+    if ($gatePython) {
+        $brainScript = Join-Path $gateRoot "scripts/second_brain.py"
+        if (Test-Path $brainScript) {
+            Push-Location $gateRoot
+            & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/second_brain.py"))
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [OK]  second brain regenerated -- .caddis/second-brain.html (local only)" -ForegroundColor Green
+            } else {
+                Write-Host "  [WARN]  second_brain.py failed -- the page is now stale, but the push continues." -ForegroundColor Yellow
+            }
+            Pop-Location
+        }
     }
 
     # Commit and push caddis-plugin

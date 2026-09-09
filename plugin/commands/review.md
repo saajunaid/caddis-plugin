@@ -1,6 +1,7 @@
 ---
 description: Review someone else's OPEN pull request end to end — what changed, what CI says, what is risky — then approve or request changes. Never approves on its own.
-argument-hint: "<pr-number> [owner/repo]"
+argument-hint: <pr-number> [owner/repo]
+stage: review
 ---
 
 # /caddis:review — review an open PR, then decide

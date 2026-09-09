@@ -32,7 +32,7 @@ Recipes solve one problem: **agents forget to load the right skills at the right
 
 ### 3a. Fresh Project (New Repo)
 
-1. Run `new-vmie-project.ps1 -ProjectName "my-project"` from `platform-infra/bootstrap/` to scaffold the project from `project-template`
+1. Run `new-vmie-project.ps1 -ProjectName "my-project"` from `the infra repo/bootstrap/` to scaffold the project from `project-template`
 2. Open the project in VS Code — the junai extension auto-deploys the agent pool (agents, skills, instructions, recipes)
 3. Extension prompts for **profile selection** → then **recipe selection**
 4. Verify in `project-config.md`:
@@ -41,7 +41,7 @@ Recipes solve one problem: **agents forget to load the right skills at the right
 5. Start building — agents automatically load recipe skills for data-to-UI tasks
 
 ```
-platform-infra/bootstrap/ ──▶ new-project/          (from project-template)
+the infra repo/bootstrap/ ──▶ new-project/          (from project-template)
                                  ├── src/             app scaffolding
                                  ├── frontend/        React scaffold
                                  └── .github/

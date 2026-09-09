@@ -1,6 +1,7 @@
 ---
 description: Create canonical rules for ANY folder — write <folder>/AGENTS.md (from the folder template) + a <folder>/CLAUDE.md @import shim. For folders the stack-map generator doesn't cover.
 argument-hint: <folder> [one-line purpose]
+stage: knowledge
 ---
 
 # /add-rules — add canonical rules to a folder
