@@ -29,7 +29,7 @@ pass `--allow-dirty` on a tree whose changes you didn't make.
 
 ## Step 3 — dry run
 ```
-python <path>/caddis_migrate_dir.py <target>
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_migrate_dir.py" <target>
 ```
 Read the plan it prints. Two shapes:
 - **Simple** — only `.claudster/` exists → one `git mv .claudster .caddis` (history preserved).
@@ -42,7 +42,7 @@ Show the user the dry-run output before applying.
 
 ## Step 4 — apply
 ```
-python <path>/caddis_migrate_dir.py <target> --apply
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_migrate_dir.py" <target> --apply
 ```
 It also rewrites `.claudster/…` path references inside the repo's **live** state — `.caddis/relay.md`
 and `.caddis/workstreams.json` (parked-workstream plan paths). Historical artifacts (past plans,
@@ -53,7 +53,7 @@ Resolve any CONFLICT it reported by hand, then re-run — the command is idempot
 ## Step 5 — verify, then commit
 ```
 git -C <target> status --short          # renames should show as R (history preserved)
-python <path>/caddis_migrate_dir.py <target> --check    # exit 0 = no legacy dir left
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_migrate_dir.py" <target> --check    # exit 0 = no legacy dir left
 ```
 Then run the repo's own gate (its tests, and `check_doc_coverage.py --check` if present) and commit
 the rename **on its own**, e.g. `chore(caddis): migrate .claudster/ -> .caddis/`.

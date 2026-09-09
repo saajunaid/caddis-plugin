@@ -242,6 +242,20 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake status --id <id
 Two questions asked at chase time cannot have been pre-read in the handover, which is a stronger
 test than the original set — and it costs nothing, since you are holding the context anyway.
 
+**Write down HOW to reach the child the moment it first messages you.** `SendMessage` addresses a
+peer by the name `ListAgents` shows, and you cannot know that name before the child exists — it
+arrives as the `from-name` on its first message. Capture it there or you will be holding an open
+handshake with no way to send the chase or the verdict:
+
+```bash
+... handshake record --id <id> --event answers --peer <from-name>
+```
+
+`handshake status` then prints the address, so a chase is a copy-paste. With no peer recorded it
+says so plainly, because **that is itself the signal**: the child has not made contact. Run
+`ListAgents` — and note a session started seconds ago can be missing from one listing, so a single
+empty result is not proof it does not exist.
+
 Record each step, and the parent may not finish until the child has acknowledged:
 
 ```bash

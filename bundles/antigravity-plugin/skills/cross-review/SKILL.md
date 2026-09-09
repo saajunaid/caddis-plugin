@@ -64,9 +64,19 @@ fi
 > had been fixed on 2026-08-01 — the fix just never reached the caller, because a file someone
 > copied weeks earlier silently won. `caddis_gate.py vendor-drift` now fails on the same condition.
 ```
-python "$TOOL"                                           # DeepSeek eyes (default)
-python "$TOOL" --provider glm                            # GLM eyes
-python "$TOOL" --range $ARGUMENTS                        # review a git range, e.g. origin/main..HEAD
+python "$TOOL" $ARGUMENTS                                # pass the user's flags THROUGH, raw
+python "$TOOL"                                           # no arguments: DeepSeek eyes on the working tree
+```
+
+**`$ARGUMENTS` goes through raw, and must not be re-prefixed.** Callers are told to type the flag
+themselves — `feature-plan.md` emits `/caddis:cross-review --range main..HEAD` into every plan it
+writes. This line used to prefix the flag itself, which turned that into a doubled
+`--range --range main..HEAD` and made every plan-emitted call fail. Whatever the user typed is already a complete flag list:
+
+```
+/caddis:cross-review                          -> the working tree, DeepSeek
+/caddis:cross-review --range main..HEAD       -> that range
+/caddis:cross-review --provider glm           -> GLM eyes
 ```
 Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
 

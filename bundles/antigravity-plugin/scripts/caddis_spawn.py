@@ -501,7 +501,8 @@ def _handshake_path(repo_root: Path, spawn_id: str) -> Path:
     return repo_root / SPAWN_DIR / (spawn_id + "-handshake.json")
 
 
-def handshake_open(repo_root: Path, spawn_id: str, transport: str = "auto") -> dict:
+def handshake_open(repo_root: Path, spawn_id: str, transport: str = "auto",
+                   peer: str = "") -> dict:
     """Record that a handover was issued. Written by the PARENT, at the moment it prints the
     prompt — not when the child replies, because the whole point is to make an unanswered
     handshake visible."""
@@ -513,6 +514,12 @@ def handshake_open(repo_root: Path, spawn_id: str, transport: str = "auto") -> d
         "state": HANDSHAKE_STATES[0],
         "transport": chosen,
         "transport_reason": why,
+        # HOW TO ADDRESS THE CHILD. `SendMessage` takes the name `ListAgents` shows, and until
+        # 2026-09-08 this file recorded none — so the parent knew a handshake was open and had no
+        # idea who to send the chase or the verdict to. Usually EMPTY at open: the child does not
+        # exist yet. The parent fills it in from the `from-name` of the child's first message,
+        # which is the only moment either side reliably knows that name.
+        "peer": peer,
         "opened_at": int(time.time()),
         "history": [],
     }
@@ -529,7 +536,8 @@ def handshake_read(repo_root: Path, spawn_id: str) -> dict | None:
         return None
 
 
-def handshake_record(repo_root: Path, spawn_id: str, event: str) -> tuple[dict | None, str]:
+def handshake_record(repo_root: Path, spawn_id: str, event: str,
+                     peer: str = "") -> tuple[dict | None, str]:
     """Advance the handshake. Never rewinds: a verdict cannot un-answer the questions, and an
     out-of-order event is a sign the operator has lost track of which round they are in — which
     is exactly when a silent overwrite would hurt."""
@@ -541,11 +549,29 @@ def handshake_record(repo_root: Path, spawn_id: str, event: str) -> tuple[dict |
         return state, (f"already at `{state['state']}`; `{event}` would not move it forward. "
                        "Refusing rather than rewriting — an out-of-order event means the round "
                        "is not the one you think it is.")
-    state["history"].append({"event": event, "at": int(time.time())})
+    if peer:
+        state["peer"] = peer
+    state["history"].append({"event": event, "at": int(time.time()),
+                             **({"peer": peer} if peer else {})})
     state["state"] = target
     _handshake_path(repo_root, spawn_id).write_text(
         json.dumps(state, indent=2) + chr(10), encoding="utf-8")
     return state, ""
+
+
+def chase_instruction(state: dict) -> str:
+    """What to actually DO when a chase is due — addressed if we can, honest if we cannot."""
+    peer = (state.get("peer") or "").strip()
+    if state.get("transport") != "message":
+        return ("This handshake is on the paste route, so the chase goes through the human. Say "
+                "so explicitly — otherwise they watch nothing happen and conclude it is broken.")
+    if peer:
+        return f'SendMessage to: "{peer}"  — carry TWO FRESH questions, not just a reminder.'
+    return ("No peer address recorded, so the child has not made contact yet — which is itself "
+            "the signal. Run `ListAgents` and look for a session in this repo; a session started "
+            "seconds ago may be absent from one listing, so a single empty result is not proof it "
+            "does not exist. Once it replies, capture the name: "
+            "`handshake record --id <id> --event answers --peer <from-name>`.")
 
 
 def handshake_chase_due(state: dict, now: int | None = None) -> int:
@@ -611,6 +637,9 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("--repo-root", default=".")
     h.add_argument("--event", choices=sorted(_EVENT_STATE))
     h.add_argument("--transport", choices=["auto", "message", "paste"], default="auto")
+    h.add_argument("--peer", default="",
+                   help="the child's name as ListAgents shows it — take it from the `from-name` "
+                        "of its first message; that is the only moment it is reliably known")
     q = sub.add_parser("verify-question")
     q.add_argument("--answer-in", required=True)
     q.add_argument("--needle", required=True)
@@ -677,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.cmd == "handshake":
         if a.action == "open":
-            st = handshake_open(root, a.id, a.transport)
+            st = handshake_open(root, a.id, a.transport, a.peer)
             print(f"[spawn] handshake {a.id} open — transport `{st['transport']}` "
                   f"({st['transport_reason']})")
             if st["transport"] == "paste":
@@ -691,23 +720,29 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_REFUSED
         if a.action == "status":
             over = handshake_chase_due(st)
-            print(f"[spawn] {a.id}: {st['state']} via {st['transport']}")
+            peer = st.get("peer") or "(not recorded — see below)"
+            print(f"[spawn] {a.id}: {st['state']} via {st['transport']}, peer {peer}")
             if over:
                 print(f"  CHASE DUE — {over}s past the {CHASE_AFTER_S}s window. Silence is not "
                       "success: a child that skipped the gate and started work looks exactly "
-                      "like one still reading. Ask, and carry TWO FRESH questions, which cannot "
-                      "have been pre-read in the handover.")
+                      "like one still reading.")
+                print("  " + chase_instruction(st))
             return EXIT_OK
         if a.action == "record":
             if not a.event:
                 sys.stderr.write("[spawn] --event is required for `record`" + chr(10))
                 return EXIT_REFUSED
-            st, err = handshake_record(root, a.id, a.event)
+            st, err = handshake_record(root, a.id, a.event, a.peer)
             if err:
                 sys.stderr.write("[spawn] " + err + chr(10))
                 return EXIT_REFUSED
             print(f"[spawn] {a.id}: {st['state']}")
             return EXIT_OK
+        if a.action == "close" and not (st.get("peer") or "").strip() \
+                and st["state"] != HANDSHAKE_STATES[0]:
+            # Contact happened but nobody wrote down who with. The verdict has to reach someone.
+            print("  note  no peer recorded although the handshake progressed — re-run "
+                  "`record --peer <from-name>` so the next session can see who this was with.")
         ok, msg = handshake_close(root, a.id)
         (print if ok else sys.stderr.write)("[spawn] " + msg + ("" if ok else chr(10)))
         return EXIT_OK if ok else EXIT_REFUSED

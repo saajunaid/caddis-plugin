@@ -20,9 +20,38 @@ The request is **$ARGUMENTS**.
 
 | `$ARGUMENTS` | Do this |
 |---|---|
+| starts with `--harness` | Go to **Harness mode** — the item is about caddis, not this repo |
 | empty or `list` | Go to **List mode** |
 | `done <slug>` or `drop <slug>` | Go to **Close mode** |
 | anything else | Go to **File mode** — the text is what to park |
+
+---
+
+## Harness mode — `--harness`
+
+**Use it when the friction was caused by the harness, not the project.** You are almost certainly
+in an app repo right now, because that is where harness friction is noticed. Parking it here sends
+it somewhere the maintainer never reads.
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_harness_path.py"
+```
+
+Prints the caddis SOURCE checkout, or **fails with exit 1 and says how to set it**. Write the item
+to `<that path>/.caddis/parking-lot/<slug>.md`, following File mode below, plus:
+
+```yaml
+scope: harness              # so a later sweep can find it mechanically
+found-by: <this repo> / session <id>
+```
+
+**On a non-zero exit, STOP and show the message.** Do not fall back to the local repo — an item
+filed there is the status quo this flag exists to end. Setting it is one command and is remembered.
+
+**Never commit it.** Capture is cheap and safe; deciding is not. Leave the file for the maintainer.
+
+Not the installed plugin: `CLAUDE_PLUGIN_ROOT` is a read-only copy replaced on every
+`claude plugin update`, so an item written there is discarded.
 
 ---
 
@@ -88,7 +117,7 @@ Rules the gate enforces — get them right the first time:
 Run the gate and show the result:
 
 ```bash
-python scripts/caddis_gate.py parking-lot --repo-root .
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" parking-lot --repo-root .
 ```
 
 Exit 0 means it conforms. Exit 1 means fix what it printed, then re-run. Do not report the item as
@@ -109,7 +138,7 @@ Read every `.caddis/parking-lot/*.md` (skip `README.md` and `done/`). Print one 
 |---|---|---|---|---|
 
 Below the table, print the counts: how many open, how many committed (`future: yes`). Then run
-`python scripts/caddis_gate.py parking-lot --repo-root .` and report any violation it prints.
+`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" parking-lot --repo-root .` and report any violation it prints.
 
 If the directory is empty, say so in one line. Do not invent items.
 
@@ -122,5 +151,5 @@ If the directory is empty, say so in one line. Do not invent items.
 3. **For `dropped`, append a `## Why dropped` section.** This is not optional. An item deleted with
    no reason gets re-raised by the next session that has the same idea; an item kept with "no,
    because ..." does not.
-4. Run `python scripts/caddis_tidy.py --apply`, which moves it into `.caddis/parking-lot/done/`.
+4. Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply`, which moves it into `.caddis/parking-lot/done/`.
 5. Report the file's new path in one line.

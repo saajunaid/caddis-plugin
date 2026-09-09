@@ -14,7 +14,7 @@ It ships with the harness. Try, in order:
 
 ## Step 2 — run the reindexer
 ```
-python <path>/check_doc_coverage.py --reindex
+python "${CLAUDE_PLUGIN_ROOT}/scripts/check_doc_coverage.py" --reindex
 ```
 It is **additive and safe** — never deletes your rows:
 - **Missing map** → creates `.caddis/kb/DOC-MAP.md` from a scaffold, pre-linking the repo's obvious
@@ -31,17 +31,32 @@ Read the `[kb]` summary it printed, then:
   - The note is **gone for good** → remove its row. To clear all dangling rows at once, use the
     destructive opt-in — but **show the dangling list and confirm with the user first**:
     ```
-    python <path>/check_doc_coverage.py --prune
+    python "${CLAUDE_PLUGIN_ROOT}/scripts/check_doc_coverage.py" --prune
     ```
     `--prune` removes *only* index rows that link to missing files (never valid rows, never prose),
     and still indexes any orphan notes in the same run.
 
 ## Step 4 — verify clean
 ```
-python <path>/check_doc_coverage.py --check
+python "${CLAUDE_PLUGIN_ROOT}/scripts/check_doc_coverage.py" --check
 ```
 Exit `0` = the index is honest (no dangling links; every note indexed). The SessionStart hook will now
 surface the `[DOC-MAP]` "read the index first" pointer for future sessions in this repo.
+
+## Step 5 — was any of it the harness?
+
+**One question, asked here because here is where you are already reflecting.** The observations
+that reach caddis today are the ones someone happened to recall days later — so small, frequent
+friction never arrives, which is exactly the friction worth fixing.
+
+If a command was awkward, a gate fired wrongly, a doc sent you the wrong way: park it against the
+harness, not this repo.
+
+```
+/caddis:park --harness <what was awkward, and what you expected>
+```
+
+Nothing to say is the normal answer. Say nothing and move on — this must not become a ritual.
 
 ## KB note format (OKF-lite — mandatory for every new note)
 

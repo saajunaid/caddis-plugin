@@ -38,10 +38,10 @@ Find the renderer in this install and run it. Try these paths in order and use t
 Then:
 
 ```bash
-python <path>/caddis_statusline.py --install          # both hosts
-python <path>/caddis_statusline.py --install --host claude
-python <path>/caddis_statusline.py --install --host agy
-python <path>/caddis_statusline.py --install --dry-run # print, write nothing
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_statusline.py" --install          # both hosts
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_statusline.py" --install --host claude
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_statusline.py" --install --host agy
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_statusline.py" --install --dry-run # print, write nothing
 ```
 
 `--install` does four things:

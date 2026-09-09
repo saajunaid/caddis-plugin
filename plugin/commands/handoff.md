@@ -25,7 +25,7 @@ is to run it.
 git status --short
 git branch --show-current
 git log --oneline -5
-python scripts/caddis_inventory.py          # what EXISTS — do not compose this from memory
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_inventory.py"          # what EXISTS — do not compose this from memory
 ```
 Then read the active plan in `.caddis/plans/` (falling back to legacy `.github/plans/` if present) and its tracker.
 
@@ -83,6 +83,21 @@ had developed by then.
    specific failure that earned it — a note left for later is not a fix.
 
 Record the outcome in relay.md's `## Learnings captured` line (below).
+
+## Step 2c — was any of it the harness?
+
+**One question, asked here because here is where you are already reflecting.** The observations
+that reach caddis today are the ones someone happened to recall days later — so small, frequent
+friction never arrives, which is exactly the friction worth fixing.
+
+If a command was awkward, a gate fired wrongly, a doc sent you the wrong way: park it against the
+harness, not this repo.
+
+```
+/caddis:park --harness <what was awkward, and what you expected>
+```
+
+Nothing to say is the normal answer. Say nothing and move on — this must not become a ritual.
 
 ## Step 3 — write the resume doc (overwrite) with exactly these sections
 > **Where to write:** solo / single active branch → `.caddis/relay.md` (default).
