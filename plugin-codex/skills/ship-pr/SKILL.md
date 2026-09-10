@@ -1,0 +1,131 @@
+---
+name: ship-pr
+description: Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge).
+---
+
+# /ship-pr — the reviewed lane, half 1: branch → green PR
+
+Land feature-branch work as a **Pull Request** so CI + a human gate run **before** the deploy, not
+after. This command does the mechanics only: push safely, open (or update) the PR, watch its checks,
+and **stop at green** with a mergeability verdict. It **never merges and never deploys** — on these
+repos merge == deploy, so the merge stays a separate, deliberate act: `/ship-merge`.
+
+For a hotfix straight to the default branch, use `/ship` (the express lane) instead.
+
+Optional argument: **$ARGUMENTS** (PR title override; default = derived from the branch's
+conventional-commit summary).
+
+## Step 0 — Detect the lane (before anything else)
+
+- **Gitea lane** — `.gitea/workflows/` exists. PR + CI monitoring via the Gitea API (token loading
+  and job-polling procedure: the `deploy-local` skill).
+- **GitHub lane** — `.github/workflows/` exists (and no `.gitea/`). PR + monitoring via the `gh` CLI
+  (`gh pr create`, `gh pr checks` — see the `gh-cli` skill).
+- **Local-only lane** — neither exists, or there is no push remote. There is no PR concept here:
+  **refuse early**, tell the user to use `/ship`, and stop. Do not fabricate a PR flow.
+
+Read `AGENTS.md` + the detected workflow file(s) first for the repo's real gate names, default
+branch, and merge conventions — never assume `main`, never assume job names.
+
+## Step 1 — Refuse on the default branch
+
+A PR is *branch → default*. If HEAD **is** the default branch, stop and point at `/ship` — there is
+nothing to open a PR from. (Offer to create a feature branch from the current work if the changes
+are uncommitted.)
+
+## Step 2 — Preflight (local gates mirroring CI)
+
+- Backend: `ruff check .` clean.
+- Frontend: `npm run typecheck && npm run build` if `frontend/` exists.
+- Fix failures first. **Never open a PR over red preflight** — a PR that arrives red wastes the
+  reviewer it exists to serve.
+
+## Step 3 — Scope-guard pre-check (before the PR exists)
+
+- If the repo has a **named scope-guard workflow** (e.g. a Gitea `pr-scope-guard` that blocks PRs
+  mixing infra `.gitea/`/`.github/` changes with product `src/`/`frontend/`/`tests/` changes): read
+  the workflow's own rule and check the branch diff against exactly that rule **before** creating
+  the PR. On a violation, **refuse with the specific offending files** — do not let the guard fail
+  the PR after the fact.
+- Without a named guard, apply the generic infra-vs-product mixed-diff heuristic as a **warning
+  only** — surface it and proceed (repos without a guard allow mixed PRs by construction).
+
+## Step 3b — Cross-review trigger (before anything is pushed)
+
+<!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
+**Run the trigger, do not eyeball the diff:**
+
+```bash
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
+```
+
+Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
+Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
+picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
+gets switched off inside a week.
+
+It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
+over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
+what failed.
+<!-- /shared:cross-review-trigger -->
+
+> **Why this is mechanical and not "consider a review here".** a fleet app shipped four
+> production releases in one day — sixteen fixes across SQL, caches, refresh jobs and React — and
+> `/caddis:cross-review` ran **zero times**. Nothing was broken: the tool reported itself ready
+> with two providers keyed. Nothing decided *when* to call it. Measured there: 4 of 39 plan files
+> mention cross-review, and all four came from `/caddis:feature-plan`, which writes the line into
+> the plan template it emits. So planned feature work got reviewed and a bug batch did not —
+> **review coverage inversely correlated with urgency.** Two of that day's sixteen fixes were
+> diff-visible defects, including a cache whose docstring said "cached for the instance's life"
+> while a dependency rebuilt the object per request, so the cache was never once read.
+
+## Step 4 — Rebase-safe currency
+
+- If the branch is **behind** the default branch, offer to rebase onto it (stale branches are how
+  merges rot). Only when behind — never rebase gratuitously.
+- If the branch was already pushed, a rebase rewrites history. **Snapshot first, then push safely:**
+  ```
+  git branch backup/<branch>-preship          # recovery ref BEFORE any rewrite
+  git rebase <default-branch>
+  git push --force-with-lease origin <branch> # never bare --force
+  ```
+
+## Step 5 — Push + create/update the PR
+
+- Push the branch (plain push if no rewrite happened).
+- Create the PR: title from the branch's conventional-commit summary (or `$ARGUMENTS`); body = the
+  commit list + a "generated by /ship-pr" note.
+- **Idempotent:** if a PR for this branch **already exists**, update its title/body and report it —
+  never error, never open a duplicate.
+
+## Step 6 — Monitor PR CI
+
+Watch the PR's checks job-by-job (never the deploy — PRs don't deploy here), including the
+scope-guard check when present:
+- Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
+- GitHub lane: `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
+On a red check, classify the failure and apply the minimum **source** fix, then re-push (through
+Step 4's safety if history must change).
+
+## Step 7 — STOP at green, report
+
+```
+PR:          <url>
+Branch:      <branch> → <default-branch>  (rebased: yes/no, backup ref: backup/<branch>-preship | n/a)
+Checks:      <check ✓ / ✗ per check>
+Scope-guard: pass | warn (<files>) | n/a
+Mergeable:   YES — run /ship-merge <pr> when reviewed   |   BLOCKED by <exact reason>
+```
+This command's job ends here. **Never merge.** The merge is `/ship-merge`'s deliberately separate,
+human-confirmed door.
+
+## Rules
+- **Never merges, never deploys** — no merge action exists in this command, by design.
+- Never `git add -A` without reviewing `git status` first.
+- Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.
+- Never edit a workflow file (`.gitea/workflows/`, `.github/workflows/`) to make a gate pass — fix the source.
+- Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.
+
+## Skill reference
+Gitea API monitoring + failure triage: the `deploy-local` skill (ships in the optional `caddis-extras` plugin — enable it with `claude plugin enable caddis-extras`). GitHub `gh pr` / `gh run`
+usage: the `gh-cli` skill. Load whichever matches the detected lane.

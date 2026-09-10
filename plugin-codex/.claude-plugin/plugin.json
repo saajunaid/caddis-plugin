@@ -1,0 +1,9 @@
+{
+  "name": "caddis-codex",
+  "description": "caddis for Codex CLI — the same harness, with every command reshaped into a skill because Codex has no command concept.",
+  "author": {
+    "name": "junaid",
+    "url": "https://github.com/saajunaid/caddis-plugin"
+  },
+  "version": "1.3.101"
+}

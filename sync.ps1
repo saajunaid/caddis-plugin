@@ -1121,7 +1121,7 @@ function caddis-push {
     $claudePython = Get-CaddisPythonCommand
     if ($claudePython) {
         Push-Location $ProjectRoot
-        & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude", "--profile", "claude-extras"))
+        & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude", "--profile", "claude-extras", "--profile", "codex-plugin"))
         $claudeExportOk = ($LASTEXITCODE -eq 0)
         Pop-Location
         $claudeBundle = Join-Path $ProjectRoot "dist\runtime-resources\claude"
@@ -1154,8 +1154,25 @@ function caddis-push {
             if (Test-Path $destExtras) { Remove-ItemRobust $destExtras }
             Copy-Item (Join-Path $extrasBundle "plugin-extras") $CADDIS_POOL -Recurse -Force
 
+            # codex plugin -> caddis-plugin/plugin-codex
+            #
+            # The marketplace has advertised `caddis-codex -> ./plugin-codex` since the codex
+            # target was added, and this copy did not exist: the export built 204 files into
+            # dist/ and nothing carried them here, so `codex plugin install caddis-codex@caddis`
+            # resolved to a path that was not in the mirror. Every publish since was green.
+            # `check_marketplace_sources_exist()` in validate_pool.py now fails on that class.
+            $codexBundle = Join-Path $ProjectRoot "dist\runtime-resources\codex-plugin"
+            $srcCodex = Join-Path $codexBundle "plugin-codex"
+            if (Test-Path $srcCodex) {
+                $destCodex = Join-Path $CADDIS_POOL "plugin-codex"
+                if (Test-Path $destCodex) { Remove-ItemRobust $destCodex }
+                Copy-Item $srcCodex $CADDIS_POOL -Recurse -Force
+            } else {
+                Write-Host "  [WARN]  codex plugin not exported; plugin-codex/ not refreshed." -ForegroundColor Yellow
+            }
+
             # Purge private skills from both public bundles
-            foreach ($dest in @($destPlugin, $destExtras)) {
+            foreach ($dest in @($destPlugin, $destExtras, (Join-Path $CADDIS_POOL "plugin-codex"))) {
                 foreach ($privateSkill in $PLUGIN_PRIVATE_SKILLS) {
                     $privatePath = Join-Path $dest "skills\$privateSkill"
                     if (Test-Path $privatePath) {
@@ -1164,7 +1181,7 @@ function caddis-push {
                     }
                 }
             }
-            Write-Host "  [OK]  caddis plugins (.claude-plugin + plugin/ + plugin-extras/)" -ForegroundColor Green
+            Write-Host "  [OK]  caddis plugins (.claude-plugin + plugin/ + plugin-extras/ + plugin-codex/)" -ForegroundColor Green
         } else {
             Write-Host "  [WARN]  claude plugin export failed; bundle not synced this run." -ForegroundColor Yellow
         }

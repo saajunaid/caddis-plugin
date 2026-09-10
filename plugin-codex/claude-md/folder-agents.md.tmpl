@@ -1,0 +1,21 @@
+# {{FOLDER}}/ — conventions
+
+Scope: {{FOLDER_PURPOSE}}
+
+Inherits all root laws (see the root `AGENTS.md`): TDD, no absolute paths, no silent failures,
+verify-don't-assume, honest status, stay in scope.
+
+## Conventions
+- <the rules specific to this folder — how code here is structured, named, layered, and tested;
+  the framework idioms and patterns a change here must follow>
+
+## Gotchas / non-obvious
+- <traps a fresh session would hit: a required setup step, a load-bearing file, a deviation from
+  convention that isn't visible from the code in < 5 minutes>
+
+## Adding functionality (the path)
+1. Failing test first (TDD — Law 1).
+2. <the folder-specific steps to add a unit of behavior here, ending in a green run>
+
+<!-- Ongoing updates flow through the knowledge-transfer / claude-md-curator agents (they target ANY
+existing AGENTS.md). Keep this file the canonical rules; its sibling CLAUDE.md is an @import shim. -->

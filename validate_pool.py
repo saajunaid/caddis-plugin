@@ -1501,6 +1501,53 @@ def check_guide_counts() -> CheckResult:
     return result
 
 
+def check_marketplace_sources_exist() -> CheckResult:
+    """Every `source` in the mirror's marketplace.json must resolve to a real directory there.
+
+    Found live 2026-09-10: `caddis-codex -> ./plugin-codex` had been advertised since the codex
+    target was added, the export produced it into dist/, and `sync.ps1` copied only `plugin` and
+    `plugin-extras`. An install of that plugin resolved to nothing, and every publish was green.
+
+    Deliberately checks the MIRROR rather than `dist/`. The export was never the broken half — a
+    bundle that builds correctly and is then not carried across is the shape that hid for weeks.
+    A plugin.json is required too: a directory that exists but carries no manifest installs no
+    better than one that is missing.
+    """
+    result = CheckResult(name="Marketplace sources — every advertised plugin is in the mirror")
+    mirror = REPO_ROOT / "vscode-extensions" / "caddis-plugin"
+    manifest = mirror / ".claude-plugin" / "marketplace.json"
+    if not manifest.exists():
+        result.info.append("no mirror marketplace.json — nothing to check")
+        result.passed = True
+        return result
+
+    try:
+        plugins = json.loads(manifest.read_text(encoding="utf-8")).get("plugins", [])
+    except ValueError as exc:
+        result.failures.append(f"marketplace.json is not readable JSON: {exc}")
+        result.passed = False
+        return result
+
+    for p in plugins:
+        name, src = p.get("name", "?"), (p.get("source") or "").strip()
+        if not src.startswith("./"):
+            continue                                # a URL or a repo ref is not ours to resolve
+        target = mirror / src[2:]
+        if not target.is_dir():
+            result.failures.append(
+                f"marketplace advertises '{name}' at {src}, which is NOT in the mirror. "
+                "Installing it resolves to nothing. Add the copy to sync.ps1 — the export "
+                "building it into dist/ is not the same as shipping it")
+        elif not (target / ".claude-plugin" / "plugin.json").is_file():
+            result.failures.append(
+                f"'{name}' at {src} exists but has no .claude-plugin/plugin.json — "
+                "a directory without a manifest installs no better than a missing one")
+    if not result.failures:
+        result.info.append(f"{len(plugins)} advertised plugin(s), all present with a manifest")
+    result.passed = not result.failures
+    return result
+
+
 STAGES = ("plan", "build", "review", "ship", "continuity", "knowledge", "setup")
 
 
@@ -1641,6 +1688,7 @@ def main(argv: list[str] | None = None) -> int:
             check_session_state_stays_private(),
             check_portfolio_page(),
             check_guide_counts(),
+            check_marketplace_sources_exist(),
             check_command_stage(),
             check_reference_site(),
             check_enforcement_ratio(),
