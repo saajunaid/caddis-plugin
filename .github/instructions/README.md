@@ -50,6 +50,8 @@ Instructions are context-specific guidelines that tell AI assistants how to writ
 | [plan-mode.instructions.md](plan-mode.instructions.md) | `**` | Requirements discovery before implementation |
 | [large-task-fidelity.instructions.md](large-task-fidelity.instructions.md) | `**` | Execution discipline for large multi-phase outputs |
 | [junai-system.instructions.md](junai-system.instructions.md) | `**` | junai agent pipeline system reference |
+| [document-frontmatter.instructions.md](document-frontmatter.instructions.md) | `**/*.md` | Provenance frontmatter on every written deliverable |
+| [document-claims.instructions.md](document-claims.instructions.md) | `**/*.md` | Do not hedge when the check is one query away; never record a hedge as a fact |
 
 ## How Instructions Work
 

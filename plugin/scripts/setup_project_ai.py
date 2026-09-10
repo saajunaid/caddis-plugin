@@ -699,6 +699,16 @@ repo**: an access request, a decision from another team, a change only someone e
 table stops a sent message from going unchased. Comms are almost always sent to get an *action*, and
 an unanswered ask looks exactly like a forgotten one unless something is tracking it.
 
+**Read that rule the other way round: THIS TABLE IS WHERE YOU LOOK BEFORE YOU WRITE ONE.** Check it
+before drafting, not only after filing. A handover transfers a task, and for the whole overlap
+window two sessions can both believe an outbound note is theirs - on 2026-09-08 two of them wrote
+the same note five minutes apart, and both sat here marked ready to send. Two notes on one subject
+reaching one team reads as one team not talking to itself.
+
+**If you do find a duplicate, do not delete it.** Verify its unique contributions independently,
+fold them into the survivor, and archive the loser with a banner saying why. The second draft is a
+second reading - the one in that incident found a defect in the first.
+
 | Raised | Audience | Subject | Status | Blocks | File |
 |---|---|---|---|---|---|
 | _(none yet)_ | | | | | |

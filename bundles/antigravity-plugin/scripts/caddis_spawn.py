@@ -546,14 +546,58 @@ def handshake_read(repo_root: Path, spawn_id: str) -> dict | None:
         return None
 
 
+MAX_REJECTS = 2
+
+
 def handshake_record(repo_root: Path, spawn_id: str, event: str,
-                     peer: str = "") -> tuple[dict | None, str]:
-    """Advance the handshake. Never rewinds: a verdict cannot un-answer the questions, and an
-    out-of-order event is a sign the operator has lost track of which round they are in — which
-    is exactly when a silent overwrite would hurt."""
+                     peer: str = "", verdict: str = "") -> tuple[dict | None, str]:
+    """Advance the handshake. One step forward, with exactly one named exception.
+
+    **REJECT sends it back to `awaiting-answers`, and that is the whole point of this function
+    having a rewind at all.** `spawn-session.md` defines REJECT as "an instruction to re-read named
+    sections and re-answer", and says "two REJECTs on one spawn means the HANDOVER is at fault —
+    regenerate it". Neither was possible until 2026-09-10: the states were strictly linear, so
+    after `verdict-sent` the only legal event was `ack`, and the handshake did not even record
+    WHICH verdict was sent. ACCEPT and REJECT were indistinguishable in the state file, so nothing
+    could count REJECTs and the two-strike rule was unenforceable prose.
+
+    Every other rewind is still refused. An out-of-order event is an operator who has lost track of
+    the round, which is exactly when a silent overwrite would hurt.
+    """
     state = handshake_read(repo_root, spawn_id)
     if state is None:
         return None, f"no handshake for {spawn_id} — run `handshake open --id {spawn_id}` first"
+
+    verdict = (verdict or "").strip().upper()
+    if event == "verdict" and verdict == "REJECT":
+        if state["state"] != "answered":
+            return state, (f"at `{state['state']}` — a REJECT only follows `answered`. "
+                           "There is nothing to reject yet.")
+        n = int(state.get("rejects", 0)) + 1
+        if n > MAX_REJECTS - 1:
+            state["rejects"] = n
+            # Recorded even though it is refused. The counter is the enforceable fact, but a
+            # history showing one REJECT beside a count of two is a state file that contradicts
+            # itself, and the next reader has to work out which half to believe.
+            state["history"].append({"event": "verdict", "verdict": "REJECT", "refused": True,
+                                     "at": int(time.time()),
+                                     **({"peer": peer} if peer else {})})
+            _handshake_path(repo_root, spawn_id).write_text(
+                json.dumps(state, indent=2) + chr(10), encoding="utf-8")
+            return state, (
+                f"REJECT #{n}. `spawn-session.md`: two REJECTs on one spawn means the HANDOVER is "
+                "at fault, not the successor. Regenerate it — do not coach the child through a "
+                "third round. Close this handshake and open a new one on a rewritten handover.")
+        state["rejects"] = n
+        state["state"] = "awaiting-answers"
+        state["history"].append({"event": "verdict", "verdict": "REJECT", "at": int(time.time()),
+                                 **({"peer": peer} if peer else {})})
+        if peer:
+            state["peer"] = peer
+        _handshake_path(repo_root, spawn_id).write_text(
+            json.dumps(state, indent=2) + chr(10), encoding="utf-8")
+        return state, ""
+
     target = _EVENT_STATE[event]
     here = HANDSHAKE_STATES.index(state["state"])
     there = HANDSHAKE_STATES.index(target)
@@ -571,6 +615,7 @@ def handshake_record(repo_root: Path, spawn_id: str, event: str,
     if peer:
         state["peer"] = peer
     state["history"].append({"event": event, "at": int(time.time()),
+                             **({"verdict": verdict} if event == "verdict" and verdict else {}),
                              **({"peer": peer} if peer else {})})
     state["state"] = target
     _handshake_path(repo_root, spawn_id).write_text(
@@ -659,6 +704,12 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("--id", required=True)
     h.add_argument("--repo-root", default=".")
     h.add_argument("--event", choices=sorted(_EVENT_STATE))
+    h.add_argument("--verdict", default="",
+                   choices=["", "ACCEPT", "ACCEPT-WITH-CORRECTION", "REJECT"],
+                   help="with `--event verdict`. REJECT returns the handshake to "
+                        "`awaiting-answers` so the child re-reads and re-answers, and counts the "
+                        "strike; the second REJECT refuses and tells you to regenerate the "
+                        "handover instead of coaching the child through a third round")
     h.add_argument("--transport", choices=["auto", "message", "paste"], default="auto")
     h.add_argument("--peer", default="",
                    help="the child's name as ListAgents shows it — take it from the `from-name` "
@@ -763,11 +814,14 @@ def main(argv: list[str] | None = None) -> int:
             if not a.event:
                 sys.stderr.write("[spawn] --event is required for `record`" + chr(10))
                 return EXIT_REFUSED
-            st, err = handshake_record(root, a.id, a.event, a.peer)
+            st, err = handshake_record(root, a.id, a.event, a.peer, a.verdict)
             if err:
                 sys.stderr.write("[spawn] " + err + chr(10))
                 return EXIT_REFUSED
-            print(f"[spawn] {a.id}: {st['state']}")
+            rejects = int((st or {}).get("rejects", 0))
+            tail = f"  (REJECT #{rejects} — re-read and re-answer)" if \
+                (a.verdict.upper() == "REJECT" and rejects) else ""
+            print(f"[spawn] {a.id}: {st['state']}{tail}")
             return EXIT_OK
         if a.action == "close" and not (st.get("peer") or "").strip() \
                 and st["state"] != HANDSHAKE_STATES[0]:

@@ -360,6 +360,21 @@ The vocabulary matches `/caddis:validate-phase` on purpose: same discipline, dif
 **Two REJECTs on one spawn means the HANDOVER is at fault, not the successor. Regenerate it** rather
 than coaching the child through it.
 
+**Record the verdict — the machine enforces both of those rules only if you tell it which one:**
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" handshake record --id <id> --event verdict --verdict REJECT
+```
+
+A REJECT returns the handshake to `awaiting-answers`, so `record --event answers` is legal again
+and the child re-answers. The **second** REJECT is refused: it tells you to regenerate the handover,
+and the only way forward is then ACCEPT or abandoning the handshake.
+
+Until 2026-09-10 `--verdict` did not exist. The states were strictly linear, so after `verdict-sent`
+the only legal event was `ack`, and nothing recorded WHICH verdict was sent — ACCEPT and REJECT were
+indistinguishable in the state file. So "re-read and re-answer" was impossible and "two REJECTs
+means regenerate" was unenforceable, because nothing counted them.
+
 ### When the fault is yours, fix the class
 
 If validation finds an error that came from your handover, **fix the source document in the same
