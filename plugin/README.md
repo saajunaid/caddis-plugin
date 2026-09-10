@@ -213,7 +213,7 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   check at all. Verify the outcome, not the intermediate you happened to look at.
 - **A pattern/anchor match used for editing or rule-enforcement does not distinguish a real
   occurrence from a quoted or duplicated one — verify the result, not that the match happened.**
-  Three instances, one session (2026-09-08/09): (1) `caddis_spawn.py check`'s answer-key-shape
+  Four instances, two sessions (2026-09-08/10): (1) `caddis_spawn.py check`'s answer-key-shape
   refusal fired on the *documentation describing the refusal*, because the doc named the forbidden
   shapes literally in prose — reworded, and a test now asserts both command docs pass their own
   check (`.caddis/parking-lot/done/009-answer-key-and-context-gate-shipped.md`). (2) `handoff.md`
@@ -224,6 +224,12 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   (3) `handoff.md` shipped two sections both numbered `## Step 2b` after an insert — caught by an
   audit re-reading the file, not by the change itself, because the insertion anchor was verified and
   the output never re-read — guarded now by `test_command_step_headings_are_unique_within_a_command`.
+  (4) `sync.ps1` placed the plugin-cache-prune call beside the mirror-push block on the strength of
+  a comment and a commit message both asserting "runs after the push" — neither was checked against
+  the file's actual line order. Caught only by
+  `test_caddis_push_prunes_the_plugin_cache_after_the_push` (`scripts/tests/test_sync_ps1.py`), which
+  asserts `text.index(...)` on both anchors instead of reading the diff. A claim about ordering is
+  itself a quoted/duplicated-looking match until something checks the real position.
   Checking that an anchor/pattern exists to act on is a precondition check; it says nothing about
   whether the result is unique or landed where intended.
 - **A verification that records an ABSENCE expires the moment someone creates the thing, silently,
@@ -234,3 +240,36 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   and the drift is checkable. An absence claim degrades to zero warning the instant it's falsified.
   Date any absence claim and treat it as perishable; prefer recording what IS there and its shape,
   since that form ages honestly.
+  Same shape again in `validate_pool.py`'s privacy scan (2026-09-09/10): `check_privacy_scan_tracked`
+  skipped the whole `.caddis/` subtree on the strength of a comment — "the mirror carries zero
+  `.caddis/` files (verified against the mirror's index)" — verified once by hand on 2026-08-05, then
+  falsified when two session-state files became tracked in the mirror across four sync commits; for
+  that window an internal name in a working note was exempt from scanning AND published at once.
+  Fixed by `check_session_state_stays_private`, which asserts the fact on every run instead of
+  trusting the memory of it. Related, same pass: a hostname denylist (`INTERNAL_HOSTS`) only grows
+  when someone notices a miss — a batch-worker host turned up in a survey and would have published
+  clean. Fixed by matching the SHAPE of an internal hostname (`INTERNAL_HOST_RE`) and letting the
+  tuple carry only the exceptions; an enumeration of positives is a list of things nobody has hit yet.
+- **A check that forbids specific literal strings must import the denylist, never restate it — a
+  test or doc that spells out the forbidden content becomes one more tracked file carrying it.**
+  Third occurrence in this repo (2026-09-10, `scripts/tests/test_build_portfolio.py`): the first
+  version of the portfolio-privacy suite wrote the denylisted names out to assert against them, and
+  tripped the very gate it was testing; the fix imports `EMPLOYER_NAMES`/`INTERNAL_HOSTS`/
+  `INTERNAL_NAMES` from `validate_pool` instead. `guard.py` and `scripts/tests/test_lane_routing.py`
+  carry the same fix for the same reason — three independent files, one recurring bug class. In the
+  same suite, a second defect: the assertion was `slug == denied_name` where the real gate matches
+  substrings, so a generated slug that happened to *contain* a denied name as a substring passed the
+  test while the publish itself stayed correctly blocked. A negative-space test must match the gate's
+  own comparison (CONTAINS here), not a stricter one that quietly stops testing anything.
+- **A branch reachable only through a mechanism the test host cannot create is untested, and so is
+  everything that mechanism feeds.** `prune_plugin_cache.py`'s refusal for a version directory that
+  resolves OUTSIDE the cache (its single most dangerous branch — the one guarding against a delete
+  escaping the cache root) was reachable only via a real directory symlink, which Windows will not
+  create without elevated privileges — so the direct test was permanently skipped, and the
+  refusal-fallthrough it feeds was unreachable with it. Fixed by extracting the one-line resolution
+  call (`_resolve()`) so a test can monkeypatch it to fake an escaping path without ever creating a
+  symlink (`test_a_version_resolving_outside_the_cache_is_refused_and_kept`,
+  `scripts/tests/test_prune_plugin_cache.py`) — the privilege-gated test stays too, skipped where the
+  host forbids it, but is no longer the only witness. Before accepting a `pytest.mark.skipif` on a
+  security-relevant branch, check whether the one line actually needing the privilege can be pulled
+  out and substituted instead of leaving the branch's only coverage conditional on the host.

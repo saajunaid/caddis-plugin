@@ -75,7 +75,12 @@ Every component must reflect the agreed colour story and font pairing — no fal
 
 **Motion discipline:**
 - Use animation as communication, not decoration
-- Always respect `prefers-reduced-motion` media query
+- Always respect `prefers-reduced-motion` media query — but treat it as a DEFAULT, not a verdict.
+  Windows Server ships with animations off with no user preference expressed, so a build that only
+  checks the media query once at load and never offers a way back can freeze a genuinely correct
+  animation for the whole session with no override (found in `.caddis/second-brain.html`: the OS
+  read is captured into a `var` at script start and never re-read). Read the OS default into a
+  visible toggle, and have the draw loop read the toggle's current state, not a captured constant.
 - One hero animation moment — not every element animating on load
 - 44px minimum touch targets on mobile
 
