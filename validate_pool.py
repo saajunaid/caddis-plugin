@@ -1415,6 +1415,92 @@ def check_portfolio_page() -> CheckResult:
     return result
 
 
+# Two shapes, because the guide writes counts both ways:
+#   "141 on-demand expert skills"  -> number first
+#   "Skills (141)" / "Skills library (127 skills" -> kind first
+# Anything vaguer than these is not gateable, and the fix for that is to write the prose so it can
+# be checked -- not to loosen the pattern until it matches everything.
+_GUIDE_KINDS = ("skills", "commands", "agents", "hooks")
+_COUNT_BEFORE = re.compile(
+    r"\b(\d{2,4})\s+(?:[A-Za-z][\w-]*\s+){0,3}?(" + "|".join(_GUIDE_KINDS) + r")\b", re.I)
+_COUNT_AFTER = re.compile(
+    r"\b(" + "|".join(_GUIDE_KINDS) + r")\b[^.\n(]{0,24}?\(\s*~?(\d{2,4})", re.I)
+# "skills" is the whole library in one sentence and the always-on core in another, so a qualifier
+# decides which total to compare against. It must sit BEFORE the noun — "44 core skills", or
+# "core (44 skills" — because a mention AFTER it is describing the library, not the number:
+# "127 on-demand expert skills, tiered core/extras" is a TOTAL, and a proximity window flagged
+# both of those as core and failed a correct sentence.
+_CORE_HINT = re.compile(r"\b(core|always[- ]on)\b", re.I)
+_CORE_LOOKBEHIND = 14
+
+
+def guide_claims(line: str) -> list[tuple[int, str, bool]]:
+    """Every (number, kind, is_core) this line claims. A PUBLIC helper, not an inlined loop.
+
+    Extracted because the first test for it reimplemented the extraction instead of calling it —
+    so removing the dedupe from the checker changed nothing the test could see, and the mutation
+    was reported as MISSED. A test that restates the logic agrees with a broken version of it.
+    """
+    pairs = ([(m, m.group(1), m.group(2)) for m in _COUNT_BEFORE.finditer(line)]
+             + [(m, m.group(2), m.group(1)) for m in _COUNT_AFTER.finditer(line)])
+    out: list[tuple[int, str, bool]] = []
+    seen: set[tuple[str, str]] = set()
+    for m, num, kind in pairs:
+        kind = kind.lower()
+        # "Skills library (127 skills" matches BOTH patterns — kind-then-number and
+        # number-then-kind — and reported the same claim twice. One claim, one message.
+        if (num, kind) in seen:
+            continue
+        seen.add((num, kind))
+        # From just before the match to the end of the noun. A qualifier AFTER the noun is prose
+        # about the library, not a narrowing of the number.
+        lead = line[max(0, m.start() - _CORE_LOOKBEHIND):m.end()]
+        out.append((int(num), kind, kind == "skills" and bool(_CORE_HINT.search(lead))))
+    return out
+
+
+def check_guide_counts() -> CheckResult:
+    """Every count in `docs/guide/*.md` must equal what the pool actually holds.
+
+    Derived the same way the reference site derives it — `build_reference.collect()` — so the guide
+    and the published page cannot disagree. Found live on 2026-09-08: four different skill counts in
+    one file, and nothing had ever looked.
+    """
+    result = CheckResult(name="Guide counts — hand-written numbers vs the pool")
+    guide = REPO_ROOT / "docs" / "guide"
+    if not guide.is_dir():
+        result.info.append("no docs/guide/ here")
+        result.passed = True
+        return result
+
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    try:
+        import build_reference
+        counts = build_reference.collect()["counts"]
+    except Exception as exc:  # pragma: no cover - a broken generator is its own check's problem
+        result.info.append(f"skipped — could not derive the true counts ({exc})")
+        result.passed = True
+        return result
+
+    truth = {"commands": counts["commands"], "agents": counts["agents"],
+             "hooks": counts["hooks"], "skills": counts["skills"]}
+    checked = 0
+    for f in sorted(guide.glob("*.md")):
+        for lineno, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            for claimed, kind, is_core in guide_claims(line):
+                want = counts["core"] if is_core else truth[kind]
+                checked += 1
+                if int(claimed) != want:
+                    label = "core skills" if want == counts["core"] and kind == "skills" else kind
+                    result.failures.append(
+                        f"docs/guide/{f.name}:{lineno} says {claimed} {label}, "
+                        f"the pool has {want} — the guide is hand-written and nothing else checks it"
+                    )
+    result.info.append(f"{checked} count claim(s) across {len(list(guide.glob('*.md')))} file(s)")
+    result.passed = not result.failures
+    return result
+
+
 STAGES = ("plan", "build", "review", "ship", "continuity", "knowledge", "setup")
 
 
@@ -1554,6 +1640,7 @@ def main(argv: list[str] | None = None) -> int:
             check_second_brain_stays_private(),
             check_session_state_stays_private(),
             check_portfolio_page(),
+            check_guide_counts(),
             check_command_stage(),
             check_reference_site(),
             check_enforcement_ratio(),
