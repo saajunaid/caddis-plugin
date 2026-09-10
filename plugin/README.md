@@ -273,3 +273,44 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   host forbids it, but is no longer the only witness. Before accepting a `pytest.mark.skipif` on a
   security-relevant branch, check whether the one line actually needing the privilege can be pulled
   out and substituted instead of leaving the branch's only coverage conditional on the host.
+- **A test that does not exercise the real code path, or does not assert the consequence, passes on
+  broken code — and none of the three shapes below were visible in review, only under mutation
+  testing.** Three instances, one session (2026-09-10):
+  1. *A test helper reimplemented the function it was meant to exercise.* `test_validate_pool.py`
+     had a local claim-extraction loop duplicating the checker's own logic; removing a dedupe from
+     the real checker changed nothing the test could see. Fixed by extracting a public
+     `guide_claims()` (`validate_pool.py`) and pointing the test at it — see its docstring: "a test
+     that restates the logic agrees with a broken version of it."
+  2. *Nothing asserted the FAILING case.* Every test for `check_guide_counts()` exercised the
+     parser; none proved a mismatch actually fails the check. Replacing the real comparison with
+     `if False:` left the gate blind and the whole suite green.
+  3. *A substring search passed on broken code.* A test asserted `sync.ps1` mentions `plugin-codex`
+     somewhere; the name also appears in a comment and a log line, so breaking the copy's SOURCE
+     path still passed. Narrowed to assert the `Join-Path $CADDIS_POOL "<dir>"` destination
+     (`test_sync_ps1_names_a_mirror_destination_for_every_advertised_plugin`,
+     `scripts/tests/test_validate_pool.py`), whose docstring states plainly what a text search over
+     PowerShell can never prove.
+
+  Before trusting a green test for behaviour it claims to check: does it call the real function
+  (not a copy of the logic), does some case in it actually flip red, and does its assertion match
+  the real consequence rather than a string the code merely happens to contain?
+- **Before claiming a delivery pipeline is broken, check every independent leg it depends on, not
+  just the one that looks suspicious — and check the leg an install actually resolves against, not
+  the intermediate build output.** `check_marketplace_sources_exist()` was written after
+  `caddis-codex -> ./plugin-codex` had been advertised in the marketplace since the day the codex
+  target was added: the export built all 204 files into `dist/`, but `sync.ps1` copied only
+  `plugin` and `plugin-extras` and never mentioned `plugin-codex` — so `codex plugin install
+  caddis-codex@caddis` resolved to nothing, and every publish was green for weeks. Three legs were
+  checked before that claim was made (export produces it / sync does not carry it / the mirror
+  lacks it), specifically because the "empty `commands/` directory" claim earlier in this list was
+  filed as a high-severity bug on a single-directory check and was wrong the next day. The new
+  check is deliberately written against the **mirror** (what an install actually resolves against),
+  not `dist/` (a build artefact one hop upstream of it) — see the docstring on
+  `check_marketplace_sources_exist()` in `validate_pool.py`. A directory that exists but carries no
+  `plugin.json` is checked too: it installs no better than a missing one and looks fine to `ls`.
+- **A mutation-testing script that restores the target file only in its last statement leaves the
+  file mutated on disk when an assertion aborts mid-loop.** Happened twice in one session
+  (2026-09-09/10, `validate_pool.py`): a bad anchor threw before the restore line ran, and the next
+  read of the file — by a human, a reviewer, or the next mutation — saw the mutated version, not the
+  original. Put the restore in a `finally`, so an exception partway through still leaves the file
+  exactly as it was found.
