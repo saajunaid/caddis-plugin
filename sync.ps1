@@ -1510,6 +1510,34 @@ function caddis-push {
     Write-Host "  Committed and pushed to caddis-plugin." -ForegroundColor Magenta
     Write-Host ""
 
+    # ---------------------------------------------------------------------------------------
+    # Prune the local plugin cache.
+    #
+    # Claude Code keeps EVERY version it has installed under ~/.claude/plugins/cache/, and nothing
+    # removes them -- `claude plugin prune` only drops auto-installed dependencies, never
+    # superseded versions of a plugin you asked for. Measured 2026-09-10: thirteen caddis versions,
+    # 57.7 MB, of which 50.6 MB was dead. It grows by roughly 2.5 MB per release, forever.
+    #
+    # Runs AFTER the push: this is housekeeping on this machine and says nothing about whether the
+    # release is correct. Non-fatal for the same reason.
+    #
+    # The safety lives in the script, not here: it refuses outright unless it can read
+    # installed_plugins.json, never deletes a version that registry lists as installed, and keeps
+    # the three newest -- so a session still running the previous version keeps the directory its
+    # hooks resolved to at startup.
+    if ($gatePython) {
+        $pruneScript = Join-Path $gateRoot "scripts/prune_plugin_cache.py"
+        if (Test-Path $pruneScript) {
+            Push-Location $gateRoot
+            & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/prune_plugin_cache.py", "--apply"))
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  [WARN]  prune_plugin_cache.py failed -- the cache keeps growing, but the push continues." -ForegroundColor Yellow
+            }
+            Pop-Location
+        }
+    }
+
+
     # Persist the auto-bump in the SOURCE repo - runtime-targets.json is the export's source of
     # truth, so it must be committed here or the next export would regenerate plugin.json at the
     # old version and silently revert the bump. Path-scoped commit so unrelated source edits are
