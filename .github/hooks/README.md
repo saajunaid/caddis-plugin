@@ -41,4 +41,11 @@ sh .github/hooks/install-hooks.sh
 ## Notes
 
 - Hooks are local developer safety rails; CI remains the source of truth.
+- The pre-push ruff, mypy and pytest steps check the project's own scope, never the whole tree
+  (`gate_scope.py`): the tool's config when it states one (mypy `files`, pytest `testpaths`),
+  otherwise only git-tracked Python. An untracked scratch file can never block a push.
+- To match CI exactly, state the scope: `files = ["src"]` under `[tool.mypy]`, and
+  `testpaths = ["tests"]` under `[tool.pytest.ini_options]`.
+- The ruff step skips `.github/hooks/`: that folder is caddis's own, linted strictly at the
+  source, and a project's rule set is not something a shipped file can satisfy.
 - Keep hooks fast. If checks exceed ~60 seconds, split heavy checks into pre-push/CI.

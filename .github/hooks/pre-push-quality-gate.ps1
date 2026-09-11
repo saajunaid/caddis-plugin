@@ -96,12 +96,38 @@ function Invoke-PyGate([string]$Tool, [string[]]$GateArgs) {
     }
 }
 
+# Each tool gets the PROJECT'S scope, not the whole tree: see gate_scope.py beside this
+# file. `mypy .`, `ruff check .` and `pytest -q` all read untracked scratch files, so one
+# of them blocked every push in that repo, while CI (`mypy src/`, `ruff check src/ tests/`,
+# `pytest tests/`) never saw it. Found 2026-09-11.
+function Invoke-ScopedGate([string]$Tool, [string[]]$Prefix, [string[]]$Fallback) {
+    $scopeScript = Join-Path $PSScriptRoot "gate_scope.py"
+    if (-not ((Test-PyTool $Tool) -and (Test-Path $scopeScript))) {
+        Invoke-PyGate $Tool $Fallback     # keeps the declared-but-not-runnable check
+        return
+    }
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $scopeOut = @(& $py $scopeScript "--tool" $Tool)
+    $scopeExit = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    $scopeOut | Where-Object { $_ -like "# *" } | ForEach-Object { Write-Host "[hook] $($_.Substring(2))" }
+    if ($scopeExit -eq 3) {
+        Write-Host "[skip] ${Tool}: nothing tracked to check"
+        return
+    }
+    if ($scopeExit -ne 0) {
+        throw "[hook] gate_scope.py failed for $Tool (exit $scopeExit)"
+    }
+    Invoke-PyGate $Tool ($Prefix + @($scopeOut | Where-Object { $_ -notlike "# *" }))
+}
+
 if ($isPythonRepo) {
     if (-not $py) { throw "[hook] python project, but no interpreter found (.venv or PATH) - cannot verify" }
     Write-Host "[hook] interpreter: $py"
-    Invoke-PyGate "ruff"   @("check", ".")
-    Invoke-PyGate "mypy"   @(".")
-    Invoke-PyGate "pytest" @("-q")
+    Invoke-ScopedGate "ruff"   @("check") @("check", ".", "--extend-exclude", ".github/hooks")
+    Invoke-ScopedGate "mypy"   @()        @(".")
+    Invoke-ScopedGate "pytest" @("-q")    @("-q")
 }
 
 if ($isNodeRepo -and (Get-Command npm -ErrorAction SilentlyContinue)) {

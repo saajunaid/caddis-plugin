@@ -76,15 +76,46 @@ py_gate() {
   fi
 }
 
+# Each tool gets the PROJECT'S scope, not the whole tree: see gate_scope.py beside this file.
+# `mypy .`, `ruff check .` and `pytest -q` all read untracked scratch files, so one of them
+# blocked every push in that repo, while CI (`mypy src/`, `ruff check src/ tests/`,
+# `pytest tests/`) never saw it. Found 2026-09-11. Returns 1 when it cannot scope, so the
+# caller runs its old fallback.
+scoped_gate() {
+  tool=$1
+  shift                      # what remains is the tool's own prefix (check, -q)
+  scope_py="$(dirname "$0")/gate_scope.py"
+  if ! py_has "$tool" || [ ! -f "$scope_py" ]; then return 1; fi
+  rc=0
+  out=$("$PY" "$scope_py" --tool "$tool") || rc=$?
+  printf '%s\n' "$out" | sed -n 's/^# /[hook] /p'
+  if [ "$rc" -eq 3 ]; then echo "[skip] $tool: nothing tracked to check"; return 0; fi
+  if [ "$rc" -ne 0 ]; then
+    echo "[hook] gate_scope.py failed for $tool (exit $rc)" >&2
+    exit 1
+  fi
+  cr=$(printf '\r')
+  while IFS= read -r arg; do
+    arg=${arg%"$cr"}   # a CRLF producer must not smuggle "\r" into an argument
+    case "$arg" in "# "*|"") ;; *) set -- "$@" "$arg" ;; esac
+  done <<EOF
+$out
+EOF
+  py_gate "$tool" "$@"
+  return 0
+}
+
 if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
   if [ -z "$PY" ]; then
     echo "[hook] python project, but no interpreter found (.venv or PATH) - cannot verify" >&2
     exit 1
   fi
   echo "[hook] interpreter: $PY"
-  py_gate ruff check .
-  if py_sources_exist; then py_gate mypy .; else echo "[skip] mypy: no Python sources"; fi
-  py_gate pytest -q
+  scoped_gate ruff check || py_gate ruff check . --extend-exclude .github/hooks
+  if ! scoped_gate mypy; then
+    if py_sources_exist; then py_gate mypy .; else echo "[skip] mypy: no Python sources"; fi
+  fi
+  scoped_gate pytest -q || py_gate pytest -q
 fi
 
 if [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then
