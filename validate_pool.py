@@ -1404,11 +1404,17 @@ def check_portfolio_page() -> CheckResult:
         result.info.append(f"{len(items)} project(s), {measured} with measured numbers")
         if measured < len(items):
             result.info.append("  some have none — run `python scripts/build_portfolio.py --refresh`")
+        # The refresh's own threshold, imported, so the gate and caddis-push's automatic
+        # re-measure can never disagree about what "stale" means.
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import build_portfolio as _bp
         try:
             age = (_dt.date.today() - _dt.date.fromisoformat(d["measured"])).days
             result.info.append(f"last measured {age} day(s) ago")
-            if age > 45:
-                result.info.append("  stale — `python scripts/build_portfolio.py --refresh`")
+            if age > _bp.STALE_AFTER_DAYS:
+                result.info.append(
+                    f"  stale (over {_bp.STALE_AFTER_DAYS} days) — caddis-push re-measures it; if "
+                    "it stays stale, .caddis/portfolio-repos.json is missing on this machine")
         except (KeyError, ValueError):
             result.info.append("no `measured` date in portfolio.json")
     result.passed = not result.failures

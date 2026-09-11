@@ -1039,6 +1039,21 @@ function caddis-push {
     Write-Host "  CADDIS PUSH  $(Split-Path $ProjectRoot -Leaf) --> caddis-plugin" -ForegroundColor Magenta
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
+    # Taken BEFORE caddis-push makes any source commit of its own (manifest bump, portfolio
+    # numbers), so the source push at the end can ship exactly those and nothing else. A shared
+    # checkout can hold another session's unpushed commits; a publish must never push them.
+    # for-each-ref, not `rev-parse @{u}`: no upstream is an empty line, not stderr, which under
+    # Windows PowerShell 5.1 could stop a caller running with ErrorActionPreference=Stop.
+    $srcAheadBefore = $null
+    $srcOwnCommits = 0
+    Push-Location $ProjectRoot
+    $srcBranch = git branch --show-current
+    $srcUpstream = if ($srcBranch) { git for-each-ref --format="%(upstream:short)" "refs/heads/$srcBranch" } else { "" }
+    if ($srcUpstream) {
+        $srcAheadBefore = [int](git rev-list --count "$srcUpstream..HEAD")
+    }
+    Pop-Location
+
     # Pre-sync hygiene: remove generated caches on both sides so they never leak
     # into the public mirror or get reintroduced by additive copies.
     Remove-CaddisCacheDirs -RootPath $source -Label "source"
@@ -1299,6 +1314,7 @@ function caddis-push {
     # 18 internal repos and must never ship. Two pages, two audiences, one rule each.
     #
     # GitHub Pages serves them from /docs on the mirror.
+    $portfolioRefreshed = $false
     if ($gatePython) {
         $refScript = Join-Path $gateRoot "scripts/build_reference.py"
         if (Test-Path $refScript) {
@@ -1312,15 +1328,26 @@ function caddis-push {
             }
             Pop-Location
         }
-        # The portfolio page. RENDERED here, never re-measured: `--refresh` walks sixteen
-        # checkouts, and a publish that silently changed the numbers would put figures on a
-        # public page nobody had read. check_portfolio_page() reports how stale they are.
+        # The portfolio page. Its NUMBERS are re-measured only when older than
+        # build_portfolio.py's STALE_AFTER_DAYS (owner decision 2026-09-11: nothing on a
+        # published page should need a hand update later). It used to be render-only, so that no
+        # figure reached the public page unread; --refresh-if-stale keeps that by printing every
+        # figure that moved. Pending hand edits in portfolio.json block the refresh, because the
+        # auto-commit below would otherwise publish them under a machine message.
         $wrkScript = Join-Path $gateRoot "scripts/build_portfolio.py"
         if (Test-Path $wrkScript) {
             Push-Location $gateRoot
-            & $gatePython.Path @($gatePython.PrefixArgs + @("scripts/build_portfolio.py", "--out", (Join-Path $CADDIS_POOL "docs/work.html")))
+            $portfolioArgs = @("scripts/build_portfolio.py", "--out", (Join-Path $CADDIS_POOL "docs/work.html"))
+            $pfPending = git status --porcelain -- scripts/portfolio.json
+            if ($pfPending) {
+                Write-Host "  [WARN]  scripts/portfolio.json has uncommitted edits -- numbers NOT re-measured. Commit them; the next push refreshes." -ForegroundColor Yellow
+            } else {
+                $portfolioArgs += "--refresh-if-stale"
+            }
+            & $gatePython.Path @($gatePython.PrefixArgs + $portfolioArgs)
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  [OK]  portfolio -> docs/work.html (GitHub Pages)" -ForegroundColor Green
+                $portfolioRefreshed = (-not $pfPending) -and [bool](git status --porcelain -- scripts/portfolio.json)
             } else {
                 Write-Host "  [WARN]  build_portfolio.py failed -- the page will be stale." -ForegroundColor Yellow
             }
@@ -1571,9 +1598,49 @@ function caddis-push {
         if ($bumpExit -ne 0) {
             Write-Warning "  Source manifest bump commit failed (exit $bumpExit) - the version bump may silently revert on the next export. Commit .github/runtime-targets.json by hand."
         } else {
+            $srcOwnCommits++
             Write-Host "  Source manifest committed: $bumpSummary." -ForegroundColor Magenta
             Write-Host ""
         }
+    }
+
+    # Commit the re-measured portfolio numbers. Path-scoped, so unrelated source edits are never
+    # swept in, and only here -- after the mirror push succeeded -- so a failed gate never leaves
+    # a machine commit behind.
+    if ($portfolioRefreshed) {
+        Push-Location $gateRoot
+        git commit "scripts/portfolio.json" -m "chore(portfolio): re-measure the published numbers (older than STALE_AFTER_DAYS)" | Out-Null
+        $pfExit = $LASTEXITCODE
+        Pop-Location
+        if ($pfExit -ne 0) {
+            Write-Warning "  Portfolio numbers were re-measured but the commit failed (exit $pfExit). Commit scripts/portfolio.json by hand."
+        } else {
+            $srcOwnCommits++
+            Write-Host "  Source portfolio numbers committed." -ForegroundColor Magenta
+        }
+    }
+
+    # Push the source commits caddis-push just made (owner decision 2026-09-11). They used to be
+    # left local, so every publish ended with the source repo ahead of origin until someone
+    # pushed by hand. Only when nothing else was unpushed at the start AND the commits waiting are
+    # exactly the ones made here. A failure warns and never throws: the mirror is already out.
+    if ($srcOwnCommits -gt 0) {
+        Push-Location $ProjectRoot
+        $srcAheadNow = if ($srcUpstream) { [int](git rev-list --count "$srcUpstream..HEAD") } else { -1 }
+        if ($null -eq $srcAheadBefore) {
+            Write-Host "  [--]  Source branch has no upstream -- its $srcOwnCommits new commit(s) were not pushed." -ForegroundColor DarkGray
+        } elseif ($srcAheadBefore -eq 0 -and $srcAheadNow -eq $srcOwnCommits) {
+            git push | Out-Null
+            $srcPushExit = $LASTEXITCODE
+            if ($srcPushExit -ne 0) {
+                Write-Warning "  Source push failed (exit $srcPushExit) -- $srcOwnCommits commit(s) are local only. Push the source repo by hand."
+            } else {
+                Write-Host "  Source repo pushed ($srcOwnCommits caddis-push commit(s))." -ForegroundColor Magenta
+            }
+        } else {
+            Write-Host "  [WARN]  Source repo holds other unpushed commits (ahead $srcAheadNow, $srcOwnCommits from this publish) -- NOT pushed, so no unreviewed work ships. Push it by hand." -ForegroundColor Yellow
+        }
+        Pop-Location
     }
 
     # agy has no auto-update - after a mirror-changing publish, refresh the LOCAL agy install from the fresh
