@@ -79,8 +79,9 @@ def classify_write(file_path: str) -> tuple[str, str]:
 # subpath (E:\proj\dist falls through to ask).
 _CATASTROPHIC_TARGET = re.compile(
     r"--no-preserve-root"
-    r"|(?:^|\s)(?:/|/\*|~/|~|\$\{?HOME\}?)(?:\s|$|;|&|\|)"
-    r"|(?:^|\s)[A-Za-z]:[\\/]?(?:\s|$|;|&|\|)",
+    # A closing bracket also ends the target: `echo $(rm -rf ~)` was ask, not deny (review catch).
+    r"|(?:^|\s)(?:/|/\*|~/|~|\$\{?HOME\}?)(?:\s|$|;|&|\||[)}])"
+    r"|(?:^|\s)[A-Za-z]:[\\/]?(?:\s|$|;|&|\||[)}])",
     re.I,
 )
 _FORK_BOMB = re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:")
@@ -115,6 +116,61 @@ def _is_win_recursive_delete(cmd: str) -> bool:
     return ps_recurse_force or cmd_slash_s
 
 
+_FIND_DELETE = r"\bfind\b.*?(?:-delete\b|-exec\s+rm\b)"
+# Line continuations join a statement across physical lines: bash `\` and PowerShell backtick.
+_CONTINUATION = re.compile(r"[\\`]\r?\n")
+
+
+def _statements(c: str) -> list[str]:
+    """Split a command on `;`, `&&`, `||` and newlines — ONLY at the top level. Same rule as
+    hooks/guard.py: a separator inside quotes, a subshell/block or after a line continuation does
+    not end a statement, and an unclosed quote or bracket errs toward one statement (deny)."""
+    c = _CONTINUATION.sub(" ", c)
+    out: list[str] = []
+    cur: list[str] = []
+    quote, depth, i = "", 0, 0
+    while i < len(c):
+        ch = c[i]
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch in "({":
+            depth += 1
+        elif ch in ")}" and depth:
+            depth -= 1
+        elif depth == 0 and (ch in ";\n" or c[i:i + 2] in ("&&", "||")):
+            out.append("".join(cur))
+            cur = []
+            i += 1 if ch in ";\n" else 2
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return [_strip_quotes(s) for s in out]
+
+
+def _catastrophic_statement(c: str) -> str:
+    """The deny reason when ONE statement both destroys recursively and names a root, else ''.
+
+    Same rule as hooks/guard.py. Tested per statement, not per command: an unrelated `~` or `C:`
+    on another line used to turn a scratchpad cleanup into a root/home deny (found 2026-09-10)."""
+    for seg in _statements(c):
+        if not _CATASTROPHIC_TARGET.search(seg):
+            continue
+        sl = seg.lower()
+        if _is_rm_recursive_force(seg):
+            return "recursive force-delete of a root/home path (rm -rf)"
+        if re.search(_FIND_DELETE, sl):
+            return "find -delete from a root/home path"
+        if _is_win_recursive_delete(seg):
+            return "recursive force-delete of a root/home path (Windows Remove-Item/rmdir)"
+        if (re.search(r"\bchmod\b", sl) and _has_flag(seg, "r", "--recursive")
+                and re.search(r"\b0?777\b", sl)):
+            return "recursive chmod 777 on a root path"
+    return ""
+
+
 def classify_bash(command: str) -> tuple[str, str]:
     """Risk tier (deny|ask|allow) + reason for a shell command."""
     c = command.strip()
@@ -122,26 +178,19 @@ def classify_bash(command: str) -> tuple[str, str]:
     n = _strip_quotes(c)          # quote-normalized: defeats `rm '-rf' "/"` evasion
     nl = n.lower()
     rm_rf = _is_rm_recursive_force(n)
-    catastrophic = bool(_CATASTROPHIC_TARGET.search(n))
-    find_delete = bool(re.search(r"\bfind\b.*?(?:-delete\b|-exec\s+rm\b)", nl))
+    find_delete = bool(re.search(_FIND_DELETE, nl))
     win_del = _is_win_recursive_delete(n)
 
     # ── deny: catastrophic ──
-    if rm_rf and catastrophic:
-        return "deny", "recursive force-delete of a root/home path (rm -rf)"
-    if find_delete and catastrophic:
-        return "deny", "find -delete from a root/home path"
-    if win_del and catastrophic:
-        return "deny", "recursive force-delete of a root/home path (Windows Remove-Item/rmdir)"
+    why = _catastrophic_statement(c)
+    if why:
+        return "deny", why
     if re.search(r"\brmtree\s*\(\s*['\"]?(?:/|~|[A-Za-z]:\\?)['\"]?\s*\)", c, re.I):
         return "deny", "recursive tree delete of a root/home path (rmtree)"
     if _FORK_BOMB.search(c):
         return "deny", "fork bomb"
     if re.search(r"\bdd\b.*\bof=/dev/", nl) or re.search(r"\bmkfs", nl) or re.search(r">\s*/dev/sd[a-z]", nl):
         return "deny", "writes directly to a disk device"
-    if (re.search(r"\bchmod\b", nl) and _has_flag(n, "r", "--recursive")
-            and re.search(r"\b0?777\b", nl) and catastrophic):
-        return "deny", "recursive chmod 777 on a root path"
 
     # ── ask: destructive-but-legit ──
     if rm_rf:

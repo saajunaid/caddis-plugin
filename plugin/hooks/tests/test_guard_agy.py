@@ -60,6 +60,9 @@ def _decision(result: subprocess.CompletedProcess):
     "mkfs.ext4 /dev/sda1",
     "dd if=/dev/zero of=/dev/sda",
     "Remove-Item -Recurse -Force C:\\",
+    "bash -c 'cd ~; rm -rf .'",  # a separator inside quotes is not a statement boundary
+    "rm -rf \\\n/",              # nor is a line continuation
+    "echo $(rm -rf ~)",          # a root right before a closing bracket
 ])
 def test_destructive_command_is_denied(command, tmp_path):
     r = _run(_payload(command, tmp_path))
@@ -74,6 +77,16 @@ def test_ask_tier_uses_agy_force_ask(tmp_path):
     d = _decision(_run(_payload("rm -rf ./build", tmp_path)))
     assert d["decision"] == "force_ask"
     assert "recursive force-delete" in d["reason"]
+
+
+def test_a_root_token_in_another_statement_does_not_deny(tmp_path):
+    """Same rule as hooks/guard.py: the delete and the root must share a statement. An unrelated
+    `C:` on another line used to deny a scratchpad cleanup (found 2026-09-10)."""
+    d = _decision(_run(_payload('Remove-Item -Recurse -Force "$env:TEMP\\probe"; Set-Location C:',
+                                tmp_path)))
+    assert d["decision"] == "force_ask"
+    d = _decision(_run(_payload("echo hi\nRemove-Item -Recurse -Force C:\\", tmp_path)))
+    assert d["decision"] == "deny"
 
 
 def test_git_force_push_asks(tmp_path):

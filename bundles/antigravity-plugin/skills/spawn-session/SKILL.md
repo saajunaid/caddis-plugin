@@ -49,7 +49,10 @@ human to carry, which meant the child did not exist yet and its address could no
 first message was itself proof it had read the handover. Here the parent speaks first, so that
 proof is a separate step: **your opening message asks the child to reply with WHICH FILES it
 opened, before it answers anything.** Ask for paths — a summary can be written without opening
-anything. Record it with `--event readback`; until you do, the handshake refuses `--event answers`.
+anything. **Ask also how many open tasks it rebuilt** from `.caddis/parent-session-state.md` into
+its own tracker, whatever tracker it has. Record both with `--event readback --revived <n>`. The
+handshake refuses a read-back with no count, and a count that disagrees with the file's `- [ ]`
+lines. Until the read-back is recorded, it refuses `--event answers`.
 
 **No name given?** The command falls back to the older printed-prompt flow. That is also the only
 route on agy and Codex, which have no `SendMessage`.
@@ -67,7 +70,7 @@ and the active plan).
 |---|---|---|
 | 1 | **Capture the knowledge** — KB notes for anything that generalises | FIRST, while the reasoning is still in context. Written last it becomes a summary of a summary |
 | 2 | **Update the durable state** — the register, the parking lot | These are the authority. The relay quotes them, so they must be true before it does |
-| 3 | **Write the TASK LIST to a file** | A task widget does not survive a `/clear`. This project has already lost one |
+| 3 | **Write the TASK LIST to a file** — one task per line, `- [ ]` open, `- [x]` done | **Task state is per-session.** The successor's tracker starts empty: a parent board held 59 tasks and the child's `TaskList` said "No tasks found". The child may not even have the same tracker tool. The file is the only medium both sessions can read, so never tell the successor it shares your board |
 | 4 | **Write the relay** — what happened, who owns what, what is blocked | It CITES 1-3. Written earlier, it cites things that have since moved |
 | 5 | **Derive the questions** | LAST. They must target what steps 1-4 actually say. Questions written first test **your memory**, which is the thing under suspicion |
 
@@ -170,9 +173,19 @@ or from a file quoted by path.
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" check --doc .caddis/spawn-session/<id>-prompt.md
 ```
 
-It **blocks** on a commit hash or test count given as current state, and on any path that does not
-exist. It only **notes** a historical hash — those are durable, and flagging them was how the first
-version produced seven findings on one document and taught the reader to skim.
+It **blocks** on a commit hash or test count given as current state, and on a path that does not
+exist. It only **notes** three things:
+
+- a historical hash — durable;
+- a count quoted from an earlier document — `a previous handover said "1,066 tests"` is a citation,
+  not a claim. It needs a reporting verb before the quote and no now-claim on the line; quotation
+  marks alone still block;
+- a bare filename that matches no file in this repo — usually a file in another repository.
+
+A bare filename that DOES match a file here still blocks, and the refusal names the full path. That
+is the case that caught a real error: `deploy.ps1` named the canonical copy when the task was about
+a different file. Flagging citations was how the first version produced seven findings on one
+document and taught the reader to skim.
 
 **A claim that cannot be re-derived does not go in the handover.**
 
@@ -300,18 +313,54 @@ a handover, it is a file — and grading RE-DERIVES, so it audits the document a
 reader. In the manual run that pass found a defect in the parent's own handover. `/clear` in your
 terminal destroys the only thing that can do that.
 
-> **You stay ALIVE. You stop WRITING.** `/caddis:spawn-hub` carries a single-writer rule — the
-> outgoing session stops writing to the repository the moment the prompt is issued, because two
-> sessions committed to one repo concurrently and one's work landed inside the other's commit.
-> That is a different rule from this one and **both hold.** Said no other way, a reader reconciles
-> them by closing the parent early, which removes the grader.
+### Grading goes to a fresh subagent — not to you
+
+**This command's trigger is a nearly-full context, and grading is its most expensive step.** Round 1
+re-derives every answer from the repository, because no answer key is stored. In the first real run
+that was about 30 tool calls, and round 2 repeated it for the delivered work. A parent near its limit
+cannot finish that. It runs out mid-grade, while the successor waits for a verdict.
+
+Grading never needed your memory. It needs the repo, the questions and the child's answers. So send
+each round to a **fresh subagent** and keep only its verdict:
+
+> Grade `.caddis/spawn-session/<id>-answers.md` against the questions in
+> `.caddis/spawn-session/<id>-prompt.md`. Re-derive every answer from the repository — run the
+> commands, open the files — and do not trust the child's citations. Return ACCEPT, ACCEPT WITH
+> CORRECTIONS or REJECT, and for each wrong answer the file or command that proves it. List
+> separately any error you find in the handover documents themselves.
+
+Use a read-only agent that can open files and run commands (`caddis:anchor` fits). You relay the
+verdict, record it, and fix any handover document it proves wrong. On a runtime with no subagents,
+grade in a fresh session and say so. Never grade from a nearly-full context.
+
+**ALIVE until `handshake close`; not WRITING, with two named exceptions.** `/caddis:spawn-hub`
+carries a single-writer rule, because two sessions committed to one repo concurrently and one's work
+landed inside the other's commit. Here it has exactly two exceptions: your own handover artefacts,
+and a document a verdict proves wrong. **Commit and push each one before you reply.** Never hold an
+uncommitted change while the child is live, because a checkout on its side can take it with no copy
+anywhere.
 
 Note the handshake file lands in `.caddis/spawn-session/`, so commit it with the others before
 re-running `preflight`, which refuses on a dirty tree.
 
-### Tell the child it does not own the tree
+### The tree is never handed over while two sessions are attached
 
-**Say this in the prompt.** A fresh session's instinct on seeing a dirty tree is to tidy it, and
+**Stopping writing does not transfer the workspace.** Never tell the child "the tree is yours now".
+That sentence describes your intent at one moment; it is not a property of the tree. In the first
+real run the successor read it as permission and switched the shared checkout within the hour.
+
+**The guard enforces this in Claude Code.** While a handshake in `.caddis/spawn-session/` is open,
+the caddis guard denies `git switch`, `checkout`, `restore`, `stash`, `reset`, `rebase` and `clean`
+in either session, and names the worktree command instead. The lock lifts at `handshake close`. A
+handshake older than 24 hours is treated as abandoned and does not hold it. The agy guard does not
+carry this lock yet, so on agy the prompt below is the only protection.
+
+If the child needs another branch before close, it adds a worktree **at that moment**, not at spawn,
+and removes it when the work lands. Leftover worktrees already pile up on this machine, and one made
+eagerly adds to the pile. One consumer repo's `AGENTS.md` records that `git worktree remove --force`
+can follow a junction and delete its target, so check a worktree for junctions before removing it.
+
+**Still say it in the prompt.** A fresh session's instinct on seeing a dirty tree is to tidy it, and
 you are still in that tree.
 
 > While both sessions are live, do **not** run `git checkout`, `switch`, `stash`, `reset`,
@@ -331,7 +380,7 @@ See `.caddis/kb/shared-worktree-branch-switch.md` for detection and the recovery
 Three lines — messaged directly, or carried by the user on the paste route:
 
 ```
-SPAWN <id> | head <sha> | <n> tests | answers in .caddis/spawn-session/<id>-answers.md
+SPAWN <id> | head <sha> | <n> tests | <n> tasks revived | answers in .caddis/spawn-session/<id>-answers.md
 Q1-Q6 answered with citations. <n> commands run. <n> facts I could not find in a file.
 <one line: the single most important thing I believe about the current state>
 ```
@@ -378,7 +427,7 @@ means regenerate" was unenforceable, because nothing counted them.
 ### When the fault is yours, fix the class
 
 If validation finds an error that came from your handover, **fix the source document in the same
-turn** — and fix the class, not the instance. In the manual run a successor found a stale commit
+turn, and commit and push it before you reply** — and fix the class, not the instance. In the manual run a successor found a stale commit
 hash; the fix was not a fresher hash, it was to **remove hashes from both documents** and write the
 command instead. A handover patched per-instance goes stale again on the next commit.
 
@@ -402,8 +451,8 @@ Round 1's verdict sets round 2's size:
 | ACCEPT WITH CORRECTIONS | a **small, reversible** item that writes nothing permanent; review closely |
 | REJECT | no task — re-read and re-answer |
 
-Review the result **by re-deriving it**, exactly as you reviewed the answers — not by reading the
-successor's account of it.
+Review the result **by re-deriving it**, exactly as you reviewed the answers — through a fresh
+subagent, not by reading the successor's account of it.
 
 ### Then stop gating
 
@@ -411,6 +460,27 @@ successor's account of it.
 one real task correctly has demonstrated as much as a gate can. Continuing to review every item
 turns you into a bottleneck and the successor into a relay — which is the cost this command exists
 to remove.
+
+---
+
+## The parent's ending
+
+The first real run had no ending. The parent stayed live for hours after the handover: it graded
+twice, corrected four documents, merged two PRs and relayed decisions — still paying the token cost
+the handover exists to escape. The owner expected it to close once the successor was proven. It now
+does, in this order:
+
+1. **Before you issue the prompt, land or name your in-flight work.** `preflight` lists local
+   branches that were never pushed or are ahead of their upstream. Push each one and name it in the
+   relay, with what the successor must wait for. Open PRs are not detected — list them yourself. In
+   the first run the successor nearly reverted a fix that sat on the parent's unmerged PR.
+2. **After round 2's review is sent**, run `handshake close`. The handshake reaches `acknowledged`
+   in round 1, but do not close before round 2's review is out. `close` stamps `closed_at`, which
+   lifts the guard's tree lock.
+3. **Commit and push the handshake file.**
+4. **Send the child one last message:** what you handed over, and that you are stopping.
+5. **EXIT.** Tell the product owner the terminal can be closed. Do not stay on as an adviser. The
+   successor has the repo, and the repo is the record.
 
 ---
 
@@ -439,6 +509,9 @@ chat cannot be reviewed**, and cannot be re-read when the next handover asks wha
 | Write a question whose answer is not in a committed file | it would test memory |
 | Store an answer key | it freezes your belief, and the child can read it. **`check` enforces this** — see round 1 |
 | Grade your own answers | you validate; the child answers |
+| Grade from a nearly-full context | send each round to a fresh subagent; grading needs the repo, not your memory |
+| Tell the child the tree is its own | stopping writing does not transfer the workspace; the guard holds the lock until `close` |
+| Stay on after `close` | the parent's job ends there — see "The parent's ending" |
 | Close on an unanswered handshake | it is the same as never running one. `handshake close` refuses |
 | Read silence as success | a child that skipped the gate looks exactly like one still reading |
 | Proceed when the open-item count is unknown | that count is the integrity check |

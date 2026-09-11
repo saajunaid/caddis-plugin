@@ -79,6 +79,8 @@ work a document describes is complete; use `superseded` when a newer document re
 - **`done` is the canonical terminal value.** `shipped` and `implemented` are accepted legacy
   synonyms — tooling treats them as terminal — but prefer `done` in new and updated documents.
   (`ready` is NOT terminal: it means approved-and-waiting-to-start, i.e. active.)
+- **`proposed`** means written and complete, but not yet agreed. It is active, and it sits between
+  `draft` (not finished) and `ready` (agreed, waiting to start).
 
 **OKF v0.2 vocabulary (canonical for reference documents — KB notes, runbooks, guides):**
 `draft` → being written, do not rely on it yet. `stable` → trustworthy, the default reading.
@@ -100,6 +102,7 @@ whether the work is committed rather than a candidate. `python scripts/caddis_ti
 | caddis | OKF v0.2 | Meaning |
 |---|---|---|
 | `draft` | `draft` | Not yet reliable. |
+| `proposed` | `draft` | Complete, awaiting a decision — not yet reliable. |
 | `current` / `ready` | `stable` | Active and trustworthy. |
 | `done` (`shipped`, `implemented`) | `stable` | Work finished; the record stands. |
 | `superseded` | `deprecated` | Replaced — do not rely on it. |

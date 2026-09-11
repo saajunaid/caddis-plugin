@@ -163,6 +163,34 @@ class TestClassifyBash:
         assert guard.classify_bash("Remove-Item file.txt")[0] == "allow"
         assert guard.classify_bash("del temp.log")[0] == "allow"
 
+    def test_a_root_token_in_another_statement_does_not_deny(self):
+        """The delete and the root must be in the SAME statement. Found 2026-09-10: a scratchpad
+        cleanup was denied as "root/home" because a `~` or `C:` appeared elsewhere in a multi-line
+        command. The work moved into the projects directory, where a junction is more dangerous."""
+        assert guard.classify_bash(
+            'Remove-Item -Recurse -Force "$env:TEMP\\probe"; Set-Location C:')[0] == "ask"
+        assert guard.classify_bash(
+            '[IO.Directory]::Delete($j)\nRemove-Item -Recurse -Force "$env:TEMP\\probe"\n'
+            'Write-Host "done ~"')[0] == "ask"
+        assert guard.classify_bash("rm -rf build && cd ~")[0] == "ask"
+
+    def test_a_split_never_frees_a_real_root_delete(self):
+        """Review catch: splitting on separators that sit inside quotes, a subshell or a line
+        continuation turned real root deletes from deny into ask — a silent allow in deny-only."""
+        for cmd in ("rm -rf \\\n/", "Remove-Item -Recurse -Force `\nC:\\",
+                    "bash -c 'cd ~; rm -rf .'", "(cd ~; rm -rf .)", 'sh -c "cd / && rm -rf *"'):
+            assert guard.classify_bash(cmd)[0] == "deny", repr(cmd)
+
+    def test_a_root_right_before_a_closing_bracket_is_still_a_root(self):
+        """Review catch, older than the split: `~` followed by `)` failed the target regex."""
+        for cmd in ("echo $(rm -rf ~)", "(rm -rf /)", "& { Remove-Item -Recurse -Force C:\\}"):
+            assert guard.classify_bash(cmd)[0] == "deny", repr(cmd)
+
+    def test_a_root_in_the_same_statement_still_denies(self):
+        assert guard.classify_bash("cd ~ ; Remove-Item -Recurse -Force C:\\")[0] == "deny"
+        assert guard.classify_bash("echo hi\nrm -rf ~")[0] == "deny"
+        assert guard.classify_bash("find / | xargs rm -rf")[0] == "deny", "a pipe is one statement"
+
     def test_python_rmtree_root_denied(self):
         assert guard.classify_bash("python -c \"import shutil; shutil.rmtree('/')\"")[0] == "deny"
         assert guard.classify_bash("python -c \"shutil.rmtree('~')\"")[0] == "deny"
@@ -392,3 +420,81 @@ def test_powershell_tool_is_classified_like_bash():
 def test_powershell_ordinary_command_still_allowed():
     tier, _ = guard.decide("PowerShell", {"command": "Get-ChildItem ."}, [])
     assert tier == "allow"
+
+
+class TestSpawnTreeLock:
+    """spawn-session told the child not to move the shared checkout while both sessions are live.
+    The parent pasted it verbatim, and the successor switched branches within the hour
+    (2026-09-10) — four files the parent had corrected reverted under it. A rule that has to be
+    remembered is not a gate, so while a handshake is open the guard refuses to move the tree."""
+
+    @staticmethod
+    def _handshake(root, *, closed=False, age_s=0, lock=True, state="awaiting-answers"):
+        import json
+        import time
+        d = root / ".caddis" / "spawn-session"
+        d.mkdir(parents=True, exist_ok=True)
+        st = {"id": "s1", "state": state, "opened_at": int(time.time()) - age_s, "history": []}
+        if lock:
+            st["tree_lock"] = True
+        if closed:
+            st["closed_at"] = int(time.time())
+        (d / "s1-handshake.json").write_text(json.dumps(st), encoding="utf-8")
+
+    def test_a_handshake_from_before_the_lock_never_locks(self, tmp_path):
+        """Measured on a real repo: an `acknowledged` handshake 11h old with no `closed_at`,
+        because the old `close` never wrote one. Without an opt-in flag the lock would have
+        blocked that live session's `git switch` for another 13 hours."""
+        self._handshake(tmp_path, lock=False, state="acknowledged")
+        assert guard.tree_lock_reason("git switch x", str(tmp_path)) == ""
+
+    def test_tree_moving_git_is_refused_while_a_handshake_is_open(self, tmp_path):
+        self._handshake(tmp_path)
+        for cmd in ("git switch feat/x", "git checkout -b feat/x", "git checkout -- a.py",
+                    "git stash", "git stash push -m x", "git reset --hard", "git rebase main",
+                    "git clean -fd", "git restore a.py", "cd sub && git switch main"):
+            assert "worktree" in guard.tree_lock_reason(cmd, str(tmp_path)), cmd
+
+    def test_reads_pulls_and_worktrees_pass(self, tmp_path):
+        self._handshake(tmp_path)
+        for cmd in ("git status", "git stash list", "git stash show", "git log --oneline",
+                    "git pull --ff-only", "git worktree add ../wt -b feat/x origin/main",
+                    "echo switch"):
+            assert guard.tree_lock_reason(cmd, str(tmp_path)) == "", cmd
+
+    def test_no_lock_without_an_open_handshake(self, tmp_path):
+        assert guard.tree_lock_reason("git switch x", str(tmp_path)) == ""
+        self._handshake(tmp_path, closed=True)
+        assert guard.tree_lock_reason("git switch x", str(tmp_path)) == ""
+        self._handshake(tmp_path, age_s=25 * 3600)      # abandoned, not live
+        assert guard.tree_lock_reason("git switch x", str(tmp_path)) == ""
+
+    def test_git_dash_c_is_judged_by_its_target(self, tmp_path):
+        """`git -C <other repo> switch` cannot touch the shared checkout."""
+        self._handshake(tmp_path)
+        other = tmp_path.parent / (tmp_path.name + "-other")
+        other.mkdir()
+        assert guard.tree_lock_reason(f"git -C {other} switch x", str(tmp_path)) == ""
+        assert guard.tree_lock_reason("git -C . switch x", str(tmp_path))
+
+    def test_the_lock_is_found_from_a_subdirectory(self, tmp_path):
+        self._handshake(tmp_path)
+        sub = tmp_path / "a" / "b"
+        sub.mkdir(parents=True)
+        assert guard.tree_lock_reason("git switch x", str(sub))
+
+    def test_the_hook_denies_even_in_deny_only_mode(self, tmp_path):
+        """deny-only turns every ask into a silent allow, so an ask-tier lock would do nothing on
+        the machine where the failure happened. It has to be deny."""
+        import json
+        import subprocess
+        self._handshake(tmp_path)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CADDIS_GUARD")}
+        env["CADDIS_GUARD_MODE"] = "deny-only"
+        payload = json.dumps({"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git switch feat/x"}})
+        r = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input=payload,
+                           capture_output=True, text=True, env=env, timeout=30)
+        out = json.loads(r.stdout)["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny"
+        assert "worktree" in out["permissionDecisionReason"]

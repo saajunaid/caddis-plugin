@@ -21,6 +21,10 @@ It is **additive and safe** — never deletes your rows:
 - **Missing map** → creates `.caddis/kb/DOC-MAP.md` from a scaffold, pre-linking the repo's obvious
   reference docs (README, `docs/…`) and any existing `.caddis/kb/*.md` notes.
 - **Existing map** → indexes any KB note that isn't yet linked (adds a row with a placeholder description).
+  It appends to the `## Knowledge base` table, or — in a map written by hand with no such heading —
+  to the first table that already links sibling notes (`[x](x.md)`).
+- **Could not index a note** (no table of notes anywhere) → says so and **exits 1**. Report it; do not
+  treat the run as done.
 - **Dangling links** (a linked file that's gone) → **reported, not removed** — handle them in Step 3.
 
 ## Step 3 — finish by hand

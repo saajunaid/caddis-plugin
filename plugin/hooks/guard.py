@@ -34,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 
 # Functional identity, mirrored from scripts/claudster_config.py (see the note above).
 _ARTIFACT_DIR = ".caddis"
@@ -80,8 +81,9 @@ def classify_write(file_path: str) -> tuple[str, str]:
 # subpath (E:\proj\dist falls through to ask).
 _CATASTROPHIC_TARGET = re.compile(
     r"--no-preserve-root"
-    r"|(?:^|\s)(?:/|/\*|~/|~|\$\{?HOME\}?)(?:\s|$|;|&|\|)"
-    r"|(?:^|\s)[A-Za-z]:[\\/]?(?:\s|$|;|&|\|)",
+    # A closing bracket also ends the target: `echo $(rm -rf ~)` was ask, not deny (review catch).
+    r"|(?:^|\s)(?:/|/\*|~/|~|\$\{?HOME\}?)(?:\s|$|;|&|\||[)}])"
+    r"|(?:^|\s)[A-Za-z]:[\\/]?(?:\s|$|;|&|\||[)}])",
     re.I,
 )
 _FORK_BOMB = re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:")
@@ -114,6 +116,69 @@ def _is_win_recursive_delete(cmd: str) -> bool:
     ps_recurse_force = bool(re.search(r"(?:^|\s)-rec\w*", cmd, re.I)) and bool(re.search(r"(?:^|\s)-for\w*", cmd, re.I))
     cmd_slash_s = bool(re.search(r"(?:^|\s)/s\b", cmd, re.I))
     return ps_recurse_force or cmd_slash_s
+
+
+_FIND_DELETE = r"\bfind\b.*?(?:-delete\b|-exec\s+rm\b)"
+# Line continuations join a statement across physical lines: bash `\` and PowerShell backtick.
+_CONTINUATION = re.compile(r"[\\`]\r?\n")
+
+
+def _statements(c: str) -> list[str]:
+    """Split a command on `;`, `&&`, `||` and newlines — ONLY at the top level.
+
+    A separator inside quotes (`bash -c 'cd ~; rm -rf .'`), inside a subshell or block
+    (`(cd ~; rm -rf .)`), or after a line continuation does not end a statement. The first version
+    split on every one, and turned those real root deletes from deny into ask — a silent allow
+    under deny-only. An unclosed quote or bracket keeps the rest as one statement, which errs
+    toward deny. A pipe is never a separator: `find / | xargs rm -rf` is one statement. Quotes are
+    stripped per statement afterwards, as the whole-command rules do.
+    """
+    c = _CONTINUATION.sub(" ", c)
+    out: list[str] = []
+    cur: list[str] = []
+    quote, depth, i = "", 0, 0
+    while i < len(c):
+        ch = c[i]
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch in "({":
+            depth += 1
+        elif ch in ")}" and depth:
+            depth -= 1
+        elif depth == 0 and (ch in ";\n" or c[i:i + 2] in ("&&", "||")):
+            out.append("".join(cur))
+            cur = []
+            i += 1 if ch in ";\n" else 2
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return [_strip_quotes(s) for s in out]
+
+
+def _catastrophic_statement(c: str) -> str:
+    """The deny reason when ONE statement both destroys recursively and names a root, else ''.
+
+    Tested per statement, not per command. Testing "is there a recursive delete" and "is there a
+    root-looking token" each across the whole command denied a scratchpad cleanup because an
+    unrelated `~` or `C:` sat on another line (found 2026-09-10). The agent then ran the same
+    delete inside the projects directory instead, where a junction is actually dangerous."""
+    for seg in _statements(c):
+        if not _CATASTROPHIC_TARGET.search(seg):
+            continue
+        sl = seg.lower()
+        if _is_rm_recursive_force(seg):
+            return "recursive force-delete of a root/home path (rm -rf)"
+        if re.search(_FIND_DELETE, sl):
+            return "find -delete from a root/home path"
+        if _is_win_recursive_delete(seg):
+            return "recursive force-delete of a root/home path (Windows Remove-Item/rmdir)"
+        if (re.search(r"\bchmod\b", sl) and _has_flag(seg, "r", "--recursive")
+                and re.search(r"\b0?777\b", sl)):
+            return "recursive chmod 777 on a root path"
+    return ""
 
 
 # Shell constructs that WRITE to a named target: redirections, and the usual suspects that take
@@ -158,26 +223,19 @@ def classify_bash(command: str) -> tuple[str, str]:
         if _tier == "deny":
             return "deny", f"shell command {_why}"
     rm_rf = _is_rm_recursive_force(n)
-    catastrophic = bool(_CATASTROPHIC_TARGET.search(n))
-    find_delete = bool(re.search(r"\bfind\b.*?(?:-delete\b|-exec\s+rm\b)", nl))
+    find_delete = bool(re.search(_FIND_DELETE, nl))
     win_del = _is_win_recursive_delete(n)
 
     # ── deny: catastrophic ──
-    if rm_rf and catastrophic:
-        return "deny", "recursive force-delete of a root/home path (rm -rf)"
-    if find_delete and catastrophic:
-        return "deny", "find -delete from a root/home path"
-    if win_del and catastrophic:
-        return "deny", "recursive force-delete of a root/home path (Windows Remove-Item/rmdir)"
+    why = _catastrophic_statement(c)
+    if why:
+        return "deny", why
     if re.search(r"\brmtree\s*\(\s*['\"]?(?:/|~|[A-Za-z]:\\?)['\"]?\s*\)", c, re.I):
         return "deny", "recursive tree delete of a root/home path (rmtree)"
     if _FORK_BOMB.search(c):
         return "deny", "fork bomb"
     if re.search(r"\bdd\b.*\bof=/dev/", nl) or re.search(r"\bmkfs", nl) or re.search(r">\s*/dev/sd[a-z]", nl):
         return "deny", "writes directly to a disk device"
-    if (re.search(r"\bchmod\b", nl) and _has_flag(n, "r", "--recursive")
-            and re.search(r"\b0?777\b", nl) and catastrophic):
-        return "deny", "recursive chmod 777 on a root path"
 
     # ── ask: destructive-but-legit ──
     if rm_rf:
@@ -229,6 +287,74 @@ def decide(tool_name: str, tool_input, allow_patterns: list[str]) -> tuple[str, 
     if tier == "ask" and any(pat and pat.lower() in target.lower() for pat in allow_patterns):
         return "allow", ""
     return tier, reason
+
+
+# ── the shared-tree lock during a spawn-session handover ─────────────────────
+# `spawn-session.md` told the child not to move the shared checkout while both sessions are live.
+# The parent pasted it verbatim and the successor switched branches within the hour (2026-09-10);
+# four files the parent had corrected reverted under it. A rule that has to be remembered is not a
+# gate, so while a handshake is open the guard refuses the git commands that move or discard the
+# tree. DENY, not ask: deny-only mode turns every ask into a silent allow, and that is the mode the
+# failure happened in.
+#
+# The verb must be git's SUBCOMMAND (first word after global options), so `git commit -m "reset x"`
+# and `git worktree add ... -b feat` pass. `stash list` / `stash show` only read.
+_TREE_MOVING_GIT = re.compile(
+    r"\bgit(?:\s+-[Cc]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+"
+    r"(?:switch|checkout|restore|rebase|reset|clean|stash(?!\s+(?:list|show)\b))(?=\s|$|[;&|])",
+    re.I,
+)
+# Older than this is an abandoned handshake, not a live one — two REJECTs end a handshake that
+# `close` can never accept, and it must not lock the tree forever.
+_HANDSHAKE_LIVE_S = 24 * 3600
+
+
+def _open_handshake(start: str) -> str:
+    """Id of a spawn-session handshake still open in the repo holding ``start``, or ''."""
+    here = os.path.abspath(start)
+    while True:
+        d = os.path.join(here, _ARTIFACT_DIR, "spawn-session")
+        if os.path.isdir(d):
+            now = time.time()
+            for name in sorted(os.listdir(d)):
+                if not name.endswith("-handshake.json"):
+                    continue
+                try:
+                    with open(os.path.join(d, name), encoding="utf-8") as fh:
+                        st = json.load(fh)
+                except Exception:
+                    continue
+                # `tree_lock` is written by handshakes opened since the lock existed. Older files
+                # never stamped `closed_at`, so without this opt-in a handshake finished under the
+                # old code would lock a live session's tree — measured on a real one, 11h old.
+                if not st.get("tree_lock") or st.get("closed_at"):
+                    continue
+                if now - float(st.get("opened_at", 0)) > _HANDSHAKE_LIVE_S:
+                    continue
+                return str(st.get("id") or name[: -len("-handshake.json")])
+            return ""
+        parent = os.path.dirname(here)
+        if parent == here:
+            return ""
+        here = parent
+
+
+def tree_lock_reason(command: str, root: str) -> str:
+    """The deny reason when ``command`` would move a checkout a live handshake shares, else ''."""
+    m = _TREE_MOVING_GIT.search(command)
+    if not m:
+        return ""
+    # `git -C <path>` acts on <path>, not on the checkout the command was issued from.
+    target = re.search(r"\s-C\s+(\S+)", m.group(0))
+    if target:
+        root = os.path.join(root, target.group(1).strip("'\""))
+    hs = _open_handshake(root)
+    if not hs:
+        return ""
+    return (f"spawn-session handshake `{hs}` is open, so two sessions share this checkout. Moving or "
+            "discarding the tree here carries or destroys the other session's uncommitted work. "
+            "Work in your own tree instead: `git worktree add <scratch>/<name> -b <branch> "
+            "origin/main`, and remove it when the work lands. The lock lifts at `handshake close`")
 
 
 # ── hook I/O glue ────────────────────────────────────────────────────────────
@@ -313,6 +439,10 @@ def main() -> None:
         if guard_disabled(root):
             sys.exit(0)  # kill switch: bypass every tier, defer to normal permission handling
         tier, reason = decide(tool_name, tool_input, _load_allow(root))
+        if tier != "deny" and tool_name in ("Bash", "PowerShell") and isinstance(tool_input, dict):
+            lock = tree_lock_reason(str(tool_input.get("command", "")), root)
+            if lock:
+                tier, reason = "deny", lock
         if tier == "ask" and deny_only(root):
             tier = "allow"  # deny-only: keep catastrophe blocks, never prompt (no plan interruption)
     except Exception:

@@ -192,7 +192,7 @@ def extract_docmap_entries(docmap_text: str) -> set[str]:
 # the other; the instruction file carries the mapping. Legacy synonyms included so old docs stay quiet.
 TRUST_STATUS_VALUES: frozenset[str] = frozenset({
     "draft", "stable", "deprecated",                      # OKF v0.2
-    "current", "done", "superseded", "ready",             # caddis
+    "current", "done", "superseded", "ready", "proposed", # caddis
     "shipped", "implemented",                             # caddis legacy synonyms for `done`
     "open", "doing", "dropped",                           # caddis parking-lot (`done` shared above)
 })
@@ -675,6 +675,43 @@ def insert_table_rows(text: str, heading_contains: str, rows: list[str]) -> str:
     return out + "\n" if text.endswith("\n") else out   # preserve trailing newline (git-clean)
 
 
+# A link to a SIBLING note — `[x](x.md)` or `[x](./x.md)` — is what marks a table as the KB index.
+# A link that climbs out (`../../docs/guide.md`) marks a table of other docs, which must not get
+# KB rows appended to it.
+_SIBLING_NOTE_LINK = re.compile(r"\]\((?:\./)?[^/()\s]+\.md\)")
+
+
+def insert_into_note_table(text: str, rows: list[str]) -> str:
+    """Append ``rows`` to the first table that already links sibling KB notes, whatever its heading.
+
+    The fallback for a DOC-MAP written by hand before the scaffold existed. Found 2026-09-10 in
+    a consumer repo: a working 15-row table with no ``## Knowledge base`` heading, invisible to
+    ``insert_table_rows``, so every new note had to be indexed by hand. Returns ``text`` unchanged
+    when no such table exists. Pure.
+    """
+    if not rows:
+        return text
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip().startswith("|"):
+            i += 1
+            continue
+        start = i
+        while i < len(lines) and lines[i].strip().startswith("|"):
+            i += 1
+        end = i - 1
+        if end - start < 1 or set(lines[start + 1].strip()) - set("|-: "):
+            continue                                      # no |---| separator: not a table
+        first_cells = [r.split("|")[1] for r in lines[start + 2:end + 1] if r.count("|") > 1]
+        if any(_SIBLING_NOTE_LINK.search(c) for c in first_cells):
+            head = lines[start:start + 2]
+            body = [b for b in lines[start + 2:end + 1] if not _is_placeholder_row(b)]
+            out = "\n".join(lines[:start] + head + body + rows + lines[end + 1:])
+            return out + "\n" if text.endswith("\n") else out
+    return text
+
+
 def build_docmap(root: Path, project_name: str = "project") -> str:
     """Full DOC-MAP text for a fresh repo: scaffold + discovered reference docs + existing KB notes.
 
@@ -779,7 +816,10 @@ def reindex(
     # Index orphan KB notes (additive). Report success ONLY if the rows actually landed — insert is a
     # no-op when the "Knowledge base" heading/table is absent, and we must not claim work we didn't do.
     if orphans:
-        after = insert_table_rows(updated, "Knowledge base", kb_note_rows(root, entries))
+        new_rows = kb_note_rows(root, entries)
+        after = insert_table_rows(updated, "Knowledge base", new_rows)
+        if after == updated:
+            after = insert_into_note_table(updated, new_rows)   # a hand-made map, no heading
         if after != updated:
             updated = after
             summary.append(f"indexed {len(orphans)} KB note(s): " + ", ".join(orphans))
@@ -886,6 +926,20 @@ def run(root: Path, check: bool) -> int:
     return 0
 
 
+def run_reindex(root: Path, prune: bool = False) -> int:
+    """Run the reindex, print its summary, and return the exit code.
+
+    Non-zero when any part of the work was NOT done — a note it could not index, or a DOC-MAP it
+    could not write. Until 2026-09-10 this always exited 0, so a partial success looked exactly
+    like a full one and a repo could sit with unindexed notes indefinitely.
+    """
+    root = Path(root)
+    _changed, summary = reindex(root, root.name, prune=prune)
+    for line in summary:
+        print(f"[kb] {line}")
+    return 1 if any(s.startswith(("could not", "WARNING")) for s in summary) else 0
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")  # Windows cp1252 can't encode some doc names
@@ -909,12 +963,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     root = _repo_root()
-    # Reindex/prune are maintenance actions (the `/kb` command drives them), not a gate — run, exit 0.
+    # Reindex/prune are maintenance actions (the `/kb` command drives them), not a gate — but they
+    # still exit non-zero when part of the work could not be done.
     if args.reindex or args.prune:
-        _changed, summary = reindex(root, root.name, prune=args.prune)
-        for line in summary:
-            print(f"[kb] {line}")
-        sys.exit(0)
+        sys.exit(run_reindex(root, prune=args.prune))
     # Resolve the repo root from git (cwd fallback) — the pre-push gate runs from the repo root,
     # so this is correct wherever the checker is copied. Tests call run() with an explicit root.
     sys.exit(run(root, args.check))

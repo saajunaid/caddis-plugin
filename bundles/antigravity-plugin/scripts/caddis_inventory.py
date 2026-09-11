@@ -325,12 +325,16 @@ def _run_tests(cmd: list[str], cwd: Path, timeout: int = 900) -> tuple[str, str]
         return (f"could not run the suite ({type(exc).__name__})", shown)
 
     blob = (r.stdout or "") + chr(10) + (r.stderr or "")
-    # pytest's summary line is the last one naming passed/failed/error.
+    # The summary is the last line naming passed/failed/error. Case-insensitive, because Pester
+    # capitalises it (`Tests Passed: 22, Failed: 0`) — found 2026-09-10 in an all-Pester repo.
     tail = [l.strip() for l in blob.splitlines()
-            if ("passed" in l or "failed" in l or "error" in l.lower()) and "==" not in l[:2]]
+            if any(w in l.lower() for w in ("passed", "failed", "error")) and "==" not in l[:2]]
     if tail:
         return (tail[-1], shown)
-    return (f"suite did not report a summary (exit {r.returncode}) — investigate", shown)
+    # Say WHAT was run and how to change it. A bare "no summary" read as "this repo has no tests"
+    # when the truth was "the tool and the repo disagree about how to run them".
+    return (f"no test summary from `{shown}` (exit {r.returncode}) — if this repo's tests are "
+            "not pytest, set [handover] test_cmd in .caddis/config.toml", shown)
 
 
 def _test_command(root: Path) -> list[str]:

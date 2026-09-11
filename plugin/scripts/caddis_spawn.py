@@ -104,6 +104,9 @@ class DocFindings:
     stale_prone: list[tuple[int, str]] = field(default_factory=list)
     historical: list[tuple[int, str]] = field(default_factory=list)
     missing_paths: list[str] = field(default_factory=list)
+    # Bare filenames that match NO file in this repo. Advisory: in one real handover every such
+    # name was a file in another repository, which no local check could ever satisfy.
+    unresolved_names: list[str] = field(default_factory=list)
     # A THIRD refusing tier, kept separate from stale_prone so the message can say something
     # different. A stale hash is an accident the successor will notice; a stored answer key
     # defeats the exercise SILENTLY — it certifies a reader who understood nothing.
@@ -138,6 +141,18 @@ _INLINE_ANSWER = re.compile(r"\bQ\s*\d{1,2}\b.*?\b(?:A|Ans|Answer)\s*[:.\)]", re
 
 
 _DOC_PATH = re.compile(r"`([^`\s<>{}*?]+?\.(?:md|py|ts|tsx|json|ya?ml|sh|ps1|html|toml|sql))`")
+
+# A count QUOTED FROM an earlier document ("a previous handover said '1,066 tests'") is a citation,
+# not a claim about now — found 2026-09-10, when the sentence warning the reader not to quote
+# counts had to lose its example to pass. Quotation marks alone are NOT enough: `status: "312
+# tests passed"` is a current claim in quotes (review catch). So three things must hold: the count
+# sits inside a quoted span, a reporting verb comes BEFORE that span, and the line makes no
+# now-claim. A single quote only opens a span at a word boundary, so "it's" cannot start one.
+_QUOTED = re.compile(r"(?<!\w)'[^'\n]*'(?!\w)|\"[^\"\n]*\"|“[^”\n]*”|‘[^’\n]*’")
+_REPORTED = re.compile(r"\b(?:said|says|claimed|claims|wrote|reported|quoted|stated)\b", re.I)
+_NOW_CLAIM = re.compile(
+    r"\b(?:now|still|currently|current|today|at present|as of|remains?|unchanged|holds|stands"
+    r"|nothing has changed)\b", re.I)
 
 
 def check_document(text: str, repo_root: Path | None = None) -> DocFindings:
@@ -185,17 +200,42 @@ def check_document(text: str, repo_root: Path | None = None) -> DocFindings:
                 out.historical.append((n, f"commit hash `{m.group(0)}` — reads as a historical "
                                           "citation, which is durable. Check that it is not "
                                           "standing in for current state"))
+        cited = [] if _NOW_CLAIM.search(line) else [
+            (q.start(), q.end()) for q in _QUOTED.finditer(line)
+            if _REPORTED.search(line[:q.start()])]
         for m in _COUNT.finditer(line):
+            if any(a <= m.start() and m.end() <= b for a, b in cited):
+                out.historical.append((n, f"`{m.group(0)}` quoted from an earlier document — "
+                                          "reads as a citation. Check it is not standing in for "
+                                          "current state"))
+                continue
             out.stale_prone.append((n, f"`{m.group(0)}` stated as a fact — write the command "
                                        "instead; this was wrong within the hour, twice"))
     if repo_root is not None:
+        tracked: list[str] | None = None
         for raw in sorted(set(_DOC_PATH.findall(text))):
             cand = next((tok for tok in raw.split() if "/" in tok or tok.endswith(".md")), raw)
             cand = cand.strip("(),;:'\"")
             if cand.startswith(("http://", "https://", "~", "$")) or ".." in cand:
                 continue
-            if not (repo_root / cand).exists():
+            if (repo_root / cand).exists():
+                continue
+            if "/" in cand or "\\" in cand:
                 out.missing_paths.append(cand)
+                continue
+            # A BARE filename. Block only when it names a file this repo has — that is the catch
+            # worth keeping (`deploy.ps1` named the canonical copy when the task was about another
+            # file). A name found nowhere is far more likely a file in another repository.
+            if tracked is None:
+                tracked = _run(["git", "ls-files"], repo_root).splitlines()
+            hits = [t for t in tracked if t.rsplit("/", 1)[-1] == cand]
+            if not hits:
+                out.unresolved_names.append(cand)
+            elif len(hits) == 1:
+                out.missing_paths.append(f"{cand} — did you mean `{hits[0]}`? Name the full path")
+            else:
+                out.missing_paths.append(f"{cand} — matches {len(hits)} files ("
+                                         + ", ".join(hits[:3]) + "). Name the full path")
     return out
 
 
@@ -256,6 +296,29 @@ class Preflight:
         return not self.refusals
 
 
+def in_flight_branches(repo_root: Path) -> list[str]:
+    """Local branches holding commits the successor cannot see: never pushed, or ahead of upstream.
+
+    Found 2026-09-10: the parent had an unmerged branch correcting a plan the successor was told to
+    edit next. The successor caught it by luck — branching off main would have reverted the fix.
+    Empty when the repo has no remote, where every branch is local by design and naming them all
+    would be noise. Open PRs are NOT detected: that needs `gh` and the right account.
+    """
+    if not _run(["git", "remote"], repo_root):
+        return []
+    out = _run(["git", "for-each-ref",
+                "--format=%(refname:short)|%(upstream:short)|%(upstream:track)", "refs/heads"],
+               repo_root)
+    found: list[str] = []
+    for line in out.splitlines():
+        name, up, track = (line.split("|") + ["", ""])[:3]
+        if not up:
+            found.append(f"{name} (never pushed)")
+        elif "ahead" in track:
+            found.append(f"{name} ({track.strip('[]')} of {up})")
+    return found
+
+
 def preflight(repo_root: Path, context_pct: float | None = None) -> Preflight:
     """Conditions under which a spawn must not happen at all.
 
@@ -273,6 +336,12 @@ def preflight(repo_root: Path, context_pct: float | None = None) -> Preflight:
         p.refusals.append(
             f"{p.dirty} uncommitted file(s). The successor pulls, so uncommitted work is invisible "
             "to it — it will redo the work or build on a state that does not exist. Commit first.")
+    flight = in_flight_branches(repo_root)
+    if flight:
+        p.notes.append(
+            "in-flight work the successor cannot see: " + ", ".join(flight) + ". Push each one, "
+            "name it in the relay, and say whether the successor must wait for it. Open PRs are "
+            "not detected here — list them yourself.")
 
     d = repo_root / ART / "parking-lot"
     if d.is_dir():
@@ -352,9 +421,22 @@ def fingerprint(repo_root: Path, with_tests: bool = False) -> dict:
         "tests": "not measured",
     }
     if with_tests:
-        out = _run([sys.executable, "-m", "pytest", "-q", "--tb=no"], repo_root)
-        tail = [l for l in out.splitlines() if "passed" in l or "failed" in l]
-        fp["tests"] = tail[-1] if tail else "suite reported no summary"
+        # The inventory's runner, not a second copy of it. The copy that lived here hard-coded
+        # pytest and ran it through `_run`, which returns "" on a non-zero exit — so a Pester repo
+        # AND a red pytest suite both read "suite reported no summary" (found 2026-09-10).
+        # caddis_inventory had already fixed both: `[handover] test_cmd`, and a runner that keeps
+        # a failing suite's summary. The two files sit side by side in source and in the bundle.
+        # Loaded by FILE, not by name: a `caddis_inventory` already imported from another path
+        # would otherwise be silently reused, and sys.path would be changed for the whole process.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_caddis_inventory_for_spawn", Path(__file__).resolve().parent / "caddis_inventory.py")
+        _inv = importlib.util.module_from_spec(spec)
+        # Registered BEFORE exec: `@dataclass` looks its module up in sys.modules while the class
+        # body runs, and fails with "'NoneType' object has no attribute '__dict__'" otherwise.
+        sys.modules[spec.name] = _inv
+        spec.loader.exec_module(_inv)
+        fp["tests"], _shown = _inv._run_tests(_inv._test_command(repo_root), repo_root)
     return fp
 
 
@@ -398,6 +480,26 @@ def verify_answerable(repo_root: Path, answer_in: str, needle: str) -> tuple[boo
 PARENT_RELAY = "parent-relay.md"
 PARENT_STATE = "parent-session-state.md"
 
+# One task per line, `- [ ]` open and `- [x]` done. Counted so the successor's read-back can be
+# checked against the file instead of taken on trust.
+_TASK_LINE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]", re.M)
+
+
+def count_open_tasks(repo_root: Path) -> int | None:
+    """Open checkbox items in the parent's task list, or None when there is nothing to count.
+
+    None covers "no file" and "a file with no checkbox lines". Either way there is nothing to
+    compare a reported count with, and refusing would demand a format the parent never used.
+    """
+    try:
+        text = (repo_root / ART / PARENT_STATE).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    marks = _TASK_LINE.findall(text)
+    if not marks:
+        return None
+    return sum(1 for m in marks if m == " ")
+
 
 def _mtime(path: Path) -> float | None:
     try:
@@ -428,18 +530,24 @@ def capture_order(repo_root: Path, spawn_id: str) -> tuple[list[str], list[str]]
         return refusals, notes
 
     if t_state is None:
-        notes.append(f"no {ART}/{PARENT_STATE}. A task widget does not survive a `/clear` and this "
-                     "project has already lost one — if the list is genuinely empty, SAY so in the "
-                     "handover rather than leaving the reader to infer it.")
+        notes.append(f"no {ART}/{PARENT_STATE}. Task state is per-session — the successor's "
+                     "tracker starts empty, so this file is the only way the list reaches it. If "
+                     "the list is genuinely empty, SAY so in the handover rather than leaving the "
+                     "reader to infer it.")
     elif t_state > t_relay:
         refusals.append(f"{PARENT_STATE} is NEWER than {PARENT_RELAY}. The relay cites the task "
                         "list, so a list written afterwards means the relay describes a state "
-                        "that never existed. Rewrite the relay, do not re-touch the list.")
+                        "that never existed. Rewrite the relay, do not re-touch the list. If you "
+                        "corrected the list on purpose, re-read the relay against it and re-save "
+                        "the relay — a save that only moves its timestamp is the sanctioned fix.")
 
     if t_relay > t_prompt:
         refusals.append(f"{PARENT_RELAY} is NEWER than the prompt. The questions must target what "
                         "the relay actually says — derived from a relay that has since changed, "
-                        "they test your memory of it, which is the thing under suspicion.")
+                        "they test your memory of it, which is the thing under suspicion. If you "
+                        "corrected the relay on purpose, re-check the questions against it and "
+                        "re-save the prompt — a save that only moves its timestamp is the "
+                        "sanctioned fix.")
 
     # Anything the relay quotes that moved after it was written.
     for sub_dir in ("kb", "parking-lot"):
@@ -530,6 +638,10 @@ def handshake_open(repo_root: Path, spawn_id: str, transport: str = "auto",
         # exist yet. The parent fills it in from the `from-name` of the child's first message,
         # which is the only moment either side reliably knows that name.
         "peer": peer,
+        # Tells the caddis guard to refuse tree-moving git commands until `close` stamps
+        # `closed_at`. An explicit flag, so handshake files written before the lock existed —
+        # which never got a `closed_at` — do not suddenly lock a tree.
+        "tree_lock": True,
         "opened_at": int(time.time()),
         "history": [],
     }
@@ -550,7 +662,8 @@ MAX_REJECTS = 2
 
 
 def handshake_record(repo_root: Path, spawn_id: str, event: str,
-                     peer: str = "", verdict: str = "") -> tuple[dict | None, str]:
+                     peer: str = "", verdict: str = "",
+                     revived: int | None = None) -> tuple[dict | None, str]:
     """Advance the handshake. One step forward, with exactly one named exception.
 
     **REJECT sends it back to `awaiting-answers`, and that is the whole point of this function
@@ -612,10 +725,28 @@ def handshake_record(repo_root: Path, spawn_id: str, event: str,
                        + ("skip a step" if there > here + 1 else "move backwards")
                        + " — refusing rather than rewriting, because a skipped step here is a "
                          "gate that never ran.")
+    # The task list crosses the session boundary only as a file. Task state is per-session, so the
+    # successor's tracker starts empty — measured 2026-09-10: a parent board of 59 tasks, and the
+    # child's `TaskList` said "No tasks found". So the read-back must say how many items the child
+    # rebuilt from the file. Required on `readback` (spawn-session's parent-first flow). Optional
+    # on child-first `answers`, because spawn-hub shares that flow and hands over a role, not a list.
+    if event == "readback" and revived is None:
+        return state, (f"a read-back must say how many open tasks the successor rebuilt from "
+                       f"{ART}/{PARENT_STATE} into its own tracker. Ask for the number, then record "
+                       "it with `--revived <n>` (0 is a valid answer when the list is empty).")
+    if revived is not None:
+        expected = count_open_tasks(repo_root)
+        if expected is not None and revived != expected:
+            return state, (f"the successor reports {revived} revived task(s), but "
+                           f"{ART}/{PARENT_STATE} has {expected} open. A successor that revives "
+                           "fewer has dropped some silently. Ask it to re-read the file and "
+                           "report again.")
+        state["revived"] = revived
     if peer:
         state["peer"] = peer
     state["history"].append({"event": event, "at": int(time.time()),
                              **({"verdict": verdict} if event == "verdict" and verdict else {}),
+                             **({"revived": revived} if revived is not None else {}),
                              **({"peer": peer} if peer else {})})
     state["state"] = target
     _handshake_path(repo_root, spawn_id).write_text(
@@ -677,7 +808,13 @@ def handshake_close(repo_root: Path, spawn_id: str) -> tuple[bool, str]:
                        "ALIVE until the child confirms it has the verdict — closing on an "
                        "unanswered handshake is the same as never running one. (It may stop "
                        "WRITING to the repo now; that is a different rule and both hold.)")
-    return True, "acknowledged — the parent may close"
+    # Stamp it. The guard's shared-tree lock holds while a handshake is open and lifts on this.
+    if not state.get("closed_at"):
+        state["closed_at"] = int(time.time())
+        _handshake_path(repo_root, spawn_id).write_text(
+            json.dumps(state, indent=2) + chr(10), encoding="utf-8")
+    return True, ("acknowledged — closed. Commit and push the handshake file, send the child one "
+                  "last message saying you are stopping, then EXIT (see \"The parent's ending\")")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -714,6 +851,10 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("--peer", default="",
                    help="the child's name as ListAgents shows it — take it from the `from-name` "
                         "of its first message; that is the only moment it is reliably known")
+    h.add_argument("--revived", type=int, default=None,
+                   help="with `--event readback` (required) or `--event answers` (optional): how "
+                        "many open tasks the successor rebuilt from parent-session-state.md. "
+                        "Checked against the file's `- [ ]` lines")
     q = sub.add_parser("verify-question")
     q.add_argument("--answer-in", required=True)
     q.add_argument("--needle", required=True)
@@ -746,6 +887,9 @@ def main(argv: list[str] | None = None) -> int:
         f = check_document(doc.read_text(encoding="utf-8", errors="ignore"), root)
         for n, msg in f.historical:
             print(f"  note  line {n}: {msg}")
+        for name in f.unresolved_names:
+            print(f"  note  `{name}` matches no file in this repo — fine if it lives elsewhere; "
+                  "give the full path if it is here")
         if f.ok():
             print(f"[spawn] {doc.name} passes round 0 — nothing stale-prone, every path exists")
             return EXIT_OK
@@ -785,8 +929,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"({st['transport_reason']}), state `{st['state']}`")
             if st["state"] == HANDSHAKE_STATES[0]:
                 print(f"  PARENT-FIRST. You have the address, so message \"{st['peer']}\" now: "
-                      "tell it what to read, then ask it to reply with WHICH FILES it opened "
-                      "before it answers anything. Record that with `--event readback`.")
+                      "tell it what to read, then ask it to reply with WHICH FILES it opened, and "
+                      f"how many open tasks it rebuilt from {ART}/{PARENT_STATE}, before it "
+                      "answers anything. Record that with `--event readback --revived <n>`.")
             elif st["transport"] == "message" and not st["peer"]:
                 print("  No --peer given, so this is the child-first flow: print the prompt and "
                       "wait. If you already started the child, re-open with `--peer <its "
@@ -814,7 +959,7 @@ def main(argv: list[str] | None = None) -> int:
             if not a.event:
                 sys.stderr.write("[spawn] --event is required for `record`" + chr(10))
                 return EXIT_REFUSED
-            st, err = handshake_record(root, a.id, a.event, a.peer, a.verdict)
+            st, err = handshake_record(root, a.id, a.event, a.peer, a.verdict, a.revived)
             if err:
                 sys.stderr.write("[spawn] " + err + chr(10))
                 return EXIT_REFUSED
