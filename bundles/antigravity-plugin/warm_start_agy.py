@@ -50,6 +50,29 @@ RELAY_FRAME_FOOTER = "=== end session-context ==="
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
+# The freshness report (fetch, then say how far this checkout is from the remote default
+# branch) is the ONE piece here that is imported rather than duplicated: the agy bundle ships
+# hooks/repo_freshness.py beside this file, listed in runtime-targets.json. In the source repo
+# it sits one directory over, so both layouts resolve. Fail open — an older bundle without it
+# simply reports no freshness.
+try:
+    _HOOKS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks")
+    if os.path.isdir(_HOOKS_DIR) and _HOOKS_DIR not in sys.path:
+        sys.path.append(_HOOKS_DIR)
+    import repo_freshness  # noqa: E402
+except Exception:
+    repo_freshness = None  # type: ignore[assignment]
+
+
+def freshness_lines(root: str) -> list[str]:
+    """Where `root` stands against the remote default branch; [] on any problem."""
+    if repo_freshness is None:
+        return []
+    try:
+        return repo_freshness.report(root)
+    except Exception:
+        return []
+
 
 def is_headless() -> bool:
     """True when no human is watching — a run given its task explicitly needs no resume pointer."""
@@ -268,11 +291,22 @@ def main() -> None:
             if conversation:
                 _mark_injected(root, conversation)
 
-        if not blocks:
+        # agy has no SessionStart event, so this first invocation is also where the freshness
+        # report belongs. It is emitted even when there is no relay to inject, and it stays
+        # silent in a repo that is clean, level and on the default branch.
+        fresh: list[str] = []
+        for root in roots:
+            fresh.extend(freshness_lines(root))
+
+        if not blocks and not fresh:
             return
-        message = (RELAY_FRAME_HEADER + "\n" + "\n\n".join(blocks)
-                   + "\n\n" + RELAY_FRAME_FOOTER)
-        payload = json.dumps({"injectSteps": [{"ephemeralMessage": message}]})
+        parts = []
+        if blocks:
+            parts.append(RELAY_FRAME_HEADER + "\n" + "\n\n".join(blocks)
+                         + "\n\n" + RELAY_FRAME_FOOTER)
+        if fresh:
+            parts.append("\n".join(fresh))
+        payload = json.dumps({"injectSteps": [{"ephemeralMessage": "\n\n".join(parts)}]})
         sys.stdout.write(payload)
     except Exception:
         return  # fail open: no injection is always better than a broken invocation

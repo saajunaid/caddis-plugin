@@ -21,8 +21,8 @@ pytest --ignore. mypy keeps a config `exclude` instead, because a CLI
 
 Why (2026-09-11): the hooks ran `mypy .`, `ruff check .` and `pytest -q`,
 so one untracked scratch file blocked every push in that repo, while CI
-(`mypy src/`, `ruff check src/ tests/`, `pytest tests/` across eight
-fleet repos) never saw it. A hook stricter than the gate it stands in
+(`mypy src/`, `ruff check src/ tests/`, `pytest tests/` across the
+fleet's app repos) never saw it. A hook stricter than the gate it stands in
 for trains people to --no-verify it.
 
 This file carries NO noqa: it ships into consumer repos, and no noqa

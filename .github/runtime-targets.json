@@ -219,6 +219,11 @@
         },
         {
           "root": "harness",
+          "source": "hooks/repo_freshness.py",
+          "destination": "repo_freshness.py"
+        },
+        {
+          "root": "harness",
           "source": "claude-md/folder-agents.md.tmpl",
           "destination": "claude-md/folder-agents.md.tmpl"
         },
@@ -597,7 +602,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.103",
+        "version": "1.3.104",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
