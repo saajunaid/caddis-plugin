@@ -47,5 +47,12 @@ sh .github/hooks/install-hooks.sh
 - To match CI exactly, state the scope: `files = ["src"]` under `[tool.mypy]`, and
   `testpaths = ["tests"]` under `[tool.pytest.ini_options]`.
 - The ruff step skips `.github/hooks/`: that folder is caddis's own, linted strictly at the
-  source, and a project's rule set is not something a shipped file can satisfy.
+  source, and a project's rule set is not something a shipped file can satisfy. Concretely:
+  `gate_scope.py` ships into every consumer repo and cannot carry any `noqa` at all — a bare
+  `# ruff: noqa` fails a consumer that enables `PGH004` (bare noqa banned), and a coded
+  `# ruff: noqa: S603, S607` fails one that enables `RUF100` but not the `S` rules. No form
+  survives every rule set a consumer might choose, and `S603`/`S607` cannot both be satisfied by
+  any subprocess call in the first place (one wants a literal command, the other an absolute
+  path). Use `--extend-exclude`, never `--exclude` — the latter REPLACES the consumer's own
+  excludes instead of adding to them (measured with ruff 0.16.7 on scratch copies, 2026-09-11).
 - Keep hooks fast. If checks exceed ~60 seconds, split heavy checks into pre-push/CI.
