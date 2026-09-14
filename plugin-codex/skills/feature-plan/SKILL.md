@@ -126,6 +126,24 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   `claude-glm -p "/caddis:implement <plan-path> — Phase N only"` (from the repo root, on the
   feature branch). The local-coder gate below exists exactly so these phases survive a weaker
   implementer — a phase may only take this lane if it passes that gate.
+- **codex-sol / codex-astra / agy / glm (via caddis_lanes)** — select one of these five task types
+  and its default chain:
+  - `backend`: `glm`, `codex-sol`, `claude`
+  - `hard`: `claude`, `codex-astra`
+  - `ui`: `claude`, `codex-astra`
+  - `tests`: `codex-sol`, `glm`, `claude`
+  - `docs`: `agy`, `glm`, `claude`
+  Use `python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
+  has budget, give any phase the `claude` lane. Override chains and model pins per project in
+  `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
+
+**Evidence standard — never plan a load test on a shared host.** Prove timing robustness with
+event-driven fakes, ordering assertions and an A/B check that fails against the racy version. A phase
+must never ask for CPU burners, stress tests, load tests or "every core". `caddis_lanes.py` refuses
+this wording. The host guard kills runaway agent processes. On 2026-09-13, 32 all-core busy loops
+froze CI on the dev box.
+
 - **review lane (every phase that touches code)** — cross-vendor review by a vendor that did NOT
   write the code: `/caddis:cross-review --range main..HEAD`
   (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
@@ -219,6 +237,7 @@ Creating Model: <model-id>
 **Milestone:** M1  *(omit on plans without milestones)*
 **Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>
 **Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
+**Type:** backend | hard | ui | tests | docs  *(required when the Lane runs through caddis_lanes.py)*
 **Session:** continue | **fresh** (start a new session for this phase — note why: lane change / heavy context)
 **Risk:** high — token-verification seam; a wrong answer here is a silent auth bypass  *(omit this line when normal)*
 **Goal:** <one sentence>
@@ -273,6 +292,11 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 - **Ship gate:** NEVER push or merge to main from a phase — phases only commit to the feature branch.
   When all phases are ✅: `/caddis:ship-pr` (stops at green CI), then STOP and wait for the human's
   explicit go before `/caddis:ship-merge`.
+- **Finish:** after the last phase, run `caddis_lanes.py finish --plan <plan>`; the plan is not done
+  until it prints `LEFTOVERS: 0` (merged lane worktrees and branches removed, unmerged or dirty ones
+  reported, feature branch pushed; merging to main stays with `/caddis:ship-merge`).
+- **No load wording** — no phase asks for a CPU burner, stress test, load test or "every core"; prove
+  timing by design.
 
 ## Affected files
 | File | Action |
@@ -303,16 +327,18 @@ done:
 - **No abbreviation** — never "etc.", "similar to Phase 1", "and so on". Write every item in full.
 - **Model tier named** — every phase names a tier (cheap/mid/frontier/ultra) + a one-line rationale; no
   phase silently defaults to the most expensive model. Default mid; frontier/ultra only where justified.
-- **Lane + reviewer named** — every phase names its execution lane (`claude` or `glm-headless`, with
-  the literal launch command for glm phases) and a cross-review provider that is a different vendor
-  than the implementer. A glm-headless phase MUST pass every bullet of this gate — that lane has no
-  slack for reasoning out gaps.
+- **Lane + reviewer named** — every phase names its execution lane (`claude`, `glm-headless`, or a
+  `caddis_lanes.py` lane with its `**Type:**`, with the literal launch command for every non-claude
+  phase) and a cross-review provider that is a different vendor than the implementer. A glm-headless
+  phase MUST pass every bullet of this gate — that lane has no slack for reasoning out gaps.
 - **Launch command is spawnable** — every `glm-headless` phase's command carries **`-p`** (or
   `--print`) and ends with **`— Phase N only`**. Both are load-bearing, not style: the launchers set
   `CADDIS_HEADLESS` *only* on `-p`, and that variable is the guard that stops a spawned session
   spawning another one forever; the `Phase N only` suffix is what stops the child running to the end
   of the plan. The command is executed verbatim by a model with no slack to notice a missing flag,
   and `/caddis:implement` now refuses a command without `-p` rather than running it.
+- **caddis_lanes command carries --phase** — a `caddis_lanes.py` launch command must name `--phase N`
+  and `--type`; lane-check refuses one without `--phase`.
 - **Gate-detectable** — if this phase's instruction were WRONG, its exit gate would go red. A phase
   whose gates pass either way (copy, nav entries, badges, ordering, wording, config defaults) must
   not take a lane that cannot escalate, no matter how completely it is specified. Every other bullet

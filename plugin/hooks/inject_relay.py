@@ -117,6 +117,9 @@ try:
 except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
     ARTIFACT_DIRS = (".caddis",)
 
+    def artifact_root(root):
+        return os.path.join(str(root), ARTIFACT_DIRS[0])
+
 # ── hook error ledger ───────────────────────────────────────────────────────────────
 # Every optional surface below is wrapped in `try/except`, because a broken surface must
 # never break the session. Until 2026-08-22 the except body was a bare `pass`, so a
@@ -147,9 +150,16 @@ def _hook_summary(root=None):
         return ""
 
 
-
-    def artifact_root(root):
-        return os.path.join(str(root), ARTIFACT_DIRS[0])
+def _guard_summary():
+    """One line about recent host-guard actions, or "" when clean. Never raises."""
+    try:
+        _hg_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if _hg_dir not in sys.path:
+            sys.path.insert(0, _hg_dir)
+        import caddis_host_guard as _hg  # noqa: E402
+        return _hg.summarise(_hg.guard_log_path())
+    except Exception:
+        return ""
 
 
 def _art(*parts: str) -> list[str]:
@@ -541,5 +551,13 @@ try:
         print(_health)
 except Exception:
     pass  # the health check must never be the thing that breaks the session
+
+try:
+    _guard_health = _guard_summary()
+    if _guard_health:
+        print("")
+        print(_guard_health)
+except Exception:
+    pass  # the guard summary must never be the thing that breaks the session
 
 sys.exit(0)

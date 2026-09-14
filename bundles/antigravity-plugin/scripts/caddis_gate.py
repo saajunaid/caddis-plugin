@@ -83,9 +83,18 @@ def phase_lane(block: str) -> str:
 
 
 def launch_command(block: str) -> str:
-    """The literal command for a non-claude lane, if the phase names one."""
-    m = re.search(r"`(claude-(?:glm|oss|deepseek)[^`]*)`", block)
+    """The literal command for a non-claude lane, if the phase names one.
+
+    Also matches a caddis_lanes.py run command for the codex, agy and glm lanes.
+    """
+    m = re.search(
+        r'`((?:claude-(?:glm|oss|deepseek)|' + _LANES_RUN + r')[^`]*)`',
+        block,
+    )
     return m.group(1).strip() if m else ""
+
+
+_LANES_RUN = r'python\s+"?\$\{CLAUDE_PLUGIN_ROOT\}/scripts/caddis_lanes\.py"?\s+run'
 
 
 # ── gate: lane-check ────────────────────────────────────────────────────────
@@ -110,7 +119,19 @@ def gate_lane(plan: Path, phase: int) -> int:
     if not cmd:
         sys.stderr.write(f"[caddis-gate] phase {phase} is lane '{lane}' but names no launch command\n")
         return EXIT_MALFORMED
-    if not re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", cmd):
+    if re.match(_LANES_RUN, cmd):
+        named = re.search(r"--phase[\s=]+(\d+)", cmd)
+        if not named:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s caddis_lanes command has no --phase N: {cmd}\n"
+                "  Without it the lane would run the whole plan. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        if int(named.group(1)) != phase:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s caddis_lanes command names --phase {named.group(1)}: {cmd}\n"
+                "  The lane would run another phase's work. Refusing to run it.\n")
+            return EXIT_MALFORMED
+    elif not re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", cmd):
         sys.stderr.write(
             f"[caddis-gate] phase {phase}'s launch command has no -p/--print: {cmd}\n"
             "  Without it the child is not marked headless, reads the same Lane line, and spawns\n"

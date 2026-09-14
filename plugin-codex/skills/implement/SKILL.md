@@ -101,6 +101,51 @@ the bug the lane routing exists to fix.
 lane the plan planned. A deviation then shows up as a diff between the phase block and the tracker
 row, visible to any later reader without an Advisory Hub having to catch it live.
 
+**Multi-lane phases — `caddis_lanes.py`.** Use this procedure when the phase launch command is
+`python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_lanes.py" run …`.
+
+1. In an interactive session, run the phase's literal command. The script creates a temporary
+   worktree. It runs the lane or its fallback chain inside a resource-capped job. It re-runs the
+   gates with the repo interpreter. It runs the DeepSeek review. It then prints a `NEXT:` line.
+2. Obey `NEXT:`:
+   - `review` → read the packet JSON and inspect `git -C <worktree> diff`. Then decide ACCEPT or REDO.
+   - `redo` → run `abandon`. Then run `run` with `--attempt 2 --findings <file with your findings>`.
+   - `takeover` → run `abandon`. Then implement the phase yourself on the `claude` lane.
+   - `claude-implement` → write the code in the printed worktree. Then run `check`.
+   - `stop` → report the result and halt. `stop (host guard killed the lane…)` means
+     `FAILED-RESOURCE`. The lane saturated the host. Never re-run it with more load. Fix the phase
+     so it proves timing by design.
+3. **ACCEPT** means run `caddis_lanes.py accept --plan <plan> --phase N --attempt K --message
+   "<the phase's commit message>"`. It runs only on the programme branch, never on `main`. It
+   refuses a `BLOCKING` review. If you checked the finding and it is false, add
+   `--override-review "<why the finding is false>"`. The script records that reason in the packet.
+4. Allow at most **2 attempts** per phase on a non-Claude lane. An out-of-budget switch is not an
+   attempt. The owner can request TAKEOVER at any time.
+5. A UI phase needs a `ui-design-reviewer` screenshot review before ACCEPT. This rule applies
+   whichever lane wrote the phase.
+6. A phase that Claude wrote needs a vendor review that is not MISSING. If `review.status` is
+   `MISSING`, run `codex exec -m gpt-5.6-sol -s read-only -C <worktree> --skip-git-repo-check -`.
+   Give the diff to the command on stdin.
+6b. **Orchestrator artefacts live under `.caddis/orchestrator/`.** Store packets and locks in
+    `lane-runs/`. Store evidence notes as markdown directly in `.caddis/orchestrator/`. Follow its
+    `AGENTS.md`. Never write orchestration notes to `.caddis/kb/`.
+7. **Never write a load or stress test into a lane prompt or findings file.** The script refuses
+   this wording without `--allow-load`. Only the owner gives that flag.
+8. Record these Tracker values:
+   - `Model` = the packet's `model`.
+   - `Lane` = the lanes tried, joined with ` -> ` and followed by the reason. For example,
+     `glm -> codex-sol (glm out of budget)`.
+   - `Cross-review` = `CLEAN`, `BLOCKING` or `missing`.
+   - `Notes` = `attempt K, ACCEPT|TAKEOVER|FAILED-RESOURCE`.
+9. The PR body lists every phase accepted with `review.status == MISSING`. It also lists every phase
+   accepted while Codex astra stood in for Claude.
+9b. **Finish.** After the last phase, run `caddis_lanes.py finish --plan <plan>`. It removes merged
+    lane worktrees and branches. It reports unmerged or dirty ones. It pushes the feature branch.
+    The plan is not done until it prints `LEFTOVERS: 0`. Then run `/caddis:ship-pr`. Merging and
+    post-merge cleanup stay with `/caddis:ship-merge` after the owner's go.
+10. **When Claude is out of budget**, the owner opens `caddis-run codex -m gpt-6-astra` and asks it
+    to follow this same subsection.
+
 **Advisory-Hub mode (conditional — OFF by default).** Check whether a companion file
 `<plan-dir>/<plan-stem>-advisory-context.md` exists (e.g. plan `.caddis/plans/foo.md` → look for
 `.caddis/plans/foo-advisory-context.md`). **If it does not exist — the normal case, including every
@@ -187,7 +232,9 @@ report — do not redo completed work.
      first, every phase, not just the one you resumed at. Step 1's check only ever saw the *resume*
      phase: on a plan whose phase 1 is `claude` and phase 2 is `glm-headless`, it finds no mismatch and
      this loop then carries you straight through phase 2 — so the lane silently executes nothing for
-     every phase after the first, which is the original bug wearing a different hat.
+     every phase after the first, which is the original bug wearing a different hat. For a
+     `caddis_lanes.py` launch command, follow "Multi-lane phases" above instead of spawning the command
+     blind.
    - **RED** — write the failing test(s) the phase names (`<test file>::<case>`). Run them; confirm they
      fail for the right reason (the missing behavior, not an import error). If a phase genuinely has no
      testable surface, say so in the review file and implement the minimal change directly.
