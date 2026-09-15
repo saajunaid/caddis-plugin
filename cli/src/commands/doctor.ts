@@ -9,7 +9,7 @@
 import os from 'node:os';
 import process from 'node:process';
 import type { AgentAdapter } from '../agents/types.js';
-import { detail, heading, hint, item, line, color } from '../util/log.js';
+import { detail, heading, hint, item, line, color, renderBanner } from '../util/log.js';
 import { bundleManifest, packageInfo } from '../util/pkg.js';
 import type { AgentReport, DriftState, Report } from './report.js';
 import { gather } from './report.js';
@@ -43,6 +43,8 @@ export async function doctor(options: DoctorOptions): Promise<number> {
     line(JSON.stringify(toJson(report), null, 2));
     return 0;
   }
+
+  renderBanner({ cliVersion: report.cliVersion, poolVersion: report.poolVersion });
 
   renderEnvironment(report, findings);
   renderAgents(report, findings);
@@ -99,8 +101,10 @@ function renderEnvironment(report: Report, problems: Problem[]): void {
 function renderAgents(report: Report, problems: Problem[]): void {
   heading('Agents');
 
-  for (const entry of report.agents) {
+  for (let i = 0; i < report.agents.length; i++) {
+    const entry = report.agents[i]!;
     const { adapter, detection, status } = entry;
+    if (i > 0) line('');
     item(markFor(entry.drift), `${color.bold(adapter.name)} — ${describe(entry, report.poolVersion)}`);
 
     if (detection.path) detail(detection.path);
@@ -141,12 +145,12 @@ function renderSummary(report: Report, findings: Problem[]): void {
   const notes = findings.filter((f) => f.kind === 'note');
 
   if (problems.length === 0) {
-    line(`\n  ${color.green('Everything caddis manages is current.')}`);
+    line(`\n  ${color.mint('Everything caddis manages is current.')}`);
   } else {
-    line(`\n  ${color.yellow(`${problems.length} thing${problems.length === 1 ? '' : 's'} to fix:`)}`);
+    line(`\n  ${color.amber(color.bold(`${problems.length} thing${problems.length === 1 ? '' : 's'} to fix:`))}`);
     for (const problem of problems) {
       line(`    ${color.dim('•')} ${problem.text}`);
-      if (problem.fix) line(`      ${color.cyan(problem.fix)}`);
+      if (problem.fix) line(`      ${color.sky(problem.fix)}`);
     }
   }
 
@@ -154,6 +158,7 @@ function renderSummary(report: Report, findings: Problem[]): void {
     line(`\n  ${color.dim('For your information:')}`);
     for (const note of notes) line(`    ${color.dim(`• ${note.text}`)}`);
   }
+  line('');
 }
 
 function markFor(drift: DriftState): 'ok' | 'warn' | 'fail' | 'skip' | 'info' {

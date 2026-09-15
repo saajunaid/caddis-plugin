@@ -8,7 +8,7 @@
  */
 import * as clack from '@clack/prompts';
 import type { AgentAdapter } from '../agents/types.js';
-import { color, item, line } from '../util/log.js';
+import { color, heading, item, line, renderBanner } from '../util/log.js';
 import { driveAgents, reportOutcome } from './drive.js';
 import { actionable, gather } from './report.js';
 
@@ -24,19 +24,30 @@ export async function init(options: InitOptions): Promise<number> {
   const report = await gather(options.adapters);
   const interactive = !options.yes && !options.dryRun && process.stdout.isTTY === true;
 
-  clack.intro(`${color.bold('caddis')} ${color.dim(`cli ${report.cliVersion} · pool ${report.poolVersion}`)}`);
+  renderBanner({ cliVersion: report.cliVersion, poolVersion: report.poolVersion });
+  clack.intro(`${color.bold('caddis installer')} ${color.dim(`· pool ${report.poolVersion}`)}`);
 
+  heading('Detected Agents');
   for (const entry of report.agents) {
     if (!entry.detection.present) {
-      item('skip', `${entry.adapter.name} — not found`);
+      item('skip', `${entry.adapter.name} — ${color.dim('not found')}`);
       continue;
     }
     if (!entry.adapter.supported) {
-      item('info', `${entry.adapter.name} — detected, not yet supported (v0.2)`);
+      item('info', `${entry.adapter.name} — ${color.dim('detected, not yet supported (v0.2)')}`);
       continue;
     }
     const current = entry.drift === 'current';
-    item(current ? 'ok' : 'warn', `${entry.adapter.name} — ${current ? `caddis ${entry.status.version} (current)` : entry.status.installed ? `caddis ${entry.status.version ?? '?'} → ${report.poolVersion}` : 'caddis not installed'}`);
+    item(
+      current ? 'ok' : 'warn',
+      `${entry.adapter.name} — ${
+        current
+          ? `caddis ${entry.status.version} ${color.dim('(current)')}`
+          : entry.status.installed
+            ? `caddis ${entry.status.version ?? '?'} → ${color.bold(report.poolVersion)}`
+            : color.amber('caddis not installed')
+      }`,
+    );
   }
 
   // init is the install path, so it drives every present+supported agent —
@@ -54,9 +65,10 @@ export async function init(options: InitOptions): Promise<number> {
   }
 
   line('');
-  line(`  ${color.bold('Will run:')}`);
+  heading('Planned Installations');
   for (const entry of targets) {
-    line(`    ${color.dim('•')} ${entry.adapter.name} — ${entry.adapter.summary}`);
+    line(`    ${color.mint('•')} ${color.bold(entry.adapter.name)}`);
+    line(`      ${color.dim('→')} ${entry.adapter.summary}`);
   }
   line('');
 
@@ -78,6 +90,12 @@ export async function init(options: InitOptions): Promise<number> {
     quiet: options.yes,
   });
   const code = reportOutcome(outcome, options.dryRun);
-  clack.outro(code === 0 ? `Run ${color.cyan('caddis doctor')} any time to check drift.` : 'Finished with errors.');
+  if (code === 0 && !options.dryRun) {
+    line('');
+    line(`  ${color.mint('✓')} ${color.bold('Caddis dev harness is ready.')} Open any configured agent above to start.`);
+    line(`  ${color.dim('Run')} ${color.sky('caddis doctor')} ${color.dim('at any time to verify agent health and updates.')}`);
+    line('');
+  }
+  clack.outro(code === 0 ? color.green('Setup complete.') : color.red('Finished with errors.'));
   return code;
 }

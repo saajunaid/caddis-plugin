@@ -196,7 +196,7 @@ def git_facts(cwd: str) -> dict:
     try:
         proc = subprocess.run(
             ["git", "-C", cwd, "--no-optional-locks", "status", "--porcelain=v2", "--branch"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2.0,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0,
         )
         text = proc.stdout.decode("utf-8", "replace")
     except Exception:
@@ -582,6 +582,7 @@ def render_agy(data: dict, cfg: dict) -> str:
             used = as_int(cw.get("total_input_tokens"))
         max_tokens = as_int(cw.get("context_window_size")) or 1_048_576
         pct = float(as_int(cw.get("used_percentage")))
+        record_context(cwd, pct)
         parts.append(context_segment(c, cfg, used, max_tokens, pct))
         loud = cached_segment(c, cfg, cached)
         if loud:
@@ -821,6 +822,10 @@ def main(argv=None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+    try:
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
     if args.install:
         hosts = ["claude", "agy"] if args.host == "both" else [args.host]
@@ -854,9 +859,31 @@ def main(argv=None) -> int:
         # A status line must never break the host. Degrade to the directory name.
         line = os.path.basename(os.getcwd())
 
-    print(line)
+    try:
+        print(line)
+        sys.stdout.flush()
+    except (BrokenPipeError, OSError):
+        # Parent process cancelled or closed stdout pipe (e.g. agy runner on user prompt/state switch).
+        # Redirecting to devnull prevents Windows Python from throwing unhandled TextIOWrapper errors on exit.
+        try:
+            devnull = open(os.devnull, "w")
+            os.dup2(devnull.fileno(), sys.stdout.fileno())
+        except Exception:
+            pass
+        return 0
+    except Exception:
+        return 0
+
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    except BaseException:
+        code = 0
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+    sys.exit(code)
