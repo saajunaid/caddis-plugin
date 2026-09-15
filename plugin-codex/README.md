@@ -32,7 +32,7 @@ Without it, the other 15 skills still work; the 16 that call a script will not.
 
 | | |
 |---|---|
-| `skills/` | the caddis skill pool, plus all 31 commands reshaped into skills |
+| `skills/` | the caddis skill pool, plus all 32 commands reshaped into skills |
 | `scripts/` | the scripts those skills call |
 | `agents/` | agent definitions |
 

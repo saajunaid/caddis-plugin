@@ -84,6 +84,7 @@
 | Mermaid Db | `mermaid-db/` | Turn a SQL artifact (proc, view, query, .sql file, or table name) into a Mermaid diagram that explains it — git-diffable, saved as .md |
 | Migrate Dir | `migrate-dir/` | Rename this repo's legacy `.claudster/` artifact dir to `.caddis/` — dry-run first, `git mv` to keep history, merges a straggler dir, rewrites live refs. Opt-in, never automatic. |
 | Park | `park/` | File a future-work item in the one backlog — .caddis/parking-lot/ — or list what is open |
+| Pr Merge | `pr-merge/` | End-to-end pull request and merge lane — push feature branch, open or update PR, monitor CI to green, merge to default branch, and clean up the feature branch. |
 | Prd | `prd/` | Capture requirements through structured discovery and write a PRD |
 | Resume | `resume/` | Pop the most recently parked workstream off the stack and resume it at its exact resume point |
 | Review | `review/` | Review someone else's OPEN pull request end to end — what changed, what CI says, what is risky — then approve or request changes. Never approves on its own. |

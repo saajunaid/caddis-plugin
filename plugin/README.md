@@ -200,7 +200,7 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   nothing. It is not: `convert_commands_to_agy_skills()` in `export_runtime_resources.py` reshapes
   every command into `skills/<stem>/SKILL.md` — because agy's runtime only discovers skills and
   never ingests `commands/*.md`, verified empirically on agy 1.1.7 — and then removes the dead
-  directory. **The empty path is the evidence the step RAN.** Re-derived: 31 of 31 commands are
+  directory. **The empty path is the evidence the step RAN.** Re-derived: 32 of 32 commands are
   present as agy skills, none missing.
   **This was filed as a high-severity bug and dropped the next day**
   (`.caddis/parking-lot/agy-commands-declared-but-never-exported.md`) — the function that answers
