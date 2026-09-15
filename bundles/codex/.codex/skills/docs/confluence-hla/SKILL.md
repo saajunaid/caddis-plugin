@@ -70,7 +70,7 @@ When authoring an HLA, strictly adhere to the following 7-section structure:
    3.1 Operational Process Flow (Step-by-step numbers)
    3.2 End-to-End Sequence Diagram (PlantUML sequence diagram with autonumber)
 4. Solution Architecture Landscape
-   4.1 System Topology and Network Boundaries (Compact PlantUML topology diagram)
+   4.1 Solution Design and Architecture (Compact topology and system boundary diagram)
    4.2 Applications and Components Overview (Wrapped table: ID, Name, Function, Technology, Hosting)
    4.3 Telemetry and Health Information APIs (Apigee / REST / RPC interfaces with target systems)
    4.4 Multi-Stage Summarization and Recommendation Pipeline (PlantUML multi-track data flow)
