@@ -180,7 +180,13 @@ def _parse_mermaid_flowchart(code: str) -> Optional[str]:
 
     subgraph_start_re = re.compile(r'^\s*subgraph\s+([A-Za-z0-9_]+)(?:\["([^"]+)"\]|\[([^\]]+)\])?', re.IGNORECASE)
     direction_re = re.compile(r'^\s*direction\s+(LR|RL|TB|TD)', re.IGNORECASE)
-    node_def_re = re.compile(r'([A-Za-z0-9_]+)\["([^"]+)"\](?::::([A-Za-z0-9_]+))?|([A-Za-z0-9_]+)\[([^\]]+)\](?::::([A-Za-z0-9_]+))?')
+    node_def_re = re.compile(
+        r'([A-Za-z0-9_]+)(?:'
+        r'\["([^"]+)"\]|\[([^\]]+)\]|'
+        r'\{"([^"]+)"\}|\{([^\}]+)\}|'
+        r'\("([^"]+)"\)|\(([^\)]+)\)'
+        r')(?::::([A-Za-z0-9_]+))?'
+    )
 
     has_flowchart = False
     for line in lines:
@@ -222,9 +228,9 @@ def _parse_mermaid_flowchart(code: str) -> Optional[str]:
 
         # 1. Extract node definitions
         for match in node_def_re.finditer(stripped):
-            n_id = match.group(1) or match.group(4)
-            n_lbl = match.group(2) or match.group(5)
-            n_cls = match.group(3) or match.group(6) or ""
+            n_id = match.group(1)
+            n_lbl = next(g for g in match.groups()[1:7] if g is not None)
+            n_cls = match.group(8) or ""
             node_info = {"id": n_id, "label": n_lbl, "class": n_cls}
             if sg_stack:
                 sg_stack[-1]["nodes"][n_id] = node_info
@@ -233,7 +239,7 @@ def _parse_mermaid_flowchart(code: str) -> Optional[str]:
 
         # 2. Clean line for edge extraction
         def repl_node(m):
-            return m.group(1) or m.group(4)
+            return m.group(1)
         clean_edge_line = node_def_re.sub(repl_node, stripped)
 
         # 3. Extract edges

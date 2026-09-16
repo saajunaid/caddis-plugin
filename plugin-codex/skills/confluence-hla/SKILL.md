@@ -89,6 +89,12 @@ When authoring an HLA, strictly adhere to the following 7-section structure:
    [Note: 7.2 References is kept in working Markdown but STRICTLY OMITTED from Confluence HTML]
 ```
 
+### Key Section Authoring Guidelines:
+- **Section 3.1 Operational Process Flow:** Document the flow using clean, continuous numbered text steps (`1. **Step Name:** ...`). Completely omit ASCII, unicode, or plain-text drawing boxes, which break formatting in Confluence. The accompanying sequence diagram in 3.2 provides the visual workflow.
+- **Section 3.2 End-to-End Sequence Diagram:** Autonumber all interactions. Apply corporate palette classes (`clientStyle`, `serverStyle`, `appStyle`, `dataStyle`, `extStyle`). Wrap all participant names, notes, and message labels under 45 characters using `<br/>`.
+- **Section 4.1 Solution Design and Architecture:** The standardized title is `4.1 Solution Design and Architecture` (do NOT use "System Topology and Network Boundaries"). Provides the compact component topology and network boundary diagram.
+- **Tables:** All tables must be authored cleanly and converted into `<table class="wrapped">` with wrapped headers (`<th><p>Header</p></th>`) and wrapped table cells (`<td><p>Value</p></td>`).
+
 ---
 
 ## 3. High-Level Database and Data Processing Pipeline Discovery
@@ -272,7 +278,7 @@ Never use default bright or garish PlantUML colors. Use muted corporate Material
      - **Stage 2 (Middle):** Language Model Synthesis Engine (`LLMEngine`), receiving 90-degree orthogonal connections from each track's summary node (`NSum -right-> LLMEngine`, etc.).
      - **Stage 3 (Right):** Action Recommendation & Justification (`RecOutput`), receiving a horizontal connection from `LLMEngine`.
 
-4. **Component-to-Component Connections in System Topology:**
+4. **Component-to-Component Connections in Solution Design & Architecture:**
    - Connect internal component nodes directly (e.g., `Worker -down-> SQL`, `Worker -down-> Apigee`, `Worker -right-> LLM`).
    - Do NOT connect package boundaries (e.g., `HostLayer -down-> MidLayer`), which inflates diagram bounding boxes and distorts routing.
    - Use `skinparam nodesep 60` and `skinparam ranksep 50` for comfortable whitespace.
@@ -337,7 +343,7 @@ Inspect the target codebase across five dimensions:
 - Write using the 7-section canonical structure in Simplified Technical English.
 - Author PlantUML (or Mermaid) diagram blocks for:
   1. Sequence diagram
-  2. System topology diagram
+  2. Solution Design and Architecture diagram (compact topology)
   3. Multi-track summarization pipeline
   4. End-to-end database and processing pipeline (Section 4.5)
 - Document the Screener Feedback Service and RLHF loop (Section 4.6).
