@@ -251,10 +251,19 @@ minimal placeholder that depends on `@caddis/cli`. Unscoped `caddis` itself is t
 
 ## Releasing a new version (steps 1–3 are never repeated)
 
-1. Change the pool and/or `cli/src` in `claudster-source`.
-2. Bump `cli/package.json`'s version.
-3. `caddis-push` — re-exports the bundles, syncs `cli/`.
-4. In the mirror: `git tag cli-vX.Y.Z && git push origin cli-vX.Y.Z`.
+Publishing is automated in `caddis-push`:
+
+1. Make your changes in `claudster-source` (`.github/` pool, `cli/src`, etc.).
+2. Run `caddis-push -Message "<what changed>"` in **Windows PowerShell 5.1**.
+   - `caddis-push` detects the pool version bump or `cli/` change.
+   - It automatically bumps `cli/package.json` and `cli/package-lock.json`.
+   - It exports the bundles and syncs `cli/` to the mirror.
+   - It commits and pushes the mirror to `main`.
+   - It creates the git tag `cli-vX.Y.Z` in the mirror and pushes it to `origin`.
+   - GitHub Actions `npm-publish.yml` triggers on the tag push and publishes to npm with signed Sigstore provenance.
+   - It commits the version bumps in `claudster-source` and pushes `main`.
+3. To suppress npm publishing during a push, pass `caddis-push -SkipNpm`.
+4. For a standalone release of `@caddis/cli`, run `caddis-publish-cli`.
 
 The bundles are copied into the package at build time by `scripts/copy-bundles.mjs`, so a release
 always carries the pool exported alongside it. That script **warns** if the exported bundle version

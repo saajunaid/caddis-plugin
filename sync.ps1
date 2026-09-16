@@ -1,4 +1,4 @@
-﻿# CADDIS Sync - bidirectional pool sync
+# CADDIS Sync - bidirectional pool sync
 # Dot-sourced by PowerShell profile. Provides caddis-pull and caddis-push globally.
 #
 # One-time setup (run once per machine):
@@ -312,6 +312,26 @@ function Bump-PackageJsonPatchVersion {
     Set-PackageJsonVersion -PackageJsonPath $packageJsonPath -VersionString $nextVersion
     Write-Host "  [OK]  $Label version bumped $currentVersion --> $nextVersion" -ForegroundColor Green
     return $nextVersion
+}
+
+function Set-CliPackageVersion {
+    param(
+        [Parameter(Mandatory)][string]$CliDir,
+        [Parameter(Mandatory)][string]$VersionString
+    )
+
+    $pkgJson = Join-Path $CliDir "package.json"
+    $lockJson = Join-Path $CliDir "package-lock.json"
+
+    Set-PackageJsonVersion -PackageJsonPath $pkgJson -VersionString $VersionString
+
+    if (Test-Path $lockJson) {
+        $lockContent = Get-Content $lockJson -Raw
+        $updated = [regex]::Replace($lockContent, '(?m)^(\s*"version"\s*:\s*")[^"]+(")', ('${1}' + $VersionString + '${2}'), 1)
+        $pattern = '("name"\s*:\s*"@caddis/cli"\s*,\s*"version"\s*:\s*")[^"]+(")'
+        $updated = [regex]::Replace($updated, $pattern, ('${1}' + $VersionString + '${2}'), 1)
+        Set-Content $lockJson $updated -NoNewline
+    }
 }
 
 function Get-RuntimeTargetsPluginVersion {
@@ -999,6 +1019,7 @@ function caddis-push {
         [string[]]$Profiles = @(),   # retired 2026-08-23: no downstream profile lanes remain
         [switch]$SkipProfileSync,
         [switch]$SkipAgySync,
+        [switch]$SkipNpm,
         # Push to the public mirror even when a pre-push validator fails. Deliberate
         # override for a known-bad check you have decided to ship past; it has to be typed.
         [switch]$Force
@@ -1009,6 +1030,8 @@ function caddis-push {
         SelectedProfiles = @()
         ProfileResults = @{}
         ReleaseTriggered = $false
+        NpmReleaseTriggered = $false
+        NpmVersion = ""
     }
 
     $source = Join-Path $ProjectRoot ".github"
@@ -1525,6 +1548,39 @@ function caddis-push {
         }
     }
 
+    # -- Auto-bump and sync @caddis/cli when pool was bumped or CLI changed --
+    $bumpedCli = ""
+    $cliSrcDir = Join-Path $ProjectRoot "cli"
+    if ((-not $SkipNpm) -and (Test-Path $cliSrcDir)) {
+        $cliMirrorDir = Join-Path $CADDIS_POOL "cli"
+        $cliDiff = git status --porcelain -- cli
+        $cliHasChanges = -not [string]::IsNullOrWhiteSpace(($cliDiff | Out-String).Trim())
+        $poolBumped = (-not [string]::IsNullOrWhiteSpace($bumpedCaddis)) -or (-not [string]::IsNullOrWhiteSpace($bumpedExtras))
+
+        if ($poolBumped -or $cliHasChanges -or $Publish) {
+            $currentCliVer = Get-PackageJsonVersion -PackageJsonPath (Join-Path $cliSrcDir "package.json")
+            if (-not [string]::IsNullOrWhiteSpace($currentCliVer)) {
+                $tagExists = [bool](git tag -l "cli-v$currentCliVer")
+                if ($tagExists) {
+                    $nextCliVer = Get-NextPatchVersion -VersionString $currentCliVer
+                    while (git tag -l "cli-v$nextCliVer") {
+                        $nextCliVer = Get-NextPatchVersion -VersionString $nextCliVer
+                    }
+                } else {
+                    $nextCliVer = $currentCliVer
+                }
+
+                Set-CliPackageVersion -CliDir $cliSrcDir -VersionString $nextCliVer
+
+                Copy-Item (Join-Path $cliSrcDir "package.json") (Join-Path $cliMirrorDir "package.json") -Force
+                Copy-Item (Join-Path $cliSrcDir "package-lock.json") (Join-Path $cliMirrorDir "package-lock.json") -Force
+
+                $bumpedCli = $nextCliVer
+                Write-Host "  [OK]  @caddis/cli version set to $bumpedCli in package.json + lockfile" -ForegroundColor Green
+            }
+        }
+    }
+
     # Stage all tracked/untracked/deleted files in caddis-plugin so source deletions and
     # folder moves are guaranteed to propagate.
     git add -A | Out-Null
@@ -1544,6 +1600,24 @@ function caddis-push {
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
         throw "caddis-plugin mirror: git push failed (exit $LASTEXITCODE) - the commit is local only and was NOT pushed. Fix the remote/auth and re-run."
+    }
+
+    # If the CLI was bumped, create and push the cli-v* tag to trigger npm-publish in GitHub Actions
+    if ($bumpedCli -and (-not $SkipNpm)) {
+        $cliTag = "cli-v$bumpedCli"
+        git tag $cliTag | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            git push origin $cliTag | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [OK]  npm release triggered: tagged $cliTag and pushed to origin" -ForegroundColor Green
+                $pushResult.NpmReleaseTriggered = $true
+                $pushResult.NpmVersion = $bumpedCli
+            } else {
+                Write-Host "  [WARN]  git push origin $cliTag failed -- push the tag manually to release to npm." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "  [WARN]  git tag $cliTag failed." -ForegroundColor Yellow
+        }
     }
 
     $pushResult.MirrorChanged = $true
@@ -1600,6 +1674,22 @@ function caddis-push {
         } else {
             $srcOwnCommits++
             Write-Host "  Source manifest committed: $bumpSummary." -ForegroundColor Magenta
+            Write-Host ""
+        }
+    }
+
+    # Persist the CLI version bump in the SOURCE repo - cli/package.json and lockfile are the
+    # source of truth for @caddis/cli, so they must be committed here. Path-scoped commit.
+    if (-not [string]::IsNullOrWhiteSpace($bumpedCli)) {
+        Push-Location $ProjectRoot
+        git commit "cli/package.json" "cli/package-lock.json" -m "chore(cli): bump @caddis/cli to $bumpedCli" | Out-Null
+        $cliCommitExit = $LASTEXITCODE
+        Pop-Location
+        if ($cliCommitExit -ne 0) {
+            Write-Warning "  Source CLI bump commit failed (exit $cliCommitExit). Commit cli/package.json by hand."
+        } else {
+            $srcOwnCommits++
+            Write-Host "  Source CLI bump committed: @caddis/cli v$bumpedCli." -ForegroundColor Magenta
             Write-Host ""
         }
     }
@@ -1706,7 +1796,10 @@ function caddis-push {
     }
 
     if (-not $shouldPublish) {
-        Write-Host "  [--]  Mirror synced; release NOT triggered (publish is opt-in)." -ForegroundColor DarkGray
+        if ($pushResult.NpmReleaseTriggered) {
+            Write-Host "  [OK]  @caddis/cli v$($pushResult.NpmVersion) released to npm via GitHub Actions." -ForegroundColor Green
+        }
+        Write-Host "  [--]  Mirror synced; external release NOT triggered (opt-in)." -ForegroundColor DarkGray
         Write-Host "       Re-run 'caddis-push -Publish' to release the MCP (PyPI) / VS Code extension." -ForegroundColor DarkGray
         return [pscustomobject]$pushResult
     }
@@ -1880,6 +1973,61 @@ function Sync-ExtensionRepo {
     Write-Host "  [OK]  $Label committed + pushed" -ForegroundColor Green
     Pop-Location
     return $true
+}
+
+function caddis-publish-cli {
+    # Releases @caddis/cli to npm via GitHub Actions OIDC Trusted Publishing.
+    # Bumps the version in cli/package.json and cli/package-lock.json, syncs to the
+    # caddis-plugin mirror, creates the cli-v<semver> git tag, and pushes to origin.
+    #
+    # Usage:
+    #   caddis-publish-cli                 # auto-bumps patch version and publishes to npm
+    #   caddis-publish-cli -Version 0.5.0  # sets specific version
+    param(
+        [string]$ProjectRoot = $REPO_ROOT,
+        [string]$Version = "",
+        [switch]$Force
+    )
+
+    Write-Host ""
+    Write-Host "  CADDIS NPM CLI PUBLISH" -ForegroundColor Cyan
+    Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
+
+    $cliSrc = Join-Path $ProjectRoot "cli"
+    if (-not (Test-Path $cliSrc)) {
+        Write-Host "  [ERROR] cli/ folder not found at $ProjectRoot" -ForegroundColor Red
+        return $false
+    }
+
+    $pkgJson = Join-Path $cliSrc "package.json"
+    $currentVer = Get-PackageJsonVersion -PackageJsonPath $pkgJson
+    if ([string]::IsNullOrWhiteSpace($currentVer)) {
+        Write-Host "  [ERROR] Could not read version from $pkgJson" -ForegroundColor Red
+        return $false
+    }
+
+    $targetVer = if ([string]::IsNullOrWhiteSpace($Version)) {
+        Get-NextPatchVersion -VersionString $currentVer
+    } else {
+        $Version
+    }
+
+    Push-Location $CADDIS_POOL
+    try {
+        while ((git tag -l "cli-v$targetVer") -and (-not $Force)) {
+            Write-Host "  [--]  cli-v$targetVer already tagged in mirror, advancing to next patch..." -ForegroundColor DarkGray
+            $targetVer = Get-NextPatchVersion -VersionString $targetVer
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Host "  Releasing @caddis/cli v$targetVer to npm..." -ForegroundColor Magenta
+
+    Set-CliPackageVersion -CliDir $cliSrc -VersionString $targetVer
+
+    $result = caddis-push -ProjectRoot $ProjectRoot -Message "chore(cli): release @caddis/cli v$targetVer"
+    return $result
 }
 
 function caddis-publish-mcp {

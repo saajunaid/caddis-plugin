@@ -38,7 +38,21 @@ import shutil
 import subprocess
 import sys
 import time
+import datetime
+import traceback
 from pathlib import Path
+
+_DEBUG_LOG = Path.home() / ".caddis" / "statusline_debug.log"
+def _debug_log(msg: str):
+    if not os.environ.get("CADDIS_STATUSLINE_DEBUG"):
+        return
+    try:
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}] [PID {os.getpid()}] {msg}\n")
+    except Exception:
+        pass
+
+_debug_log(f"INVOKE: argv={sys.argv} cwd={os.getcwd()}")
 
 # --------------------------------------------------------------------------------------
 # Config
@@ -186,17 +200,30 @@ def term_width() -> int:
 # Host facts the payload does not carry
 # --------------------------------------------------------------------------------------
 
+_GIT_CACHE_FILE = Path.home() / ".caddis" / ".git_status_cache.json"
+
+
 def git_facts(cwd: str) -> dict:
     """One `git status --porcelain=v2 --branch` call -> branch, staged/unstaged/untracked,
-    ahead/behind. The v2 format gives all of it in a single invocation, which is why the
-    old bash line dropped its two-calls-plus-grep-plus-awk approach."""
+    ahead/behind. Uses a 2-second cache file per cwd to eliminate git process thrashing on rapid
+    status updates."""
     out = {"branch": "", "staged": 0, "unstaged": 0, "untracked": 0, "ahead": 0, "behind": 0}
     if not cwd or not os.path.isdir(cwd):
         return out
+
+    now = time.time()
+    try:
+        if _GIT_CACHE_FILE.exists():
+            cached = json.loads(_GIT_CACHE_FILE.read_text(encoding="utf-8"))
+            if cached.get("cwd") == cwd and (now - cached.get("time", 0)) < 2.0:
+                return cached.get("facts", out)
+    except Exception:
+        pass
+
     try:
         proc = subprocess.run(
             ["git", "-C", cwd, "--no-optional-locks", "status", "--porcelain=v2", "--branch"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=0.8,
         )
         text = proc.stdout.decode("utf-8", "replace")
     except Exception:
@@ -223,6 +250,12 @@ def git_facts(cwd: str) -> dict:
             out["unstaged"] += 1
         elif line.startswith("? "):
             out["untracked"] += 1
+
+    try:
+        _GIT_CACHE_FILE.write_text(json.dumps({"cwd": cwd, "time": now, "facts": out}), encoding="utf-8")
+    except Exception:
+        pass
+
     return out
 
 
@@ -722,7 +755,19 @@ def wire_host(host: str, settings_path: Path, command: str, dry_run: bool) -> in
     if host == "agy":
         entry["enabled"] = True  # agy ignores a statusLine block without this
 
-    if data.get("statusLine") == entry:
+    changed = False
+    if data.get("statusLine") != entry:
+        data["statusLine"] = entry
+        changed = True
+
+    if host == "agy":
+        title_cmd = command.replace("--profile agy", "--title")
+        title_entry = {"type": "command", "command": title_cmd, "enabled": True}
+        if data.get("title") != title_entry:
+            data["title"] = title_entry
+            changed = True
+
+    if not changed:
         print("  ok %-6s already wired" % host)
         return 0
 
@@ -730,7 +775,6 @@ def wire_host(host: str, settings_path: Path, command: str, dry_run: bool) -> in
         if settings_path.exists():
             backup = settings_path.with_suffix(settings_path.suffix + ".bak-caddis-statusline")
             shutil.copyfile(str(settings_path), str(backup))
-        data["statusLine"] = entry
         settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     print("  ok %-6s wired -> %s" % (host, settings_path))
     return 0
@@ -761,6 +805,12 @@ def check() -> int:
         else:
             print("  !! %-6s points elsewhere: %s" % (host, cmd))
             bad += 1
+        if host == "agy":
+            t_entry = data.get("title")
+            if isinstance(t_entry, dict) and "statusline.py" in str(t_entry.get("command", "")) and "--title" in str(t_entry.get("command", "")):
+                print("  ok agy-title %s" % t_entry.get("command"))
+            else:
+                print("  -- agy-title not wired to statusline.py (run --install to wire)")
     return bad
 
 
@@ -815,6 +865,7 @@ def main(argv=None) -> int:
     parser.add_argument("--sample", action="store_true", help="render a fake payload (preview / test)")
     parser.add_argument("--dry-run", action="store_true", help="with --install: print, write nothing")
     parser.add_argument("--no-color", action="store_true", help="render without ANSI colour")
+    parser.add_argument("--title", action="store_true", help="render terminal title (agy)")
     args = parser.parse_args(argv)
 
     # The line is Unicode. On Windows the default cp1252 stdout raises on ◆/⎇/█.
@@ -827,6 +878,21 @@ def main(argv=None) -> int:
     except Exception:
         pass
 
+    if args.title:
+        cwd = os.getcwd()
+        repo = os.path.basename(cwd) or cwd
+        facts = git_facts(cwd)
+        branch = facts.get("branch", "")
+        if branch:
+            print(f"agy: {repo} [{branch}]")
+        else:
+            print(f"agy: {repo}")
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        return 0
+
     if args.install:
         hosts = ["claude", "agy"] if args.host == "both" else [args.host]
         return 1 if install(hosts, args.dry_run) else 0
@@ -838,31 +904,39 @@ def main(argv=None) -> int:
     if args.no_color:
         cfg["color"] = False
 
+    t0 = time.time()
     if args.sample:
         data = SAMPLES[args.profile]
     else:
         try:
             raw = sys.stdin.read()
-        except Exception:
+        except Exception as e:
+            _debug_log(f"stdin.read exception: {e}")
             raw = ""
+        _debug_log(f"stdin read: {len(raw)} bytes in {time.time()-t0:.3f}s")
         start = raw.find("{")  # strip a UTF-8 BOM or any leading noise
         try:
             data = json.loads(raw[start:]) if start >= 0 else {}
-        except Exception:
+        except Exception as e:
+            _debug_log(f"json.loads exception: {e}")
             data = {}
         if not isinstance(data, dict):
             data = {}
 
     try:
         line = RENDERERS[args.profile](data, cfg)
-    except Exception:
+        _debug_log(f"Rendered in {time.time()-t0:.3f}s")
+    except Exception as e:
+        _debug_log(f"Renderer exception: {traceback.format_exc()}")
         # A status line must never break the host. Degrade to the directory name.
         line = os.path.basename(os.getcwd())
 
     try:
         print(line)
         sys.stdout.flush()
-    except (BrokenPipeError, OSError):
+        _debug_log(f"Printed and flushed in {time.time()-t0:.3f}s")
+    except (BrokenPipeError, OSError) as e:
+        _debug_log(f"BrokenPipeError on flush: {e}")
         # Parent process cancelled or closed stdout pipe (e.g. agy runner on user prompt/state switch).
         # Redirecting to devnull prevents Windows Python from throwing unhandled TextIOWrapper errors on exit.
         try:
@@ -871,7 +945,8 @@ def main(argv=None) -> int:
         except Exception:
             pass
         return 0
-    except Exception:
+    except Exception as e:
+        _debug_log(f"Flush exception: {e}")
         return 0
 
     return 0
@@ -880,10 +955,12 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     try:
         code = main()
-    except BaseException:
+    except BaseException as e:
+        _debug_log(f"Unhandled exception in main: {traceback.format_exc()}")
         code = 0
     try:
         sys.stdout.flush()
-    except Exception:
-        pass
-    sys.exit(code)
+    except Exception as e:
+        _debug_log(f"Final flush exception: {e}")
+    _debug_log(f"EXIT with code {code}")
+    os._exit(code)
