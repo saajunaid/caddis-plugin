@@ -580,6 +580,10 @@ def oss_review_path() -> Path | None:
 
 
 def run_review(worktree: Path, env: dict, timeout_s: int = 900) -> ReviewResult:
+    fake_review = os.environ.get("CADDIS_REVIEW_FAKE")
+    if fake_review:
+        return ReviewResult(fake_review, 0 if fake_review == "CLEAN" else 1, f"fake review: {fake_review}")
+
     path = oss_review_path()
     if path is None:
         return ReviewResult("MISSING", None, "oss_review.py not found")
@@ -1210,6 +1214,10 @@ def _run_command(
             "base_sha": wt.base_sha,
         }
     )
+    wt_plan = wt.path / plan_rel
+    if not wt_plan.exists() and plan.exists():
+        wt_plan.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(plan, wt_plan)
 
     for lane in chain:
         model = models[lane]

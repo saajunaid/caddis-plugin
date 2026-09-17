@@ -325,11 +325,22 @@ function Set-CliPackageVersion {
 
     Set-PackageJsonVersion -PackageJsonPath $pkgJson -VersionString $VersionString
 
-    if (Test-Path $lockJson) {
+    $npmCmd = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+    if (-not $npmCmd) { $npmCmd = Get-Command "npm" -ErrorAction SilentlyContinue }
+
+    if ($npmCmd -and (Test-Path $lockJson)) {
+        Push-Location $CliDir
+        try {
+            & $npmCmd.Source version $VersionString --no-git-tag-version --allow-same-version 2>&1 | Out-Null
+        } finally {
+            Pop-Location
+        }
+    } elseif (Test-Path $lockJson) {
         $lockContent = Get-Content $lockJson -Raw
-        $updated = [regex]::Replace($lockContent, '(?m)^(\s*"version"\s*:\s*")[^"]+(")', ('${1}' + $VersionString + '${2}'), 1)
-        $pattern = '("name"\s*:\s*"@caddis/cli"\s*,\s*"version"\s*:\s*")[^"]+(")'
-        $updated = [regex]::Replace($updated, $pattern, ('${1}' + $VersionString + '${2}'), 1)
+        $rxTop = [regex]'(?m)^(\s*"version"\s*:\s*")[^"]+(")'
+        $updated = $rxTop.Replace($lockContent, ('${1}' + $VersionString + '${2}'), 1)
+        $rxPkg = [regex]'(?ms)("packages"\s*:\s*\{\s*""\s*:\s*\{.*?"version"\s*:\s*")[^"]+(")'
+        $updated = $rxPkg.Replace($updated, ('${1}' + $VersionString + '${2}'), 1)
         Set-Content $lockJson $updated -NoNewline
     }
 }
