@@ -1,13 +1,13 @@
 ---
 name: port-to-github
-description: Move (port) an app or repository to GitHub from ANY source - a Gitea/GitLab/any git server URL, a local folder, a network (UNC) share, or a folder on a remote Windows box reached over WinRM - with or without existing git history. Keeps every branch and tag, verifies by SHA, translates Gitea/Forgejo Actions CI, switches deploy checkouts to GitHub with automatic rollback, and retires the old host safely. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "put this folder on GitHub", "this app only exists on the server", "import the repo from the prod box", or "cut the deploy over to GitHub".
+description: Move (port) an app or repository to GitHub from ANY source - a Gitea/GitLab/any git server URL, a local folder, a network (UNC) share, or a folder on a remote Windows box reached over WinRM - with or without existing git history. Keeps every branch and tag, verifies by SHA, translates Gitea/Forgejo Actions CI, enforces a source-only content policy (runtimes, binaries, data exports and dependencies stay out of the repo, over ALL history, with a runtime manifest and provisioning script so the environment is still reproducible), switches deploy checkouts to GitHub with automatic rollback, and retires the old host safely. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "put this folder on GitHub", "this app only exists on the server", "import the repo from the prod box", "keep binaries / MariaDB / PHP out of the repo", "check the repo only holds source", or "cut the deploy over to GitHub".
 ---
 
 # port-to-github
 
 Move one app to GitHub without losing history, leaking a secret, or breaking its deploy.
 
-The work is in **six phases**. Each ends in a check that can FAIL. Do not start a phase until
+The work is in **six phases**, plus the content policy (2b). Each ends in a check that can FAIL. Do not start a phase until
 the one before it passed. Scripts are in `scripts/` next to this file. They are PowerShell 7
 (`pwsh`); the parts that run on a remote box are Windows PowerShell 5.1 compatible.
 
@@ -15,6 +15,7 @@ the one before it passed. Scripts are in `scripts/` next to this file. They are 
 |---|---|---|
 | 1. Stage the source | `Get-PortSource.ps1` | No. The source is only read. |
 | 2. Readiness | `Test-PortReadiness.ps1` | No. |
+| 2b. Content policy | `Test-PortContentPolicy.ps1`, `New-PortRuntimeManifest.ps1`, `Invoke-PortHistoryClean.ps1` | No. Rewrites only the local stage. |
 | 3. Publish | `Publish-PortToGitHub.ps1` | **Yes: creates a GitHub repo and pushes.** |
 | 4. CI | `Convert-PortWorkflow.ps1`, `Test-PortWorkflowParses.ps1` | Yes: a feature branch and a PR. |
 | 5. Cutover | `Switch-CheckoutOrigin.ps1` | **Yes: changes where a deploy host pulls from.** |
@@ -64,6 +65,9 @@ Read the output. These need a decision, not a shrug:
 - **Uncommitted changes** in a source checkout are left out unless you pass
   `-IncludeUncommitted`, which puts them on a separate branch `port/uncommitted-snapshot-*`.
   The real branches stay exactly as committed. Ask the user which they want.
+- **Default branch.** From a server or a bare repository, its HEAD. From a WORKING checkout,
+  `main` (or `master`) when it exists, because the checked-out branch is only what someone had
+  open; the script says when it made that choice. Override with `-DefaultBranch <name>`.
 - **Remote-only branches**: branches the checkout only knows as `origin/x`. If the checkout is
   the only copy, re-run with `-PromoteRemoteBranches origin`. If a server has them, port from it.
 - **Likely secrets** in a plain folder or a snapshot stop the script (exit 2). Nothing has left
@@ -93,6 +97,63 @@ deploy jobs included. Readiness lists those branches; publish refuses them unles
 (the new repo will expose them), CI credentials, dependency hosts, runner labels, files that
 still name the old host. The report is in `readiness.json`.
 
+## Phase 2b - content policy: source only
+
+**The rule.** The repository holds application code, configuration and templates, migration
+SCRIPTS, tests, and the scripts and manifests that rebuild the environment. Runtime and server
+distributions (MariaDB, PHP, JDK, Node, Python, Apache...), binaries and archives, database data
+files, data exports and installed dependencies stay OUT, and are installed or provisioned
+separately. This is the default for every port; a project narrows or widens it with a
+`contentPolicy` block in its config (`keep` / `exclude` regexes, `dataThresholdMB`, `largeMB`).
+
+```powershell
+& $s/Test-PortContentPolicy.ps1 -Name <repo-name>
+```
+
+It checks the default branch AND every blob in history, because **`.gitignore` does not remove a
+file that was committed before it**. Exit 1 means excluded content exists somewhere in history.
+The output groups findings by folder; `content-policy.json` has every path.
+
+For each group, decide with the user:
+
+1. **It belongs** (a small fixture, a vendored library the team maintains) -> add a `keep` regex
+   to the project config and re-run.
+2. **It does not** -> remove it from the STAGE's history. Two ways, and it is the owner's call:
+   ```powershell
+   & $s/Invoke-PortHistoryClean.ps1 -Name <repo-name> -Mode Rewrite      # keep history, drop the paths
+   & $s/Invoke-PortHistoryClean.ps1 -Name <repo-name> -Mode FreshStart   # one commit of today's files
+   ```
+   `Rewrite` keeps every branch, tag and commit but CHANGES commit SHAs from the first affected
+   commit on; anything quoting an old SHA stops matching. `FreshStart` is smallest and drops all
+   history, other branches and tags. Both re-run the policy check and exit 1 if anything
+   excluded survived. The source keeps its original history either way.
+
+**Keep the environment reproducible.** Excluding a runtime is only safe if the repo says how to
+get it back. Scan the SOURCE FOLDER (runtimes usually live in an ignored `tools/`):
+
+```powershell
+& $s/New-PortRuntimeManifest.ps1 -Path <source-folder> [-ComputerName <box>] -OutDir <clone>\environment
+```
+
+It writes `runtimes.json` (kind, exact version, binary SHA-256, data folders), `provision.ps1`
+(downloads and unpacks each runtime with a known public source and FAILS for any it cannot
+provision), `README.md`, and `config-templates/`: configuration found inside runtime folders
+(`my.ini`, `php.ini`, `config/`, `metadata/`). Configuration is app content even when the runtime
+around it is not. Files that look like they hold a credential are withheld and listed; make
+those templates by hand with placeholders. **The credential check is a heuristic: read every
+copied template yourself before committing it.** The dogfood found one it missed (a SAML test
+user written as `'name:password' => array(...)`); the rule now covers that form, but the next
+form may be new. Nothing it finds is executed; versions come from file
+metadata. Commit `environment/` on the phase 4 branch, by file name.
+
+Two things it cannot decide, so you must:
+- **UNCLASSIFIED folders** beside a runtime (a deployed web tree, a library with no binary).
+  Decide each: provision it, rebuild it from repo code, or keep it in the repo.
+- **Data folders** (e.g. a database `data/` directory). This is state, not code. The repo carries
+  the schema and migrations; the data comes from a backup. Say where that backup lives.
+
+Then add every excluded folder to `.gitignore` on the phase 4 branch, so it cannot come back.
+
 ## Phase 3 - publish (ask first)
 
 Tell the user: the repo name, owner, visibility, branch and tag counts. Then:
@@ -101,7 +162,7 @@ Tell the user: the repo name, owner, visibility, branch and tag counts. Then:
 & $s/Publish-PortToGitHub.ps1 -Name <repo-name> [-Owner <org>] [-Visibility private]
 ```
 
-It first checks the stage still holds exactly the refs phase 1 recorded (anything else would be
+It refuses a stage whose content policy is not compliant (run phase 2b; `-AcceptContentPolicy` records an explicit owner exception instead). It then checks the stage still holds exactly the refs phase 1 recorded (anything else would be
 pushed and then "verified" against itself), creates the repo EMPTY, pushes `refs/heads/*` and
 `refs/tags/*` with an explicit refspec, sets the default branch, and compares every ref by SHA
 (exit 1 on any difference). Do not run other git commands inside the stage; if you did,

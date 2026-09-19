@@ -37,6 +37,9 @@ param(
     # What to do when a plain folder or an uncommitted snapshot contains a likely secret.
     [ValidateSet('Stop', 'Exclude')][string]$OnSecret = 'Stop',
     [string]$InitialBranch = 'main',
+    # The GitHub default branch. Default: the server's HEAD; for a working checkout, main/master
+    # when present (the checked-out branch is only what someone had open).
+    [string]$DefaultBranch,
     # Replace an existing staging folder for this Name.
     [switch]$Force
 )
@@ -315,6 +318,7 @@ switch ($kind) {
                     }
                 }
                 $r.isRepo = $isRepo
+                $r.isBare = $isBare
                 if ($isRepo) {
                     $bundle = Join-Path $tmp 'repo.bundle'
                     & $git -c safe.directory=* -C $Path bundle create $bundle --all 2>&1 | Out-Null
@@ -362,7 +366,13 @@ switch ($kind) {
                 Invoke-PortGit @('bundle', 'verify', $localBundle) | Out-Null
                 Invoke-PortGit @('clone', '-q', '--mirror', $localBundle, $mirror) | Out-Null
                 $manifest.hadGitHistory = $true
-                $manifest.sourceHead = if ($remote.head) { $remote.head } else { $remote.headSha }
+                # A bare repository's HEAD is authoritative, like a server's; only a WORKING checkout's
+                # HEAD is 'whatever was open'. Leaving sourceHead empty keeps the main-line preference off.
+                $manifest.sourceHead = if ($remote.isBare) { $null } elseif ($remote.head) { $remote.head } else { $remote.headSha }
+                # A bundle records HEAD as a commit, not a branch name, so a clone of it GUESSES the
+                # default when two branches share that commit. For a bare repo the name read on the
+                # far side is authoritative; carry it across.
+                if ($remote.isBare -and $remote.head) { $authHead = $remote.head }
                 $manifest.dirtyFiles = @($remote.dirty)
                 if ($manifest.dirtyFiles.Count -gt 0) {
                     if ($IncludeUncommitted -and $remote.dirtyZip) {
@@ -430,11 +440,29 @@ if ($heads.Count -eq 0) { throw "The source produced no branches. Nothing to por
 
 $symHead = Invoke-PortGit -AllowFailure @('-C', $mirror, 'symbolic-ref', '--short', 'HEAD')
 $def = if ($symHead.ExitCode -eq 0) { $symHead.Output -join '' } else { $null }
+$mainLine = @('main', 'master') | Where-Object { $headNames -contains $_ } | Select-Object -First 1
+if (-not (Get-Variable -Name authHead -ErrorAction SilentlyContinue)) { $authHead = $null }
+# The branch the source checkout was really on (a bundle's HEAD is only a guess), so the
+# main-line choice below can say what it replaced.
+if ($manifest.sourceHead -and ($headNames -contains $manifest.sourceHead)) { $def = $manifest.sourceHead }
+if ($DefaultBranch) {
+    if (-not ($headNames -contains $DefaultBranch)) { throw "-DefaultBranch '$DefaultBranch' is not a branch in the source." }
+    $def = $DefaultBranch
+}
+elseif ($authHead -and ($headNames -contains $authHead)) {
+    $def = $authHead
+}
+elseif ($kind -ne 'url' -and $manifest.sourceHead -and $mainLine -and $def -ne $mainLine) {
+    # A server's HEAD IS its default branch. A working checkout's HEAD is only whatever branch
+    # someone had open, so prefer the main line when there is one, and say so.
+    $manifest.warnings += "The checkout was on '$def', but '$mainLine' exists, so '$mainLine' is the default branch on GitHub. Pass -DefaultBranch to choose another."
+    $def = $mainLine
+}
 if (-not $def -or -not ($headNames -contains $def)) {
     $def = @('main', 'master', 'develop') | Where-Object { $headNames -contains $_ } | Select-Object -First 1
     if (-not $def) { $def = $headNames[0] }
-    Invoke-PortGit @('-C', $mirror, 'symbolic-ref', 'HEAD', "refs/heads/$def") | Out-Null
 }
+Invoke-PortGit @('-C', $mirror, 'symbolic-ref', 'HEAD', "refs/heads/$def") | Out-Null
 $manifest.defaultBranch = $def
 
 if ($manifest.remoteOnlyBranches.Count -gt 0) {

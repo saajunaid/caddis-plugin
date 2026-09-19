@@ -27,7 +27,10 @@ param(
     [switch]$AllowExisting,
     # The staged branches already contain .github/workflows; pushing them WILL run those
     # workflows (a deploy job included). Pass only after reading them.
-    [switch]$AllowWorkflowRuns
+    [switch]$AllowWorkflowRuns,
+    # Publish although the content policy is not met. An explicit owner exception, recorded in
+    # manifest.json; never a default.
+    [switch]$AcceptContentPolicy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +47,22 @@ $readinessPath = Join-Path $stage 'readiness.json'
 if (-not (Test-Path -LiteralPath $readinessPath)) { throw "No readiness report. Run Test-PortReadiness.ps1 -Name $Name first." }
 $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
 if (-not $readiness.ready) { throw "Readiness has $(@($readiness.blockers).Count) blocker(s). Fix them and re-run Test-PortReadiness.ps1 before publishing." }
+$policyPath = Join-Path $stage 'content-policy.json'
+if (-not (Test-Path -LiteralPath $policyPath)) {
+    throw "No content-policy report. Run Test-PortContentPolicy.ps1 -Name $Name first (phase 2b)."
+}
+$policyReport = Get-Content -LiteralPath $policyPath -Raw | ConvertFrom-Json
+# The report must describe THIS stage: a clean or re-stage after the check makes it stale.
+if ((Get-Item -LiteralPath $policyPath).LastWriteTime -lt (Get-Item -LiteralPath $manifestPath).LastWriteTime) {
+    throw "content-policy.json is older than manifest.json, so it does not describe the current stage. Re-run Test-PortContentPolicy.ps1."
+}
+if (-not $policyReport.compliant) {
+    if (-not $AcceptContentPolicy) {
+        throw "Content policy not met: $($policyReport.excludedPaths) excluded path(s), $($policyReport.excludedMB) MB in history. Clean it (Invoke-PortHistoryClean.ps1), add keep rules, or pass -AcceptContentPolicy as an explicit owner exception."
+    }
+    Write-PortWarn "Publishing WITH $($policyReport.excludedPaths) excluded path(s) by explicit owner exception (-AcceptContentPolicy)."
+    $manifest | Add-Member -NotePropertyName contentPolicyException -NotePropertyValue ([pscustomobject]@{ at = (Get-Date).ToString('o'); excludedPaths = $policyReport.excludedPaths; excludedMB = $policyReport.excludedMB }) -Force
+}
 $live = @()
 if ($readiness.PSObject.Properties.Name -contains 'branchesWithGithubWorkflows') { $live = @($readiness.branchesWithGithubWorkflows) }
 if ($live.Count -gt 0 -and -not $AllowWorkflowRuns) {
