@@ -1209,6 +1209,14 @@ INTERNAL_NAMES = (
     "appointment-assist", "app-forge", "iegbcoppoc", "iegbaigpu",
 )
 
+# Files allowed to name an internal project, each by an explicit owner decision. Keep this
+# list SHORT and dated; the matching line in denylist-exceptions.txt must be removed with it.
+#   2026-09-19  data-lineage ships as-is (written for one internal observability app); owner
+#               will make it private later. Remove the entry when that happens.
+INTERNAL_NAMES_EXEMPT = (
+    ".github/skills/docs/data-lineage/SKILL.md",
+)
+
 
 def check_no_internal_names_in_public_source() -> CheckResult:
     """Fail the publish if a mirror-bound file names an internal project."""
@@ -1232,6 +1240,9 @@ def check_no_internal_names_in_public_source() -> CheckResult:
             except OSError:
                 continue
             seen += 1
+            if f.relative_to(REPO_ROOT).as_posix() in INTERNAL_NAMES_EXEMPT:
+                result.info.append(f"exempt by owner decision: {f.relative_to(REPO_ROOT).as_posix()}")
+                continue
             for name in INTERNAL_NAMES:
                 if name in text:
                     rel = f.relative_to(REPO_ROOT).as_posix()
@@ -1594,6 +1605,30 @@ def check_command_stage() -> CheckResult:
 
 
 
+def _without_exempt_skill_entries(page: str) -> tuple[str, list[str]]:
+    """Return the page text with ONLY the skill entries of INTERNAL_NAMES_EXEMPT files removed.
+
+    The reference page embeds every skill's description in a JSON block. An owner-exempt skill
+    (see INTERNAL_NAMES_EXEMPT) legitimately names an internal project there. Dropping just that
+    entry, rather than skipping the page, keeps the check live for everything else on it: the
+    same name anywhere else - another skill, a command, the page chrome - still fails.
+    """
+    exempt = {Path(p).parent.name for p in INTERNAL_NAMES_EXEMPT if p.endswith("/SKILL.md")}
+    m = re.search(r'(<script id="DATA" type="application/json">)(.*?)(</script>)', page, re.S)
+    if not exempt or not m:
+        return page, []
+    try:
+        data = json.loads(m.group(2))
+    except ValueError:
+        return page, []   # unparseable: scan the raw page, which fails closed
+    skills = data.get("skills")
+    if not isinstance(skills, list):
+        return page, []
+    dropped = [e.get("name") for e in skills if isinstance(e, dict) and e.get("name") in exempt]
+    data["skills"] = [e for e in skills if not (isinstance(e, dict) and e.get("name") in exempt)]
+    return page[:m.start(2)] + json.dumps(data) + page[m.end(2):], dropped
+
+
 def check_reference_site() -> CheckResult:
     """The published reference site must exist and match the version being shipped.
 
@@ -1618,8 +1653,11 @@ def check_reference_site() -> CheckResult:
         result.failures.append(
             f"docs/index.html was built at v{built} but the pool ships v{version} — rebuild it "
             "after the version bump, or the published page lags one patch")
+    scanned, dropped = _without_exempt_skill_entries(text)
+    for name in dropped:
+        result.info.append(f"exempt by owner decision: skill entry '{name}'")
     for name in INTERNAL_NAMES:
-        if name in text:
+        if name in scanned:
             result.failures.append(f"docs/index.html names '{name}' — this page is PUBLIC")
     result.info.append(f"site carries v{version}")
     result.passed = not result.failures

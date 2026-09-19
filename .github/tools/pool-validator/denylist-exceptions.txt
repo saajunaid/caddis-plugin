@@ -67,3 +67,10 @@ tools/pool-validator/denylist-exceptions.txt
 scripts/tests/test_validate_pool.py
 scripts/tests/test_sync_ps1.py
 scripts/tests/test_check_doc_coverage.py
+
+# --- OWNER DECISION 2026-09-19: data-lineage ships AS-IS, internal app names included. ---
+# It is written for one internal observability app and names it (and a local path) by design.
+# The owner chose to publish it unchanged now and make it private later, rather than generalise
+# it. This line is the ONLY thing letting it through: delete it the day the skill moves to the
+# private category, and the scans resume. Also listed in INTERNAL_NAMES_EXEMPT in validate_pool.py.
+skills/docs/data-lineage/SKILL.md

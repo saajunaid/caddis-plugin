@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy to .caddis/port-to-github.json in the repo you run the port from. Every field is optional.",
+  "owner": "example-org",
+  "visibility": "private",
+  "stagingRoot": "%TEMP%\\port-to-github",
+  "oldRemoteName": "gitea",
+  "dependencyHosts": [
+    { "host": "github.com", "username": "x-access-token", "secret": "ORG_READ_TOKEN", "note": "libraries in other repos of the org" },
+    { "host": "git.example.internal", "username": "ci-bot", "secret": "OLD_HOST_READ_TOKEN", "note": "stays until nothing pins from it" }
+  ],
+  "deployHosts": [
+    { "computerName": "appserver01", "checkoutRoot": "D:\\apps" }
+  ],
+  "projectNotes": [
+    "AGENTS.md - the project's own rules; they override this skill",
+    "docs/runbooks/<your-migration-runbook>.md"
+  ]
+}
