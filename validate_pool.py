@@ -1213,8 +1213,11 @@ INTERNAL_NAMES = (
 # list SHORT and dated; the matching line in denylist-exceptions.txt must be removed with it.
 #   2026-09-19  data-lineage ships as-is (written for one internal observability app); owner
 #               will make it private later. Remove the entry when that happens.
+#   2026-09-19  hld gold standard ships verbatim (host name and organisation included), by
+#               explicit owner instruction after a public-mirror warning.
 INTERNAL_NAMES_EXEMPT = (
     ".github/skills/docs/data-lineage/SKILL.md",
+    ".github/skills/docs/hld/references/gold-standard-hld.md",
 )
 
 
