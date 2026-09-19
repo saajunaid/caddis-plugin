@@ -11,23 +11,32 @@ Last Updated: 2026-09-19T14:05:00Z
 Last Model Used: gemini-3.8-flash
 ---
 
+<!--
+GOLD STANDARD for the hld skill. Match its structure, heading numbering, diagram types and
+styling, ID schemes (SYS_nn, INT_nn, REQ-nn) and table columns exactly.
+ACCOUNTS_PER_RUN, BATCH_HOST, PDF_TOTAL and SECONDARY_SCHEDULES stand in for real, measured
+figures and names in the source HLD; they are withheld here only. A generated HLD must state
+the REAL number or name in every such place - never a placeholder, never a vague 'many'.
+Exact figures are what make the SLA and parity claims checkable.
+-->
+
 # High-Level Architecture (HLA): BriteBill Replacement Platform
 
 ## 1. Executive Summary
 
 ### 1.1 Initiative Goal
-The BriteBill Replacement Platform replaces the proprietary third-party BriteBill invoice composition system used for Virgin Media Ireland fixed billing. 
+The BriteBill Replacement Platform replaces the proprietary third-party BriteBill invoice composition system used for fixed-line customer billing. 
 
 This platform achieves the following primary business goals:
 - It eliminates third-party licensing costs, proprietary dependencies, and vendor software lock-in.
 - It provides a locally controlled, deterministic, and auditable composition engine.
 - It delivers high-throughput batch generation for four recurring monthly billing cycles: `BR-07`, `BR-14`, `BR-21`, and `BR-28`.
-- It processes approximately 124,000 customer accounts per billing run within a four-hour service level agreement (SLA) window.
+- It processes approximately `<ACCOUNTS_PER_RUN>` customer accounts per billing run within a four-hour service level agreement (SLA) window.
 - It simultaneously produces four synchronized output channels from a single canonical document model: Customer PDF, Print Spool AFP, Mailroom Index JRN, and Digital Portal XML.
 - It guarantees full financial integrity through mandatory, fail-closed automated reconciliation gates.
 
 ### 1.2 Solution Architecture Summary
-The solution operates as a standalone Python-based batch processing engine deployed on host `iegbcoppoc02`. It processes raw Kenan billing stream files (`.EN`), executes financial reconciliation, and renders customer-facing outputs. The engine isolates every run in an immutable staging directory, verifies cryptographic checksums, and publishes outputs atomically only after all financial and population gates pass.
+The solution operates as a standalone Python-based batch processing engine deployed on the dedicated batch host `<BATCH_HOST>`. It processes raw Kenan billing stream files (`.EN`), executes financial reconciliation, and renders customer-facing outputs. The engine isolates every run in an immutable staging directory, verifies cryptographic checksums, and publishes outputs atomically only after all financial and population gates pass.
 
 ### 1.3 Business Value & Operational Outcomes
 - **Cost Reduction**: Complete decommissioning of third-party composition licenses.
@@ -40,7 +49,7 @@ The solution operates as a standalone Python-based batch processing engine deplo
 ## 2. Project Context and Scope
 
 ### 2.1 Background
-Virgin Media Ireland fixed customer billing produces monthly invoices across four staggered billing cycles. The legacy composition workflow relied on an external vendor system (BriteBill). This introduced high annual licensing costs and operational delays whenever regulatory or template changes occurred. The BriteBill Replacement Platform moves invoice composition entirely onto internal infrastructure using high-performance open standards.
+Fixed-line customer billing produces monthly invoices across four staggered billing cycles. The legacy composition workflow relied on an external vendor system (BriteBill). This introduced high annual licensing costs and operational delays whenever regulatory or template changes occurred. The BriteBill Replacement Platform moves invoice composition entirely onto internal infrastructure using high-performance open standards.
 
 ### 2.2 Scope
 
@@ -65,7 +74,7 @@ Virgin Media Ireland fixed customer billing produces monthly invoices across fou
 
 ### 2.3 Architecture Boundaries and Key Assumptions
 - **Deterministic Processing**: All calculations and document renderings produce identical, byte-reproducible outputs for identical inputs.
-- **Local Filesystem Isolation**: Network-isolated execution on `iegbcoppoc02` with zero runtime external API or HTTP dependencies.
+- **Local Filesystem Isolation**: Network-isolated execution on `<BATCH_HOST>` with zero runtime external API or HTTP dependencies.
 - **Fail-Closed Operations**: Any financial discrepancy, unmapped record, or population count mismatch immediately halts the run and prevents output release.
 
 ---
@@ -168,7 +177,7 @@ sequenceDiagram
     Render->>Storage: Write outputs into staging directories
 
     Note over Orch,Targets: Stage 5: Population Audit & Atomic Release
-    Orch->>Audit: Verify population counts (PDF == XML == AFP == 124,024)
+    Orch->>Audit: Verify population counts (PDF == XML == AFP == ACCOUNTS_PER_RUN)
     Orch->>Audit: Seal freeze-manifest.json and compute final SHA-256 digests
     Orch->>Audit: Transition to RunLifecycle::READY_FOR_RELEASE
     Orch->>Targets: Copy verified artifacts to delivery endpoints
@@ -195,7 +204,7 @@ flowchart TD
         SYS_01["SYS_01: Kenan Billing Engine<br/>Rating & Billing Lifecycle"]:::existingStyle
     end
 
-    subgraph CorePlatform["BriteBill Replacement Platform (iegbcoppoc02)"]
+    subgraph CorePlatform["BriteBill Replacement Platform (BATCH_HOST)"]
         direction LR
         SYS_02["SYS_02: BriteBill Replacement Engine<br/>Ingestion, Mapping, Reconcile & Render"]:::newStyle
         SYS_06["SYS_06: Operations Control Centre<br/>Audit Journal, Sealed Manifest & CLI"]:::newStyle
@@ -204,7 +213,7 @@ flowchart TD
     subgraph Downstream["Downstream Distribution Channels"]
         direction LR
         SYS_03["SYS_03: Print House & Mailroom<br/>Physical Print & Insertion Spool"]:::existingStyle
-        SYS_04["SYS_04: My Virgin Media Portal<br/>Online eBilling XML Viewer"]:::existingStyle
+        SYS_04["SYS_04: Customer Self-Service Portal<br/>Online eBilling XML Viewer"]:::existingStyle
         SYS_05["SYS_05: Enterprise Document Archive<br/>Customer PDF Storage & Email"]:::existingStyle
     end
 
@@ -225,7 +234,7 @@ The table below catalogs all systems and platforms within the solution boundary:
 | `SYS_01` | Kenan Billing Engine (Amdocs) | Billing / Rating | Upstream rating engine producing periodic `.EN` billing stream files. | No |
 | `SYS_02` | BriteBill Replacement Composition Engine | Batch Engine | Core batch orchestration, mapping, financial reconciliation, and multi-channel rendering engine. | Yes |
 | `SYS_03` | External Print House & Mailroom Spool | Print Production | Commercial printing facility ingesting MO:DCA AFP spools and JRN insertion records. | No |
-| `SYS_04` | My Virgin Media Digital Self-Service Portal | Web Portal | Customer billing portal ingesting structured eBilling XML for web presentation. | No |
+| `SYS_04` | Customer Digital Self-Service Portal | Web Portal | Customer billing portal ingesting structured eBilling XML for web presentation. | No |
 | `SYS_05` | Enterprise Document Archive & Dispatcher | Document Repository | Long-term customer communications repository and email dispatcher ingesting certified PDF invoices. | No |
 | `SYS_06` | Operations Control Centre & Audit Journal | Ops & Governance | Operational monitoring CLI, telemetry aggregator, and sealed run manifest validator. | Yes |
 
@@ -238,7 +247,7 @@ The core processing component implemented in Python. It executes local staging, 
 #### 4.2.3 SYS_03: External Print House & Mailroom Spool
 Receives binary MO:DCA AFP print spools and JRN insertion index files for postal sorting, physical paper printing, envelope inserting, and mail dispatch.
 
-#### 4.2.4 SYS_04: My Virgin Media Digital Self-Service Portal
+#### 4.2.4 SYS_04: Customer Digital Self-Service Portal
 The customer-facing digital web application that parses structured XML invoice streams to present interactive online bill breakdowns.
 
 #### 4.2.5 SYS_05: Enterprise Document Archive & Dispatcher
@@ -273,7 +282,7 @@ Delivers ASCII index files specifying sheet counts, account identifiers, envelop
 Transfers schema-validated XML documents containing invoice data for online customer self-service viewing.
 
 #### 4.3.5 INT_05: Deterministic PDF Invoices
-Transfers byte-deterministic PDF documents containing vector Virgin Media branding, billing transaction tables, and Giro payment slips.
+Transfers byte-deterministic PDF documents containing vector brand artwork, billing transaction tables, and Giro payment slips.
 
 #### 4.3.6 INT_06: Telemetry & Sealed Manifest
 Emits structured JSONL telemetry and a cryptographic `release_manifest.json` sealing file counts, execution parameters, and SHA-256 hashes.
@@ -295,7 +304,7 @@ The platform provides administrative command-line surfaces for operations and sc
 ## 5. High-Level Data and Storage Architecture
 
 ### 5.1 Host & Working Storage Topology
-The engine executes entirely within a dedicated local filesystem hierarchy on host `iegbcoppoc02`. Every batch run is isolated by unique run and attempt identifiers:
+The engine executes entirely within a dedicated local filesystem hierarchy on the dedicated batch host `<BATCH_HOST>`. Every batch run is isolated by unique run and attempt identifiers:
 
 ```
 <working_root>/<run_id>/<attempt_id>/
@@ -356,8 +365,8 @@ classDiagram
 
 ### 5.3 Multi-Channel Output Volume & Specifications
 Production metrics established during candidate certification (ATT-006 baseline):
-- **PDF Documents**: 124,980 total PDF files (124,024 primary invoices + 956 secondary itemized schedules).
-- **XML Documents**: 124,024 structured customer eBilling files.
+- **PDF Documents**: `<PDF_TOTAL>` total PDF files (`<ACCOUNTS_PER_RUN>` primary invoices + `<SECONDARY_SCHEDULES>` secondary itemized schedules).
+- **XML Documents**: `<ACCOUNTS_PER_RUN>` structured customer eBilling files.
 - **AFP Spools**: 32 consolidated MO:DCA print files matching the 32 upstream Kenan input batches.
 - **JRN Journals**: 32 postal index files containing 100% field parity with postal insertion machinery.
 
@@ -373,7 +382,7 @@ The platform security architecture adheres to strict controls defined in `docs/S
 
 ### 6.2 Zero Runtime Network Access
 - No module within `ingestion/`, `mapping/`, `templating/`, or `rendering/` initiates external HTTP or network requests during generation.
-- All fonts, styling assets, and configuration templates reside locally on disk on `iegbcoppoc02`.
+- All fonts, styling assets, and configuration templates reside locally on disk on `<BATCH_HOST>`.
 
 ### 6.3 Working Storage Path Isolation & Traversal Defense
 - File discovery resolves candidate paths and rejects any file whose resolved parent directory escapes the staging root.
@@ -395,7 +404,7 @@ The platform security architecture adheres to strict controls defined in `docs/S
 | `REQ-01` | Ingest Kenan `.EN` tagged-record streams | `SYS_02` (`ingestion/en_reader.py`) | Automated parser unit tests and zero-failure batch validation. |
 | `REQ-02` | Strong financial reconciliation | `SYS_02` (`reconciliation/checks.py`) | Full-population balance reconciliation gate (`reconcile()`). |
 | `REQ-03` | Byte-deterministic PDF rendering | `SYS_02` (`rendering/mupdf_renderer.py`) | SHA-256 byte-identity verification against certified baseline. |
-| `REQ-04` | Multi-channel parity (PDF/XML/AFP/JRN) | `SYS_02` (`mapping/*`, `rendering/*`) | Cross-output population count verification (`124,024` exact). |
+| `REQ-04` | Multi-channel parity (PDF/XML/AFP/JRN) | `SYS_02` (`mapping/*`, `rendering/*`) | Cross-output population count verification (`<ACCOUNTS_PER_RUN>` exact). |
 | `REQ-05` | Atomic release & staging isolation | `SYS_02` (`batch/orchestrator.py`) | Zero output visibility before `READY_FOR_RELEASE` and marker written last. |
 | `REQ-06` | Auditability & run sealing | `SYS_06` (`audit/manifest.py`) | Cryptographic `release_manifest.json` generation. |
 
@@ -414,6 +423,6 @@ The platform security architecture adheres to strict controls defined in `docs/S
 | Fail-Closed | An architectural principle where any detected inconsistency aborts processing before releasing outputs. |
 
 ### 8.2 Reference Documents
-- `\\iegbcoppoc02\G\britebill-replacement\README.md`: System operational runbook and architecture overview.
-- `\\iegbcoppoc02\G\britebill-replacement\docs\SECURITY_AND_PRIVACY.md`: Security controls and privacy safeguards.
-- `\\iegbcoppoc02\G\britebill-replacement\docs\PRODUCTION_CANDIDATE_ATT006.md`: Candidate certification report and benchmark results.
+- `britebill-replacement/README.md`: System operational runbook and architecture overview.
+- `britebill-replacement/docs/SECURITY_AND_PRIVACY.md`: Security controls and privacy safeguards.
+- `britebill-replacement/docs/PRODUCTION_CANDIDATE_ATT006.md`: Candidate certification report and benchmark results.

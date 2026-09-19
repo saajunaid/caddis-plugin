@@ -74,9 +74,3 @@ scripts/tests/test_check_doc_coverage.py
 # it. This line is the ONLY thing letting it through: delete it the day the skill moves to the
 # private category, and the scans resume. Also listed in INTERNAL_NAMES_EXEMPT in validate_pool.py.
 skills/docs/data-lineage/SKILL.md
-
-# --- OWNER DECISION 2026-09-19: the HLD gold standard ships VERBATIM. ---
-# The owner chose to publish the original reference HLD word for word, including its host
-# name and organisation details, after being told the mirror is public. Delete this line (and
-# its INTERNAL_NAMES_EXEMPT entry) to put the gate back on this file.
-skills/docs/hld/references/gold-standard-hld.md
