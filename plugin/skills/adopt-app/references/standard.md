@@ -59,12 +59,25 @@ wrong branch before this is answered means CI builds and tests code nobody ships
 
 **Blocking.**
 
-**Decided by:** `GAP` if either of these is true: a top-level folder that IS git-tracked also
+**Decided by:** `GAP` if either of these is true. First, a FILE that git actually tracks also
 matches an excludable content category (dependency, runtime, build-output, cache, db-data,
-archive, data-export, or media - `log` is exempted here) - i.e. something was committed that
-should not have been; or a top-level folder is git-UNTRACKED, is not `.git`, and is at least
-`-UntrackedThresholdMB` (default 10 MB). Otherwise `PASS` - except a `PASS` is downgraded to
-`ASK` if any top-level folder was scanned with `-SkipFolder` (see "Coverage" below).
+archive, data-export or media - `log` is exempt) - something was committed that should not have
+been. Second, a top-level folder is git-untracked, is not `.git`, and is at least
+`-UntrackedThresholdMB` (default 10 MB). Otherwise `PASS` - downgraded to `ASK` if any folder was
+skipped with `-SkipFolder`, or if git could not be run (see "Coverage" below).
+
+**Tracked state is per FILE, and that distinction is the whole check.** An earlier version asked
+git for the state of the FOLDER and applied it to every byte inside. A folder is routinely both
+things at once: on a real app, `reports/` held 40 committed markdown documents beside 1,060 MB of
+correctly-ignored run output, under an ignore rule that already existed. The check reported
+`COMMITTED data-export: reports (1018.47 MB)`. The true figure was 0.01 MB in 4 files - wrong by
+about seven thousand times, and wrong in the expensive direction, because it said "rewrite your
+history" when the answer was "nothing to do". The summary now prints `COMMITTED` or
+`not committed` per row, and only the first kind needs a rewrite.
+
+`git check-ignore` alone cannot make this distinction: by default it does not report a path that
+git tracks, so the same folder answers "not ignored" plainly and "ignored" under `--no-index`.
+Both answers are true. Only a per-file tracked set says which files are which.
 
 **Why it is on the list:** a `.gitignore` added later does not remove what is already committed -
 that needs a history rewrite. And a folder that is neither committed nor ignored is the genuinely

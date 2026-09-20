@@ -65,6 +65,10 @@ facts - services, scheduled tasks, web sites - can only be read on the box itsel
   recorded as NOT SCANNED, never as empty, and it prevents later checks from passing.
 - **Neither committed nor ignored.** Folders in this state are the real hazard: one `git add -A`
   puts them in the history for ever. A filename pattern cannot find them - only git can.
+- **COMMITTED versus not committed**, on every row of "what the repository must not carry". Only
+  the committed rows need a history rewrite; the rest need a `.gitignore` line, or already have
+  one. The distinction is per FILE, because one folder is routinely both: committed documents
+  beside ignored output. Read the row's state before planning any work.
 - **Possible credentials.** The heuristics are tuned to be readable rather than exhaustive: they
   skip comments, type declarations, template references and expressions. **Read every file they
   flag yourself.** A credential that was ever committed must be ROTATED, not only deleted.
