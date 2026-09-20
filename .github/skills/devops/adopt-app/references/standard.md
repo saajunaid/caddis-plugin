@@ -1,6 +1,6 @@
 # The adoption standard
 
-`Test-AppConformance.ps1` (phase 3) measures an app against 20 items, in the order below - the
+`Test-AppConformance.ps1` (phase 3) measures an app against 21 items, in the order below - the
 same order the script adds them in. Each one gets a verdict, never a guess:
 
 | Verdict | Means |
@@ -247,7 +247,40 @@ run it - should not require finding and interrupting someone.
 **Why it is on the list:** without it, every coding agent that touches the app re-derives its
 non-obvious rules from scratch, and different agents derive them differently.
 
-### 19. `no-junctions` - No junction or symlink inside the tree git manages
+### 19. `work-is-in-a-ref` - Every commit is reachable from a branch or a tag
+
+**Blocking.**
+
+**Decided by:** `GAP` when a worktree is on a DETACHED HEAD that no branch and no tag contains.
+`ASK` when there are no unreachable commits but there are stashes, or worktrees with
+uncommitted files. `ASK` when git could not be run. `PASS` otherwise.
+
+**Why it is on the list.** A port copies refs. A clone takes `refs/heads/*` and `refs/tags/*`,
+so a worktree's BRANCH travels with it like any other - a worktree is an extra folder, not an
+extra repository. A **detached HEAD is neither a branch nor a tag**, so its commits are not
+copied, and because nothing points at them git is free to collect them. The work is not
+protected by being on disk; it is protected by being in a ref.
+
+Measured on a real app: two detached worktrees under a temporary path that the app's own
+documents called a "recurring external cleanup hazard", with three recorded incidents. They
+held **200 commits** of certified work. `branch --contains` returned 0 for both. Every other
+check passed; a port would have carried 127 branches and left behind the only copy of the part
+that mattered.
+
+**The fix costs nothing** and the report prints it per worktree:
+
+```
+git -C <repo> branch rescue/<worktree-name> <sha>
+```
+
+It creates a branch name and changes nothing else. After it, `branch --contains` returns 1 and
+the commits port like anything else.
+
+Stashes are the same class of problem for a smaller amount of work: `refs/stash` is not copied
+by a clone or a push. Uncommitted files in a worktree are invisible to the main checkout's
+`git status`, which is why the inventory reports each worktree's own count.
+
+### 20. `no-junctions` - No junction or symlink inside the tree git manages
 
 **Not blocking.**
 
@@ -261,7 +294,7 @@ Ordinary Windows delete operations (`Remove-Item -Recurse`, `cmd /c rmdir /s /q`
 this trap easy to miss: a delete you tested yourself can look completely safe right up until git
 does the deleting instead.
 
-### 20. `profile` - The stack is declared, not assumed
+### 21. `profile` - The stack is declared, not assumed
 
 **Blocking.**
 
@@ -308,9 +341,9 @@ what it really is.
 | `1` | At least one blocking item is `GAP` and not waived. Checked first - if both a blocking `GAP` and a blocking unanswered `ASK` exist at once, exit code `1` wins. |
 | `2` | No blocking `GAP` remains, but at least one blocking item is still an unanswered `ASK` and not waived. |
 
-The eight blocking items, as the code actually enforces them, are: `git-repo`,
-`remote-on-team-host`, `canonical-branch`, `source-only`, `no-secrets`, `run-declared`, `owner`,
-and `profile`. Which items block is decided in the script, by the `Blocking` argument to each
+The nine blocking items, as the code actually enforces them, are: `git-repo`,
+`remote-on-team-host`, `canonical-branch`, `source-only`, `no-secrets`, `work-is-in-a-ref`,
+`run-declared`, `owner` and `profile`. Which items block is decided in the script, by the `Blocking` argument to each
 item, and not by the project config. An earlier draft of the config carried a `blockingItems`
 list that nothing read and that had drifted out of step with this set; it was removed from the
 code and from `config.example.json` together, rather than documented as a thing that looks

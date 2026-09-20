@@ -196,7 +196,8 @@ $script:AdoptScanBlock = {
         # a key that is missing because one git call did not run.
         $g = @{ isRepo = $true; gitAvailable = $gitAvailable; gitError = $gitError; commits = $null; branch = $null
                 localBranches = 0; remoteBranches = 0; tags = 0; dirtyFiles = $null
-                remotes = @(); upstream = $null; unpushed = $null; lastCommit = $null }
+                remotes = @(); upstream = $null; unpushed = $null; lastCommit = $null
+                worktrees = @(); unreachableCommits = @(); stashes = 0 }
         $result.git = $g
         if (-not $gitAvailable) {
             $result.partial = $true
@@ -231,6 +232,63 @@ $script:AdoptScanBlock = {
             if ($ahead) { $g.unpushed = [int]"$ahead" }
         }
         else { $g.upstream = $null; $g.unpushed = $null }
+
+        # ---- worktrees, and the commits a port would silently leave behind ----------
+        #
+        # A worktree is an extra FOLDER, not an extra repository: its branch lives in
+        # this same .git, so a mirror clone carries it. What a mirror does NOT carry is
+        # a DETACHED HEAD, because a mirror copies refs/heads/* and refs/tags/* and a
+        # detached HEAD is neither. Nothing points at those commits, so git is also free
+        # to collect them.
+        #
+        # This is not hypothetical. A real app had two detached worktrees on a temp path
+        # its own documents called a "recurring cleanup hazard", holding 200 commits of
+        # certified work. `branches containing it` was 0 for both. One `git worktree add`
+        # months earlier, and a port would have taken everything except the part that
+        # mattered.
+        $g.worktrees = @()
+        $g.unreachableCommits = @()
+        $wtOut = & $runGit @('worktree', 'list', '--porcelain')
+        if ($wtOut) {
+            $cur = $null
+            foreach ($line in @($wtOut)) {
+                $s = "$line"
+                if ($s -match '^worktree\s+(.+)$') {
+                    if ($cur) { $g.worktrees += $cur }
+                    $cur = @{ path = $Matches[1]; branch = $null; head = $null; detached = $false; dirtyFiles = $null; isMain = $false }
+                }
+                elseif ($s -match '^HEAD\s+([0-9a-f]{40})$' -and $cur) { $cur.head = $Matches[1] }
+                elseif ($s -match '^branch\s+refs/heads/(.+)$' -and $cur) { $cur.branch = $Matches[1] }
+                elseif ($s -eq 'detached' -and $cur) { $cur.detached = $true }
+            }
+            if ($cur) { $g.worktrees += $cur }
+        }
+
+        foreach ($w in @($g.worktrees)) {
+            $w.isMain = ($w.path.TrimEnd('\', '/') -eq $root)
+            # Its OWN uncommitted files. A worktree has a separate working tree, so the
+            # main checkout's `git status` says nothing about it.
+            if (Test-Path -LiteralPath $w.path) {
+                $st = & git -c safe.directory=* -C $w.path status --porcelain 2>&1
+                if ($LASTEXITCODE -eq 0) { $w.dirtyFiles = @($st | Where-Object { "$_" -ne '' }).Count }
+            }
+            # The finding that matters: is this HEAD reachable from any branch or tag?
+            if ($w.detached -and $w.head) {
+                $containing = @(& git -c safe.directory=* -C $root branch --contains $w.head 2>&1 | Where-Object { "$_" -notmatch '^(error|fatal)' -and "$_" -ne '' })
+                $tagged = @(& git -c safe.directory=* -C $root tag --contains $w.head 2>&1 | Where-Object { "$_" -notmatch '^(error|fatal)' -and "$_" -ne '' })
+                if ($containing.Count -eq 0 -and $tagged.Count -eq 0) {
+                    $ahead = & git -c safe.directory=* -C $root rev-list --count "$($w.head)" 2>&1
+                    $g.unreachableCommits += @{
+                        path = $w.path; head = $w.head
+                        commits = $(if ($LASTEXITCODE -eq 0) { [int]"$ahead" } else { $null })
+                    }
+                }
+            }
+        }
+
+        # A stash is a ref, but `refs/stash` is not copied by a normal clone or push.
+        $stash = & $runGit @('stash', 'list')
+        $g.stashes = @($stash | Where-Object { "$_" -ne '' }).Count
     }
 
     # ---- which files git actually tracks ---------------------------------------------

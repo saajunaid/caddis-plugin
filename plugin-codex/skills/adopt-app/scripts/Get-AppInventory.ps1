@@ -166,6 +166,45 @@ elseif ($inventory.git.isRepo) {
 }
 else { Write-Host "  repo     : NO - there is no history to port; adoption starts with one import commit" -ForegroundColor Yellow }
 
+if ($inventory.git.isRepo) {
+    $wts = @(Get-AdoptProp $inventory.git 'worktrees' @())
+    $stashes = [int](Get-AdoptProp $inventory.git 'stashes' 0)
+    if ($wts.Count -gt 1 -or $stashes -gt 0) {
+        Write-AdoptHeading 'Worktrees and stashes'
+        foreach ($w in $wts) {
+            $what = if ($w.branch) { "on $($w.branch)" } else { "DETACHED at $("$($w.head)".Substring(0,9))" }
+            $dirty = if ($null -eq $w.dirtyFiles) { 'unreadable' } else { "$($w.dirtyFiles) uncommitted" }
+            $tag = if ($w.isMain) { '  (the main checkout)' } else { '' }
+            Write-Host ("    {0,-58} {1,-34} {2}{3}" -f $w.path, $what, $dirty, $tag)
+        }
+        if ($stashes -gt 0) {
+            Write-Host "    $stashes stash entr(ies) - `refs/stash` is NOT copied by a clone or a push." -ForegroundColor Yellow
+        }
+    }
+
+    # THE ONE THAT LOSES WORK. A mirror copies refs/heads/* and refs/tags/*; a detached
+    # HEAD is neither, so its commits are not carried - and with nothing pointing at them,
+    # git may collect them. Found on a real app: 200 commits of certified work on two
+    # detached worktrees, under a path its own docs called a recurring cleanup hazard.
+    $unreachable = @(Get-AdoptProp $inventory.git 'unreachableCommits' @())
+    if ($unreachable.Count -gt 0) {
+        Write-AdoptHeading 'COMMITS NO PORT WOULD CARRY'
+        Write-Host "  These worktrees are on a DETACHED HEAD that no branch and no tag points at." -ForegroundColor Red
+        Write-Host "  A clone copies branches and tags. These are neither, so they would be left" -ForegroundColor Red
+        Write-Host "  behind - and git is free to delete them." -ForegroundColor Red
+        foreach ($u in $unreachable) {
+            $n = if ($u.commits) { "$($u.commits) commits" } else { 'unknown depth' }
+            Write-Host ("    {0}`n      HEAD {1}  ({2})" -f $u.path, "$($u.head)".Substring(0,9), $n) -ForegroundColor Red
+        }
+        Write-Host ""
+        Write-Host "  FIX IT BEFORE PORTING - one command each, and it changes nothing else:" -ForegroundColor Yellow
+        foreach ($u in $unreachable) {
+            $leaf = (Split-Path $u.path -Leaf) -replace '[^A-Za-z0-9._-]', '-'
+            Write-Host "    git -C <repo> branch rescue/$leaf $("$($u.head)".Substring(0,9))" -ForegroundColor Yellow
+        }
+    }
+}
+
 # Neither committed nor ignored. This is the state that turns one careless `git add -A`
 # into gigabytes of runtime data in the history for ever, and no filename pattern finds
 # it - only git can tell an undeclared data tree from a source folder.

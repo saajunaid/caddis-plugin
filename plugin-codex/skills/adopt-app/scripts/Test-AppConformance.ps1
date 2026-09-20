@@ -254,6 +254,22 @@ Add-Item 'agent-rules' 'A rules file the coding agents read' $false `
     $(if ($hasAgentRules) { (@($inv.docs | Where-Object { $_ -match '(?i)^(agents|claude)\.md$' }) -join ', ') } else { 'none' }) `
     '' 'Without it every agent re-derives the project rules, and each one derives them differently.'
 
+# A port copies refs. Work that is in no ref is work a port silently drops.
+$unreachable = @(Get-AdoptProp $inv.git 'unreachableCommits' @())
+$stashCount  = [int](Get-AdoptProp $inv.git 'stashes' 0)
+$wtDirty     = @(@(Get-AdoptProp $inv.git 'worktrees' @()) | Where-Object { $_.dirtyFiles -and $_.dirtyFiles -gt 0 })
+Add-Item 'work-is-in-a-ref' 'Every commit is reachable from a branch or a tag' $true `
+    $(if (-not $gitUsable) { 'ASK' } elseif ($unreachable.Count -gt 0) { 'GAP' } elseif ($stashCount -gt 0 -or $wtDirty.Count -gt 0) { 'ASK' } else { 'PASS' }) `
+    $(if ($unreachable.Count -gt 0) {
+            "DETACHED and unreferenced: " + ((@($unreachable | ForEach-Object { "$($_.path) ($($_.commits) commits)" })) -join '; ')
+        }
+        elseif ($stashCount -gt 0 -or $wtDirty.Count -gt 0) {
+            "no unreachable commits, but $stashCount stash(es) and $($wtDirty.Count) worktree(s) with uncommitted files - none of that is in a ref either"
+        }
+        else { 'every worktree is on a branch; no stashes' }) `
+    'For each stash and each uncommitted file: does that work matter? Anything that does needs a branch before the port.' `
+    'A clone copies refs/heads/* and refs/tags/*. A detached HEAD is neither, so its commits are not carried - and nothing points at them, so git may collect them. `git branch <name> <sha>` costs nothing and fixes it.'
+
 Add-Item 'no-junctions' 'No junction or symlink inside the tree git manages' $false `
     $(if ($junctionsInTree.Count -eq 0) { 'PASS' } else { 'GAP' }) `
     $(if ($junctionsInTree.Count -eq 0) { 'none outside dependency folders' } else { "$($junctionsInTree.Count): $((@($junctionsInTree | Select-Object -First 3 | ForEach-Object { $_.path })) -join ', ')" }) `

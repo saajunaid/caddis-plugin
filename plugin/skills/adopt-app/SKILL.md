@@ -74,6 +74,13 @@ facts - services, scheduled tasks, web sites - can only be read on the box itsel
   flag yourself.** A credential that was ever committed must be ROTATED, not only deleted.
 - **What runs it.** If nothing on the host references the folder and the app is live, it runs
   somewhere you have not looked. Find out where before planning anything.
+- **COMMITS NO PORT WOULD CARRY.** A worktree is an extra folder, not an extra repository, so
+  its branch travels with a clone like any other. A **detached HEAD** does not: a clone copies
+  `refs/heads/*` and `refs/tags/*`, and a detached HEAD is neither. Nothing points at those
+  commits, so git may also collect them. If this section appears, fix it before anything else -
+  the report prints the exact `git branch` command, it changes nothing else, and it is the
+  difference between porting the work and losing it. Stashes are the same problem: `refs/stash`
+  is not copied by a clone or a push.
 
 Junctions and symlinks are reported and never followed. A junction inside a tree that git manages
 is a data-loss hazard: git's recursive remove follows it and deletes the target's contents.
