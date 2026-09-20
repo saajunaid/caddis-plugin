@@ -1,0 +1,87 @@
+{
+  "name": "static-site",
+  "status": "draft",
+  "description": "A static site or a statically-generated site (for example built with a static-site generator, or plain HTML/CSS/JS) with no backend process of its own.",
+  "detect": {
+    "anyFiles": [
+      "index.html",
+      "astro.config.mjs",
+      "astro.config.ts",
+      "gatsby-config.js",
+      "next.config.js",
+      "hugo.toml",
+      "hugo.yaml",
+      "_config.yml",
+      "mkdocs.yml",
+      "docusaurus.config.js",
+      "vuepress.config.js"
+    ],
+    "noneFiles": [
+      "pyproject.toml",
+      "requirements.txt",
+      "composer.json",
+      "index.php",
+      "**/*.csproj",
+      "pom.xml",
+      "build.gradle",
+      "build.gradle.kts"
+    ],
+    "noneContain": [
+      {
+        "file": "package.json",
+        "pattern": "\"(express|fastify|hono|@nestjs/core|koa)\""
+      }
+    ]
+  },
+  "runtimes": [
+    {
+      "kind": "node",
+      "version": "<from package.json engines, if a generator is used to build the site>",
+      "provision": "<needed only at build time, not to serve the finished site>"
+    }
+  ],
+  "build": [
+    {
+      "what": "Dependencies, if the site is generated",
+      "command": "npm ci"
+    },
+    {
+      "what": "Generate the static output",
+      "command": "npm run build"
+    }
+  ],
+  "services": [
+    {
+      "role": "web",
+      "port": "<the site's HTTP port, if served by a small process rather than a CDN or web server>",
+      "start": "<a static file server, or the site is served directly by a web server / CDN with no process of its own>",
+      "manager": "<a service manager, or none if a web server serves the files directly>",
+      "bind": "<loopback-only, if a trusted edge fronts it>",
+      "health": "<the home page returns 200 with the expected content>"
+    }
+  ],
+  "routing": {
+    "mode": "<dedicated-site|none>",
+    "staticRoot": "<the built output folder, e.g. dist or public>",
+    "apiPrefix": "<n/a>"
+  },
+  "config": {
+    "files": ["<build-time environment variables, if any>"],
+    "rule": "no secrets belong in a static bundle - anything shipped to the browser is public"
+  },
+  "data": {
+    "migrations": "none",
+    "state": "none - the site is a build artefact; content lives in the source repo or a content system, not on the serving host"
+  },
+  "ci": {
+    "workflow": "<CI workflow file: lint, build>",
+    "requiredJobs": ["<build>"],
+    "deployJob": "<deploy_prod>"
+  },
+  "deploy": {
+    "script": "<deploy script: build, then publish the output folder to where it is served from>",
+    "verify": [
+      "a rendered page's content or the build output's hash changed - not just an HTTP 200 from the serving host"
+    ]
+  }
+}

@@ -35,6 +35,7 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
+| Adopt App | `adopt-app/` | Bring an app that was never scaffolded - a proof of concept that became real, a folder on a server, a checkout with no remote - up to the standard a generated app starts at. Inventories it without running it (local folder, network share, or a remote Windows box over WinRM), works out what stack each component is, measures it against an adoption standard with three verdicts (pass, gap, and question-only-a-person-can-answer), and writes an ordered plan whose steps cannot be done in the wrong order. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "bring this up to standard", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production". |
 | Ci Cd Pipeline | `ci-cd-pipeline/` | CI/CD pipeline design and implementation for GitHub Actions, Azure DevOps, and general pipeline architecture. Use when creating build pipelines, deployment workflows, quality gates, environment promotion strategies, or automating release processes. |
 | Gh Cli | `gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
