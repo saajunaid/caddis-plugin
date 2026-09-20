@@ -72,10 +72,12 @@ $componentProfiles = @($prof.components | ForEach-Object { $_.profile })
 $isBatchOnly = ($componentProfiles.Count -gt 0) -and (@($componentProfiles | Where-Object { $_ -notmatch 'batch' }).Count -eq 0)
 
 $untrackedBig = @($folders | Where-Object { $_.git -eq 'untracked' -and $_.path -ne '.git' -and $_.mb -ge $UntrackedThresholdMB })
+# Per FILE, from git itself - not "this folder is tracked, so all of its bytes are".
 $trackedJunk = @()
 foreach ($e in @($inv.excludableSummary)) {
-    $f = @($folders | Where-Object { $_.path -eq $e.folder })
-    if ($f.Count -gt 0 -and $f[0].git -eq 'tracked' -and $e.category -ne 'log') { $trackedJunk += $e }
+    if (-not (Get-AdoptProp $e 'tracked' $false)) { continue }
+    if ($e.category -eq 'log') { continue }
+    $trackedJunk += $e
 }
 $ignoredHeavy = @($folders | Where-Object { $_.git -eq 'ignored' -and $_.mb -ge 100 })
 

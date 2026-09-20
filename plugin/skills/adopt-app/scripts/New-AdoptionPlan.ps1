@@ -73,10 +73,8 @@ if ($so -and $so.verdict -eq 'GAP') {
         $lines += "$($f.path) - $($f.mb) MB, neither committed nor ignored: commit it, ignore it, or move it out of the tree"
     }
     foreach ($e in @($inv.excludableSummary | Select-Object -First 10)) {
-        $g = @($inv.size.folders | Where-Object { $_.path -eq $e.folder })
-        if ($g.Count -gt 0 -and $g[0].git -eq 'tracked') {
-            $lines += "$($e.folder) - $($e.mb) MB of $($e.category) is COMMITTED: needs a history rewrite, not a .gitignore line"
-        }
+        if (-not (Get-AdoptProp $e 'tracked' $false)) { continue }
+        $lines += "$($e.folder) - $($e.files) file(s), $($e.mb) MB of $($e.category) is COMMITTED: a .gitignore line does not remove it, only a history rewrite does"
     }
     Add-Step 'content-policy' 'Settle what the repository may hold' @('answers') `
         'A .gitignore added later does not remove what is already committed, and a folder that is neither committed nor ignored is one careless command away from being permanent.' `

@@ -116,17 +116,23 @@ $inventory = [ordered]@{
 
 # Roll the excludable file list up per top folder. A list of 40,000 paths is unreadable and
 # the decision is taken per folder anyway.
+# Grouped by folder, category AND whether git tracks the file. A folder is routinely both:
+# committed documents beside a gigabyte of correctly-ignored output. Rolling those together
+# and labelling the total with the folder's state turned 0.15 MB of committed markdown into
+# a report of "1018 MB of data exports are committed".
 $byFolder = @{}
 foreach ($e in @($scan.excludable)) {
     $top = ($e.path -split '[\\/]')[0]
-    $key = "$top|$($e.category)"
-    if (-not $byFolder.ContainsKey($key)) { $byFolder[$key] = @{ folder = $top; category = $e.category; files = 0; bytes = [long]0 } }
+    $isTracked = [bool](Get-AdoptProp $e 'tracked' $false)
+    $key = "$top|$($e.category)|$isTracked"
+    if (-not $byFolder.ContainsKey($key)) { $byFolder[$key] = @{ folder = $top; category = $e.category; tracked = $isTracked; files = 0; bytes = [long]0 } }
     $byFolder[$key].files++
     $byFolder[$key].bytes += [long]$e.bytes
 }
 $inventory.excludableSummary = @($byFolder.Values |
-        ForEach-Object { [ordered]@{ folder = $_.folder; category = $_.category; files = $_.files; mb = [math]::Round($_.bytes / 1MB, 2) } } |
+        ForEach-Object { [ordered]@{ folder = $_.folder; category = $_.category; tracked = $_.tracked; files = $_.files; mb = [math]::Round($_.bytes / 1MB, 2) } } |
         Sort-Object { -1 * $_.mb })
+$inventory.trackedKnown = [bool](Get-AdoptProp $scan 'trackedKnown' $false)
 
 $out = Write-AdoptArtifact -Dir $dir -FileName 'inventory.json' -Object $inventory
 
@@ -181,8 +187,12 @@ if ($ignoredBig.Count -gt 0) {
 Write-AdoptHeading 'What the repository must not carry'
 if ($inventory.excludableSummary.Count -eq 0) { Write-Host "  nothing found" }
 foreach ($e in @($inventory.excludableSummary | Select-Object -First 15)) {
-    Write-Host ("    {0,10:N1} MB  {1,7} files  {2,-13} {3}" -f $e.mb, $e.files, $e.category, $e.folder)
+    $state = if ($e.tracked) { 'COMMITTED' } else { 'not committed' }
+    $colour = if ($e.tracked) { 'Yellow' } else { 'Gray' }
+    Write-Host ("    {0,10:N1} MB  {1,7} files  {2,-13} {3,-14} {4}" -f $e.mb, $e.files, $e.category, $state, $e.folder) -ForegroundColor $colour
 }
+Write-Host "  Only the COMMITTED rows need a history rewrite. The rest need a .gitignore line," -ForegroundColor DarkGray
+Write-Host "  or already have one." -ForegroundColor DarkGray
 
 Write-AdoptHeading 'Possible credentials'
 if ($inventory.secretsSuspected.Count -eq 0) { Write-Host "  none found by the heuristics - which is not the same as none present" }

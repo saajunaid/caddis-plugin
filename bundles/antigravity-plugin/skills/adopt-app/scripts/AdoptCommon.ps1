@@ -146,6 +146,7 @@ $script:AdoptScanBlock = {
         healthHits    = @()
         totalFiles    = 0
         totalMB       = 0.0
+        trackedKnown  = $false
         probed        = 0
         git           = @{ isRepo = $false }
     }
@@ -232,6 +233,22 @@ $script:AdoptScanBlock = {
         else { $g.upstream = $null; $g.unpushed = $null }
     }
 
+    # ---- which files git actually tracks ---------------------------------------------
+    # PER FILE, not per folder. A folder is routinely BOTH: `reports/` carried 40 committed
+    # markdown documents and a gigabyte of correctly-ignored run output, and attributing the
+    # folder's whole size to its folder-level state reported "1018 MB of data exports are
+    # committed" when the real figure was 0.15 MB. That is not a rounding error, it is a
+    # different finding - and it would have sent someone to rewrite history for nothing.
+    $trackedSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $trackedKnown = $false
+    if ($result.git.isRepo -and $gitAvailable) {
+        $ls = @(& git -c safe.directory=* -C $root ls-files 2>&1)
+        if ($LASTEXITCODE -eq 0) {
+            $trackedKnown = $true
+            foreach ($f in $ls) { [void]$trackedSet.Add(("$f" -replace '/', '\')) }
+        }
+    }
+
     # ---- one bounded walk per top-level folder --------------------------------------
     $tops = @()
     try { $tops = @(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop | Where-Object { $_.PSIsContainer }) }
@@ -301,7 +318,7 @@ $script:AdoptScanBlock = {
 
         foreach ($spec in $ExcludableSpecs) {
             if ($rel -match $spec.pattern) {
-                $result.excludable += @{ path = $rel; category = $spec.category; bytes = $file.Length }
+                $result.excludable += @{ path = $rel; category = $spec.category; bytes = $file.Length; tracked = $trackedSet.Contains($rel) }
                 break
             }
         }
@@ -345,7 +362,7 @@ $script:AdoptScanBlock = {
                 if ($rel -notmatch $SkipPattern) { & $classify $k $rel }
                 else {
                     foreach ($spec in $ExcludableSpecs) {
-                        if ($rel -match $spec.pattern) { $result.excludable += @{ path = $rel; category = $spec.category; bytes = $k.Length }; break }
+                        if ($rel -match $spec.pattern) { $result.excludable += @{ path = $rel; category = $spec.category; bytes = $k.Length; tracked = $trackedSet.Contains($rel) }; break }
                     }
                 }
 
@@ -416,6 +433,7 @@ $script:AdoptScanBlock = {
         }
     }
     $result.totalMB = [math]::Round($result.totalMB, 2)
+    $result.trackedKnown = $trackedKnown
     $result.paths = @($detectPaths)
     if ($detectPaths.Count -ge $DetectPathCap) {
         $result.partial = $true
