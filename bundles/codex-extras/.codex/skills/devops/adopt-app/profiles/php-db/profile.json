@@ -1,0 +1,75 @@
+{
+  "name": "php-db",
+  "status": "draft",
+  "description": "A PHP application or packaged product with its own relational database (for example MariaDB or MySQL), served through a web server's PHP handler.",
+  "detect": {
+    "anyFiles": ["composer.json", "index.php"]
+  },
+  "runtimes": [
+    {
+      "kind": "php",
+      "version": "<exact version the app needs>",
+      "provision": "<installed on dev and prod hosts; never committed to the repo>"
+    },
+    {
+      "kind": "database",
+      "version": "<exact engine and version, e.g. MariaDB 10.x>",
+      "provision": "<installed separately; its data directory is state, restored from backup, never committed>"
+    }
+  ],
+  "build": [
+    {
+      "what": "PHP dependencies",
+      "command": "composer install --no-dev  (only if the app uses composer)"
+    },
+    {
+      "what": "Application customisation",
+      "command": "<copy the app's own extensions or config templates into place>"
+    }
+  ],
+  "services": [
+    {
+      "role": "database",
+      "port": "<the database's port; keep it out of the web app's own port range>",
+      "start": "<the database server as a managed service, with its data directory outside the repo>",
+      "manager": "<a service manager>",
+      "bind": "<loopback-only, unless the app tier runs on a different host>",
+      "health": "<a database connectivity check>"
+    },
+    {
+      "role": "web",
+      "port": "<the app's HTTP port>",
+      "start": "<PHP under the web server's own PHP handler, or a PHP-served web process under a service manager>",
+      "manager": "<a service manager or the web server itself>",
+      "bind": "<loopback-only, unless a trusted edge forwards identity>",
+      "health": "<a page that exercises PHP and the database together>"
+    }
+  ],
+  "routing": {
+    "mode": "<reverse-proxy|dedicated-site>",
+    "staticRoot": "<none - PHP serves its own pages>",
+    "apiPrefix": "<n/a>",
+    "note": "decide the login design before anything else: an in-app login sitting behind a shared authenticating edge can loop unless the app has its own routing prefix that bypasses that edge"
+  },
+  "config": {
+    "files": ["<the product's config file, e.g. a config-*.php or .env>"],
+    "rule": "holds database credentials: template it with placeholders, never commit the real one"
+  },
+  "data": {
+    "migrations": "<the product's own upgrade path, or hand-written SQL migrations>",
+    "state": "the database itself: a backup and restore plan is required before go-live"
+  },
+  "ci": {
+    "workflow": "<CI workflow file: PHP lint, the app's own tests, package the customisation>",
+    "requiredJobs": ["<to decide, based on what the app already tests>"],
+    "deployJob": "<deploy_prod>"
+  },
+  "deploy": {
+    "script": "<deploy script>",
+    "verify": [
+      "the database is reachable",
+      "a page that exercises PHP and the database returns real content, not a generic error page",
+      "the login flow reaches the app"
+    ]
+  }
+}

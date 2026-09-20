@@ -1,0 +1,18 @@
+{
+  "outDir": ".caddis/adopt",
+  "fileBudget": 20000,
+  "skipFolders": [],
+  "skipPattern": "(?i)[\\\\/](\\.git|node_modules|\\.venv|venv|__pycache__|\\.mypy_cache|\\.pytest_cache|\\.tox|dist|build|target|bin|obj|vendor|packages|\\.terraform|\\.gradle|\\.next|\\.nuxt|coverage)([\\\\/]|$)",
+  "expectedRemotePattern": "^https://github\\.com/example-org/",
+  "untrackedThresholdMB": 10,
+  "_comments": {
+    "_read_this_first": "Copy this to .caddis/adopt-app.json in the repo you run the skill from, or point $env:ADOPT_APP_CONFIG at a copy elsewhere, then edit the values. JSON has no comment syntax, so this _comments object exists only to explain the keys above. Get-AdoptConfig merges every top-level key of your file over the defaults; nothing reads a key named _comments.",
+    "_every_key_is_live": "Each key below is read by a named script. There are deliberately no others. An earlier version of this file also listed blockingItems and contentPolicy, which no script ever consulted - a project could set them, see no effect and never find out. Config that does nothing is a promise the code does not keep, so those keys were removed from the code and from here together.",
+    "outDir": "Where phase output goes, relative to the repo root: <outDir>/<name>/inventory.json and the rest. Read by Resolve-AdoptOutDir, and only when a phase script runs without its own -OutDir.",
+    "fileBudget": "How many files the scan will walk per top-level folder before it stops. Read by Get-AppInventory.ps1 when -FileBudget is not passed; the parameter always wins. Reaching the budget does not fail quietly: the folder's size becomes a MINIMUM, the scan is marked partial, and the script exits 1 unless you pass -AllowPartial.",
+    "skipFolders": "Top-level folder names never walked at all. Read by Get-AppInventory.ps1 when -SkipFolder is not passed. Use it for a tree you already know is bulk data, so the budget is spent where the answer is still open. A skipped folder is recorded as NOT SCANNED, never as empty, and it stops source-only, runtime-manifest and data-recovery from passing.",
+    "skipPattern": "Paths whose CONTENTS are not classified - dependency folders, build output, caches. They are still measured for size and still classified as excludable content, but their files are not read for credentials or indexed for stack detection. Read by Get-AppInventory.ps1 and passed to Invoke-AdoptScan.",
+    "expectedRemotePattern": "The regex that means 'the team's host'. Read by Test-AppConformance.ps1 for the remote-on-team-host item: a repository whose remote URL does not match is a GAP even though it has a remote, which is how a repository sitting on someone's personal account gets caught. Leave it empty and any remote passes, because the check will not guess.",
+    "untrackedThresholdMB": "A folder that is neither committed nor ignored and is at least this large is a finding. Read by Test-AppConformance.ps1 when -UntrackedThresholdMB is not passed. This is the state that turns one 'git add -A' into gigabytes of runtime data in the history for ever, and no filename pattern finds it - only git can."
+  }
+}

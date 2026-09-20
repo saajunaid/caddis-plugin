@@ -1,0 +1,68 @@
+{
+  "name": "batch-job",
+  "status": "draft",
+  "description": "A scheduled or triggered batch engine with no web API: a CLI run by a scheduler, with inputs, outputs, a schedule and an audit trail rather than a port or a route.",
+  "detect": {
+    "anyFiles": ["pyproject.toml", "requirements.txt"],
+    "fileContains": [
+      {
+        "file": ["pyproject.toml", "requirements.txt"],
+        "pattern": "(?i)\\[project\\.scripts\\]|\\btyper\\b|\\bclick\\b|\\bargparse\\b"
+      }
+    ],
+    "noneContain": [
+      {
+        "file": ["pyproject.toml", "requirements.txt"],
+        "pattern": "(?i)\\b(fastapi|django|flask|starlette|aiohttp)\\b"
+      }
+    ]
+  },
+  "runtimes": [
+    {
+      "kind": "python",
+      "version": "<from pyproject.toml's requires-python>",
+      "provision": "<installed on the host that runs it; a per-app virtual environment>"
+    },
+    {
+      "kind": "<other, e.g. a native library or a licensed asset the job depends on>",
+      "version": "<exact>",
+      "provision": "<provisioned separately; licensed assets come from their licensed source, never from version control>"
+    }
+  ],
+  "build": [
+    {
+      "what": "Dependencies",
+      "command": "pip install -e .  (or pip install -r requirements.txt)"
+    }
+  ],
+  "services": [],
+  "schedule": {
+    "trigger": "<a task scheduler, a file-arrival watcher, or a manual/CI trigger>",
+    "account": "<a service account, never a person's own login>",
+    "command": "<the CLI entry point, e.g. python -m <package> run>",
+    "overlap": "<what happens if a run is still going when the next one is due>"
+  },
+  "routing": {
+    "mode": "none"
+  },
+  "config": {
+    "files": ["<the config file the CLI reads>"],
+    "rule": "kept out of version control; a committed example file"
+  },
+  "data": {
+    "migrations": "none",
+    "state": "<input, staging and output locations, kept outside the repo; a retention rule; never committed, especially real customer data>"
+  },
+  "ci": {
+    "workflow": "<CI workflow file: lint, tests, a dry run against sanitised sample data>",
+    "requiredJobs": ["<lint_and_test>"],
+    "deployJob": "<deploy_prod (updates code and dependencies; does not itself run a batch)>"
+  },
+  "deploy": {
+    "script": "<deploy script: stop the schedule, update, re-enable; never mid-run>",
+    "verify": [
+      "a dry run against sanitised sample data exits zero and writes the expected output artefact",
+      "the next scheduled run completes and writes its expected output artefact"
+    ]
+  }
+}

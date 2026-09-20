@@ -1,0 +1,66 @@
+{
+  "name": "node-service",
+  "status": "draft",
+  "description": "A Node.js/TypeScript API (for example Express, Fastify, Hono or NestJS), optionally with a built web frontend, often organised as an npm workspace.",
+  "detect": {
+    "allFiles": ["package.json"],
+    "fileContains": [
+      {
+        "file": "package.json",
+        "pattern": "\"(express|fastify|hono|@nestjs/core|koa)\""
+      }
+    ]
+  },
+  "runtimes": [
+    {
+      "kind": "node",
+      "version": "<from package.json engines, or an .nvmrc>",
+      "provision": "<installed on dev and prod hosts; confirm the installed version actually matches what's declared>"
+    }
+  ],
+  "build": [
+    {
+      "what": "Dependencies",
+      "command": "npm ci  (at the workspace root)"
+    },
+    {
+      "what": "Compile / bundle",
+      "command": "npm run build  (in each workspace package that has one)"
+    }
+  ],
+  "services": [
+    {
+      "role": "api",
+      "port": "<the app's HTTP port>",
+      "start": "<node <built entry point>, e.g. dist/server.js>",
+      "manager": "<a service manager or a container runtime>",
+      "bind": "<loopback-only, unless a trusted edge forwards identity>",
+      "health": "<the app's real health route - confirm it, do not assume a default path>"
+    }
+  ],
+  "routing": {
+    "mode": "reverse-proxy",
+    "staticRoot": "<built web frontend output folder, if any>",
+    "apiPrefix": "/api"
+  },
+  "config": {
+    "files": ["<the env file the API reads, per environment>"],
+    "rule": "kept out of version control; a committed example file with placeholder values"
+  },
+  "data": {
+    "migrations": "<the app's migration tool, if any, e.g. Prisma or Knex>",
+    "state": "<where persistent data actually lives>"
+  },
+  "ci": {
+    "workflow": "<CI workflow file: lint (eslint), typecheck (tsc), test, build>",
+    "requiredJobs": ["<lint_and_test>"],
+    "deployJob": "<deploy_prod>"
+  },
+  "deploy": {
+    "script": "<deploy script: build in a staging copy, stop, swap, start>",
+    "verify": [
+      "the health route returns a body with a status field, not just HTTP 200",
+      "a rendered page changed, so an old build behind a redeployed API cannot pass"
+    ]
+  }
+}

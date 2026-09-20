@@ -1,0 +1,62 @@
+{
+  "name": "java-service",
+  "status": "draft",
+  "description": "A Java web service, most commonly Spring Boot, built with Maven or Gradle and packaged as an executable jar or war.",
+  "detect": {
+    "anyFiles": ["pom.xml", "build.gradle", "build.gradle.kts"],
+    "fileContains": [
+      {
+        "file": ["pom.xml", "build.gradle", "build.gradle.kts"],
+        "pattern": "(?i)spring-boot-starter"
+      }
+    ]
+  },
+  "runtimes": [
+    {
+      "kind": "java",
+      "version": "<the JDK version declared in the build file>",
+      "provision": "<the matching JDK installed on dev and prod hosts>"
+    }
+  ],
+  "build": [
+    {
+      "what": "Build the executable artefact",
+      "command": "mvn -DskipTests package  (or ./gradlew build)"
+    }
+  ],
+  "services": [
+    {
+      "role": "api",
+      "port": "<the app's HTTP port>",
+      "start": "java -jar <built jar>",
+      "manager": "<a service manager or a container runtime>",
+      "bind": "<loopback-only, unless a trusted edge forwards identity>",
+      "health": "<a real health endpoint, e.g. /actuator/health>"
+    }
+  ],
+  "routing": {
+    "mode": "reverse-proxy",
+    "staticRoot": "<built frontend output folder, if the service also serves static assets>",
+    "apiPrefix": "/api"
+  },
+  "config": {
+    "files": ["<a per-environment application config file, kept out of version control for real environments>"],
+    "rule": "real settings files are gitignored; a committed example config file shows the shape only"
+  },
+  "data": {
+    "migrations": "<the app's migration tool, e.g. Flyway or Liquibase, or none>",
+    "state": "<an external database; nothing durable lives on the app host itself>"
+  },
+  "ci": {
+    "workflow": "<CI workflow file: build, test, package>",
+    "requiredJobs": ["<lint_and_test>"],
+    "deployJob": "<deploy_prod>"
+  },
+  "deploy": {
+    "script": "<deploy script: build, stop, swap the jar, start>",
+    "verify": [
+      "the health endpoint returns a body with a status field, not just HTTP 200",
+      "a rendered page or response payload changed, so an old artefact behind a restarted process cannot pass"
+    ]
+  }
+}

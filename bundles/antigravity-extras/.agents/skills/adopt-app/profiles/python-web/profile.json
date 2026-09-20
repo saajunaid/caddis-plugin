@@ -1,0 +1,73 @@
+{
+  "name": "python-web",
+  "status": "draft",
+  "description": "A Python web application (for example FastAPI, Django or Flask) that serves an API and, often, a built single-page-app frontend from one process.",
+  "detect": {
+    "anyFiles": ["pyproject.toml", "requirements.txt"],
+    "fileContains": [
+      {
+        "file": ["pyproject.toml", "requirements.txt"],
+        "pattern": "(?i)\\b(fastapi|django|flask|starlette|aiohttp)\\b"
+      }
+    ],
+    "noneFiles": ["composer.json"]
+  },
+  "runtimes": [
+    {
+      "kind": "python",
+      "version": "<from pyproject.toml's requires-python, or a pinned version file>",
+      "provision": "<installed on dev and prod hosts; a per-app virtual environment>"
+    },
+    {
+      "kind": "node",
+      "version": "<from the frontend's package.json engines field, if a frontend is built>",
+      "provision": "<installed on hosts that build the frontend; not needed at runtime>"
+    }
+  ],
+  "build": [
+    {
+      "what": "Python dependencies",
+      "command": "pip install -e .[dev]  (or pip install -r requirements.txt)"
+    },
+    {
+      "what": "Frontend bundle, if the app serves one",
+      "command": "npm ci && npm run build",
+      "cwd": "<the frontend folder, e.g. frontend>"
+    }
+  ],
+  "services": [
+    {
+      "role": "api",
+      "port": "<the app's HTTP port>",
+      "start": "<e.g. a uvicorn/gunicorn command, or the framework's own server run behind a real process manager>",
+      "manager": "<a service manager or a container runtime>",
+      "bind": "<loopback-only, unless a trusted edge forwards identity>",
+      "health": "<a real health endpoint, e.g. /health>"
+    }
+  ],
+  "routing": {
+    "mode": "reverse-proxy",
+    "staticRoot": "<built frontend output folder, if any>",
+    "apiPrefix": "/api"
+  },
+  "config": {
+    "files": ["<a per-environment env file, e.g. .env.<env>>"],
+    "rule": "kept out of version control; seeded from a committed example file; real values set by hand per environment"
+  },
+  "data": {
+    "migrations": "<the app's migration tool, e.g. alembic or Django migrations>",
+    "state": "<an external database; nothing durable lives on the app host itself>"
+  },
+  "ci": {
+    "workflow": "<CI workflow file, e.g. .github/workflows/ci.yml>",
+    "requiredJobs": ["<lint_and_test>", "<frontend_checks, if a frontend is built>"],
+    "deployJob": "<deploy_prod>"
+  },
+  "deploy": {
+    "script": "<deploy script: build first, swap second>",
+    "verify": [
+      "the health endpoint returns a body with a status field, not just HTTP 200",
+      "a rendered page or the frontend bundle's hash changed, so an old bundle behind a new backend cannot pass"
+    ]
+  }
+}

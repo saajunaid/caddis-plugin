@@ -1,0 +1,55 @@
+{
+  "name": "<stack-name>",
+  "status": "placeholder",
+  "description": "<one sentence: what kind of component this is>",
+  "detect": {
+    "allFiles": ["<file every such repo has>"],
+    "anyFiles": ["<file any of which indicates it>"],
+    "noneFiles": ["<file that rules it out>"],
+    "fileContains": [{ "file": "<file or glob>", "pattern": "<regex>" }],
+    "noneContain": [{ "file": "<file or glob>", "pattern": "<regex that rules it out>" }]
+  },
+  "runtimes": [
+    {
+      "kind": "<runtime>",
+      "version": "<exact, or where it is declared>",
+      "provision": "<how it gets onto a box, e.g. installed manually, or a provisioning script>"
+    }
+  ],
+  "build": [{ "what": "<step>", "command": "<command>", "cwd": "<folder, optional>" }],
+  "services": [
+    {
+      "role": "<api|web|worker|database>",
+      "port": "<the app's HTTP port>",
+      "start": "<start command>",
+      "manager": "<how the process is kept running, e.g. a service manager or a container runtime>",
+      "bind": "<the interface it binds - loopback-only unless a trusted edge forwards identity>",
+      "health": "<health check>"
+    }
+  ],
+  "schedule": {
+    "trigger": "<only for batch components: a scheduler, a file-arrival watcher, or a manual/CI trigger>"
+  },
+  "routing": {
+    "mode": "<reverse-proxy|rewrite-rule|dedicated-site|none>",
+    "staticRoot": "<built static files, optional>",
+    "apiPrefix": "</api>"
+  },
+  "config": {
+    "files": ["<per-environment config files>"],
+    "rule": "<how config is kept out of version control>"
+  },
+  "data": {
+    "migrations": "<tool or none>",
+    "state": "<where state lives and how it is restored>"
+  },
+  "ci": {
+    "workflow": "<CI workflow file>",
+    "requiredJobs": ["<job>"],
+    "deployJob": "<job>"
+  },
+  "deploy": {
+    "script": "<deploy script>",
+    "verify": ["<a check that would FAIL on a broken deploy>"]
+  }
+}

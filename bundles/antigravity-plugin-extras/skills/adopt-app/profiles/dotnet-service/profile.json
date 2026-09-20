@@ -1,0 +1,67 @@
+{
+  "name": "dotnet-service",
+  "status": "draft",
+  "description": "An ASP.NET Core web API or web app (.NET 6+), optionally serving a built frontend from the same process.",
+  "detect": {
+    "anyFiles": ["**/*.csproj", "**/*.sln"],
+    "fileContains": [
+      {
+        "file": "**/*.csproj",
+        "pattern": "(?i)Microsoft\\.NET\\.Sdk\\.Web|Microsoft\\.AspNetCore"
+      }
+    ]
+  },
+  "runtimes": [
+    {
+      "kind": "dotnet",
+      "version": "<the target framework moniker in the .csproj, e.g. net8.0>",
+      "provision": "<the matching .NET runtime/SDK installed on dev and prod hosts>"
+    }
+  ],
+  "build": [
+    {
+      "what": "Restore and publish",
+      "command": "dotnet publish -c Release -o <publish folder>"
+    },
+    {
+      "what": "Frontend bundle, if the app serves one",
+      "command": "npm ci && npm run build",
+      "cwd": "<the frontend folder, if any>"
+    }
+  ],
+  "services": [
+    {
+      "role": "api",
+      "port": "<the app's HTTP port>",
+      "start": "dotnet <published .dll>",
+      "manager": "<a service manager or a container runtime>",
+      "bind": "<loopback-only, unless a trusted edge forwards identity>",
+      "health": "<a real health endpoint, e.g. /health via a health-checks middleware>"
+    }
+  ],
+  "routing": {
+    "mode": "reverse-proxy",
+    "staticRoot": "<built frontend output folder, if any, or wwwroot>",
+    "apiPrefix": "/api"
+  },
+  "config": {
+    "files": ["<a per-environment settings file, kept out of version control for real environments>"],
+    "rule": "real settings files are gitignored; a committed example settings file shows the shape only"
+  },
+  "data": {
+    "migrations": "<the app's migration tool, e.g. an ORM's migrations feature, or none>",
+    "state": "<an external database; nothing durable lives on the app host itself>"
+  },
+  "ci": {
+    "workflow": "<CI workflow file: restore, build, test, publish>",
+    "requiredJobs": ["<lint_and_test>"],
+    "deployJob": "<deploy_prod>"
+  },
+  "deploy": {
+    "script": "<deploy script: publish, stop, swap, start>",
+    "verify": [
+      "the health endpoint returns a body with a status field, not just HTTP 200",
+      "a rendered page or the frontend bundle's hash changed, so an old bundle behind a new backend cannot pass"
+    ]
+  }
+}
