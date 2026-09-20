@@ -139,7 +139,7 @@ The sequence diagram below illustrates the batch execution sequence from cycle t
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Sched as Automated Batch Scheduler
+    participant Sched as Batch Scheduler (PROPOSED - not built)
     participant Orch as Batch Orchestrator
     participant Reader as Tagged-Record Ingestor
     participant Reconcile as Financial Reconciliation Gate
