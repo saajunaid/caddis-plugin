@@ -18,23 +18,30 @@ vars always win, so you can point at any new id without touching code. Nothing h
 
 Usage:
   python oss_review.py [--range <git range>] [--cwd <repo>] [--provider P] [--base-url U] [--model M]
-    --range   e.g. origin/main..HEAD   (default: the working tree — staged, unstaged AND
-              untracked non-ignored files; a range excludes untracked by design)
+                        [--allow-path GLOB ...]
+    --range        e.g. origin/main..HEAD   (default: the working tree — staged, unstaged AND
+                   untracked non-ignored files; a range excludes untracked by design)
+    --allow-path   repeatable; re-admits a file the pre-send secret filter's deny list would
+                   otherwise drop (see secret_filter.py). `.caddis/config.toml`'s
+                   `[review] deny_paths` / `allow_paths` are layered on the same way.
 
 Exit codes (fail-closed):
   0  REVIEW: CLEAN      — no blocking issues
   1  REVIEW: BLOCKING   — one or more blocking issues
-  2  error              — no diff verdict parsed, git failure, endpoint/parse failure, or the diff
+  2  unused             — advisory is not a review verdict
+  3  misconfigured      — REVIEW_API_KEY missing, OR the pre-send secret filter refused (a
+                          denylisted path / possible secret; see secret_filter.py) — actionable
+                          message on stderr/stdout either way
+  4  error              — no diff verdict parsed, git failure, endpoint/parse failure, or the diff
                           exceeds REVIEW_MAX_DIFF_CHARS (see below — never silently downgraded to CLEAN)
-  3  misconfigured      — REVIEW_API_KEY missing (actionable message on stderr)
 
 Diff-size ceiling: an oversized diff sent to a chat-completions endpoint has been observed, live, to
 come back two different unsafe ways — an empty `content` field on an HTTP 200 (at least fails closed:
-no verdict line ⇒ exit 2), and, worse, a `REVIEW: CLEAN` verdict with no substantive engagement (a
+no verdict line ⇒ exit 4), and, worse, a `REVIEW: CLEAN` verdict with no substantive engagement (a
 silent false negative — the model was overwhelmed, not actually reviewing). Rather than risk the second
 case, a diff over REVIEW_MAX_DIFF_CHARS (default 60,000 chars; override via the env var or
 --max-diff-chars) is SPLIT INTO BATCHES on whole-file boundaries and each batch reviewed separately;
-the verdict is CLEAN only if every batch is clean (aggregation is fail-closed). Exit 2 is now the
+the verdict is CLEAN only if every batch is clean (aggregation is fail-closed). Exit 4 is the
 narrower case: a SINGLE file larger than the ceiling, which cannot be split, or more batches than
 MAX_REVIEW_BATCHES. Refusal was the original behaviour and is kept for those two - a silent false
 CLEAN is the worst outcome this tool has - but it no longer fires on an ordinary large phase diff.
@@ -53,6 +60,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# secret_filter.py ships beside this file in every export target (see
+# .github/runtime-targets.json) — import it from THIS script's own folder, not the caller's
+# cwd, so it resolves the same way whether this runs from the source repo or a plugin install.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_filter  # noqa: E402
+
 # ONE SCALE ACROSS caddis (see claude-harness/README.md):
 #   0 clean · 1 blocked · 2 advisory note · 3 could not run · 4 malformed
 # ERROR moved 2 -> 4 on 2026-09-09. It sat on 2, which caddis_gate uses for "proceed, this is
@@ -69,7 +82,7 @@ EXIT_ERROR = 4      # ran, produced nothing usable: no verdict line, transport f
 # Provider presets — the SINGLE place a renamed model id or moved endpoint is edited. Adding a new
 # provider (Qwen, a local vLLM, …) is one new row. Callers can always bypass this via env/flags.
 PROVIDERS: dict[str, dict[str, str]] = {
-    "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-v4-flash"},
+    "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-flash"},
     "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5.3"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1",        "model": "deepseek/deepseek-v4-flash"},
 }
@@ -272,7 +285,8 @@ def _untracked_diff(path: str, cwd: str) -> str:
     """
     null = "/dev/null" if os.name != "nt" else "NUL"
     out = subprocess.run(
-        ["git", "diff", "--no-index", "--", null, path],
+        ["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/",
+         "--dst-prefix=b/", "--no-index", "--", null, path],
         cwd=cwd, capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=30,
     )
@@ -295,7 +309,8 @@ def get_diff(rng: str | None, cwd: str, include_untracked: bool = True) -> str:
     Untracked files are NOT included for an explicit `rng` — a commit range is a span of
     history, and files that were never committed are correctly outside it.
     """
-    cmd = ["git", "diff", rng] if rng else ["git", "diff", "HEAD"]
+    cmd = ["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/",
+           "--dst-prefix=b/", rng or "HEAD"]
     # encoding pinned to UTF-8: git emits UTF-8, but text=True would decode with the locale
     # codepage (cp1252 on Windows) — a non-ASCII diff then kills the reader thread and
     # subprocess hands back stdout=None with returncode 0.
@@ -483,6 +498,29 @@ def _force_utf8_stdio() -> None:
             pass
 
 
+def _config_is_changed(diff_text: str) -> bool:
+    """True when either side of a changed file block names the review config."""
+    target = ".caddis/config.toml"
+    for block in secret_filter._split_into_file_blocks(diff_text):
+        for line in block.splitlines():
+            if line.startswith("@@"):
+                break
+            if line in (f"--- a/{target}", f"+++ b/{target}",
+                        f"rename from {target}", f"rename to {target}"):
+                return True
+            if line.startswith("diff --git "):
+                rest = line[len("diff --git "):]
+                quoted = secret_filter._QUOTED_HEADER_RE.match(rest)
+                if quoted:
+                    sides = (secret_filter._unescape_git_quoted(part)
+                             for part in quoted.groups())
+                    if any(side in (f"a/{target}", f"b/{target}") for side in sides):
+                        return True
+                elif rest.startswith(f"a/{target} b/") or rest.endswith(f" b/{target}"):
+                    return True
+    return False
+
+
 def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> int:
     _force_utf8_stdio()
     env = os.environ if env is None else env
@@ -499,6 +537,10 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     parser.add_argument("--check-config", action="store_true",
                         help="report whether a usable key exists and exit — no diff, no LLM call. "
                              "Exit 0 = ready, 3 = nothing configured.")
+    parser.add_argument("--allow-path", dest="allow_path", action="append", default=[],
+                        metavar="GLOB",
+                        help="re-admit a file the secret-filter deny list would otherwise drop "
+                             "(repeatable)")
     args = parser.parse_args(argv)
 
     # --check-config is deliberately NON-INTERACTIVE. This script runs headless — from CI, from a
@@ -520,6 +562,39 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         return EXIT_CLEAN
 
     try:
+        diff_text = get_diff(args.range, args.cwd)
+    except Exception as exc:
+        sys.stderr.write(f"could not read diff: {exc}\n")
+        return EXIT_ERROR
+
+    # Pre-send secret filter — runs on the FULL diff, before it is ever split into batches and
+    # before any provider is contacted, and BEFORE provider/key resolution below: a missing or
+    # misconfigured REVIEW_API_KEY must never race a secret refusal and print the wrong reason.
+    # A run with no key configured at all still refuses here first, on the merits, not because
+    # it couldn't have called anyone anyway.
+    cfg_deny, cfg_allow = secret_filter.load_config(Path(args.cwd))
+    if _config_is_changed(diff_text):
+        cfg_deny = list(dict.fromkeys(cfg_deny + secret_filter.load_head_deny_paths(Path(args.cwd))))
+        cfg_allow = []
+        print("note: .caddis/config.toml is part of this change; its allow_paths are ignored")
+    filter_result = secret_filter.filter_diff(
+        diff_text,
+        secret_filter.DEFAULT_DENY_GLOBS + cfg_deny,
+        cfg_allow + list(args.allow_path),
+    )
+    if filter_result.hits:
+        print("REVIEW: REFUSED — possible secrets:")
+        for hit_path, hit_line, hit_rule in filter_result.hits:
+            print(f"  {hit_path}:{hit_line} ({hit_rule})")
+        return EXIT_CONFIG
+    if filter_result.dropped_paths:
+        print(f"excluded from review: {', '.join(filter_result.dropped_paths)}")
+    if not filter_result.kept_diff.strip() and filter_result.dropped_paths:
+        print("REVIEW: REFUSED — every changed file is excluded")
+        return EXIT_CONFIG
+    diff_text = filter_result.kept_diff
+
+    try:
         base_url, api_key, model = resolve_config(args, env)
         primary_provider = (
             args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
@@ -527,12 +602,6 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     except ConfigError as exc:
         sys.stderr.write(f"{exc}\n")
         return EXIT_CONFIG
-
-    try:
-        diff_text = get_diff(args.range, args.cwd)
-    except Exception as exc:
-        sys.stderr.write(f"could not read diff: {exc}\n")
-        return EXIT_ERROR
 
     if not diff_text.strip():
         # Says what was scanned, not just that nothing was found. This branch used to fire

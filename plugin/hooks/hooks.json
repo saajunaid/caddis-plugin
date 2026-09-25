@@ -1,13 +1,22 @@
 {
-  "description": "caddis harness loop, auto-activated on install: relay.md session-resume injection (SessionStart + PreCompact), a session-end nudge + token-usage digest (Stop), a subagent dispatch/verdict log for agent-eval (SubagentStop -> .caddis/agent-log.jsonl), post-edit lint (PostToolUse on Edit/Write/MultiEdit), a rules-file budget re-warn (PostToolUse on Edit/Write/MultiEdit to an oversize AGENTS.md/CLAUDE.md), and a deterministic safety guard (PreToolUse on Bash/PowerShell/Edit/Write/MultiEdit) that blocks secret/catastrophic writes and asks before destructive shell/lockfile/CI changes (escape hatch: .caddis/config.toml [guard] allow). All handlers are pure-Python and cross-platform; they require `python` on PATH.",
+  "description": "caddis harness loop, auto-activated on install: relay.md session-resume injection (SessionStart + PreCompact), a session-end nudge + token-usage digest (Stop), a subagent dispatch/verdict log for agent-eval (SubagentStop -> .caddis/agent-log.jsonl), post-edit lint (PostToolUse on Edit/Write/MultiEdit), a rules-file budget re-warn (PostToolUse on Edit/Write/MultiEdit to an oversize AGENTS.md/CLAUDE.md), and a deterministic safety guard (PreToolUse on Bash/PowerShell/Edit/Write/MultiEdit/Read/Grep) that blocks secret/catastrophic writes, blocks reading or copying onto a secret .env/credential file, and asks before destructive shell/lockfile/CI changes (escape hatch: .caddis/config.toml [guard] allow — write/shell only, it can never unblock a Read or Grep). All handlers are pure-Python and cross-platform; they require `python` on PATH.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit",
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|Read|Grep",
         "hooks": [
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/doc_header_guard.py\""
           }
         ]
       }

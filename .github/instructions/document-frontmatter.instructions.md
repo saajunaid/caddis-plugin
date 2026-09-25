@@ -41,7 +41,7 @@ schema is layered, and only the first tier is required:
 When creating a **new** document, add YAML frontmatter at the top and include:
 
 ```yaml
-type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot
+type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot|rca|todo|relay|comms|reference|note|phase-report|implement-review|phase-verdict|hub-spawn|advisory-context|phase-prompt
 status: draft|current|done|superseded          # or OKF: draft|stable|deprecated — see the mapping below
 feature: <feature-slug or chain_id that owns this document>
 creation-agent: caddis

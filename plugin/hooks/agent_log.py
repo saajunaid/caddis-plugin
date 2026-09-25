@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 # Shared artifact-dir resolution (scripts/claudster_config.py) with an inline fallback, so a
@@ -56,38 +57,45 @@ def _repo_root(start: str) -> str:
 def _agent_type_from_meta(transcript_path: str) -> str:
     """Recover the agent type from the subagent's own `<transcript>.meta.json` sidecar.
 
-    Claude Code's SubagentStop payload does not always carry agent_type/subagent_type/
-    agent_name directly (observed empirically 2026-07-30: intermittently absent across an
-    otherwise-identical dispatch shape, cause not pinned down) -- but the sidecar file next
-    to agent_transcript_path (agent-<id>.jsonl -> agent-<id>.meta.json) reliably has
-    `{"agentType": "..."}`. Falls back to "" on any problem (missing file, bad JSON, no key)."""
-    if not transcript_path:
+    Claude Code's SubagentStop payload carries agent_id, agent_transcript_path, and in
+    current versions agent_type. Evidence from the last 50 local agent-log rows on
+    2026-09-25: all carried ts/agent/verdict/session_id; 48 had a hex id in agent.
+    The payload type is primary. This sidecar is a fallback when it is absent.
+    """
+    if not isinstance(transcript_path, str) or not transcript_path:
         return ""
     meta_path = re.sub(r"\.jsonl$", ".meta.json", transcript_path)
-    if meta_path == transcript_path or not os.path.isfile(meta_path):
+    if meta_path == transcript_path:
         return ""
-    try:
-        with open(meta_path, encoding="utf-8") as fh:
-            meta = json.load(fh)
-        val = meta.get("agentType")
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    except Exception:
-        pass
+    for attempt in range(5):
+        if not os.path.isfile(meta_path):
+            if attempt < 4:
+                time.sleep(0.2)
+            continue
+        try:
+            with open(meta_path, encoding="utf-8") as fh:
+                meta = json.load(fh)
+            val = meta.get("agentType")
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        except Exception:
+            pass
+        break
     return ""
 
 
 def _agent_name(data: dict) -> str:
-    for key in ("agent_type", "subagent_type", "agent_name"):
-        val = data.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    meta_type = _agent_type_from_meta(data.get("agent_transcript_path") or data.get("transcript_path") or "")
-    if meta_type:
-        return meta_type
-    val = data.get("agent_id")
-    if isinstance(val, str) and val.strip():
+    def is_type(value: object) -> bool:
+        return (isinstance(value, str) and bool(value.strip())
+                and value.strip() != data.get("agent_id")
+                and not re.fullmatch(r"[0-9a-fA-F]{8,}", value.strip()))
+
+    val = data.get("agent_type")
+    if is_type(val):
         return val.strip()
+    meta_type = _agent_type_from_meta(data.get("agent_transcript_path") or data.get("transcript_path") or "")
+    if is_type(meta_type):
+        return meta_type
     return "unknown"
 
 
@@ -160,6 +168,7 @@ def main() -> int:
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "agent": _agent_name(data),
+        "agent_id": data.get("agent_id", ""),
         "verdict": _verdict(_last_assistant_text(transcript)),
         "session_id": data.get("session_id", ""),
     }

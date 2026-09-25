@@ -1,0 +1,47 @@
+# Run the pool-sync Python test suite and the pool validator against the
+# MIRROR layout (a checkout of saajunaid/caddis-plugin), on push and PR.
+#
+# ── WHERE THIS RUNS ────────────────────────────────────────────────────────────
+# This file is AUTHORED in claudster-source at `cli/.github/workflows/` and is
+# INSTALLED BY `caddis-push` into the public mirror (saajunaid/caddis-plugin) at
+# `.github/workflows/python-ci.yml`. It only ever executes in the MIRROR — that
+# is the public distribution repo, and it already receives `.github/tools/`
+# (via the pool copy) plus `validate_pool.py` at its root (via $ROOT_PUSH_FILES
+# in sync.ps1). Do not move it to the source repo's `.github/`: that directory
+# is the agent POOL and is exported into agent bundles, and the authoring
+# repo's own Python suite already runs from `.github/workflows/ci.yml`.
+#
+# ── WHY A SEPARATE WORKFLOW FROM npm-publish.yml ───────────────────────────────
+# npm-publish only fires on a `cli-v*` tag or a manual dispatch — it never runs
+# on an ordinary push or PR, so nothing here catches a broken pool-sync test or
+# a validate_pool.py regression until someone tags a release. This workflow
+# runs on every push and PR instead, the same trigger shape as the authoring
+# repo's own ci.yml.
+name: python-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pytest pyyaml
+
+      - name: Run pool-sync tests
+        run: python -m pytest .github/tools/pool-sync/tests -q
+
+      - name: Validate pool
+        run: python validate_pool.py

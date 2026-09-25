@@ -4,11 +4,19 @@ import re
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 POOL_SYNC_PATH = REPO_ROOT / ".github" / "tools" / "pool-sync" / "pool_sync.py"
+
+
+def _fresh_candidate_date() -> str:
+    """A candidate date that is recent enough to stay under the 14-day
+    auto-discard threshold in pool_sync._is_stale_pending_candidate, no
+    matter when the test suite runs."""
+    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def _run_python(
@@ -487,7 +495,7 @@ def test_pool_nuggets_review_keep_local_writes_inside_project_github(tmp_path: P
     _write_inbox(
         project_root,
         _candidate_block(
-            date="2026-05-20",
+            date=_fresh_candidate_date(),
             version="v2026.05.20.1",
             fingerprint="keep001",
             raw="fix: preserve handoff state on release retries",
@@ -526,7 +534,7 @@ def test_pool_nuggets_review_promotes_to_pool_branch(tmp_path: Path) -> None:
     _write_inbox(
         project_root,
         _candidate_block(
-            date="2026-05-20",
+            date=_fresh_candidate_date(),
             version="v2026.05.20.1",
             fingerprint="promote001",
             raw="perf: tighten release rules for reviewed promotions",
@@ -604,7 +612,7 @@ def test_pool_nuggets_review_dry_run_writes_nothing_and_returns_json_summary(tmp
     _write_inbox(
         project_root,
         _candidate_block(
-            date="2026-05-20",
+            date=_fresh_candidate_date(),
             version="v2026.05.20.1",
             fingerprint="dry001",
             raw="perf: tighten release rules for reviewed promotions",

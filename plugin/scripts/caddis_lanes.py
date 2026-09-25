@@ -20,11 +20,23 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import caddis_exit
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_exit":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_exit
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_CONFIG, EXIT_ALL_OUT = 0, 1, 2, 3, 4
+EXIT_OK = caddis_exit.CLEAN
+EXIT_FAIL = caddis_exit.BLOCKED
+EXIT_USAGE = caddis_exit.ERROR
+EXIT_CONFIG = caddis_exit.NOT_RUN
+EXIT_ALL_OUT = caddis_exit.NOT_RUN
 RESULT_OK = "OK"
 RESULT_LANE_FAILED = "LANE-FAILED"
 RESULT_OUT_OF_BUDGET = "OUT-OF-BUDGET"

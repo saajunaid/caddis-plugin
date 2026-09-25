@@ -11,13 +11,11 @@
 # Usage from any project root:
 #   caddis-pull                    pull latest pool from caddis-plugin --> current project
 #   caddis-push                    push pool from current project --> caddis-plugin + commit + push (mirror sync only; publish is opt-in)
-#   caddis-push -Publish           also release MCP (PyPI) + VS Code extension (content-diff gated; PyPI is PERMANENT)
+#   caddis-push -Publish           also release the VS Code extension (content-diff gated)
 #   caddis-push -NoPublish         DEPRECATED no-op (publish is now off by default; flag kept for back-compat)
 #   caddis-smoke-release           run fresh-shell smoke checks for release automation
 #   caddis-ship                    commit source, cascade mirrors/profiles, optionally publish selected lanes
-#   caddis-release                 publish MCP + VS Code extension using keyfiles
-#   caddis-release -SkipMcp        extension only
-#   caddis-release -SkipExtension  MCP only
+#   caddis-release                 publish VS Code extension using keyfiles
 #   caddis-revert [-Last N] [-Sha SHA[,SHA...]]  revert commits + cascade to all repos
 #   caddis-export [OutputPath]     export pool to a local folder or zip (no GitHub needed)
 #   caddis-import SourcePath        import pool from a local folder or zip into current project
@@ -28,7 +26,6 @@ $CADDIS_POOL = Join-Path $EXT_REPOS_ROOT "caddis-plugin"
 $CADDIS_GITHUB = "$CADDIS_POOL\.github"
 $CADDIS_VSCODE = Join-Path $EXT_REPOS_ROOT "junai-vscode"
 $CADDIS_ENV_FILE = Join-Path $REPO_ROOT ".env"
-$PYPI_KEY_FILE = Join-Path $CADDIS_POOL "pypimcp.key"
 $VSCE_PAT_FILE = Join-Path $CADDIS_VSCODE "vscode.pat"
 $script:CaddisEnvLoaded = $false
 $script:CaddisEnv = @{}
@@ -41,6 +38,7 @@ $LOCAL_ONLY_POOL_FILES = @(
 $POOL_FOLDERS = @("agents", "skills", "prompts", "instructions", "hooks", "diagrams", "tools", "recipes", "agent-docs", "handoffs")
 $POOL_FILES = @("runtime-targets.json")
 $ROOT_PUSH_FILES = @("export_runtime_resources.py", "validate_agents.py", "validate_pool.py", "sync.ps1", ".env.example")
+$ROOT_SYNC_FILES = @("LICENSE", "NOTICE.md")
 # PRIVACY IS NOW STRUCTURAL. This repo (caddis) holds ONLY public, publishable source -
 # there is no private vmie/ root and no vmie skill category to purge (they live in the separate,
 # private caddis repo and never came across in the extraction). These arrays are therefore
@@ -403,54 +401,6 @@ function Bump-RuntimeTargetsPluginVersion {
     return $nextVersion
 }
 
-function Get-PyprojectVersion {
-    param([Parameter(Mandatory)][string]$PyprojectPath)
-
-    if (-not (Test-Path $PyprojectPath)) {
-        return ""
-    }
-
-    $content = Get-Content $PyprojectPath -Raw
-    $match = [regex]::Match($content, '(?m)^version\s*=\s*"([^"]+)"')
-    if (-not $match.Success) {
-        return ""
-    }
-
-    return $match.Groups[1].Value.Trim()
-}
-
-function Set-PyprojectVersion {
-    param(
-        [Parameter(Mandatory)][string]$PyprojectPath,
-        [Parameter(Mandatory)][string]$VersionString
-    )
-
-    $content = Get-Content $PyprojectPath -Raw
-    $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', ('version = "' + $VersionString + '"'), 1)
-    if ($updated -eq $content) {
-        throw "Could not update version in $PyprojectPath"
-    }
-
-    Set-Content $PyprojectPath $updated -NoNewline
-}
-
-function Bump-PyprojectPatchVersion {
-    param(
-        [Parameter(Mandatory)][string]$PyprojectPath,
-        [string]$Label = "MCP"
-    )
-
-    $currentVersion = Get-PyprojectVersion -PyprojectPath $PyprojectPath
-    if ([string]::IsNullOrWhiteSpace($currentVersion)) {
-        throw "Could not read version from $PyprojectPath"
-    }
-
-    $nextVersion = Get-NextPatchVersion -VersionString $currentVersion
-    Set-PyprojectVersion -PyprojectPath $PyprojectPath -VersionString $nextVersion
-    Write-Host "  [OK]  $Label version bumped $currentVersion --> $nextVersion" -ForegroundColor Green
-    return $nextVersion
-}
-
 function Commit-PackageJsonPatchVersion {
     param(
         [Parameter(Mandatory)][string]$RepoPath,
@@ -774,12 +724,6 @@ function Get-ReleaseRelevantRepoChangedPaths {
                     $normalizedPath -in @("package.json", "esbuild.mjs", "tsconfig.json", "README.md", "CHANGELOG.md", "LICENSE.md")
                 )
             }
-            "mcp" {
-                $isRelevant = (
-                    (Test-PathPrefixMatch -RelativePath $normalizedPath -Prefixes @("src/junai_mcp")) -or
-                    $normalizedPath -in @("pyproject.toml", "README.md")
-                )
-            }
         }
 
         if ($isRelevant) {
@@ -1026,7 +970,7 @@ function caddis-push {
         [string]$Message = "",
         [switch]$Publish,
         [switch]$NoPublish,
-        [string]$McpVersion = "",
+        [string]$McpVersion = "",   # retired 2026-09-25: MCP publishing removed in R1
         [string[]]$Profiles = @(),   # retired 2026-08-23: no downstream profile lanes remain
         [switch]$SkipProfileSync,
         [switch]$SkipAgySync,
@@ -1035,6 +979,10 @@ function caddis-push {
         # override for a known-bad check you have decided to ship past; it has to be typed.
         [switch]$Force
     )
+
+    if ($PSBoundParameters.ContainsKey("McpVersion")) {
+        Write-Host "  [--]  -McpVersion is ignored." -ForegroundColor DarkGray
+    }
 
     $pushResult = [ordered]@{
         MirrorChanged = $false
@@ -1143,6 +1091,31 @@ function caddis-push {
         } else {
             Write-Host "  [--]  $file - not in project, skipped" -ForegroundColor DarkGray
         }
+    }
+
+    # Remove retired MCP artifacts from the mirror before copying root files.
+    foreach ($retired in @(("src/junai" + "_mcp"), "server.json", ".last-published-mcp.sha256")) {
+        $path = Join-Path $CADDIS_POOL $retired
+        if (Test-Path $path) {
+            Remove-ItemRobust $path
+            if (Test-Path $path) { throw "Retired mirror artifact could not be removed: $path" }
+        }
+    }
+    $mirrorPyproject = Join-Path $CADDIS_POOL "pyproject.toml"
+    if (Test-Path $mirrorPyproject) {
+        $projectText = Get-Content $mirrorPyproject -Raw
+        $projectSection = [regex]::Match($projectText, '(?ms)^\[project\]\s*(.*?)(?=^\[|\z)').Groups[1].Value
+        if ($projectSection -match '(?m)^\s*name\s*=\s*"([^"]+)"' -and $Matches[1] -eq ("junai" + "-mcp")) {
+            Remove-ItemRobust $mirrorPyproject
+            if (Test-Path $mirrorPyproject) { throw "Retired mirror artifact could not be removed: $mirrorPyproject" }
+        }
+    }
+
+    foreach ($f in $ROOT_SYNC_FILES) {
+        $src = Join-Path $ProjectRoot $f
+        $dst = Join-Path $CADDIS_POOL $f
+        if (-not (Test-Path $src)) { throw "Required mirror file missing: $src" }
+        Copy-Item $src $dst -Force
     }
 
     foreach ($file in $ROOT_PUSH_FILES) {
@@ -1307,15 +1280,18 @@ function caddis-push {
 
         # GitHub only reads workflows from the REPO ROOT .github/workflows, and
         # .github/workflows is not a $POOL_FOLDERS entry, so the pool copy above
-        # never carries it. Install it explicitly. (It is inert in this source
-        # repo -- cli/.github is not a root .github -- and only ever runs in the
-        # mirror.)
-        $cliWorkflow = Join-Path $cliSource ".github\workflows\npm-publish.yml"
-        if (Test-Path $cliWorkflow) {
-            $workflowDir = Join-Path $CADDIS_POOL ".github\workflows"
-            New-Item -ItemType Directory -Force $workflowDir | Out-Null
-            Copy-Item $cliWorkflow (Join-Path $workflowDir "npm-publish.yml") -Force
-            Write-Host "  [OK]  .github/workflows/npm-publish.yml (npm OIDC publish)" -ForegroundColor Green
+        # never carries it. Install them explicitly. (They are inert in this
+        # source repo -- cli/.github is not a root .github -- and only ever run
+        # in the mirror.)
+        $cliWorkflowFiles = @("npm-publish.yml", "python-ci.yml")
+        foreach ($cliWorkflowFile in $cliWorkflowFiles) {
+            $cliWorkflow = Join-Path $cliSource ".github\workflows\$cliWorkflowFile"
+            if (Test-Path $cliWorkflow) {
+                $workflowDir = Join-Path $CADDIS_POOL ".github\workflows"
+                New-Item -ItemType Directory -Force $workflowDir | Out-Null
+                Copy-Item $cliWorkflow (Join-Path $workflowDir $cliWorkflowFile) -Force
+                Write-Host "  [OK]  .github/workflows/$cliWorkflowFile" -ForegroundColor Green
+            }
         }
     } else {
         Write-Host "  [--]  cli/ - not in project, skipped" -ForegroundColor DarkGray
@@ -1449,9 +1425,6 @@ function caddis-push {
         return [pscustomobject]$pushResult
     }
 
-    # (PyPI build copy of the pool mcp-server retired 2026-07-20 -- the pool
-    #  mcp-server tool was removed alongside the Copilot-era pipeline runner.
-    #  The published junai-mcp PyPI package is a separate artifact, untouched here.)
 
     # -- Auto-bump the caddis plugin version when its bundle content changed --
     # plugin.json is GENERATED from .github/runtime-targets.json by the export, so shipping
@@ -1789,47 +1762,24 @@ function caddis-push {
         }
     }
 
-    # -- Publish gating (INVERTED default: release is opt-in via -Publish) ------
-    # SAFETY (Track 0, 2026-07): historically caddis-push auto-published whenever a
-    # PyPI/VS Code key was merely present in .env - one keystroke from a PERMANENT,
-    # un-undoable PyPI upload, even for a plugin-only session. The default is now
-    # inverted: a release fires ONLY when -Publish is explicitly passed. -NoPublish is
-    # retained as a DEPRECATED silent no-op (its behaviour is now the default). The
-    # mirror sync above still runs unconditionally; only the MCP/VS Code release is gated.
-    $pypiToken = Get-CaddisSecretValue -EnvName "JUNAI_PYPI_TOKEN" -LegacyFilePath $PYPI_KEY_FILE
-    $vscePat = Get-CaddisSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
-    $hasPypiKey = -not [string]::IsNullOrWhiteSpace($pypiToken)
-    $hasVscePat = -not [string]::IsNullOrWhiteSpace($vscePat)
-    $shouldPublish = [bool]$Publish
-
+    # External VS Code release is opt-in. -NoPublish remains a deprecated no-op.
     if ($NoPublish) {
         Write-Host "  [--]  -NoPublish is deprecated: publish is now opt-in and skipped by default." -ForegroundColor DarkGray
     }
-
-    if (-not $shouldPublish) {
+    if (-not $Publish) {
         if ($pushResult.NpmReleaseTriggered) {
             Write-Host "  [OK]  @caddis/cli v$($pushResult.NpmVersion) released to npm via GitHub Actions." -ForegroundColor Green
         }
         Write-Host "  [--]  Mirror synced; external release NOT triggered (opt-in)." -ForegroundColor DarkGray
-        Write-Host "       Re-run 'caddis-push -Publish' to release the MCP (PyPI) / VS Code extension." -ForegroundColor DarkGray
         return [pscustomobject]$pushResult
     }
-
-    if (-not ($hasPypiKey -or $hasVscePat)) {
-        Write-Host "  [--]  -Publish set but no keys found; nothing to release." -ForegroundColor DarkGray
-        Write-Host "       Set JUNAI_PYPI_TOKEN and/or JUNAI_VSCE_PAT in $CADDIS_ENV_FILE (legacy key files still work)." -ForegroundColor DarkGray
+    $vscePat = Get-CaddisSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
+    if ([string]::IsNullOrWhiteSpace($vscePat)) {
+        Write-Host "  [--]  -Publish set but VS Code PAT missing; nothing to release." -ForegroundColor DarkGray
         return [pscustomobject]$pushResult
     }
-
-    if (-not $hasPypiKey) {
-        Write-Host "  [--]  PyPI key missing; MCP publish skipped." -ForegroundColor DarkGray
-    }
-    if (-not $hasVscePat) {
-        Write-Host "  [--]  VS Code PAT missing; extension publish skipped." -ForegroundColor DarkGray
-    }
-
     $pushResult.ReleaseTriggered = $true
-    caddis-release -McpVersion $McpVersion -SkipMcp:(-not $hasPypiKey) -SkipExtension:(-not $hasVscePat)
+    caddis-release
     return [pscustomobject]$pushResult
 }
 
@@ -2041,117 +1991,10 @@ function caddis-publish-cli {
     return $result
 }
 
-function caddis-publish-mcp {
-    # Bumps the version in pyproject.toml and publishes junai-mcp to PyPI.
-    # Requires: pip install build twine (once per machine), PyPI credentials configured.
-    #
-    # Usage:
-    #   caddis-publish-mcp           # prompts for new version
-    #   caddis-publish-mcp -Version 0.1.2
-    param([string]$Version = "")
-
-    Push-Location $CADDIS_POOL
-
-    $pyproject = Join-Path $CADDIS_POOL "pyproject.toml"
-    if (-not (Test-Path $pyproject)) {
-        Write-Host "  pyproject.toml not found at $CADDIS_POOL" -ForegroundColor Red
-        Pop-Location
-        return $false
-    }
-
-    $currentVer = Get-PyprojectVersion -PyprojectPath $pyproject
-    if ([string]::IsNullOrWhiteSpace($currentVer)) {
-        Write-Host "  [ERROR] Could not read a valid semantic version from $pyproject" -ForegroundColor Red
-        Pop-Location
-        return $false
-    }
-
-    Write-Host ""
-    Write-Host "  CADDIS PUBLISH MCP  junai-mcp --> PyPI" -ForegroundColor Cyan
-    Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  Current version: $currentVer" -ForegroundColor DarkGray
-
-    if ([string]::IsNullOrWhiteSpace($Version)) {
-        $Version = Get-NextPatchVersion -VersionString $currentVer
-        Write-Host "  [OK]  Auto-selected next patch version: $Version" -ForegroundColor Green
-    } elseif ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
-        Write-Host "  [ERROR] MCP version must use semantic version format X.Y.Z: $Version" -ForegroundColor Red
-        Pop-Location
-        return $false
-    }
-
-    if ($Version -ne $currentVer) {
-        Set-PyprojectVersion -PyprojectPath $pyproject -VersionString $Version
-        Write-Host "  [OK]  pyproject.toml bumped $currentVer --> $Version" -ForegroundColor Green
-    } else {
-        Write-Host "  [--]  pyproject.toml version unchanged at $currentVer" -ForegroundColor DarkGray
-    }
-
-    # Clean old dist/
-    $dist = Join-Path $CADDIS_POOL "dist"
-    if (Test-Path $dist) { Remove-ItemRobust $dist }
-
-    Write-Host "  Building..." -ForegroundColor DarkGray
-    $pythonCommand = Get-CaddisPythonCommand
-    if (-not $pythonCommand) {
-        Pop-Location
-        return $false
-    }
-    & $pythonCommand.Path @($pythonCommand.PrefixArgs + @("-m", "build")) 2>&1 | Where-Object { $_ -match "Successfully|error|ERROR" } | Write-Host
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [ERROR] MCP build failed." -ForegroundColor Red
-        Pop-Location
-        return $false
-    }
-
-    Write-Host "  Uploading to PyPI..." -ForegroundColor DarkGray
-    $uploadOk = $false
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
-        twine upload dist\*.whl dist\*.tar.gz 2>&1 | Tee-Object -Variable twineOut | Write-Host
-        if ($LASTEXITCODE -eq 0) { $uploadOk = $true; break }
-        if ($attempt -lt 3) {
-            Write-Host "  [WARN]  Upload attempt $attempt failed, retrying in 5s..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 5
-        }
-    }
-    if (-not $uploadOk) {
-        Write-Host "  [ERROR] MCP upload failed after 3 attempts." -ForegroundColor Red
-        Pop-Location
-        return $false
-    }
-
-    # Commit version bump
-    $hasChanges = (git status --porcelain) -ne $null
-    if ($hasChanges) {
-        git add pyproject.toml
-        git commit -m "chore: bump junai-mcp to v$Version" | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [ERROR] MCP version bump commit failed." -ForegroundColor Red
-            Pop-Location
-            return $false
-        }
-        git push | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [ERROR] MCP version bump push failed." -ForegroundColor Red
-            Pop-Location
-            return $false
-        }
-        Write-Host "  [OK]  Committed and pushed version bump" -ForegroundColor Green
-    }
-
-    Pop-Location
-    Write-Host ""
-    Write-Host "  Published junai-mcp v$Version to PyPI." -ForegroundColor Cyan
-    Write-Host ""
-    return $true
-}
-
 function Get-CaddisSourceHash {
     # Deterministic SHA256 over a package's SOURCE files (code only). Backs the
-    # publish content-diff gate: an unchanged package is never re-uploaded to a
-    # permanent registry (PyPI) / marketplace. Version-bearing files (pyproject.toml,
-    # package.json) are intentionally EXCLUDED by the caller's extension filter so an
-    # auto version bump alone does not look like a content change.
+    # publish content-diff gate: unchanged extension source is not re-uploaded.
+    # The caller excludes package.json so a version bump is not a content change.
     param(
         [Parameter(Mandatory)][string]$RootPath,
         [string[]]$IncludeExt = @(".py"),
@@ -2216,31 +2059,30 @@ function Save-CaddisPublishMarker {
 }
 
 function caddis-release {
-    # Publishes MCP package and VS Code extension using .env secrets first,
-    # with legacy key files as fallback.
+    # Publishes the VS Code extension using .env secrets first,
+    # with a legacy key file as fallback.
     #
-    # A SHA256 content-diff gate skips any target whose SOURCE is unchanged since the
-    # last successful publish (markers: .last-published-mcp.sha256 / -ext.sha256),
-    # so a plugin-only session never re-uploads an identical MCP/extension. -Force
-    # bypasses the gate.
+    # A SHA256 content-diff gate skips an unchanged extension. -Force bypasses the gate.
     #
     # Usage:
-    #   caddis-release                        # publish both MCP + extension (content-diff gated)
-    #   caddis-release -SkipMcp               # extension only
-    #   caddis-release -SkipExtension         # MCP only
-    #   caddis-release -McpVersion "0.2.2"    # bump MCP version before publish
+    #   caddis-release                        # publish extension (content-diff gated)
     #   caddis-release -ExtensionVersion "1.2.3"
     #   caddis-release -Force                 # ignore the content-diff gate
     param(
-        [string]$McpVersion = "",
+        [string]$McpVersion = "",   # retired 2026-09-25: MCP publishing removed in R1
         [string]$ExtensionVersion = "",
-        [switch]$SkipMcp,
-        [switch]$SkipExtension,
+        [switch]$SkipMcp,   # retired 2026-09-25: MCP publishing removed in R1
+        [switch]$SkipExtension,   # retired 2026-09-25: MCP publishing removed in R1
         [switch]$Force
     )
 
     Write-Host ""
-    Write-Host "  CADDIS RELEASE  MCP + VS Code" -ForegroundColor Cyan
+    foreach ($retiredParam in @("McpVersion", "SkipMcp", "SkipExtension")) {
+        if ($PSBoundParameters.ContainsKey($retiredParam)) {
+            Write-Host "  [--]  -$retiredParam is ignored." -ForegroundColor DarkGray
+        }
+    }
+    Write-Host "  CADDIS RELEASE  VS Code" -ForegroundColor Cyan
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 
     # -- Pre-publish agent validation gate --
@@ -2268,52 +2110,16 @@ function caddis-release {
         Write-Host "  [WARN]  validate_agents.py not found -- skipping validation" -ForegroundColor Yellow
     }
 
-    if (-not $SkipMcp) {
-        # Content-diff gate: SHA256 of the MCP source (src\ *.py - excludes the
-        # version-bearing pyproject.toml) vs the last-published marker. PyPI is
-        # permanent, so skip the upload entirely when the code is byte-identical.
-        $mcpSourceRoot = Join-Path $CADDIS_POOL "src"
-        $mcpMarker = Join-Path $CADDIS_POOL ".last-published-mcp.sha256"
-        $mcpGate = Test-CaddisPublishNeeded -SourceRoot $mcpSourceRoot -MarkerPath $mcpMarker -IncludeExt @(".py") -Force:$Force
-        if (-not $mcpGate.Needed) {
-            Write-Host "  [--]  MCP source unchanged since last publish (SHA256 match); skipping PyPI upload." -ForegroundColor DarkGray
-        } else {
-            $pypiToken = Get-CaddisSecretValue -EnvName "JUNAI_PYPI_TOKEN" -LegacyFilePath $PYPI_KEY_FILE
-            if ([string]::IsNullOrWhiteSpace($pypiToken)) {
-                Write-Host "  [ERROR] Missing PyPI token. Set JUNAI_PYPI_TOKEN in $CADDIS_ENV_FILE or keep $PYPI_KEY_FILE." -ForegroundColor Red
-                return $false
-            }
-
-            $prevTwineUser = $env:TWINE_USERNAME
-            $prevTwinePass = $env:TWINE_PASSWORD
-            try {
-                $env:TWINE_USERNAME = "__token__"
-                $env:TWINE_PASSWORD = $pypiToken
-                $mcpPublished = [bool](caddis-publish-mcp -Version $McpVersion | Get-LastOutputValue)
-                if (-not $mcpPublished) {
-                    return $false
-                }
-            } finally {
-                $env:TWINE_USERNAME = $prevTwineUser
-                $env:TWINE_PASSWORD = $prevTwinePass
-            }
-            Save-CaddisPublishMarker -MarkerPath $mcpMarker -Hash $mcpGate.Hash
-        }
-    }
-
     # Content-diff gate for the extension: SHA256 of the source (src\ *.ts/*.js +
     # esbuild.mjs - excludes version-bearing package.json) vs the last-published marker.
     $extMarker = Join-Path $CADDIS_VSCODE ".last-published-ext.sha256"
-    $extGate = $null
-    if (-not $SkipExtension) {
-        $extGate = Test-CaddisPublishNeeded -SourceRoot $CADDIS_VSCODE -MarkerPath $extMarker -IncludeExt @(".ts", ".js", ".mjs") -Force:$Force
-        if (-not $extGate.Needed) {
-            Write-Host "  [--]  Extension source unchanged since last publish (SHA256 match); skipping Marketplace publish." -ForegroundColor DarkGray
-            $SkipExtension = $true
-        }
+    $extGate = Test-CaddisPublishNeeded -SourceRoot $CADDIS_VSCODE -MarkerPath $extMarker -IncludeExt @(".ts", ".js", ".mjs") -Force:$Force
+    if (-not $extGate.Needed) {
+        Write-Host "  [--]  Extension source unchanged since last publish (SHA256 match); skipping Marketplace publish." -ForegroundColor DarkGray
+        return $true
     }
 
-    if (-not $SkipExtension) {
+    if ($extGate.Needed) {
         $vscePat = Get-CaddisSecretValue -EnvName "JUNAI_VSCE_PAT" -LegacyFilePath $VSCE_PAT_FILE
         if ([string]::IsNullOrWhiteSpace($vscePat)) {
             Write-Host "  [ERROR] Missing VS Code PAT. Set JUNAI_VSCE_PAT in $CADDIS_ENV_FILE or keep $VSCE_PAT_FILE." -ForegroundColor Red
@@ -2390,11 +2196,6 @@ function caddis-smoke-release {
 if (-not `$pythonCommand) { throw 'Python resolution failed' }
 Write-Host "[OK] python: `$(`$pythonCommand.Path)"
 
-`$mcpVersion = Get-PyprojectVersion -PyprojectPath (Join-Path `$CADDIS_POOL 'pyproject.toml')
-if ([string]::IsNullOrWhiteSpace(`$mcpVersion)) { throw 'caddis-plugin pyproject.toml version is missing or invalid' }
-if ([string]::IsNullOrWhiteSpace((Try-GetNextPatchVersion -VersionString `$mcpVersion))) { throw ('caddis-plugin pyproject.toml version is not semver: ' + `$mcpVersion) }
-Write-Host ('[OK] caddis-plugin pyproject.toml version: ' + `$mcpVersion)
-
 & `$pythonCommand.Path @(`$pythonCommand.PrefixArgs + @('validate_agents.py'))
 if (`$LASTEXITCODE -ne 0) { throw 'validate_agents.py failed' }
 Write-Host '[OK] validate_agents.py'
@@ -2425,18 +2226,23 @@ function caddis-ship {
     param(
         [string]$ProjectRoot = $REPO_ROOT,
         [string]$Message = "",
-        [string]$McpVersion = "",
+        [string]$McpVersion = "",   # retired 2026-09-25: MCP publishing removed in R1
         [string]$CaddisExtensionVersion = "",
         [string[]]$Lanes = @("auto"),
         [string[]]$Profiles = @("auto"),
-        [switch]$PublishMcp,
+        [switch]$PublishMcp,   # retired 2026-09-25: MCP publishing removed in R1
         [switch]$PublishCaddisExtension,
         [switch]$PublishAll,
         [switch]$SkipSmokeTest
     )
 
+    foreach ($retiredParam in @("McpVersion", "PublishMcp")) {
+        if ($PSBoundParameters.ContainsKey($retiredParam)) {
+            Write-Host "  [--]  -$retiredParam is ignored." -ForegroundColor DarkGray
+        }
+    }
+
     if ($PublishAll) {
-        $PublishMcp = $true
         $PublishCaddisExtension = $true
     }
 
@@ -2474,7 +2280,6 @@ function caddis-ship {
 
     $sourceReleaseTargets = @(Get-AffectedReleaseTargetsFromSourcePaths -ChangedPaths $sourceChangedPaths)
     $caddisVscodeDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "junai-vscode" -ChangedPaths $caddisVscodeChangedPaths)
-    $mcpDirectReleasePaths = @(Get-ReleaseRelevantRepoChangedPaths -Lane "mcp" -ChangedPaths $caddisChangedPaths)
 
     $sourceDirty = $sourceChangedPaths.Count -gt 0
     $caddisVscodeDirty = $caddisVscodeChangedPaths.Count -gt 0
@@ -2537,10 +2342,8 @@ function caddis-ship {
     $sourceMirrorChanged = [bool]$sourcePushResult.MirrorChanged
 
     $caddisExtensionReleaseStatus = "not requested"
-    $mcpReleaseStatus = "not requested"
 
     $shouldPublishCaddisExtension = $false
-    $shouldPublishMcp = $false
 
     if ($PublishCaddisExtension) {
         $caddisExtensionChanged = (($sourceMirrorChanged -and ($sourceReleaseTargets -contains "junai-vscode")) -or $caddisVscodeDirectReleasePaths.Count -gt 0)
@@ -2563,41 +2366,13 @@ function caddis-ship {
         }
     }
 
-    if ($PublishMcp) {
-        $mcpChanged = (($sourceMirrorChanged -and ($sourceReleaseTargets -contains "mcp")) -or $mcpDirectReleasePaths.Count -gt 0)
-        if (-not $mcpChanged) {
-            $mcpReleaseStatus = "skipped - unchanged"
-        } else {
-            $resolvedMcpVersion = if ([string]::IsNullOrWhiteSpace($McpVersion)) {
-                Try-GetNextPatchVersion -VersionString (Get-PyprojectVersion -PyprojectPath (Join-Path $CADDIS_POOL "pyproject.toml"))
-            } else {
-                $McpVersion
-            }
-
-            if ([string]::IsNullOrWhiteSpace($resolvedMcpVersion)) {
-                $mcpReleaseStatus = "skipped - no version bump path"
-            } else {
-                $McpVersion = $resolvedMcpVersion
-                $shouldPublishMcp = $true
-                $mcpReleaseStatus = "pending"
-            }
-        }
-    }
-
-
-
-    if ($shouldPublishMcp -or $shouldPublishCaddisExtension) {
-        $releaseOk = [bool](caddis-release -McpVersion $McpVersion -ExtensionVersion $CaddisExtensionVersion -SkipMcp:(-not $shouldPublishMcp) -SkipExtension:(-not $shouldPublishCaddisExtension) | Get-LastOutputValue)
+    if ($shouldPublishCaddisExtension) {
+        $releaseOk = [bool](caddis-release -ExtensionVersion $CaddisExtensionVersion | Get-LastOutputValue)
         if (-not $releaseOk) {
             Write-Host "  [ABORT]  caddis-plugin release failed." -ForegroundColor Red
             return $false
         }
-        if ($shouldPublishMcp) {
-            $mcpReleaseStatus = "published"
-        }
-        if ($shouldPublishCaddisExtension) {
-            $caddisExtensionReleaseStatus = "published"
-        }
+        $caddisExtensionReleaseStatus = "published"
     }
 
 
@@ -2610,7 +2385,6 @@ function caddis-ship {
     Write-Host "  source profiles       : $(if ($sourceProfiles.Count -gt 0) { [string]::Join(', ', $sourceProfiles) } else { 'none' })" -ForegroundColor DarkGray
     Write-Host "  smoke test            : $smokeStatus" -ForegroundColor DarkGray
     Write-Host "  source committed      : $sourceCommitted" -ForegroundColor DarkGray
-    Write-Host "  mcp release           : $mcpReleaseStatus" -ForegroundColor DarkGray
     Write-Host "  caddis-plugin release : $caddisExtensionReleaseStatus" -ForegroundColor DarkGray
     Write-Host "  source HEAD           : $(Get-RepoHeadLine -RepoPath $ProjectRoot)" -ForegroundColor DarkGray
     Write-Host "  caddis-plugin HEAD    : $(Get-RepoHeadLine -RepoPath $CADDIS_POOL)" -ForegroundColor DarkGray
@@ -2966,8 +2740,8 @@ function caddis-import {
 # and any un-updated script working for ONE version, then they are dropped.
 # ---------------------------------------------------------------------------
 Set-Alias junai-pull         caddis-pull
+# junai-publish-mcp alias retired 2026-09-25: MCP publishing removed in R1.
 Set-Alias junai-push         caddis-push
-Set-Alias junai-publish-mcp  caddis-publish-mcp
 Set-Alias junai-release      caddis-release
 Set-Alias junai-smoke-release caddis-smoke-release
 Set-Alias junai-ship         caddis-ship

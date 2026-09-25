@@ -6,14 +6,19 @@ description: Multi-Model Review & Runner (MMR) — run an ad-hoc task in an isol
 # /caddis:mmr — Multi-Model Review & Runner
 
 Execute an ad-hoc task across model lanes (GLM-5.3 &rarr; Codex Sol &rarr; Claude) inside an isolated
-git worktree with automated test gates and second-vendor review (DeepSeek). Destroys the worktree
-immediately on completion (zero worktree leaks) and leaves the output on a clean branch with a
-simple Verdict Card.
+git worktree with automated test gates and second-vendor review (DeepSeek). A full PASS commits
+code changes and removes the worktree. A FAIL or PENDING keeps the worktree for inspection or
+Claude-lane work. The result appears in a Verdict Card.
 
 When invoked without a task prompt (or with a git range), `/mmr` runs a direct cross-model diff review.
 
 The user typed: **$ARGUMENTS**. Route it to one of the commands below: `keep`, `drop` or `status`
-as given; a git range to `review --range`; empty to `review`; anything else is the task for `run`.
+as given; a git range such as `origin/main..HEAD` to `review --range`; empty to `review`;
+anything else is the task for `run`. Pass supported run flags such as `--type` with the task.
+An unknown flag returns a usage error.
+
+The exit codes follow `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
+4 error or bad usage. In particular, `caddis_adhoc.py` returns 4 for bad usage.
 
 ## Natural Language Triggers
 You can trigger MMR naturally without typing the full slash command:
@@ -39,8 +44,9 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_adhoc.py" "<task description>"
 - **Failover Cascade:** Automatically cascades from GLM to Codex to Claude if a lane is out of budget.
 - **Local Test Gates:** Runs project test gates before review.
 - **Cross-Vendor Review:** DeepSeek or GLM reviews the diff.
-- **Immediate Worktree Cleanup:** Stashes/commits results to `lane/adhoc-<slug>` and immediately removes the worktree. Zero open worktrees remain.
-- **Verdict Card:** Prints PASS/FAIL summary with diff stats and next actions.
+- **Worktree result:** PASS commits code changes to `lane/adhoc-<slug>` and removes the worktree. FAIL keeps it. A Claude-lane `PENDING` keeps it and prints the `NEXT:` step. Gates that never ran show `Gates: not run`.
+- **No-op and gate failures:** A run with no code changes fails and keeps its worktree. A pytest gate that collects no tests also fails.
+- **Verdict Card:** Prints PASS, FAIL, or PENDING with diff stats and next actions.
 
 ### 2. Keep the Result
 ```bash
@@ -54,7 +60,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_adhoc.py" keep
 ```bash
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_adhoc.py" drop
 ```
-- Deletes the branch `lane/adhoc-<slug>`.
+- Removes a kept worktree, prunes its registration, and deletes the task branch.
 - Deletes the ephemeral plan file and run logs.
 - Workspace remains clean and untouched.
 
@@ -72,7 +78,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_adhoc.py" review [--range <range>]
 # Shorthand (no args):
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_adhoc.py"
 ```
-- Fast cross-model review of working tree or git range (e.g., `origin/main..HEAD`).
+- Fast cross-model review of working tree or git range (e.g., `origin/main..HEAD`). A range can also be passed directly as the first argument.
 
 ---
 

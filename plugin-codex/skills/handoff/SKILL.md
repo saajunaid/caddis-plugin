@@ -51,7 +51,7 @@ clean phase boundary and lose or double-do the work.
 
 **Digression check.** If this session abandoned a mid-flight plan for a *different* one (relay.md or the
 tracker shows plan A in progress, but the work moved to plan B), suggest the user run `/digress` to park
-plan A on the workstream stack — so its exact resume point survives and `/resume` can pop it back later.
+plan A on the workstream stack — so its exact resume point survives and `/catchup [name]` can pop it back later.
 
 ## Step 2b — Advisory-Hub handoff audit (conditional — skip silently if not applicable)
 
@@ -113,6 +113,13 @@ Nothing to say is the normal answer. Say nothing and move on — this must not b
 > `/caddis:migrate-dir` does that.
 
 ```markdown
+---
+type: relay
+workstream: <name>
+branch: <branch>
+generated: { by: <model>, at: <ISO time> }
+---
+
 # Relay — <feature>
 **Updated:** <ISO timestamp>
 

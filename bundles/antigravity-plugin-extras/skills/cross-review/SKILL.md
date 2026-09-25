@@ -79,7 +79,7 @@ python "$TOOL" --range origin/main..HEAD                   # review a branch's c
 ```
 Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the env).
 
-**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). Exit 2 now means a *single unsplittable file* over the ceiling, or too many batches — not an ordinary large diff. Previously it was refused with exit 2
+**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). Exit 4 means a *single unsplittable file* over the ceiling, or too many batches — not an ordinary large diff. Previously it was refused before any LLM call
 *before* any LLM call — an oversized diff has been observed to come back either an empty response, or
 worse, a `REVIEW: CLEAN` with zero real engagement. If you hit this, narrow `--range` or review in
 smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint's real limit.
@@ -89,14 +89,14 @@ smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint
 - **1 — REVIEW: BLOCKING** → the reviewer found blocking issues. **Read the printed findings, then FIX
   each blocking item** (or, if you judge one a false positive, state explicitly why it's safe to ignore).
   Re-run until CLEAN.
-- **2 — error** → no verdict parsed, a git failure, or an endpoint/parse failure. Read stderr; do not
+- **4 — error** → no verdict parsed, a git failure, or an endpoint/parse failure. Read stderr; do not
   treat this as CLEAN — investigate.
 - **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisites) and re-run.
 
 ## Rules
 - This is a **read-only second opinion** — the tool never edits, commits, or pushes. YOU apply fixes in
   the main thread after reading the findings.
-- Treat exit 2/3 as blocking-unknown, never as approval (the tool is fail-closed by design).
+- Treat exit 3/4 as blocking-unknown, never as approval (the tool is fail-closed by design).
 - Different vendor ⇒ different style; weigh its findings on merit, don't cargo-cult them.
 - **Never use `find`, `Get-ChildItem -Recurse`, or any other filesystem-wide search to locate
   `oss_review.py`.** Check only the two paths above. On Git Bash under Windows, `find /` (or any

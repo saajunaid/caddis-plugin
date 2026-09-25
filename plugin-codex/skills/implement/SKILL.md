@@ -51,7 +51,9 @@ python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" verdict-gate  --plan <plan
 python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
 ```
 
-Obey the exit code: **0** proceed · **1** STOP and report why · **2** proceed but record the note it
+Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
+4 error or bad usage. For `caddis_gate.py`, obey the exit code: **0** proceed · **1** STOP and report
+why · **2** proceed but record the note it
 printed · **3** wrong lane — the launch command is on stdout, spawn it · **4** the launch command is
 malformed, do not run it.
 

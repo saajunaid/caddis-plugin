@@ -1,7 +1,7 @@
 ---
 name: Janitor
 description: Cleans up code, removes dead code, improves organization, and maintains documentation and file-tree hygiene
-tools: [read, search, edit, execute, problems, junai-mcp/*]
+tools: [read, search, edit, execute, problems]
 model: GPT-5.4-mini
 handoffs:
   - label: Return to Orchestrator

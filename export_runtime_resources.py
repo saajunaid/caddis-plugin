@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -74,6 +75,28 @@ def _ignore_caches(_dir: str, names: list[str]) -> list[str]:
     return [n for n in names if n in CACHE_DIR_NAMES]
 
 
+def _glob_excluded(rel_path: Path, patterns: list[str]) -> bool:
+    """True if `rel_path` (relative to the copy source) matches any glob in `patterns`.
+
+    Patterns are POSIX-style and matched with fnmatch. A pattern ending in `/**`
+    also matches the directory itself (not just its contents), so `tests/**`
+    excludes the `tests` directory AND everything under it — fnmatch alone would
+    only match children, since `**` still requires the literal `/` that follows.
+    """
+    if not patterns:
+        return False
+    rel_posix = rel_path.as_posix()
+    for pattern in patterns:
+        if pattern.endswith("/**"):
+            prefix = pattern[:-3]
+            if rel_posix == prefix or rel_posix.startswith(prefix + "/"):
+                return True
+            continue
+        if fnmatch.fnmatch(rel_posix, pattern):
+            return True
+    return False
+
+
 def copy_tree(
     source: Path,
     destination: Path,
@@ -82,6 +105,7 @@ def copy_tree(
     depth2_included: dict[str, set[str]] | None = None,
     depth2_excluded: set[str] | None = None,
     stats: ExportStats | None = None,
+    exclude: list[str] | None = None,
 ) -> int:
     """Copy a directory tree with optional top-level and depth-2 allow/deny lists.
 
@@ -93,9 +117,12 @@ def copy_tree(
     depth2_excluded:  category-agnostic denylist at depth 1 — skill names to skip
                       regardless of category.  Used by the extras bundle, which copies
                       everything-minus-core (no allowlist, just a denylist of the core).
+    exclude:          glob patterns (POSIX, relative to `source`) skipped at any depth,
+                      e.g. `tests/**` drops a `tests/` dir and everything under it.
     """
     excluded_names = excluded_names or set()
     included_names = included_names or set()
+    exclude = exclude or []
     destination.mkdir(parents=True, exist_ok=True)
     copied_files = 0
 
@@ -118,6 +145,11 @@ def copy_tree(
             if d in UNREFERENCED_ASSET_DIRS:
                 if stats is not None:
                     stats.bump_skip("unreferenced_asset_dir")
+                continue
+            # exclude: glob patterns relative to source, matched at any depth
+            if exclude and _glob_excluded(rel_root / d, exclude):
+                if stats is not None:
+                    stats.bump_skip("excluded_glob")
                 continue
             # depth-0: top-level included_names allowlist
             if is_depth0 and included_names and d not in included_names:
@@ -153,6 +185,10 @@ def copy_tree(
             if filename in CACHE_DIR_NAMES:
                 if stats is not None:
                     stats.bump_skip("cache_file")
+                continue
+            if exclude and _glob_excluded(rel_root / filename, exclude):
+                if stats is not None:
+                    stats.bump_skip("excluded_glob")
                 continue
             if is_depth0 and included_names and filename not in included_names:
                 if stats is not None:
@@ -638,6 +674,7 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
             depth2_included=depth2_included,
             depth2_excluded=depth2_excluded,
             stats=stats,
+            exclude=copy_spec.get("exclude"),
         )
         if copy_spec.get("flatten_skills"):
             flatten_skill_tree(destination, stats)

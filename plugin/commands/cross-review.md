@@ -98,7 +98,7 @@ as a diff that silently is not read. Name a provider explicitly only when you ha
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
 - **1 — REVIEW: BLOCKING** → read the printed findings, then **FIX each blocking item** (or explicitly
   justify why one is a false positive). Re-run until CLEAN.
-- **2 — error** → no verdict parsed, or a git/endpoint failure. Read stderr; do NOT treat as clean.
+- **4 — error** → no verdict parsed, or a git/endpoint failure. Read stderr; do NOT treat as clean.
 - **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisite) and re-run.
 
 ## Rules

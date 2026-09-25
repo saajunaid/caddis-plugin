@@ -1,7 +1,7 @@
 ---
 name: Debug
 description: Systematic debugger - diagnoses root causes, fixes bugs, and prevents regressions using methodical investigation
-tools: [read, search, edit, execute, web, problems, testFailure, changes, junai-mcp/*, context7/*, github/*]
+tools: [read, search, edit, execute, web, problems, testFailure, changes, context7/*, github/*]
 model: Claude Sonnet 4.6
 handoffs:
   - label: Return to Orchestrator

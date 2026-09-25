@@ -273,7 +273,7 @@ def read_context_pct(repo_root: Path) -> tuple[float | None, str]:
         age = max(0, int(time.time()) - int(raw.get("at", 0)))
     except Exception:
         return None, ("no runtime context figure at "
-                      + f"{ART}/context-window.json — run `/caddis:statusline` to install the "
+                      + f"{ART}/context-window.json — run `/caddis:install-statusline` to install the "
                       "status line that writes it")
     if age > CONTEXT_MAX_AGE_S:
         return pct, f"runtime figure, STALE by {age}s (a lower bound — the real number is >= this)"
@@ -386,7 +386,7 @@ def _gate_context(p: Preflight, repo_root: Path, self_reported: float | None) ->
     if pct is None:
         p.refusals.append(
             "no context figure, so the 95% gate cannot be applied — and a gate that defaults to "
-            "proceed is not a gate. Either run `/caddis:statusline` (its status line caches the "
+            "proceed is not a gate. Either run `/caddis:install-statusline` (its status line caches the "
             "runtime figure for this repo), or pass `--context-pct <n>` with the number your "
             "harness reports. A self-reported figure is accepted and recorded as such.")
         return

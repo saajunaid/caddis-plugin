@@ -5,6 +5,10 @@ description: Where were we? A quick list of what this session was doing and what
 
 # /catchup — where are we?
 
+If $ARGUMENTS is empty, follow the catchup procedure below. If a name is given, follow
+the pop-and-resume procedure at the end of this file. The name selects this mode; the
+procedure still pops the last parked frame.
+
 Answer one question: **what were we doing, and what is still open?**
 
 Not named `/recap` on purpose — Claude Code has a built-in `/recap` that produces a one-line
@@ -58,5 +62,36 @@ on is worse than one sentence admitting there is nothing to recap.
   folder, or `claude --resume` to pick an older session. Mention this only if the recap is thin,
   or if they ask for detail the files do not hold.
 - To **write** a durable resume doc rather than read one: `/caddis:handoff`.
-- To **pop a parked workstream** off the digress stack: `/caddis:resume`. That is a different
-  mechanism — it restores work deliberately set aside, not the last session's state.
+- To **pop a parked workstream** off the digress stack: `/caddis:catchup [name]`. This restores work deliberately set aside.
+
+# /caddis:catchup [name] — pop the parked task and pick it back up
+
+A digression is finished; return to the task you parked with `/digress`. This pops the top frame off the
+workstream stack, restates where you were, realigns `relay.md`, and immediately continues the work — the
+user should not have to remember or re-state anything.
+
+## Step 1 — read the stack
+Read `.caddis/workstreams.json`. If it is **absent, unparseable, `version != 1`, or `stack` is empty**,
+say exactly `Nothing is parked.` and stop. Do nothing else.
+
+## Step 2 — pop the top frame
+The top of stack is the **last** element of `stack` (LIFO — most recently parked). Remove it and write the
+rest of the file back (preserve `version` and any other frames + unknown fields). This is the one write
+this command makes to the state file.
+
+## Step 3 — restate + realign relay.md
+Restate the popped frame to the user: its `plan`, `phase`, and `resumePointer` (and `repo` if set — the
+parked task lives in another repo, so say which). Then edit `.caddis/relay.md`'s `## Next step` section
+**in place** so it matches the popped frame's `resumePointer` — preserve every other section of relay.md
+untouched. (If relay.md or that section is absent, skip this edit silently; the restatement above is enough.)
+
+## Step 4 — resume the work
+Begin executing the `resumePointer` immediately. Ask nothing — the frame already carries the next action.
+If the parked plan lives in another `repo`, note that the user may need to open that repo first, then
+proceed there.
+
+## Rules
+- **Never** run a destructive or history-rewriting git action (no `git checkout`, `git reset`, `git stash`,
+  branch switches). Resuming is metadata-only.
+- Pop exactly one frame per invocation (the LIFO top). Run `/caddis:catchup [name]` again to pop the next.
+- Only real paths and verified facts — restate the frame as written; do not embellish the resume point.

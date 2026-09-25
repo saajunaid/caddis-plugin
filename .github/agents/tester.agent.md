@@ -1,7 +1,7 @@
 ---
 name: Tester
 description: Expert in testing Python applications, web dashboards, and FastAPI backends
-tools: [read, search, edit, execute, web, problems, testFailure, junai-mcp/*, context7/*]
+tools: [read, search, edit, execute, web, problems, testFailure, context7/*]
 model: GPT-5.4-mini
 handoffs:
   - label: Return to Orchestrator

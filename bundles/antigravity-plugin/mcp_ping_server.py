@@ -2,7 +2,7 @@
 """Minimal self-contained MCP stdio server (raw JSON-RPC 2.0, zero dependencies).
 
 Ships in the caddis agy plugin to prove the MCP wiring end-to-end without pulling in the `mcp`
-package or any retired server (junai-mcp is gone). Exposes ONE tool, `caddis_ping`, which returns
+package or any retired server. Exposes ONE tool, `caddis_ping`, which returns
 the marker `CADDIS-MCP-OK`. Transport: newline-delimited JSON-RPC on stdin/stdout (MCP stdio).
 """
 import json

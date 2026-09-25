@@ -262,7 +262,7 @@ try:
                 _since = str(_f.get("pushedAt", ""))[:10]  # date part only
                 _wlines.append(
                     f'⛏ Parked workstream: {_loc} @ {_phase} — "{_reason}" '
-                    f"(since {_since}). Run /resume to pop."
+                    f"(since {_since}). Run /catchup [name] to pop."
                 )
             if len(_stack) > 1:
                 _wlines.append(f"({len(_stack)} parked total)")

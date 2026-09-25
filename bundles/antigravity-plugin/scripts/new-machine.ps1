@@ -129,7 +129,7 @@ if (Test-Path $statusline) {
     if ($PSCmdlet.ShouldProcess($statusline, 'install')) { python $statusline --install }
 } else {
     Missing "statusline.py not found at $statusline"
-    Note 'It ships with the plugin. Run `/caddis:statusline` in a Claude Code session, or'
+    Note 'It ships with the plugin. Run `/caddis:install-statusline` in a Claude Code session, or'
     Note 'python PLUGIN_ROOT/scripts/caddis_statusline.py --install'
 }
 

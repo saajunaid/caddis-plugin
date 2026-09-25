@@ -15,11 +15,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -95,6 +98,28 @@ def rules_findings(dest: Path) -> list[str]:
         else:
             out.append(f"{rel}: bare CLAUDE.md with no sibling AGENTS.md (fork — run /caddis:add-rules)")
     return out
+
+
+def has_document_frontmatter_rule(dest: Path) -> bool:
+    """True when root AGENTS.md puts type: in its Document frontmatter section."""
+    path = Path(dest) / "AGENTS.md"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    section = False
+    for line in lines:
+        if re.match(r"^\s*(?:#{1,6}\s+|[-*]\s+\*\*)Document frontmatter(?:\*\*)?\s*:?.*$", line):
+            section = True
+            if "type:" in line:
+                return True
+            continue
+        if section and ("type:" in line or re.match(r"^\s*[-*]\s+\*\*type\*\*\s*:", line)):
+            return True
+        if section and (re.match(r"^#{1,6}\s+", line) or
+                        re.match(r"^\s*[-*]\s+\*\*[^*]+\*\*\s*:", line)):
+            section = False
+    return False
 
 
 def oversize_rules_files(dest: Path, budget: int = AGENTS_MD_BUDGET) -> list[tuple[str, int]]:
@@ -287,6 +312,36 @@ def nudge_line(dest: Path) -> str | None:
     return f"[caddis] {head}{more}"
 
 
+def hook_errors(dest: Path) -> str:
+    """Recent hook failures, counted by hook. Empty when the ledger is clean."""
+    scripts = Path(__file__).resolve().parent
+    hook_log_path = scripts / "hook_log.py"
+    if not hook_log_path.is_file():  # source checkout; installed copies are siblings
+        hook_log_path = scripts.parent / "claude-harness" / "scripts" / "hook_log.py"
+    try:
+        spec = importlib.util.spec_from_file_location("caddis_hook_log", hook_log_path)
+        if spec is None or spec.loader is None:
+            return ""
+        hook_log = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook_log)
+        if not hook_log.summarise(str(dest), days=7):
+            return ""
+        cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - 7 * 86400))
+        counts: dict[str, int] = {}
+        with (dest / ".caddis" / "hook-errors.jsonl").open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    row = json.loads(line)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(row, dict) and str(row.get("ts", ""))[:10] >= cutoff:
+                    hook = str(row.get("hook", "?"))
+                    counts[hook] = counts.get(hook, 0) + 1
+        return ", ".join(f"{hook} x{count}" for hook, count in sorted(counts.items()))
+    except Exception:
+        return ""  # a damaged ledger must not break the doctor
+
+
 # ── report ───────────────────────────────────────────────────────────────────
 def run(dest: Path, quiet: bool) -> int:
     if quiet:  # SessionStart mode: only the nudge, never non-zero
@@ -316,6 +371,11 @@ def run(dest: Path, quiet: bool) -> int:
         root = dest / "AGENTS.md"
         print(f"  OK   root AGENTS.md {'present' if root.is_file() else 'ABSENT (not migrated yet?)'}; shims are shims")
 
+    if has_document_frontmatter_rule(dest):
+        print("  OK   AGENTS.md carries the document-header rule")
+    else:
+        print("  WARN AGENTS.md carries the document-header rule: missing Document frontmatter section with type:")
+
     print("-- maintenance signals (deterministic — read-only)")
     sig = maintenance_signals(dest)
     if sig:
@@ -323,6 +383,12 @@ def run(dest: Path, quiet: bool) -> int:
             print(f"  ~ {s}")
     else:
         print("  none")
+
+    errors = hook_errors(dest)
+    if errors:
+        print(f"  WARN hook errors (7 days): {errors}")
+    else:
+        print("  OK   hook errors (7 days): 0")
 
     print("-- install registry")
     reg = _user_scope_path("installs.json")

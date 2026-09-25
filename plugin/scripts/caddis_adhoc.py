@@ -3,11 +3,12 @@
 
 Executes ad-hoc tasks across model lanes (GLM -> Codex -> Claude) in an isolated
 sandbox with automatic rate-limit failover, test gates, cross-vendor review,
-and immediate worktree cleanup. Also performs direct diff reviews.
+and verified worktree cleanup. Also performs direct diff reviews.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -17,14 +18,23 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import caddis_exit
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_exit":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_exit
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-EXIT_OK = 0
-EXIT_FAIL = 1
-EXIT_USAGE = 2
-EXIT_CONFIG = 3
+EXIT_OK = caddis_exit.CLEAN
+EXIT_FAIL = caddis_exit.BLOCKED
+EXIT_USAGE = caddis_exit.ERROR
+EXIT_CONFIG = caddis_exit.NOT_RUN
+EXCLUDED_PREFIXES = (".caddis/orchestrator/",)
 
 
 def repo_root(start: Path | None = None) -> Path:
@@ -164,6 +174,71 @@ def read_latest(repo: Path) -> dict | None:
         return None
 
 
+# Tool caches every gate run regenerates. They are the only ignored files a worktree may be
+# removed with: any other ignored file (a local config, a generated .env) may be someone's work.
+_DISPOSABLE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules"}
+_DISPOSABLE_SUFFIXES = (".pyc", ".pyo")
+_DISPOSABLE_NAMES = {".coverage"}  # plus .coverage.* (parallel mode), checked below
+# node_modules is not a cache but a dependency tree a gate reinstalls; nobody's work lives in it.
+
+
+def _work_left(porcelain_z: bytes) -> bool:
+    """True if `git status --porcelain=v1 -z --ignored` shows anything but tool-cache litter."""
+    for entry in porcelain_z.split(b"\0"):
+        if not entry:
+            continue
+        code, path = entry[:2], entry[3:].decode("utf-8", errors="replace").rstrip("/")
+        if code != b"!!":
+            return True                       # modified, staged or untracked: real work
+        parts = path.split("/")
+        if (_DISPOSABLE_DIRS.intersection(parts) or path.endswith(_DISPOSABLE_SUFFIXES)
+                or parts[-1] in _DISPOSABLE_NAMES or parts[-1].startswith(".coverage.")):
+            continue
+        return True                           # an ignored file that is not a known cache
+    return False
+
+
+def packet_changed_files(value: object) -> list[str]:
+    """Decode the C-style path quoting used by git status --porcelain."""
+    if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
+        return []
+    files = []
+    for name in value:
+        if name.startswith('"') and name.endswith('"'):
+            try:
+                # git escapes non-ASCII as UTF-8 octal bytes ("caf\303\251"); decode them as
+                # bytes, or a str literal turns each byte into its own code point (mojibake).
+                name = ast.literal_eval("b" + name).decode("utf-8")
+            except (SyntaxError, ValueError, UnicodeDecodeError):
+                return []
+        files.append(name)
+    return files
+
+
+def lane_worktrees(repo: Path, *, lane_only: bool = True) -> set[Path]:
+    """Return registered paths, optionally limited to branches under lane/."""
+    paths: set[Path] = set()
+    for entry in git_output(repo, "worktree", "list", "--porcelain").split("\n\n"):
+        lines = entry.splitlines()
+        branch = next((line for line in lines if line.startswith("branch ")), "")
+        worktree = next((line[9:] for line in lines if line.startswith("worktree ")), "")
+        if worktree and (not lane_only or branch.startswith("branch refs/heads/lane/")):
+            paths.add(Path(worktree).resolve())
+    return paths
+
+
+def packet_worktree(raw: str) -> Path | None:
+    """Recover a complete worktree string even when the rest of JSON is truncated."""
+    match = re.search(r'"worktree"\s*:\s*("(?:\\.|[^"\\])*")', raw)
+    if not match:
+        return None
+    try:
+        value = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return Path(value).resolve() if isinstance(value, str) and value else None
+
+
 def run_adhoc(
     repo: Path,
     prompt: str,
@@ -210,8 +285,14 @@ def run_adhoc(
     if allow_load:
         cmd.append("--allow-load")
 
+    before_worktrees = lane_worktrees(repo, lane_only=False)
     print(f"[mmr] Starting isolated task run: {title}")
-    res = subprocess.run(cmd, cwd=repo)
+    lane_error = ""
+    try:
+        res = subprocess.run(cmd, cwd=repo)
+    except Exception as exc:
+        lane_error = f"lane crashed: {type(exc).__name__}: {exc}"
+        res = None
 
     packet_path = (
         repo
@@ -221,75 +302,200 @@ def run_adhoc(
         / slug
         / "phase-01.attempt-1.json"
     )
-    if not packet_path.is_file():
-        sys.stderr.write(f"[mmr] error: lane run packet not generated at {packet_path}\n")
-        return res.returncode or EXIT_FAIL
-
+    packet = None
+    raw_packet = ""
+    packet_error = "no lane packet"
     try:
-        packet = json.loads(packet_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        sys.stderr.write(f"[mmr] error: failed to read packet: {exc}\n")
+        if packet_path.is_file():
+            raw_packet = packet_path.read_text(encoding="utf-8")
+            packet = json.loads(raw_packet)
+            if not isinstance(packet, dict):
+                raise ValueError("lane packet is not an object")
+    except Exception as exc:
+        packet_error = f"failed to read packet: {type(exc).__name__}: {exc}"
+
+    if lane_error or packet is None:
+        reason = lane_error or packet_error
+        new_worktrees = lane_worktrees(repo) - before_worktrees
+        preferred = packet_worktree(raw_packet)
+        kept_paths = sorted(new_worktrees, key=str)
+        if preferred and preferred.exists() and preferred not in before_worktrees:
+            kept_paths = [preferred, *[path for path in kept_paths if path != preferred]]
+        for path in kept_paths:
+            print(f"KEPT: {path}")
+        print(f"[mmr] {reason}")
+        state = {
+            "slug": slug,
+            "title": title,
+            "task": prompt,
+            "task_type": task_type,
+            "branch": f"lane/adhoc-{slug}",
+            "base_sha": head_sha,
+            "commit_sha": head_sha,
+            "changed_files": [],
+            "lane": lane or "",
+            "model": "",
+            "gates_passed": False,
+            "review_status": "MISSING",
+            "diff_stat": "",
+            "modified_deps": [],
+            "verdict": "FAIL",
+            "kept_worktree": str(kept_paths[0]) if kept_paths else None,
+            "reason": reason,
+            "plan_path": plan_rel,
+            "created": datetime.now(timezone.utc).isoformat(),
+        }
+        if len(kept_paths) > 1:
+            state["kept_worktrees"] = [str(path) for path in kept_paths]
+        adhoc_latest_path(repo).write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         return EXIT_FAIL
 
     worktree_str = packet.get("worktree")
-    changed_files = packet.get("changed_files", [])
+    changed_files = packet_changed_files(packet.get("changed_files", []))
+    code_changes = [
+        name for name in changed_files
+        if not name.replace("\\", "/").startswith(EXCLUDED_PREFIXES)
+    ]
     gates_passed = packet.get("gates_passed", False)
+    no_tests_collected = any(
+        isinstance(gate, dict) and gate.get("returncode") == 5
+        and "pytest" in str(gate.get("cmd", ""))
+        for gate in packet.get("gates", [])
+    )
+    if no_tests_collected:
+        gates_passed = False
     review_info = packet.get("review", {})
     review_status = review_info.get("status", "MISSING")
     assigned_lane = packet.get("lane", "")
     assigned_model = packet.get("model", "")
-    adhoc_branch = f"lane/adhoc-{slug}"
-    commit_sha = packet.get("base_sha", head_sha)
+    pending = res.returncode == 0 and packet.get("result") == "PENDING"
+    adhoc_branch = (packet.get("branch") or f"lane/adhoc-{slug}") if pending else f"lane/adhoc-{slug}"
+    base_sha = packet.get("base_sha", head_sha)
+    commit_sha = base_sha
+    kept_worktree = worktree_str or None
+    reason = ""
+    verified_names: list[str] = []
 
-    # Teardown worktree immediately to prevent leaks
-    if worktree_str:
-        wt_path = Path(worktree_str)
-        if wt_path.exists():
-            if changed_files:
-                try:
-                    subprocess.run(
-                        ["git", "-C", str(wt_path), "add", "--", *changed_files],
-                        check=True,
-                        capture_output=True,
-                    )
-                    commit_res = subprocess.run(
-                        ["git", "-C", str(wt_path), "commit", "-m", f"adhoc({slug}): {title}"],
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                    )
-                    if commit_res.returncode == 0:
-                        commit_sha = git_output(wt_path, "rev-parse", "HEAD")
-                except Exception as exc:
-                    print(f"[mmr] notice: commit in worktree skipped: {exc}")
-
-            # Point adhoc_branch to the result commit
-            subprocess.run(
-                ["git", "-C", str(repo), "branch", "-f", adhoc_branch, commit_sha],
-                capture_output=True,
-            )
-
-            # Cleanly remove the worktree
-            subprocess.run(
-                ["git", "-C", str(repo), "worktree", "remove", "--force", str(wt_path)],
-                capture_output=True,
-            )
-            subprocess.run(["git", "-C", str(repo), "worktree", "prune"], capture_output=True)
-
-            # Clean up the phase-specific attempt branch
-            attempt_branch = packet.get("branch")
-            if attempt_branch and attempt_branch != adhoc_branch:
-                subprocess.run(
-                    ["git", "-C", str(repo), "branch", "-D", attempt_branch],
-                    capture_output=True,
-                )
-
-    diff_stat = git_output(repo, "diff", "--shortstat", packet.get("base_sha", head_sha), adhoc_branch)
-    diff_names = git_output(repo, "diff", "--name-only", packet.get("base_sha", head_sha), adhoc_branch).splitlines()
-
-    # Check for dependency file modifications
+    # A failed lane can return before it records changed_files. Never use an empty
+    # file list as evidence that its worktree is safe to remove.
+    lane_succeeded = res.returncode == 0 and packet.get("result") == "OK"
     dep_files = {"package.json", "requirements.txt", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml"}
-    modified_deps = [f for f in diff_names if Path(f).name in dep_files]
+    modified_deps = [name for name in changed_files if Path(name).name in dep_files]
+    if pending and (not worktree_str or not Path(worktree_str).is_dir()):
+        reason = "PENDING worktree missing"
+    elif pending:
+        pass
+    elif not lane_succeeded:
+        reason = f"lane result: {packet.get('result', 'MISSING')} (exit {res.returncode})"
+    elif no_tests_collected:
+        reason = "no tests collected"
+    elif not gates_passed:
+        reason = "gates failed"
+    elif not code_changes:
+        reason = "no code changes"
+    elif review_status != "CLEAN":
+        reason = f"review is {review_status}"
+    elif modified_deps:
+        reason = f"dependency files changed: {', '.join(modified_deps)}"
+    elif not worktree_str:
+        reason = "lane packet has no worktree path"
+    elif not Path(worktree_str).exists():
+        reason = f"worktree missing: {worktree_str}"
+    else:
+        wt_path = Path(worktree_str)
+        try:
+            add_res = subprocess.run(
+                ["git", "-C", str(wt_path), "add", "--", *code_changes],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            if add_res.returncode != 0:
+                raise subprocess.CalledProcessError(add_res.returncode, add_res.args, stderr=add_res.stderr)
+            commit_res = subprocess.run(
+                ["git", "-C", str(wt_path), "commit", "-m", f"adhoc({slug}): {title}"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            if commit_res.returncode != 0:
+                raise subprocess.CalledProcessError(commit_res.returncode, commit_res.args, stderr=commit_res.stderr)
+        except Exception as exc:
+            stderr = getattr(exc, "stderr", None) or str(exc)
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            reason = f"commit failed: {stderr.splitlines()[0] if stderr.splitlines() else str(exc)}"
+
+        if not reason:
+            try:
+                commit_sha = git_output(wt_path, "rev-parse", "HEAD")
+            except Exception as exc:
+                reason = f"commit verification failed: {type(exc).__name__}: {exc}"
+            if not commit_sha:
+                reason = reason or "commit verification failed: could not resolve HEAD"
+            elif not reason:
+                try:
+                    diff_res = subprocess.run(
+                        ["git", "-C", str(wt_path), "diff", "--name-only", "-z", f"{base_sha}..{commit_sha}"],
+                        capture_output=True,
+                    )
+                    if diff_res.returncode != 0:
+                        reason = "commit verification failed: git diff failed"
+                    else:
+                        verified_names = [name.decode("utf-8", errors="replace") for name in diff_res.stdout.split(b"\0") if name]
+                        if not verified_names or set(verified_names) != set(code_changes):
+                            reason = "commit verification failed: committed files differ from reported files"
+                    if not reason:
+                        # The lane copied our generated plan into its worktree. Remove only that
+                        # exact copy; any edited plan or other excluded file remains protected.
+                        generated_plan = wt_path / plan_rel
+                        if (plan_rel in changed_files and generated_plan.is_file()
+                                and generated_plan.read_bytes() == plan_path.read_bytes()):
+                            generated_plan.unlink()
+                        status_res = subprocess.run(
+                            ["git", "-C", str(wt_path), "status", "--porcelain=v1", "-z",
+                             "--untracked-files=all", "--ignored"],
+                            capture_output=True,
+                        )
+                        if status_res.returncode != 0 or _work_left(status_res.stdout):
+                            reason = "commit verification failed: uncommitted or ignored work remains"
+                except Exception as exc:
+                    reason = f"commit verification failed: {type(exc).__name__}: {exc}"
+
+        if not reason:
+            try:
+                branch_res = subprocess.run(
+                    ["git", "-C", str(repo), "branch", "-f", adhoc_branch, commit_sha],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                )
+                if branch_res.returncode != 0:
+                    reason = f"branch update failed: {branch_res.stderr.strip()}"
+                else:
+                    remove_res = subprocess.run(
+                        ["git", "-C", str(repo), "worktree", "remove", "--force", str(wt_path)],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    )
+                    if remove_res.returncode != 0 or wt_path.exists():
+                        reason = f"worktree remove failed: {remove_res.stderr.strip() or wt_path}"
+                    else:
+                        kept_worktree = None
+                        subprocess.run(["git", "-C", str(repo), "worktree", "prune"], capture_output=True)
+                        attempt_branch = packet.get("branch")
+                        if attempt_branch and attempt_branch != adhoc_branch:
+                            subprocess.run(
+                                ["git", "-C", str(repo), "branch", "-D", attempt_branch],
+                                capture_output=True,
+                            )
+            except OSError as exc:
+                reason = f"worktree cleanup failed: {exc}"
+
+    if reason:
+        print(f"[mmr] {reason}")
+    if pending and not reason:
+        print(f"MMR: PENDING — Claude lane. Worktree kept: {kept_worktree}")
+        print(f"NEXT: {packet.get('next', 'claude-implement')} worktree={kept_worktree}")
+    if kept_worktree:
+        print(f"KEPT: {kept_worktree}")
+
+    diff_ref = commit_sha if verified_names else adhoc_branch
+    diff_stat = git_output(repo, "diff", "--shortstat", base_sha, diff_ref)
+    diff_names = verified_names or changed_files
 
     # Save state to latest.json
     state = {
@@ -307,14 +513,18 @@ def run_adhoc(
         "review_status": review_status,
         "diff_stat": diff_stat.strip(),
         "modified_deps": modified_deps,
+        "verdict": "PENDING" if pending and not reason else "FAIL" if reason or kept_worktree else "PASS",
+        "kept_worktree": kept_worktree,
+        "reason": reason,
         "plan_path": plan_rel,
         "created": datetime.now(timezone.utc).isoformat(),
     }
     adhoc_latest_path(repo).write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
     # Render Verdict Card
-    is_success = gates_passed and review_status == "CLEAN" and not modified_deps
-    status_label = "PASS" if is_success else "FAIL"
+    is_success = not reason and kept_worktree is None
+    status_label = "PENDING" if pending and not reason else "PASS" if is_success else "FAIL"
+    gates_label = "not run" if not packet.get("gates") else "PASS" if gates_passed else "FAILED"
 
     card = [
         "┌────────────────────────────────────────────────────────┐",
@@ -323,7 +533,7 @@ def run_adhoc(
         f"│ Branch: {adhoc_branch:<47}│",
         f"│ Model: {assigned_lane or 'auto'} ({assigned_model or 'default'}){' ' * max(0, 39 - len(assigned_lane or '') - len(assigned_model or ''))}│",
         f"│ Diff: {(diff_stat or 'no changes')[:48]:<49}│",
-        f"│ Gates: {'PASS' if gates_passed else 'FAILED':<48}│",
+        f"│ Gates: {gates_label:<48}│",
         f"│ Review: {review_status:<47}│",
     ]
     if modified_deps:
@@ -338,7 +548,7 @@ def run_adhoc(
         ]
     )
     print("\n" + "\n".join(card) + "\n")
-    return EXIT_OK if is_success else EXIT_FAIL
+    return EXIT_OK if is_success or pending and not reason else EXIT_FAIL
 
 
 def keep_adhoc(repo: Path) -> int:
@@ -386,6 +596,27 @@ def drop_adhoc(repo: Path) -> int:
     branch = state.get("branch", "")
     slug = state.get("slug", "")
     title = state.get("title", slug)
+
+    kept_worktree = state.get("kept_worktree")
+    if kept_worktree and Path(kept_worktree).resolve() not in lane_worktrees(repo):
+        # latest.json is a plain file: never let it point `drop` at a worktree /mmr did not make.
+        print(f"[mmr] Refusing to remove {kept_worktree}: not a registered lane/* worktree")
+        return EXIT_FAIL
+    if kept_worktree:
+        removed = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "remove", "--force", kept_worktree],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        if removed.returncode != 0:
+            print(f"[mmr] Could not remove kept worktree: {removed.stderr.strip()}")
+            return EXIT_FAIL
+        pruned = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "prune"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        if pruned.returncode != 0:
+            print(f"[mmr] Could not prune worktrees: {pruned.stderr.strip()}")
+            return EXIT_FAIL
 
     if branch:
         subprocess.run(["git", "-C", str(repo), "branch", "-D", branch], capture_output=True)
@@ -443,9 +674,7 @@ def status_adhoc(repo: Path) -> int:
 def review_diff(repo: Path, git_range: str | None = None) -> int:
     # Resolve oss_review.py
     candidates = [
-        repo / "scripts" / "oss_review.py",
-        repo / ".github" / "tools" / "oss_review.py",
-        Path(__file__).resolve().parent / "oss_review.py",
+        Path(__file__).with_name("oss_review.py"),
         Path(__file__).resolve().parents[1] / ".github" / "tools" / "oss_review.py",
     ]
     tool = next((c for c in candidates if c.is_file()), None)
@@ -494,6 +723,12 @@ def main(argv: list[str] | None = None) -> int:
     # review subcommand
     review_parser = subparsers.add_parser("review", help="Run multi-model review on a git diff")
     review_parser.add_argument("--range", type=str, default=None, help="Git range (e.g. origin/main..HEAD)")
+
+    if args_list and re.fullmatch(r"[^\s]+\.\.\.?[^\s]*", args_list[0]):
+        return review_diff(repo_root(), args_list[0])
+    if args_list and args_list[0].startswith("--") and args_list[0] not in ("--help",):
+        print(parser.format_usage().strip())
+        return EXIT_USAGE
 
     # Direct shorthand: if first argument is not a known subcommand and not a flag, treat as 'run'
     if args_list and args_list[0] not in ("run", "keep", "drop", "status", "review", "-h", "--help"):

@@ -7,7 +7,7 @@ description: "USE THIS SKILL whenever a user asks for a comprehensive implementa
 # Golden Plan
 
 > **`/caddis:feature-plan` is the canonical planning entry point.** It writes to `.caddis/plans/`,
-> which is what `/caddis:implement`, `/caddis:handoff`, `/caddis:digress` and `/caddis:resume`
+> which is what `/caddis:implement`, `/caddis:handoff`, `/caddis:digress` and `/caddis:catchup`
 > actually read, and it now carries this skill's evidence gate. Reach for golden-plan when you
 > specifically need its heavier apparatus — the data-binding tables, the query catalog, the
 > self-sweep. For ordinary multi-phase work, feature-plan is the shorter path to the same place.

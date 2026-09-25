@@ -38,6 +38,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    import caddis_frontmatter
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_frontmatter":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_frontmatter
+
 TERMINAL_STATUSES = {"done", "superseded", "shipped", "implemented"}
 
 # Legacy prompts written before the frontmatter convention existed (2026-07-23). They were
@@ -95,20 +103,7 @@ PARKING_LOT_MAX_BYTES = 20_000
 
 
 def _parse_frontmatter(text: str) -> dict:
-    text = text.lstrip("﻿")
-    if not text.startswith("---"):
-        return {}
-    lines = text.splitlines()
-    if lines[0].strip() != "---":
-        return {}
-    fm: dict[str, str] = {}
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if ":" in line:
-            k, _, v = line.partition(":")
-            fm[k.strip()] = v.strip()
-    return fm
+    return caddis_frontmatter.parse(text)
 
 
 def _phases_all_done(text: str) -> bool:

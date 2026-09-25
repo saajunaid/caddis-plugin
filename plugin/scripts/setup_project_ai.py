@@ -291,6 +291,10 @@ def merge_settings(target: Path, stack: dict, dry: bool) -> str:
             if a not in ex_allow:
                 ex_allow.append(a)
         existing.setdefault("permissions", {})["allow"] = ex_allow
+        ex_deny = existing["permissions"].setdefault("deny", [])
+        for rule in base["permissions"]["deny"]:
+            if rule not in ex_deny:
+                ex_deny.append(rule)
         # Self-heal: prune legacy harness-injected `ask` rules that override bypassPermissions.
         ex_ask = existing["permissions"].get("ask", [])
         pruned_ask = [a for a in ex_ask if a not in _LEGACY_HARNESS_ASK]
@@ -308,7 +312,7 @@ def merge_settings(target: Path, stack: dict, dry: bool) -> str:
     else:
         base["permissions"]["allow"] = allow
         # No statusLine here on purpose: it is user-scope now, installed once per machine
-        # by `/caddis:statusline`. A per-project copy is exactly how four status-line
+        # by `/caddis:install-statusline`. A per-project copy is exactly how four status-line
         # scripts came to exist and drift apart.
         out = base
         verb = "write"
@@ -799,7 +803,7 @@ items?" has no answer when one state has three spellings.
 | Not this | Where it goes | Why |
 |---|---|---|
 | Work in flight right now | `.caddis/plans/<feature>.md` | A plan is being executed. A parking-lot item is not. |
-| A task interrupted mid-session | `/caddis:digress` stack | That is a pause, not a backlog item. `/caddis:resume` pops it. |
+| A task interrupted mid-session | `/caddis:digress` stack | That is a pause, not a backlog item. `/caddis:catchup` pops it. |
 | An ask only an outsider can resolve | `.caddis/comms/register.md` | Blocked on a human, not on us. |
 | Board cards | `.caddis/backlog/` | **docket writes that directory.** It is a projection of the board, not a hand-written register. Never edit it by hand. |
 
@@ -910,6 +914,7 @@ session-state.md
 session-state/
 context-window.json
 PROJECT-FACTS.md
+# retired writer; ignored so old files stay untracked
 memory.jsonl
 """
 
@@ -1178,7 +1183,7 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
 
     Committed subdirs: plans, handoffs, agent-docs, prd, kb, prompts, comms. Transient state
     (reviews/*.html, usage-log.jsonl, .last-usage-review, relay*, session-state.md,
-    PROJECT-FACTS.md, memory.jsonl) is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
+    PROJECT-FACTS.md) is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
     Phase A3) — kb/ and prompts/ round out plans/prd/agent-docs/reviews so nothing has to
     scatter to the repo root or .github/. Also drops a documented `config.toml.example`
     (guard/doc_coverage). Idempotent. An existing .caddis/.gitignore is never clobbered or
@@ -1493,7 +1498,7 @@ def main() -> int:
     print(f"   {merge_settings(target, stack, args.dry_run)}")
 
     print("-- status line")
-    print("   user-scope now — run /caddis:statusline once per machine (not per project)")
+    print("   user-scope now — run /caddis:install-statusline once per machine (not per project)")
 
     print("-- git hooks")
     for line in install_git_hooks(target, args.force, args.dry_run):

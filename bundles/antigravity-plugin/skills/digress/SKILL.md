@@ -7,7 +7,7 @@ description: Park the current workstream on the stack and switch to a new task �
 
 You are about to leave the current task for a related-but-different one (a design decision, a sub-feature,
 or a blocker that must be fixed first). This command **records the original task on a workstream stack** so
-neither you nor the user has to remember and re-state it later — `/resume` pops it back with its exact
+neither you nor the user has to remember and re-state it later — `/catchup [name]` pops it back with its exact
 resume point, and every SessionStart surfaces it (`⛏ Parked workstream: …`).
 
 The reason for the detour is **$ARGUMENTS** (if empty, derive a one-line reason yourself from what the

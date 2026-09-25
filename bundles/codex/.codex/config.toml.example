@@ -18,19 +18,3 @@
 # [[skills.config]]
 # path = ".codex/skills/devops/windows-deployment"
 # enabled = false
-
-# ── junai MCP (pipeline state + project context) ─────────────────────────────
-# OFF by default. The junai MCP server tracks pipeline stage and project state
-# across sessions. Enable when the server is available locally.
-#
-# Prerequisites:
-#   pip install junai-mcp   (or: uv tool install junai-mcp)
-#   codex mcp add junai -- python -m junai_mcp --project-root .
-#
-# Or add the block below manually and run `codex mcp list` to confirm:
-#
-# [[mcp_servers]]
-# name = "junai"
-# command = "python"
-# args = ["-m", "junai_mcp", "--project-root", "."]
-# env = {}

@@ -1,7 +1,7 @@
 ---
 name: Implement
 description: Elite coding agent - implements features with test-driven development, builds reusable components, and ships production-ready code using systematic methodology
-tools: [read, search, edit, execute, web, problems, testFailure, changes, junai-mcp/*, context7/*, github/*]
+tools: [read, search, edit, execute, web, problems, testFailure, changes, context7/*, github/*]
 model: GPT-5.4
 handoffs:
   - label: Return to Orchestrator

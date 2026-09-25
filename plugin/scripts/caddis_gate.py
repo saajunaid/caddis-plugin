@@ -37,6 +37,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import caddis_frontmatter
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_frontmatter":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_frontmatter
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -145,16 +153,7 @@ def gate_lane(plan: Path, phase: int) -> int:
 # ── gate: verdict-gate ──────────────────────────────────────────────────────
 
 def _frontmatter(p: Path) -> dict:
-    t = p.read_text(encoding="utf-8", errors="ignore")
-    if not t.startswith("---"):
-        return {}
-    end = t.find("\n---", 3)
-    out = {}
-    for line in t[3:end if end > 0 else 400].splitlines():
-        if ":" in line:
-            k, _, v = line.partition(":")
-            out[k.strip()] = v.strip()
-    return out
+    return caddis_frontmatter.parse(p.read_text(encoding="utf-8", errors="ignore"))
 
 
 def _covers(phase_field: str, n: int) -> bool:
@@ -602,6 +601,22 @@ def gate_review_trigger(repo_root: Path, rev_range: str | None = None) -> int:
     return EXIT_NOTE
 
 
+def gate_docs_check(root: Path) -> int:
+    """Report every typed .caddis Markdown document with an invalid header."""
+    failures = 0
+    for path in sorted((root / ".caddis").rglob("*.md")):
+        relative = path.relative_to(root).as_posix()
+        if not caddis_frontmatter.doc_in_scope(relative, root):
+            continue
+        error = caddis_frontmatter.validate(
+            path.read_text(encoding="utf-8"), caddis_frontmatter.ALLOWED_TYPES
+        )
+        if error:
+            print(f"{relative}: {error}")
+            failures += 1
+    return EXIT_BLOCKED if failures else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="caddis machine gates")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -625,9 +640,17 @@ def main(argv: list[str] | None = None) -> int:
     hc = sub.add_parser("handover-check")
     hc.add_argument("--doc", required=True)
     hc.add_argument("--repo-root", default=".")
+    dc = sub.add_parser("docs-check")
+    dc.add_argument("--root", default=".")
     a = ap.parse_args(argv)
 
     plan = Path(getattr(a, "plan", "") or ".")
+    if a.cmd == "docs-check":
+        try:
+            return gate_docs_check(Path(a.root).resolve())
+        except Exception as exc:
+            sys.stderr.write(f"[caddis-gate] docs-check cannot evaluate: {type(exc).__name__}: {exc}\n")
+            return EXIT_BLOCKED  # CI must not pass without completing the scan.
     try:
         if a.cmd == "lane-check":
             return gate_lane(plan, a.phase)

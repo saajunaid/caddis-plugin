@@ -1,7 +1,7 @@
 ---
 name: Preflight
 description: Plan-vs-codebase validation — verifies implementation plans against the actual codebase before agents start coding
-tools: [read, search, problems, execute, junai-mcp/*]
+tools: [read, search, problems, execute]
 model: Claude Sonnet 4.6
 handoffs:
   - label: Return to Orchestrator

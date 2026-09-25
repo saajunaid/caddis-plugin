@@ -43,7 +43,7 @@ from pathlib import Path
 # NEVER put this suffix in the OpenAI-dialect tables (oss_review.py / oss_ask.py): those
 # send the id raw to /chat/completions, which would reject it.
 PROVIDERS: dict[str, dict[str, str]] = {
-    "deepseek":   {"base_url": "https://api.deepseek.com/anthropic",  "model": "deepseek-v4-flash[1m]",          "key_env": "DEEPSEEK_API_KEY"},
+    "deepseek":   {"base_url": "https://api.deepseek.com/anthropic",  "model": "deepseek-flash[1m]",          "key_env": "DEEPSEEK_API_KEY"},
     "glm":        {"base_url": "https://api.z.ai/api/anthropic",      "model": "glm-5.3[1m]",                    "key_env": "GLM_API_KEY"},
     "openrouter": {"base_url": "",                                    "model": "deepseek/deepseek-v4-flash", "key_env": "OPENROUTER_API_KEY"},
 }

@@ -1,7 +1,7 @@
 ---
 name: Anchor
 description: Evidence-first verification agent - high-rigor implementation with baseline capture, pushback protocol, and structured proof for critical or high-risk work
-tools: [read, search, edit, execute, web, problems, testFailure, changes, junai-mcp/*, context7/*]
+tools: [read, search, edit, execute, web, problems, testFailure, changes, context7/*]
 model: Claude Opus 4.8
 handoffs:
   - label: Return to Orchestrator

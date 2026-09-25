@@ -55,8 +55,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-EXIT_USAGE = 2
-EXIT_CONFIG = 3
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import caddis_exit  # noqa: E402
+
+EXIT_USAGE = caddis_exit.ERROR
+EXIT_CONFIG = caddis_exit.NOT_RUN
 SCOPES = ("session", "lane")
 MAX_CPU_PERCENT = 100
 MAX_MEMORY_MB = 1_048_576

@@ -45,7 +45,7 @@ NEW_DIR = ".caddis"
 OLD_DIR = ".claudster"
 
 #: Append-only JSONL logs: safe to concatenate when both dirs carry one (legacy lines first).
-JSONL_MERGE_NAMES = frozenset({"usage-log.jsonl", "agent-log.jsonl", "memory.jsonl"})
+JSONL_MERGE_NAMES = frozenset({"usage-log.jsonl", "agent-log.jsonl"})
 
 #: Files whose CONTENT may name the old dir and is read live after the migration. Historical
 #: artifacts (plans, handoffs, past reviews) are deliberately NOT rewritten — they are a record of

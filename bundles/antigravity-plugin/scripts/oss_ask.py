@@ -10,7 +10,7 @@ in ~/.caddis/keys.env lights up every lane.
 Usage:
   python oss_ask.py <provider> <prompt...>  [--model M] [--base-url U] [--system S]
 
-Exit codes: 0 answer printed; 2 endpoint/parse error; 3 config error (message on stderr).
+Exit codes: 0 answer printed; 3 could not run due to config; 4 endpoint/parse error.
 """
 from __future__ import annotations
 
@@ -23,18 +23,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import oss_model  # noqa: E402  (same-directory import: shared key resolution)
+import caddis_exit  # noqa: E402
 
 # OpenAI-compatible chat endpoints — intentionally different from oss_model.PROVIDERS,
 # which holds the Anthropic-protocol endpoints for Claude Code.
 CHAT_PROVIDERS: dict[str, dict[str, str]] = {
-    "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-v4-flash",          "key_env": "DEEPSEEK_API_KEY"},
+    "deepseek":   {"base_url": "https://api.deepseek.com",            "model": "deepseek-flash",             "key_env": "DEEPSEEK_API_KEY"},
     "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5.3",                    "key_env": "GLM_API_KEY"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1",        "model": "deepseek/deepseek-v4-flash", "key_env": "OPENROUTER_API_KEY"},
 }
 
-EXIT_OK = 0
-EXIT_ERROR = 2
-EXIT_CONFIG = 3
+EXIT_OK = caddis_exit.CLEAN
+EXIT_ERROR = caddis_exit.ERROR
+EXIT_CONFIG = caddis_exit.NOT_RUN
 
 
 def resolve_chat_config(provider: str, env: dict[str, str],

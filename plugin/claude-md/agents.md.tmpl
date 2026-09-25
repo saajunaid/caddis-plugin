@@ -57,7 +57,7 @@ On a fresh session read in order: `.caddis/relay.md` (if present) → the active
   runbook, analysis, handoff) must open with a YAML frontmatter block:
   ```yaml
   ---
-  type: plan|prd|adr|design|runbook|handoff|analysis|review
+  type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot|rca|todo|relay|comms|reference|note|phase-report|implement-review|phase-verdict|hub-spawn|advisory-context|phase-prompt
   status: draft|current|done|superseded
   feature: <feature-slug>
   creation-agent: caddis
@@ -111,7 +111,7 @@ future: yes              # OPTIONAL. yes = committed. Absent or `no` = a candida
 life, and whether we have agreed to do it. `python scripts/caddis_tidy.py --check` and the
 `caddis_gate.py parking-lot` gate both fail on a non-conforming item, so this is enforced, not
 advised. Two neighbours that are NOT the backlog: `/caddis:digress` parks an interrupted task on a
-stack (`/caddis:resume` pops it), and `.caddis/backlog/` is written by **docket** as a projection of
+stack (`/caddis:catchup` pops it), and `.caddis/backlog/` is written by **docket** as a projection of
 its board — never hand-edit that one.
 
 ### Write environment facts down in the same turn

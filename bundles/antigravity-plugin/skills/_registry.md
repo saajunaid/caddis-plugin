@@ -85,6 +85,7 @@
 | Glossary | `glossary/` | Define the words this project invented, in one place — .caddis/kb/GLOSSARY.md |
 | Handoff | `handoff/` | End-of-session handoff — capture exact state so the next session resumes with zero re-discovery |
 | Implement | `implement/` | Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase |
+| Install Statusline | `install-statusline/` | Install the caddis status line into Claude Code and agy — one renderer, once per machine |
 | Kb | `kb/` | Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links |
 | Mermaid Db | `mermaid-db/` | Turn a SQL artifact (proc, view, query, .sql file, or table name) into a Mermaid diagram that explains it — git-diffable, saved as .md |
 | Migrate Dir | `migrate-dir/` | Rename this repo's legacy `.claudster/` artifact dir to `.caddis/` — dry-run first, `git mv` to keep history, merges a straggler dir, rewrites live refs. Opt-in, never automatic. |
@@ -92,14 +93,15 @@
 | Park | `park/` | File a future-work item in the one backlog — .caddis/parking-lot/ — or list what is open |
 | Pr Merge | `pr-merge/` | End-to-end pull request and merge lane — push feature branch, open or update PR, monitor CI to green, merge to default branch, and clean up the feature branch. |
 | Prd | `prd/` | Capture requirements through structured discovery and write a PRD |
-| Resume | `resume/` | Pop the most recently parked workstream off the stack and resume it at its exact resume point |
-| Review | `review/` | Review someone else's OPEN pull request end to end — what changed, what CI says, what is risky — then approve or request changes. Never approves on its own. |
+| Resume | `resume/` | Renamed to /caddis:catchup (alias, removed next release) |
+| Review | `review/` | Renamed to /caddis:review-pr (alias, removed next release) |
+| Review Pr | `review-pr/` | Review someone else's OPEN pull request end to end — what changed, what CI says, what is risky — then approve or request changes. Never approves on its own. |
 | Ship | `ship/` | Commit, push, and monitor the deploy pipeline (auto-detects Gitea, GitHub Actions, or local-only) |
 | Ship Merge | `ship-merge/` | Merge an already-green, already-reviewed PR behind an explicit deploy-confirm, monitor the deploy, validate prod, then clean up the branch — only on green. |
 | Ship Pr | `ship-pr/` | Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge). |
 | Spawn Hub | `spawn-hub/` | Hand the Advisory Hub role to a fresh session — run the mechanical audit, then generate the succession prompt with a context self-check the new Hub must pass |
 | Spawn Session | `spawn-session/` | Hand the WORK to a fresh session — generate the handover from the repo, then validate the successor by re-deriving its answers |
-| Statusline | `statusline/` | Install the caddis status line into Claude Code and agy — one renderer, once per machine |
+| Statusline | `statusline/` | Renamed to /caddis:install-statusline (alias, removed next release) |
 | Tdd | `tdd/` | Run a strict red-green-refactor TDD cycle for a unit of behavior |
 | Ui Brief | `ui-brief/` | Design-first UI brief — lock the aesthetic before writing any code |
 | Usage Review | `usage-review/` | Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step |

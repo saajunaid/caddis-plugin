@@ -234,7 +234,7 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   whether the result is unique or landed where intended.
 - **A verification that records an ABSENCE expires the moment someone creates the thing, silently,
   with nothing pointing back at the claim that made it.** `.caddis/parking-lot/caddis-minor-housekeeping.md`
-  item 1 recorded "no `/caddis:statusline` command exists" on 2026-08-15; the command existed seven
+  item 1 recorded "no `/caddis:install-statusline` command exists" on 2026-08-15; the command existed seven
   days later and the note was re-trusted for a week before anyone re-derived it. A verification that
   records a PRESENCE (a count, a line number) degrades slowly and visibly — the number just drifts,
   and the drift is checkable. An absence claim degrades to zero warning the instant it's falsified.
