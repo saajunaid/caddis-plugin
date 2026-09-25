@@ -30,7 +30,7 @@ export interface ProviderPreset {
 export const PROVIDERS: Record<string, ProviderPreset> = {
   deepseek: {
     baseUrl: 'https://api.deepseek.com/anthropic',
-    model: 'deepseek-v4-flash[1m]',
+    model: 'deepseek-flash[1m]',
     keyEnv: 'DEEPSEEK_API_KEY',
   },
   glm: {
