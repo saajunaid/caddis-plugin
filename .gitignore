@@ -41,6 +41,9 @@ pypimcp.key
 .caddis/relay.md
 .caddis/relay/
 .caddis/hook-errors.jsonl
+# The status line records the context-window figure for /caddis:spawn-session's gate into any
+# folder with a .caddis/ dir -- including this one. Published by `git add -A` from 2026-09-09.
+.caddis/context-window.json
 
 # Per-machine telemetry - never a deliverable, and this repo is PUBLIC.
 agent-log.jsonl
