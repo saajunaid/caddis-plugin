@@ -1,4 +1,4 @@
-# CADDIS Sync - bidirectional pool sync
+﻿# CADDIS Sync - bidirectional pool sync
 # Dot-sourced by PowerShell profile. Provides caddis-pull and caddis-push globally.
 #
 # One-time setup (run once per machine):

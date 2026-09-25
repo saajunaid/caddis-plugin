@@ -615,7 +615,6 @@ def render_agy(data: dict, cfg: dict) -> str:
             used = as_int(cw.get("total_input_tokens"))
         max_tokens = as_int(cw.get("context_window_size")) or 1_048_576
         pct = float(as_int(cw.get("used_percentage")))
-        record_context(cwd, pct)
         parts.append(context_segment(c, cfg, used, max_tokens, pct))
         loud = cached_segment(c, cfg, cached)
         if loud:

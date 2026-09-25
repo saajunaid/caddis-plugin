@@ -12,6 +12,9 @@ simple Verdict Card.
 
 When invoked without a task prompt (or with a git range), `/mmr` runs a direct cross-model diff review.
 
+The user typed: **$ARGUMENTS**. Route it to one of the commands below: `keep`, `drop` or `status`
+as given; a git range to `review --range`; empty to `review`; anything else is the task for `run`.
+
 ## Natural Language Triggers
 You can trigger MMR naturally without typing the full slash command:
 - *"Run this on another lane: &lt;task&gt;"* &rarr; `/mmr "<task>"`
@@ -27,9 +30,9 @@ You can trigger MMR naturally without typing the full slash command:
 
 ### 1. Run an Ad-Hoc Task
 ```bash
-python scripts/caddis_adhoc.py run "<task description>" [--type backend|tests|docs|ui|hard]
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py" run "<task description>" [--type backend|tests|docs|ui|hard]
 # Shorthand:
-python scripts/caddis_adhoc.py "<task description>"
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py" "<task description>"
 ```
 - **Sandbox Isolation:** Creates an ephemeral 1-phase plan at `.caddis/orchestrator/adhoc/<slug>.md`.
 - **Pre-flight Checks:** Verifies dirty tree and API keys. Warns if local edits exist.
@@ -41,7 +44,7 @@ python scripts/caddis_adhoc.py "<task description>"
 
 ### 2. Keep the Result
 ```bash
-python scripts/caddis_adhoc.py keep
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py" keep
 ```
 - Keeps the output branch `lane/adhoc-<slug>`.
 - **Main Branch Protection:** If you are on `main` or `master`, direct merge is disabled to protect trunk. Recommends running `/ship-pr`.
@@ -49,7 +52,7 @@ python scripts/caddis_adhoc.py keep
 
 ### 3. Drop the Result
 ```bash
-python scripts/caddis_adhoc.py drop
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py" drop
 ```
 - Deletes the branch `lane/adhoc-<slug>`.
 - Deletes the ephemeral plan file and run logs.
@@ -57,7 +60,7 @@ python scripts/caddis_adhoc.py drop
 
 ### 4. Check Status
 ```bash
-python scripts/caddis_adhoc.py status
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py" status
 ```
 - Displays API key readiness for all lanes (`Anthropic`, `DeepSeek`, `GLM`, `OpenAI`).
 - Shows the latest task status, model used, and gates/review verdicts.
@@ -65,9 +68,9 @@ python scripts/caddis_adhoc.py status
 
 ### 5. Review Diff Only
 ```bash
-python scripts/caddis_adhoc.py review [--range <range>]
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py" review [--range <range>]
 # Shorthand (no args):
-python scripts/caddis_adhoc.py
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_adhoc.py"
 ```
 - Fast cross-model review of working tree or git range (e.g., `origin/main..HEAD`).
 

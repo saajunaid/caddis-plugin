@@ -26,7 +26,7 @@ Run the End-to-End Data Lineage generation procedure:
 3. **Convert to Confluence Storage Format XHTML:**
    - Run the PlantUML-enabled converter:
      ```powershell
-     python scripts/convert_doc_to_confluence.py docs/<app>/<app>-data-lineage.md --output docs/<app>/<app>-data-lineage.html --diagram-type plantuml
+     python "${CLAUDE_PLUGIN_ROOT}/scripts/convert_doc_to_confluence.py" docs/<app>/<app>-data-lineage.md --output docs/<app>/<app>-data-lineage.html --diagram-type plantuml
      ```
    - Verify that all diagrams convert to native `<ac:structured-macro ac:name="plantuml">` blocks with scale 1.2, natural splines, auto-wrapped edge labels, crimson red borders on impacted components, and embedded Creole legends.
    - Verify that output validates as 100% well-formed XML.

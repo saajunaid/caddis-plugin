@@ -39,7 +39,7 @@ Run the Lower-Level Design (LLD) generation procedure:
 4. **Convert to Confluence Storage Format XHTML:**
    - Run the PlantUML-enabled converter:
      ```powershell
-     python scripts/convert_doc_to_confluence.py docs/<app>/<app>-lld.md --output docs/<app>/<app>-lld.html --diagram-type plantuml
+     python "${CADDIS_PLUGIN_ROOT}/scripts/convert_doc_to_confluence.py" docs/<app>/<app>-lld.md --output docs/<app>/<app>-lld.html --diagram-type plantuml
      ```
    - Verify that all diagrams are converted to native `<ac:structured-macro ac:name="plantuml">` blocks with scale 1.2, natural splines, auto-wrapped edge labels, crimson red borders on impacted components, and embedded Creole legends.
    - Verify that output validates as well-formed XML.
