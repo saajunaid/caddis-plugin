@@ -53,7 +53,7 @@ elif ext in (".ts", ".tsx", ".js", ".jsx"):
     # happened on the primary platform. Resolve the real executable first.
     _npx = shutil.which("npx")
     if not _npx:
-        return
+        sys.exit(0)
     r = run([_npx, "--no", "eslint", "--format", "compact", file_path])
     if r and r.returncode != 0 and r.stdout.strip():
         print(f"[lint] eslint:\n{r.stdout.strip()[:600]}", flush=True)
