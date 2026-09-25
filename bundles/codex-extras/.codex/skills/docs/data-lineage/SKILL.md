@@ -71,7 +71,7 @@ A comprehensive table specifying the complete end-to-end data lineage across the
 | ... | ... | ... | ... | ... | ... | ... | ... |
 
 Column specifications:
-- **App:** Application identifier (e.g. `rev-sight`).
+- **App:** Application identifier (e.g. `billing-portal`).
 - **UI Page:** User interface page path and title (e.g. `/runs (Run Monitor)`).
 - **API Route:** HTTP method and endpoint (e.g. `GET /api/runs`).
 - **Dataset:** Schema-qualified tables or views read (e.g. `[dbo].[CDR_RUN_LOG]`).

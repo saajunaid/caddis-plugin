@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -68,6 +71,7 @@ def _init_release_repo(tmp_path: Path) -> Path:
     return repo_root
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="powershell.exe is Windows-only")
 def test_extract_nuggets_writes_only_inbox_and_filters_supported_commit_types(tmp_path: Path) -> None:
     repo_root = _init_release_repo(tmp_path)
     _commit_file(repo_root, "feature.txt", "feat one\n", "feat: add release summary view")
@@ -103,6 +107,7 @@ def test_extract_nuggets_writes_only_inbox_and_filters_supported_commit_types(tm
     assert status_lines == ['?? .github/agent-docs/nuggets-inbox.md']
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="powershell.exe is Windows-only")
 def test_extract_nuggets_rerun_does_not_duplicate_existing_candidates(tmp_path: Path) -> None:
     repo_root = _init_release_repo(tmp_path)
     _commit_file(repo_root, "feature.txt", "feat one\n", "feat: add release summary view")
@@ -119,6 +124,7 @@ def test_extract_nuggets_rerun_does_not_duplicate_existing_candidates(tmp_path: 
     assert inbox_text.count("- raw: feat: add release summary view") == 1
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="powershell.exe is Windows-only")
 def test_extract_nuggets_honors_pending_cap(tmp_path: Path) -> None:
     repo_root = _init_release_repo(tmp_path)
     _commit_file(repo_root, "feature.txt", "feat one\n", "feat: add release summary view")

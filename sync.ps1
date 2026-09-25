@@ -36,7 +36,7 @@ $LOCAL_ONLY_POOL_FILES = @(
 # stop-the-bleed). Plans are tracked in caddis only; they never sync to the
 # public mirror. Do not re-add without explicit privacy review.
 $POOL_FOLDERS = @("agents", "skills", "prompts", "instructions", "hooks", "diagrams", "tools", "recipes", "agent-docs", "handoffs")
-$POOL_FILES = @("runtime-targets.json")
+$POOL_FILES = @("runtime-targets.json", "pool.manifest.yml")
 $ROOT_PUSH_FILES = @("export_runtime_resources.py", "validate_agents.py", "validate_pool.py", "sync.ps1", ".env.example")
 $ROOT_SYNC_FILES = @("LICENSE", "NOTICE.md")
 # PRIVACY IS NOW STRUCTURAL. This repo (caddis) holds ONLY public, publishable source -

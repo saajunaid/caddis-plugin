@@ -1,0 +1,65 @@
+version: 1
+private_patterns_from: .github/tools/pool-validator/denylist-exceptions.txt
+
+tiers:
+  managed:
+    directories:
+      - agents
+      - instructions
+      - prompts
+      - skills
+      - recipes
+      - hooks
+      - tools
+      - diagrams
+      - workflows
+    files:
+      - runtime-targets.json
+  owned:
+    directories:
+      - agent-docs
+      - plans
+      - handoffs
+      - pipeline
+    files:
+      - pipeline-state.json
+      - pipeline-state.template.json
+      - project-config.md
+      - pool.manifest.yml
+      - .pool-version
+      - .junai-profile
+  managed_region:
+    files:
+      - copilot-instructions.md
+  local_private:
+    files:
+      - diagrams.zip
+
+private:
+  paths:
+    - skills/vmie/**
+
+profiles:
+  full:
+    skill_globs:
+      - "**"
+  frontend-dashboard:
+    skill_globs:
+      - frontend/**
+      - coding/**
+      - data/**
+      - testing/**
+      - workflow/**
+      - docs/**
+  data-pipeline:
+    skill_globs:
+      - data/**
+      - coding/**
+      - testing/**
+      - workflow/**
+      - docs/**
+
+managed_regions:
+  copilot-instructions.md:
+    start_marker: "<!-- junai:start -->"
+    end_marker: "<!-- junai:end -->"
