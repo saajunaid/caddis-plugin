@@ -7,6 +7,19 @@ description: Headless plan executor — implement an approved plan phase-by-phas
 
 Implement the plan at **$ARGUMENTS** (falls back to the `DOCKET_PLAN` env var if `$ARGUMENTS` is empty).
 
+**Which plan.** An explicit plan always wins: `$ARGUMENTS` first, then the `DOCKET_PLAN` env var
+(it counts as an explicit argument). Only when both are empty, find the active plan:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_todo.py" active-plan
+```
+
+- **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
+  `<path>`.") and implement it.
+- **Exit 3** → no single active plan. Do not guess and do not ask. Stop before any change, list the
+  candidates it printed on stderr (or "none") in the review file, and end with the
+  `"implemented":false` JSON block from step 6.
+
 This command is the **docket Implement lane's driver**. It is spawned autonomously by the docket runner —
 **no human is present**. It does not design or re-plan: the plan is the intelligence, you are the executor.
 The runner independently re-runs the tests and a fresh code-review after you finish and decides success
@@ -34,6 +47,14 @@ depend on them:
 - **Never ask a question, never pause, never wait for input.** No human will answer. Never use
   AskUserQuestion. Where the plan leaves a genuine gap, make the smallest reasonable assumption, record it
   in the review file, and proceed — asking is always wrong here.
+
+## Three rules: one attempt, one review
+1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
+2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
+3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+
+This run is headless, so "ask the owner" means: stop the phase, do not commit it, and record the
+two blocking reviews in the review file.
 
 ## What to do
 

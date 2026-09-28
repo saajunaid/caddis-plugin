@@ -1,6 +1,6 @@
 ---
 name: update-readme
-description: Detect feature commits and update README sections (Features, API, Usage) with accurate repo-aware changes, then stage only README for a docs commit. Use when users add features/routes/components and want README maintained automatically.
+description: Detect feature commits and update README sections (Features, API, Usage) to match, then stage only the README. Use when features, routes or components were added.
 ---
 
 # Update README Skill

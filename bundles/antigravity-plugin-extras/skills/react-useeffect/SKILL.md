@@ -1,6 +1,6 @@
 ---
 name: react-useeffect
-description: React useEffect best practices from official docs. Use when writing/reviewing useEffect, useState for derived values, data fetching, or state synchronization. Teaches when NOT to use Effect and better alternatives.
+description: "React useEffect best practices from the official docs: when NOT to use an Effect, derived state, data fetching, synchronization. Use when writing or reviewing useEffect."
 ---
 
 # You Might Not Need an Effect

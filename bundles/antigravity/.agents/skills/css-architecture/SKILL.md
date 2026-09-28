@@ -1,6 +1,6 @@
 ---
 name: css-architecture
-description: CSS architecture, design token strategy, Tailwind conventions, CSS Modules, container queries, dark mode, responsive patterns, and animation architecture. Use for design token naming, CSS custom properties, Tailwind config, container queries, dark mode implementation, fluid typography, or CSS animation decisions. Complements frontend-design (what to achieve) with how to implement it.
+description: "CSS architecture: design tokens, custom properties, Tailwind config, CSS Modules, container queries, dark mode, fluid typography, animation. Covers how to implement styling; frontend-design covers what to achieve."
 ---
 
 # CSS Architecture Skill

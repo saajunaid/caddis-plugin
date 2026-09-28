@@ -1,7 +1,7 @@
 ---
 name: webapp-testing
 context: fork
-description: Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.
+description: "Test local web apps with Playwright: verify frontend behavior, debug UI, capture screenshots and browser logs."
 license: Complete terms in LICENSE.txt
 ---
 

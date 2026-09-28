@@ -1,6 +1,6 @@
 ---
 name: safe-cleanup
-description: Use BEFORE deleting any directory tree, clearing a scratchpad, removing git worktrees, or "tidying up" generated folders - especially on Windows, where a recursive delete that meets a junction or symlink destroys the link's TARGET. Also use when verifying that a Python venv or node_modules survived a cleanup, because pip check and file counts both report healthy on a half-deleted environment.
+description: Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived.
 ---
 
 # Safe Cleanup

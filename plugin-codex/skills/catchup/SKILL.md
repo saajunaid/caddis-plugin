@@ -5,9 +5,9 @@ description: Where were we? A quick list of what this session was doing and what
 
 # /catchup — where are we?
 
-If $ARGUMENTS is empty, follow the catchup procedure below. If a name is given, follow
-the pop-and-resume procedure at the end of this file. The name selects this mode; the
-procedure still pops the last parked frame.
+If $ARGUMENTS is empty, follow the catchup procedure below. If a workstream name is given,
+load that workstream's relay (the named-load procedure at the end of this file). Loading
+never removes or changes the relay.
 
 Answer one question: **what were we doing, and what is still open?**
 
@@ -62,36 +62,34 @@ on is worse than one sentence admitting there is nothing to recap.
   folder, or `claude --resume` to pick an older session. Mention this only if the recap is thin,
   or if they ask for detail the files do not hold.
 - To **write** a durable resume doc rather than read one: `/caddis:handoff`.
-- To **pop a parked workstream** off the digress stack: `/caddis:catchup [name]`. This restores work deliberately set aside.
+- To **switch to a named workstream**: `/caddis:catchup <name>`. This restores or loads the named relay.
 
-# /caddis:catchup [name] — pop the parked task and pick it back up
+## Workstreams and open work
 
-A digression is finished; return to the task you parked with `/digress`. This pops the top frame off the
-workstream stack, restates where you were, realigns `relay.md`, and immediately continues the work — the
-user should not have to remember or re-state anything.
+**No argument:** this is the last step of the catchup procedure above, not a separate one.
+After the list, add the workstream index and the open work:
+1. Refresh and show the index: `python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_workstreams.py" render-index`,
+   then display `.caddis/relay.md`. If it refuses a legacy `.caddis/relay.md`, display that file
+   as it is and suggest `/handoff`, which migrates it.
+2. Show open work for the current workstream:
+   ```
+   python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_todo.py" open-work
+   ```
+Before saying `Nothing is parked.`, check for an old `/digress` stack: if `.caddis/workstreams.json`
+exists, run `caddis_workstreams.py migrate-legacy` (it keeps a backup and reports conflicts
+instead of overwriting), then show the index again. Only with no relays and no old stack, state:
+`Nothing is parked.`
 
-## Step 1 — read the stack
-Read `.caddis/workstreams.json`. If it is **absent, unparseable, `version != 1`, or `stack` is empty**,
-say exactly `Nothing is parked.` and stop. Do nothing else.
-
-## Step 2 — pop the top frame
-The top of stack is the **last** element of `stack` (LIFO — most recently parked). Remove it and write the
-rest of the file back (preserve `version` and any other frames + unknown fields). This is the one write
-this command makes to the state file.
-
-## Step 3 — restate + realign relay.md
-Restate the popped frame to the user: its `plan`, `phase`, and `resumePointer` (and `repo` if set — the
-parked task lives in another repo, so say which). Then edit `.caddis/relay.md`'s `## Next step` section
-**in place** so it matches the popped frame's `resumePointer` — preserve every other section of relay.md
-untouched. (If relay.md or that section is absent, skip this edit silently; the restatement above is enough.)
-
-## Step 4 — resume the work
-Begin executing the `resumePointer` immediately. Ask nothing — the frame already carries the next action.
-If the parked plan lives in another `repo`, note that the user may need to open that repo first, then
-proceed there.
+**Named load** (`/catchup <name>`):
+1. Load it: `python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_workstreams.py" read <name>`.
+2. If it prints nothing, the relay may be on another machine. Ask before fetching, then run
+   `python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_relay_git.py" fetch <name>`. It reads only
+   `refs/caddis/relay/<name>`, never checks out or merges, and refuses to replace a different local
+   relay. Pass `--replace` only if the user confirms the local one may be overwritten.
+3. Restate where you were and resume the workstream.
 
 ## Rules
 - **Never** run a destructive or history-rewriting git action (no `git checkout`, `git reset`, `git stash`,
-  branch switches). Resuming is metadata-only.
-- Pop exactly one frame per invocation (the LIFO top). Run `/caddis:catchup [name]` again to pop the next.
-- Only real paths and verified facts — restate the frame as written; do not embellish the resume point.
+  branch switches), even when the loaded workstream names another branch. Resuming is metadata-only:
+  this checkout may be shared with other live sessions. Tell the user which branch it is on instead.
+- Only real paths and verified facts — restate the relay as written; do not embellish the resume point.

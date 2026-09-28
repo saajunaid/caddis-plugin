@@ -47,11 +47,15 @@ Claude Code has subagents with their own context for exactly this; agents withou
 
 ### Resuming a session
 On a fresh session read in order: `.caddis/relay.md` (if present) → the active plan in
-`.caddis/plans/` → its tracker. The conversation is disposable; these files are the truth.
+`.caddis/plans/` → its tracker. Codex has no startup hook and must read `.caddis/relay.md`
+(the workstream index or active relay) on session start. The conversation is disposable;
+these files are the truth.
 
 ## Always-active conventions
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `test:`, `chore:`). One logical change per commit.
 - **Terse**: lead with the answer; results/code over prose.
+- **Reuse**: Before writing new code, search for an existing function to reuse. Prefer the standard library or an installed package over new code or a new dependency.
+- **Shared points**: Before changing a function, find all its callers. Fix the shared point, unless the callers need different behaviour.
 - **Secrets**: never commit; keep env/config secrets git-ignored. Never print credentials.
 - **Document frontmatter**: Every descriptive Markdown deliverable you write (plan, PRD, ADR, design doc,
   runbook, analysis, handoff) must open with a YAML frontmatter block:

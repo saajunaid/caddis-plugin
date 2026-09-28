@@ -1,7 +1,7 @@
 ---
 name: architecture-document
 context: fork
-description: Generate professional enterprise-grade HLD and LLD documents from the living Architecture.md. Outputs DOCX (editable) or PPTX (executive summary) using existing document skills.
+description: Generate enterprise HLD and LLD documents from the living Architecture.md, as DOCX (editable) or PPTX (executive summary).
 ---
 
 # Architecture Document Generator

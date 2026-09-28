@@ -1,6 +1,6 @@
 ---
 name: canvas-design
-description: Create beautiful visual art in .png and .pdf documents using design philosophy. Use when the user asks to create a poster, piece of art, design, or other static visual piece. Creates original visual designs.
+description: Create original static visual art as .png or .pdf from a design philosophy. Use when the user asks for a poster, piece of art, design or other static visual.
 license: Apache-2.0
 ---
 

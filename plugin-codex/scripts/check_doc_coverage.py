@@ -42,6 +42,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Shared header reader. setup_project_ai copies this checker into a project's scripts/ without
+# it, so fall back to this file's own top-level field reader rather than crashing there.
+try:
+    from caddis_frontmatter import parse as _parse_header
+except ImportError:  # pragma: no cover - exercised by the copied-alone setup test
+    _parse_header = None
+
 # Shared per-repo config reader + artifact-dir resolution (fail-open). Fall back to shims if it's
 # ever absent, so the gate degrades to baked-in defaults rather than crashing.
 try:
@@ -210,6 +217,17 @@ def frontmatter_block(text: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _header_fields(text: str) -> dict:
+    """Top-level header fields: the shared reader when present, else ``type``/``status``/``stale_after``."""
+    if _parse_header is not None:
+        return _parse_header(text)
+    block = frontmatter_block(text)
+    if block is None:
+        return {}
+    fields = ((key, _top_level_field(block, key)) for key in ("type", "status", "stale_after"))
+    return {key: _scalar(field[0]) for key, field in fields if field is not None}
+
+
 def _scalar(raw: str) -> str:
     """A frontmatter scalar with its trailing ``# comment`` and surrounding quotes removed."""
     return re.sub(r"\s+#.*$", "", raw).strip().strip("'\"").strip()
@@ -304,13 +322,10 @@ def misfiled_hub_spawns(root: Path) -> list[str]:
         if rel.startswith(HUB_REPORTS_DIR):
             continue
         try:
-            block = frontmatter_block(f.read_text(encoding="utf-8", errors="ignore"))
+            meta = _header_fields(f.read_text(encoding="utf-8", errors="ignore"))
         except OSError:
             continue
-        if block is None:
-            continue
-        field = _top_level_field(block, "type")
-        if field and _scalar(field[0]).strip().lower() == "hub-spawn":
+        if str(meta.get("type", "")).strip().lower() == "hub-spawn":
             out.append(rel)
     return out
 
@@ -325,11 +340,11 @@ def trust_signal_warnings(text: str) -> list[str]:
     block = frontmatter_block(text)
     if block is None:
         return []
+    meta = _header_fields(text)
     warns: list[str] = []
 
-    status = _top_level_field(block, "status")
-    if status is not None:
-        value = _scalar(status[0])
+    if "status" in meta:
+        value = _scalar(str(meta["status"]))
         # Only a single bare token is vetted. caddis has long-standing docs whose status is a
         # sentence ("DRAFT — approved shape (Option 2), awaiting go"); vetting those would nag
         # about prose that predates the field's vocabulary. A one-word typo still surfaces.
@@ -339,9 +354,8 @@ def trust_signal_warnings(text: str) -> list[str]:
                 f"({', '.join(sorted(TRUST_STATUS_VALUES))})"
             )
 
-    stale = _top_level_field(block, "stale_after")
-    if stale is not None:
-        value = _scalar(stale[0])
+    if "stale_after" in meta:
+        value = _scalar(str(meta["stale_after"]))
         if not value:
             warns.append("`stale_after:` is empty — give an ISO date (YYYY-MM-DD) or drop the field")
         elif not (_ISO_DATE_RE.match(value) or _ISO_DATETIME_RE.match(value)):
@@ -520,8 +534,8 @@ _DOCMAP_SCAFFOLD = """\
 > one line each: what it is and when to read it. A router, not a summary; detail lives in the linked
 > docs. KB notes live beside this file in `{artifact_dir}/kb/`.
 >
-> **Discipline:** kept honest by [`check_doc_coverage.py`](../../scripts/check_doc_coverage.py) —
-> every link here must resolve (a link to a missing file is a **hard failure**), and a KB note
+> **Discipline:** kept honest by `check_doc_coverage.py` —
+> every linked table row must resolve (a link to a missing file is a **hard failure**), and a KB note
 > (`{artifact_dir}/kb/*.md`) not indexed here **warns**. Only `{artifact_dir}/kb/*.md` is governed.
 
 ## Read first

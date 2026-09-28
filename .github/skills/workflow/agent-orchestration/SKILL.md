@@ -1,6 +1,6 @@
 ---
 name: agent-orchestration
-description: "End-to-end blueprint for orchestrating the full agent pipeline — from spec intake through planning, implementation, testing, and debugging — plus the multi-model fan-out rules (when a second model is worth it, the intent→model map, and the cost guardrails)"
+description: "Blueprint for orchestrating the agent pipeline from spec to planning, implementation, testing and debugging, plus when a second model is worth it, the intent→model map and cost guardrails."
 ---
 
 # Agent Orchestration Blueprint

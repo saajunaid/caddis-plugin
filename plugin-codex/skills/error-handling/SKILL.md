@@ -1,6 +1,6 @@
 ---
 name: error-handling
-description: Error handling patterns for Python and TypeScript applications. Use when designing error hierarchies, implementing retry logic, building error boundaries, or establishing logging strategies. Covers custom exceptions, result types, circuit breakers, and user-facing error messages.
+description: "Error handling for Python and TypeScript: error hierarchies, custom exceptions, result types, retries, circuit breakers, error boundaries, logging, user-facing messages."
 ---
 
 # Error Handling Skill

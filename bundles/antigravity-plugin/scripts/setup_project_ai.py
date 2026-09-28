@@ -907,6 +907,8 @@ ARTIFACT_GITIGNORE = """\
 reviews/*.html
 usage-log.jsonl
 agent-log.jsonl
+usage-log.jsonl.1
+agent-log.jsonl.1
 .last-usage-review
 relay.md
 relay/
@@ -914,6 +916,9 @@ session-state.md
 session-state/
 context-window.json
 PROJECT-FACTS.md
+# lock files beside locked documents, and migration backups (never commit these)
+*.lock
+*.bak
 # retired writer; ignored so old files stay untracked
 memory.jsonl
 """

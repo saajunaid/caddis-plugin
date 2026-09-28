@@ -1,6 +1,6 @@
 ---
 name: cross-review
-description: Cross-vendor code review — have a different vendor's model (DeepSeek/GLM/any OpenAI-compatible endpoint) review the current diff to catch bugs a same-vendor reviewer misses. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.
+description: Have a different vendor's model (DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.
 ---
 
 # Cross-Review — a second-vendor set of eyes on your diff
@@ -88,10 +88,18 @@ smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
 - **1 — REVIEW: BLOCKING** → the reviewer found blocking issues. **Read the printed findings, then FIX
   each blocking item** (or, if you judge one a false positive, state explicitly why it's safe to ignore).
-  Re-run until CLEAN.
+  Re-run once. A second BLOCKING goes to the owner (rule 3).
 - **4 — error** → no verdict parsed, a git failure, or an endpoint/parse failure. Read stderr; do not
   treat this as CLEAN — investigate.
 - **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisites) and re-run.
+
+## Three rules: one attempt, one review
+1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
+2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
+3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+
+A diff over the batch ceiling is split into batches. Each batch prompt lists every file in the
+change, so a batch does not report the others as missing.
 
 ## Rules
 - This is a **read-only second opinion** — the tool never edits, commits, or pushes. YOU apply fixes in

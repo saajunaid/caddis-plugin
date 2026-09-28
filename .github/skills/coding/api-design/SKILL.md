@@ -1,6 +1,6 @@
 ---
 name: api-design
-description: REST and GraphQL API design patterns. Use when designing new API endpoints, defining resource schemas, planning versioning strategies, or reviewing API contracts. Covers naming conventions, pagination, filtering, error responses, and OpenAPI documentation.
+description: "REST and GraphQL API design: endpoints, resource schemas, versioning, pagination, error responses, OpenAPI. Use when designing or reviewing API contracts."
 ---
 
 # API Design Skill

@@ -1,7 +1,7 @@
 ---
 name: ui-ux-intelligence
 context: fork
-description: "UI/UX design intelligence with CSV knowledge bases: 50+ styles, 161 color palettes, 57 font pairings, 161 product types, 99 UX guidelines, and 25 chart types. Use when making design decisions that need data-backed palettes, font pairing lookups, or style-specific implementation guidance."
+description: "Data-backed UI/UX decisions from CSV knowledge bases: 50+ styles, 161 palettes, 57 font pairings, UX guidelines, chart types. Use to look up palettes, font pairs or style guidance."
 ---
 
 # UI/UX Pro Max - Design Intelligence

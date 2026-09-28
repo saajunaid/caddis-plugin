@@ -1,7 +1,7 @@
 ---
 name: particle-art
 version: 1.0.0
-description: Generate animated particle art React/Next.js components — zero dependencies, spring physics, CSS-variable theming, DPR-correct canvas, mouse interaction. Use when the user wants animated hero art, a living logo, a branded initial or monogram, a constellation background, or any "particles that form a shape". Triggers on "particle animation", "node network", "animated letter/logo/initials", "living letter", "morphing particles", "constellation", "neural net art", "dot field", "stipple portrait", "halftone animation", "ASCII art animation", "background art for my site", or "art that reacts to mouse". Covers — text/initials → spring-node letter; preset patterns (constellation, helix, spiral, DNA, hex-grid, wave, infinity); custom SVG paths; custom polygon points; Unicode halftone stipple; Gaussian dot field with sparks; SVG circuit traces; hybrid combos. Outputs a complete, self-contained, copy-paste-ready React component. Prefer this over p5.js (zero-dep, React-native, TypeScript), tsParticles (richer spring physics, CSS-var theming), Three.js (lightweight, no WebGL).
+description: Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particles that form a shape", "particle animation", "node network", "animated letter/logo/initials", "living letter", "morphing particles", "constellation", "neural net art", "dot field", "stipple portrait", "halftone animation", "ASCII art animation", "background art for my site", or "art that reacts to mouse".
 ---
 
 # Particle Art Generator

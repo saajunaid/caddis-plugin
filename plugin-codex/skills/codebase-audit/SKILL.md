@@ -1,7 +1,7 @@
 ---
 name: codebase-audit
 context: fork
-description: Systematic codebase audit methodology for unfamiliar codebases before architecture or implementation work. Use for new codebase, unfamiliar codebase, pre-implementation audit, codebase review, technical due diligence, or onboarding to an existing project. Produces AUDIT-FINDINGS.md and QUESTIONS.md. Routes to Architect, Planner, or Code Reviewer agents.
+description: Audit an unfamiliar codebase before architecture or implementation work. Use for a new codebase, pre-implementation audit, codebase review, technical due diligence or onboarding. Produces AUDIT-FINDINGS.md and QUESTIONS.md.
 ---
 
 # Codebase Audit Skill

@@ -1,6 +1,6 @@
 ---
 name: performance-testing
-description: Performance testing, load testing, and benchmarking for APIs, databases, and web applications. Use when planning load tests, setting performance budgets, profiling bottlenecks, or validating scalability. Covers Locust, k6, pytest-benchmark, browser performance, and database query profiling.
+description: "Performance and load testing for APIs, databases and web apps: budgets, profiling, scalability, with Locust, k6 and pytest-benchmark."
 ---
 
 # Performance Testing Skill

@@ -1,6 +1,6 @@
 ---
 name: ui-styling-patterns
-description: Create accessible user interfaces with shadcn/ui components (Radix UI + Tailwind), Tailwind CSS utility-first styling, and canvas-based visual designs. Use for responsive layouts, accessible components, theme customization, dark mode, and consistent styling patterns.
+description: "Accessible UIs with shadcn/ui, Radix and Tailwind CSS: responsive layouts, theming, dark mode and consistent styling."
 license: MIT
 ---
 

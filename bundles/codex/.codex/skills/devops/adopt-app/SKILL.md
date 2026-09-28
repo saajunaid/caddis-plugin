@@ -1,6 +1,6 @@
 ---
 name: adopt-app
-description: Bring an app that was never scaffolded - a proof of concept that became real, a folder on a server, a checkout with no remote - up to the standard a generated app starts at. Inventories it without running it (local folder, network share, or a remote Windows box over WinRM), works out what stack each component is, measures it against an adoption standard with three verdicts (pass, gap, and question-only-a-person-can-answer), and writes an ordered plan whose steps cannot be done in the wrong order. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "bring this up to standard", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production".
+description: Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard — inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "bring this up to standard", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production".
 ---
 
 # adopt-app

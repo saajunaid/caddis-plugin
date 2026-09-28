@@ -1,6 +1,6 @@
 ---
 description: Deterministic headless preflight — validates a plan against the actual codebase, self-contained (never depends on a skill activating)
-argument-hint: <path to plan.md>
+argument-hint: [path to plan.md]
 stage: plan
 ---
 
@@ -8,6 +8,18 @@ stage: plan
 
 Validate the implementation plan at **$ARGUMENTS** against the ACTUAL codebase before any code is
 written.
+
+**Which plan.** An explicit plan argument always wins. Only when `$ARGUMENTS` is empty, find the
+active plan:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_todo.py" active-plan
+```
+
+- **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
+  `<path>`.") and validate it.
+- **Exit 3** → no single active plan. Do not ask: name the candidates it printed on stderr (or
+  "none") and end with `PREFLIGHT: FAIL`.
 
 This command exists because `/caddis:preflight` is a model-invoked `context: fork` **SKILL**, and
 skills do not reliably activate under headless `claude -p` — proven live (2026-07-08): a run saw

@@ -1,6 +1,6 @@
 ---
 name: observability
-description: Structured logging, OpenTelemetry distributed tracing, metrics (RED method), health checks, and error tracking with Sentry. Use for structured logs, correlation IDs, PII redaction, OpenTelemetry setup, distributed tracing, metrics counters/histograms/gauges, SLO-based alerting, liveness/readiness probes, or Sentry integration. Dual Python/TypeScript examples throughout.
+description: Structured logging, correlation IDs, PII redaction, OpenTelemetry tracing, metrics (RED), SLO alerting, health probes and Sentry, in Python and TypeScript. Use when adding logs, traces, metrics or error tracking.
 ---
 
 # Observability Skill

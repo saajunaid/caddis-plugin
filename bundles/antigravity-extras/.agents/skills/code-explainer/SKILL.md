@@ -1,6 +1,6 @@
 ---
 name: code-explainer
-description: Explain code with visual diagrams, analogies, and step-by-step walkthroughs. Use when explaining how code works, teaching about a codebase, or answering "how does this work?"
+description: Explain code with diagrams, analogies and step-by-step walkthroughs. Use when teaching a codebase or answering "how does this work?"
 ---
 
 # Code Explainer Skill

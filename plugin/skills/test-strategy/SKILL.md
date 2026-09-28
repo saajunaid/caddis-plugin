@@ -1,7 +1,7 @@
 ---
 name: test-strategy
 context: fork
-description: Test planning and strategy for projects of any size. Use when defining what to test, choosing test types, setting coverage goals, building test pyramids, or planning quality gates. Produces TEST-STRATEGY.md with prioritized test plan. Routes to Tester agent for execution.
+description: "Plan what to test: test types, coverage goals, test pyramid, quality gates. Produces a prioritized TEST-STRATEGY.md for the Tester agent."
 ---
 
 # Test Strategy Skill

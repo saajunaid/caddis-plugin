@@ -1,6 +1,6 @@
 ---
 name: popular-web-designs
-description: 54 real-world design systems (Stripe, Linear, Vercel, Supabase, Apple, Notion, Cursor, etc.) as ready-to-use HTML/CSS reference. Exact color palettes, typography hierarchies, component specs, spacing, shadow systems, and font substitutions. Use when building UI that should match a specific company's aesthetic.
+description: "54 real-world design systems (Stripe, Linear, Vercel, Apple, Notion and more) as HTML/CSS reference: colors, type, components, spacing. Use when UI should match a specific company's look."
 source: NousResearch/hermes-agent
 ---
 

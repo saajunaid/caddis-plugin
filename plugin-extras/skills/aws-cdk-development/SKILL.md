@@ -1,7 +1,7 @@
 ---
 name: aws-cdk-development
 context: fork
-description: AWS Cloud Development Kit (CDK) expert for building cloud infrastructure with TypeScript/Python. Use when creating CDK stacks, defining CDK constructs, implementing infrastructure as code, or when the user mentions CDK, CloudFormation, IaC, cdk synth, cdk deploy, or wants to define AWS infrastructure programmatically. Covers CDK app structure, construct patterns, stack composition, and deployment workflows.
+description: "AWS CDK infrastructure as code in TypeScript/Python: stacks, constructs, deployment. Use when the user mentions CDK, CloudFormation, IaC, cdk synth, cdk deploy, or wants to define AWS infrastructure in code."
 ---
 
 # AWS CDK Development

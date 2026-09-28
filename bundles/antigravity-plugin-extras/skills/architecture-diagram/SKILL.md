@@ -1,6 +1,6 @@
 ---
 name: architecture-diagram
-description: Generate dark-themed technical architecture diagrams as self-contained HTML/SVG files. No external libraries or render tools needed — just a browser. Use for software system architecture, cloud infrastructure, microservice topologies, and deployment diagrams.
+description: Dark-themed architecture diagrams as self-contained HTML/SVG, no external tools. Use for system, cloud, microservice and deployment diagrams.
 source: NousResearch/hermes-agent
 ---
 

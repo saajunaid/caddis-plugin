@@ -1,7 +1,7 @@
 ---
 name: dashboard-perf-sweep
 context: fork
-description: Re-measure an app's dashboard/API endpoints for load-time regressions and decide, with a documented checklist (not a black-box verdict), whether a slow one is a candidate for the rs-kit summary-table refresher pattern — or needs an index, keyset paging, gzip, or nothing at all. Use when the user says "sweep dashboard performance", "check if this app needs rs-kit", "re-measure the perf tracker", "is this endpoint a refresher candidate", or when a dashboard-performance-tracker.md is stale and needs re-validating. Read-only by default (dev servers only; prod requires an explicit opt-in and human confirmation) and human-invoked, never scheduled -- it surfaces candidates, it does not enroll them.
+description: Re-measure dashboard/API endpoints for load-time regressions and decide by checklist if a slow one needs the rs-kit refresher, an index, keyset paging, gzip, or nothing. Use when the user says "sweep dashboard performance", "check if this app needs rs-kit", "re-measure the perf tracker", "is this endpoint a refresher candidate", or dashboard-performance-tracker.md is stale. Read-only.
 ---
 
 # dashboard-perf-sweep — re-measure, then judge the shape, not just the time

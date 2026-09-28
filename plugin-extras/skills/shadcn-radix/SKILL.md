@@ -1,6 +1,6 @@
 ---
 name: shadcn-radix
-description: shadcn/ui component library, Radix UI primitives, theming with CSS variables, react-hook-form + zod forms, TanStack Table data tables, and cva variant composition. Use for shadcn setup, shadcn add, components.json, shadcn theming, Radix accessible components, shadcn form patterns, data tables, command palette, date picker, combobox, or drawer/sheet. References css-architecture for tokens and react-best-practices for structure.
+description: "shadcn/ui and Radix UI: setup (shadcn add, components.json), theming, react-hook-form + zod forms, TanStack Table data tables, cva variants, command palette, date picker, combobox, drawer/sheet."
 ---
 
 # shadcn/ui + Radix Primitives Skill

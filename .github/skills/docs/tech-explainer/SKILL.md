@@ -2,18 +2,13 @@
 name: tech-explainer
 context: fork
 description: >-
-  Write a plain-language technical explainer for a smart reader who did NOT do the investigation — a
-  manager, an infra colleague, a stakeholder, the person whose recommendation you are answering.
-  Layered Mermaid diagrams that rank causes by SIZE OF EFFECT, a controlled-vocabulary table,
-  Simplified Technical English, published withdrawn results, and questions back to the reader. Use
-  this skill whenever the user says "explain this to X", "explainer", "write this up for someone
-  non-technical", "plain English", "simplified technical english", "STE", "explain our findings",
-  "write up the benchmark results", "answer my manager's recommendations", "why is it slow — document
-  it", "make a doc with diagrams explaining the stack", or is about to summarise an investigation, a
-  benchmark, a postmortem, an architecture, or a disagreement for a reader who will not read the raw
-  data. NOT for handing off work to be BUILT by a vendor or another team (use explainer-doc for that —
-  it produces an actionable spec); NOT for READMEs or API docs (use technical-writing). This one
-  produces UNDERSTANDING: the reader must finish able to argue with you on the merits.
+  Plain-language explainer, with ranked Mermaid diagrams and Simplified Technical English, for a
+  reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain
+  this to X", "explainer", "write this up for someone non-technical", "plain English", "simplified
+  technical english", "STE", "explain our findings", "write up the benchmark results", "answer my
+  manager's recommendations", "why is it slow — document it", "make a doc with diagrams explaining
+  the stack", or summarises an investigation for a reader who won't read the raw data. Not for build
+  hand-offs (explainer-doc) or READMEs.
 ---
 
 # tech-explainer — make a stranger understand, and able to push back

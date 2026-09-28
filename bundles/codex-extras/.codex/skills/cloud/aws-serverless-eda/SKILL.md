@@ -1,7 +1,7 @@
 ---
 name: aws-serverless-eda
 context: fork
-description: AWS serverless and event-driven architecture expert based on Well-Architected Framework. Use when building serverless APIs, Lambda functions, REST APIs, microservices, or async workflows. Covers Lambda with TypeScript/Python, API Gateway (REST/HTTP), DynamoDB, Step Functions, EventBridge, SQS, SNS, and serverless patterns. Essential when user mentions serverless, Lambda, API Gateway, event-driven, async processing, queues, pub/sub, or wants to build scalable serverless applications with AWS best practices.
+description: AWS serverless and event-driven architecture. Use when the user mentions serverless, Lambda, API Gateway, DynamoDB, Step Functions, EventBridge, SQS, SNS, event-driven, async processing, queues or pub/sub.
 ---
 
 # AWS Serverless & Event-Driven Architecture

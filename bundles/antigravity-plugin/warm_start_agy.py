@@ -91,38 +91,97 @@ def _first_existing(paths: list[str]) -> str:
     return ""
 
 
-def _branch_slug(root: str) -> str:
-    """Filesystem-safe current branch name, or "" when it can't be determined (best-effort)."""
+def scan_relays(root: str) -> list[tuple[str, dict]]:
+    results: list[tuple[str, dict]] = []
+    try:
+        from caddis_frontmatter import parse
+    except Exception:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        for p in (
+            # Source tree: caddis_frontmatter.py is authored in claude-harness/scripts/.
+            os.path.join(os.path.dirname(_here), "scripts"),
+            # agy plugin: this file sits at the plugin root; scripts are in <plugin>/scripts/.
+            os.path.join(_here, "scripts"),
+            # Source tree, top-level scripts/ (harmless if the module is not there).
+            os.path.join(os.path.dirname(os.path.dirname(_here)), "scripts"),
+        ):
+            if os.path.isdir(p) and p not in sys.path:
+                sys.path.insert(0, p)
+        try:
+            from caddis_frontmatter import parse
+        except Exception:
+            def parse(t): return {}
+
+    for d in _ARTIFACT_DIRS:
+        relay_dir = os.path.join(root, d, "relay")
+        if not os.path.isdir(relay_dir):
+            continue
+        try:
+            entries = list(os.scandir(relay_dir))  # exhausting it closes the handle
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith(".md"):
+                try:
+                    with open(entry.path, encoding="utf-8", errors="ignore") as handle:
+                        text = handle.read()
+                    meta = parse(text)
+                    results.append((entry.path, meta))
+                except Exception:
+                    continue
+    return results
+
+
+def resolve_relay(root: str, session_id: str = "") -> tuple[str, str | None]:
+    """First existing relay doc for `root` and matched workstream name, else ("", None).
+
+    1. Session ID match takes precedence (matching meta['session_id'] with session_id).
+    2. Otherwise, if current branch is non-default, match relays by branch/workstream name.
+       If exactly 1 match: inject full relay.
+    3. If default branch or multiple/no matches: inject index (.caddis/relay.md).
+    """
+    relays = scan_relays(root)
+
+    # 1. Session ID match takes precedence
+    if session_id:
+        for path, meta in relays:
+            if meta.get("session_id") and str(meta.get("session_id")) == str(session_id):
+                ws = meta.get("workstream") or os.path.splitext(os.path.basename(path))[0]
+                return path, ws
+
+    # 2. Branch lookup (best-effort)
     try:
         branch = subprocess.run(
             ["git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True, timeout=3,
         ).stdout.strip()
     except Exception:
-        return ""
-    if not branch or branch == "HEAD":
-        return ""
-    return "".join(c if (c.isalnum() or c in "-_.") else "-" for c in branch)
+        branch = ""
 
+    default_branches = {"main", "master", "trunk", "develop", "HEAD", ""}
+    slug = ""  # set below for a non-default branch; also read by the legacy fallback
+    if branch and branch not in default_branches:
+        slug = "".join(c if (c.isalnum() or c in "-_.") else "-" for c in branch)
+        matched = []
+        for path, meta in relays:
+            ws = meta.get("workstream")
+            b = meta.get("branch")
+            stem = os.path.splitext(os.path.basename(path))[0]
+            if (b and b in (branch, slug)) or (ws and ws in (branch, slug)) or stem in (branch, slug):
+                matched.append((path, ws or stem))
+        if len(matched) == 1:
+            return matched[0]
 
-def resolve_relay(root: str) -> str:
-    """First existing relay doc for `root`, else "".
-
-    Preference order mirrors inject_relay.py:
-      1. .caddis/relay/<branch>.md          (per-branch team mode)
-      2. .caddis/relay.md                   (solo/default)
-      3. .claude/relay/<branch>.md          (legacy per-branch)
-      4. relay.md                           (legacy repo root)
-    """
-    slug = _branch_slug(root)
-    candidates: list[str] = []
-    if slug:
-        candidates += [os.path.join(root, d, "relay", f"{slug}.md") for d in _ARTIFACT_DIRS]
-    candidates += [os.path.join(root, d, "relay.md") for d in _ARTIFACT_DIRS]
-    if slug:
-        candidates.append(os.path.join(root, ".claude", "relay", f"{slug}.md"))
-    candidates.append(os.path.join(root, "relay.md"))
-    return _first_existing(candidates)
+    # 3. Fallback: index (.caddis/relay.md) or legacy files
+    # Index, then the legacy per-branch .claude/relay/<branch>.md, then a root relay.md --
+    # the order used before workstream relays existed.
+    legacy_branch = []
+    if branch and branch not in default_branches:
+        legacy_branch = [os.path.join(root, ".claude", "relay", f"{slug}.md")]
+    candidates = ([os.path.join(root, d, "relay.md") for d in _ARTIFACT_DIRS] + legacy_branch
+                  + [os.path.join(root, "relay.md")])
+    idx_path = _first_existing(candidates)
+    return idx_path, None
 
 
 def truncate_relay(text: str) -> str:
@@ -270,25 +329,60 @@ def main() -> None:
         conversation = str(data.get("conversationId") or "").strip()
 
         blocks = []
+        open_work_blocks = []
         for root in roots:
-            relay = resolve_relay(root)
-            if not relay:
-                continue
-            try:
-                text = open(relay, encoding="utf-8").read().strip()
-            except Exception as _exc:
-                _hook_note("agy relay read", _exc, root)
-                continue
-            if not text:
-                continue
             if conversation and _already_injected(root, conversation):
                 continue
-            # Label the block ONLY when there is more than one root. A single-root session
-            # must produce byte-identical output to before this change.
-            if len(roots) > 1:
-                blocks.append("relay for " + os.path.basename(root.rstrip("/\\")) + ":")
-            blocks.append(truncate_relay(text))
-            if conversation:
+            relay, matched_ws = resolve_relay(root, conversation)
+            text = ""
+            if relay:
+                try:
+                    with open(relay, encoding="utf-8") as handle:
+                        text = handle.read().strip()
+                except Exception as _exc:
+                    _hook_note("agy relay read", _exc, root)
+            if text:
+                # Label the block ONLY when there is more than one root. A single-root session
+                # must produce byte-identical output to before this change.
+                if len(roots) > 1:
+                    blocks.append("relay for " + os.path.basename(root.rstrip("/\\")) + ":")
+                blocks.append(truncate_relay(text))
+
+            # Open-work rows as plain text without seeding instruction. Shown with or without a
+            # relay: to-dos and plan phases exist before the first handoff writes one.
+            shown_open_work = False
+            try:
+                from pathlib import Path as _Path
+                # agy plugin: warm_start_agy.py sits at the plugin root, scripts in <plugin>/scripts.
+                # Source tree: claude-harness/agy -> <repo>/scripts, where caddis_todo.py is authored.
+                _here = os.path.dirname(os.path.abspath(__file__))
+                for _sc in (os.path.join(os.path.dirname(os.path.dirname(_here)), "scripts"),
+                            os.path.join(_here, "scripts")):
+                    if os.path.isdir(_sc) and _sc not in sys.path:
+                        sys.path.insert(0, _sc)
+                import caddis_todo
+                open_items = caddis_todo.open_work(_Path(root), matched_ws)
+                if open_items:
+                    # Same budget as the Claude Code hook: next 5 phases, 5 ad-hoc items.
+                    phases = [r for r in open_items if r.get("kind") == "phase"][:5]
+                    todos = [r for r in open_items if r.get("kind") != "phase"][:5]
+                    shown = phases + todos
+                    ow_lines = ["## Open work"]
+                    if len(open_items) > len(shown):
+                        ow_lines.append(f"(+{len(open_items) - len(shown)} more open items — run /catchup to see them.)")
+                    for row in shown:
+                        ow_lines.append(f"- {row['id']} [{row['kind']}] {' '.join(str(row['title']).split())[:100]}")
+                    if len(roots) > 1:
+                        open_work_blocks.append("open work for " + os.path.basename(root.rstrip("/\\")) + ":\n" + "\n".join(ow_lines))
+                    else:
+                        open_work_blocks.append("\n".join(ow_lines))
+                    shown_open_work = True
+            except Exception as _exc:
+                _hook_note("agy open work injection", _exc, root)
+
+            # A relay that exists but failed to read must not be marked injected just because
+            # open work was shown: the next invocation retries the relay.
+            if conversation and (text or (not relay and shown_open_work)):
                 _mark_injected(root, conversation)
 
         # agy has no SessionStart event, so this first invocation is also where the freshness
@@ -298,12 +392,14 @@ def main() -> None:
         for root in roots:
             fresh.extend(freshness_lines(root))
 
-        if not blocks and not fresh:
+        if not blocks and not fresh and not open_work_blocks:
             return
         parts = []
         if blocks:
             parts.append(RELAY_FRAME_HEADER + "\n" + "\n\n".join(blocks)
                          + "\n\n" + RELAY_FRAME_FOOTER)
+        if open_work_blocks:
+            parts.append("\n\n".join(open_work_blocks))
         if fresh:
             parts.append("\n".join(fresh))
         payload = json.dumps({"injectSteps": [{"ephemeralMessage": "\n\n".join(parts)}]})

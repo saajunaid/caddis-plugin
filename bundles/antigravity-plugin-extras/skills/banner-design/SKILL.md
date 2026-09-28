@@ -1,6 +1,6 @@
 ---
 name: banner-design
-description: Design banners for social media, ads, website heroes, and print. Multiple art direction options across 22 styles (minimalist, gradient, bold typography, glassmorphism, 3D, neon, etc.) for Facebook, Twitter/X, LinkedIn, YouTube, Instagram, Google Display, website hero, and print.
+description: Design banners for social media, ads, website heroes and print, in 22 styles, sized for Facebook, X, LinkedIn, YouTube, Instagram and Google Display.
 license: MIT
 ---
 

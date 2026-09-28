@@ -1,6 +1,6 @@
 ---
 name: ui-review
-description: Review UI implementations against design requirements, accessibility standards (WCAG 2.2 AA), and brand guidelines. Use when reviewing designs or validating UI before release.
+description: Review a UI against design requirements, WCAG 2.2 AA and brand guidelines. Use when validating UI before release.
 ---
 
 # UI Review Skill

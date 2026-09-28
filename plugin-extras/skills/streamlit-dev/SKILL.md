@@ -1,6 +1,6 @@
 ---
 name: streamlit-dev
-description: Build production-ready Streamlit dashboards with best-practice patterns, caching, components, and theming. Use when implementing any Streamlit page, component, chart, or UI feature.
+description: "Build production Streamlit dashboards: caching, components, theming. Use for any Streamlit page, component, chart or UI feature."
 ---
 
 # Streamlit Development Skill

@@ -347,6 +347,22 @@ def split_diff_by_file(diff_text: str) -> list[str]:
     return parts
 
 
+def changed_paths(diff_text: str) -> list[str]:
+    """The post-change path of every file in the diff, in diff order."""
+    paths: list[str] = []
+    for chunk in split_diff_by_file(diff_text):
+        header = chunk.split("\n", 1)[0].rstrip("\r")
+        if not header.startswith("diff --git "):
+            continue
+        rest = header[len("diff --git "):]
+        quoted = rest.rfind(' "b/')
+        if rest.endswith('"') and quoted != -1:
+            paths.append(rest[quoted + 4:-1])
+        elif " b/" in rest:
+            paths.append(rest.rsplit(" b/", 1)[1])
+    return paths
+
+
 def batch_diff(diff_text: str, max_chars: int) -> list[str]:
     """Pack whole files into as few batches as possible, each under `max_chars`.
 
@@ -398,14 +414,24 @@ def current_branch(cwd: str) -> str:
         return "the current branch"
 
 
-def build_review_prompt(diff_text: str, branch: str, rng: str | None) -> str:
+def build_review_prompt(diff_text: str, branch: str, rng: str | None,
+                        all_paths: list[str] | None = None) -> str:
     """Adversarial review prompt — ported from docket runner._review_prompt (kept in sync).
 
     Self-contained: the criteria are inline so a real review always happens, and it ends with
     a single machine-parseable verdict line the caller maps to an exit code.
     """
     scope = rng or "the working tree (staged, unstaged and new untracked files)"
-    return (
+    part_note = ""
+    if all_paths and len(all_paths) > len(changed_paths(diff_text)):
+        # Without the whole list, a batch reports files it cannot see as missing.
+        part_note = (
+            "This diff is one part of a larger change. The whole change touches these files:\n"
+            + "".join(f"- {p}\n" for p in all_paths)
+            + "Review only the files in the diff below. The other files are reviewed in other "
+            "batches; do not report them as missing.\n\n"
+        )
+    return part_note + (
         f"Perform an adversarial code review of the changes on branch '{branch}' ({scope}). "
         "The unified diff is provided below. Judge, in priority order: (1) correctness — logic "
         "bugs, wrong results, missed edge cases; (2) tests — would a test fail without this "
@@ -731,7 +757,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         cannot silently shrink a diff to nothing. Returns None when a chunk that cannot be split
         any further still fails — the abort path stays reachable.
         """
-        review = _try_chain(build_review_prompt(chunk, branch, args.range), label)
+        review = _try_chain(build_review_prompt(chunk, branch, args.range, whole_change), label)
         if review is not None:
             return [review]
         files = split_diff_by_file(chunk)
@@ -749,6 +775,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             out += got
         return out
 
+    whole_change = changed_paths(diff_text)
     verdicts: list[bool | None] = []
     for batch_no, batch in enumerate(batches, 1):
         label = f" (batch {batch_no}/{len(batches)})" if len(batches) > 1 else ""

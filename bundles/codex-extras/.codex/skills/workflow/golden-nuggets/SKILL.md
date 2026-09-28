@@ -1,6 +1,6 @@
 ---
 name: golden-nuggets
-description: "Extract durable tribal knowledge ('gold nuggets') from a codebase or a set of changed files and route each to its correct destination - instruction file, runbook, hub, or (in CI capture mode) a review inbox. This SKILL.md is the single source of truth for nugget categories, routing rules, write rules, inbox format, and verification gates. It is read by the knowledge-transfer agent (pipeline mode), by the /golden-nuggets prompt (independent mode), and referenced by the CI extraction script (capture mode). Use when capturing what was learned after a feature, fix, sprint, incident, or release."
+description: "Extract durable tribal knowledge ('gold nuggets') from a codebase or changed files and route each to an instruction file, runbook, hub or CI review inbox. Use after a feature, fix, sprint, incident or release."
 mode: agent
 tools: ['codebase', 'editFiles', 'search']
 ---

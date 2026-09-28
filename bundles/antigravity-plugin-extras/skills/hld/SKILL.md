@@ -1,6 +1,6 @@
 ---
 name: hld
-description: Generates High-Level Design (HLD) Markdown documentation and converts to Confluence Storage Format XHTML with native PlantUML diagrams and auto-generated legends.
+description: Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends.
 ---
 
 # High-Level Design (HLD) Authoring Skill

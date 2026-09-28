@@ -1,21 +1,25 @@
-"""Session-end nudge + token-usage digest on Stop.
+"""Stop hook: write this session's state file, and nothing else.
 
-Two jobs, both non-blocking (prints, exits 0; never fails a turn):
-  1. Remind the operator to persist what survives context death (relay.md + lessons).
-  2. Summarise this session's token usage from the transcript, print a digest, and
-     append one line to `<artifact-dir>/usage-log.jsonl` so spend is trackable over time.
+`Stop` fires at the end of EVERY assistant turn in EVERY session, so whatever runs here is a
+per-turn tax. Since Phase 13 (2026-09-27) it has one job: render
+`.caddis/session-state/<session-id>.md` from the tail of the transcript (see session_state.py).
 
-The usage parse is fully defensive: any missing/odd field just drops the digest and
-still prints the nudge. Cost is a rough ESTIMATE from an editable per-model rate table —
-adjust PRICING_PER_MTOK to your actual plan/rates (or ignore cost and read the tokens).
+Moved to `/handoff`, which runs once per session instead of once per turn:
+  - the token/skill usage record (`session_state.py usage`) — it used to parse the whole
+    transcript twice more and append a duplicate cumulative record every turn;
+  - pruning the state folder (`session_state.py prune`);
+  - the relay / knowledge-transfer reminder, which /handoff's own Step 1 already states.
+
+Rules this file keeps:
+  - Headless runs (CADDIS_HEADLESS, DOCKET_PLAN or DOCKET_BRANCH set and non-empty) are
+    skipped entirely, so review and lane runs leave no state files.
+  - No subprocess: the repo root is found by walking up to the nearest `.git`.
+  - Fail-open: nothing here may raise or exit non-zero, and it prints nothing.
+
 Cross-platform (pure Python, stdlib only).
-
-Writes into the repo's `.caddis/` artifact dir.
 """
 import json
 import os
-import re
-import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -31,361 +35,66 @@ except Exception:  # pragma: no cover — defensive
         return os.path.join(str(root), ".caddis")
 
 # Session-state capture. Optional by construction: if the module is missing or fails to
-# import, the hook still does everything else. A recovery aid that could break a turn would
-# cost more than the sessions it saves.
+# import, the hook does nothing. A recovery aid that could break a turn would cost more than
+# the sessions it saves.
 try:
-    from session_state import extract_state, render, write_state  # noqa: E402
+    from session_state import (  # noqa: E402
+        extract_state, find_repo_root, read_carry, render, write_state,
+    )
 except Exception:  # pragma: no cover — defensive
     extract_state = None
 
-_reconfig = getattr(sys.stdout, "reconfigure", None)
-if _reconfig:
-    try:
-        _reconfig(encoding="utf-8")
-    except Exception:
-        pass
-
-# ── editable: approximate USD per 1M tokens (input, output). Cache read ≈ 0.1× input,
-#    cache write ≈ 1.25× input. These are estimates — set them to your real rates. ──
-#    Non-Anthropic tiers matter because model-lane work runs GLM/DeepSeek/Qwen and
-#    self-hosted models; without them those sessions would misbill as Sonnet. ──
-PRICING_PER_MTOK = {
-    "opus":     (15.0, 75.0),
-    "sonnet":   (3.0, 15.0),
-    "haiku":    (1.0, 5.0),
-    "glm":      (0.60, 2.20),   # Zhipu GLM-4.6 (Z.ai)
-    "deepseek": (0.27, 1.10),   # DeepSeek V3 chat (cache-miss)
-    "qwen":     (0.40, 1.20),   # Alibaba Qwen (DashScope)
-    "kimi":     (0.60, 2.50),   # Moonshot Kimi K2
-    "local":    (0.0, 0.0),     # self-hosted / ollama / lm-studio — no per-token API cost
-}
+_HEADLESS_MARKERS = ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH")
 
 
-def _tier(model: str) -> str:
-    m = (model or "").lower()
-    if "opus" in m:
-        return "opus"
-    if "sonnet" in m:
-        return "sonnet"
-    if "haiku" in m:
-        return "haiku"
-    if "glm" in m:
-        return "glm"
-    if "deepseek" in m:
-        return "deepseek"
-    if "qwen" in m:
-        return "qwen"
-    if "kimi" in m or "moonshot" in m:
-        return "kimi"
-    # Self-hosted / local runtimes carry no per-token API cost.
-    if any(k in m for k in ("ollama", "local", "llama", "mistral", "lmstudio", "lm-studio", "gemma", "phi")):
-        return "local"
-    return "sonnet"  # unknown hosted model → conservative Anthropic-mid estimate
+def _headless() -> bool:
+    """True when any marker is set to a non-empty value. `CADDIS_HEADLESS=` is not headless."""
+    return any(str(os.environ.get(name, "")).strip() for name in _HEADLESS_MARKERS)
 
 
 def _read_input() -> dict:
     try:
-        return json.load(sys.stdin) or {}
+        data = json.load(sys.stdin)
+        return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
-def _summarise(transcript_path: str) -> dict | None:
-    """Sum token usage across assistant messages in the transcript JSONL."""
-    if not transcript_path or not os.path.isfile(transcript_path):
-        return None
-    tot = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
-    models: dict[str, int] = {}
-    cost = 0.0
-    found = False
+def main() -> None:
+    data = _read_input()
+    if _headless() or extract_state is None:
+        return
     try:
-        with open(transcript_path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except Exception:
-                    continue
-                msg = ev.get("message") if isinstance(ev.get("message"), dict) else ev
-                usage = msg.get("usage") if isinstance(msg, dict) else None
-                if not isinstance(usage, dict):
-                    continue
-                found = True
-                i = int(usage.get("input_tokens", 0) or 0)
-                o = int(usage.get("output_tokens", 0) or 0)
-                cw = int(usage.get("cache_creation_input_tokens", 0) or 0)
-                cr = int(usage.get("cache_read_input_tokens", 0) or 0)
-                tot["input"] += i
-                tot["output"] += o
-                tot["cache_write"] += cw
-                tot["cache_read"] += cr
-                model = (msg.get("model") if isinstance(msg, dict) else "") or ""
-                if model:
-                    models[model] = models.get(model, 0) + 1
-                inp, outp = PRICING_PER_MTOK[_tier(model)]
-                cost += (i * inp + cw * inp * 1.25 + cr * inp * 0.1 + o * outp) / 1_000_000
-    except Exception:
-        return None
-    if not found:
-        return None
-    tot["billable_input"] = tot["input"] + tot["cache_write"] + tot["cache_read"]
-    tot["est_cost_usd"] = round(cost, 4)
-    tot["models"] = sorted(models)
-    return tot
-
-
-def _extract_identity(transcript_path: str) -> tuple[set[str], set[str], set[str]]:
-    """Return ``(skills, commands, skills_read)`` for this session — names only.
-
-    V16 (2026-08-22): ``skills`` counts only ``Skill`` tool_use events, so a skill that a
-    COMMAND told the model to read never registered. Every such skill scored zero, and a
-    zero was about to be read as "nobody uses this". ``skills_read`` closes that gap: a
-    ``Read`` of a ``SKILL.md`` under an INSTALL path is the model following a skill it was
-    pointed at. A read under the working repo is authoring the skill, not using it, so it
-    is excluded — otherwise editing caddis would look like using caddis.
-
-    Still invisible, and deliberately not guessed at: a skill inlined into a command's own
-    prose, and a skill file opened through ``Bash`` (``sed``/``cat``), which is equally
-    often authoring. Treat ``skills_read`` as a floor, never as a complete count.
-
-    V15: the usage log carried token totals but no skill/command identity, so the pruning
-    question (Phase 12) was unanswerable from evidence. This recovers that identity at the
-    Stop hook (where the per-session record is born and the transcript is already read once
-    for tokens), so the log becomes self-describing and survives transcript compaction.
-
-    Sources (both verified against live fleet transcripts 2026-08-05):
-      * **Skills** — ``Skill`` tool_use events on assistant turns; only ``input.skill`` is
-        taken, never any other argument.
-      * **Commands** — the ``<command-name>/plugin:cmd</command-name>`` marker the harness
-        embeds in user-message text; the leading slash is stripped.
-
-    Privacy bar: a Skill tool_use may carry a prompt or args in other ``input`` keys — those
-    are ignored. Fully fail-open: any read/parse error returns empty sets, never a crash.
-    """
-    skills: set[str] = set()
-    commands: set[str] = set()
-    skills_read: set[str] = set()
-    # A skill file under the session's own working tree is being authored, not followed.
-    _repo = os.path.abspath(os.getcwd()).replace("\\", "/").lower()
-    if not transcript_path or not os.path.isfile(transcript_path):
-        return skills, commands, skills_read
-    try:
-        with open(transcript_path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except Exception:
-                    continue
-                msg = ev.get("message") if isinstance(ev.get("message"), dict) else ev
-                if not isinstance(msg, dict):
-                    continue
-                role = msg.get("role")
-                content = msg.get("content")
-                # Skills: Skill tool_use on assistant turns — name only.
-                if role == "assistant" and isinstance(content, list):
-                    for item in content:
-                        if not isinstance(item, dict) or item.get("type") != "tool_use":
-                            continue
-                        if item.get("name") == "Skill":
-                            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
-                            sk = inp.get("skill")
-                            if isinstance(sk, str) and sk.strip():
-                                skills.add(sk.strip())
-                        elif item.get("name") == "Read":
-                            # Deliberately Read only. Edit/Write is authoring; Bash is
-                            # ambiguous. A floor is more useful than a wrong number.
-                            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
-                            fp = inp.get("file_path")
-                            if isinstance(fp, str):
-                                norm = fp.replace("\\", "/")
-                                if norm.lower().endswith("/skill.md") and not norm.lower().startswith(_repo):
-                                    parts = [seg for seg in norm.split("/") if seg]
-                                    if len(parts) >= 2:
-                                        skills_read.add(parts[-2])
-                # Commands: <command-name>/plugin:cmd</command-name> marker on user turns.
-                if role == "user":
-                    text = ""
-                    if isinstance(content, str):
-                        text = content
-                    elif isinstance(content, list):
-                        text = "\n".join(
-                            b.get("text", "") for b in content
-                            if isinstance(b, dict) and isinstance(b.get("text"), str)
-                        )
-                    for m in re.finditer(r"<command-name>\s*(/[^<\s]+)\s*</command-name>", text):
-                        commands.add(m.group(1).strip().lstrip("/"))
-    except Exception:
-        pass
-    return skills, commands, skills_read
-
-
-def _fmt(n: int) -> str:
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n/1_000:.1f}k"
-    return str(n)
-
-
-def _repo_root(start: str) -> str:
-    """Git repo root for `start`, or `start` itself when not a git repo.
-
-    State anchors to the repo root so a session launched from a subfolder appends
-    to the one shared log instead of scattering a `.caddis/` into every cwd.
-    Best-effort: any git failure (not a repo / git missing) falls back to `start`.
-    """
-    try:
-        out = subprocess.run(
-            ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=3,
-        )
-        root = out.stdout.strip()
-        if out.returncode == 0 and root:
-            return root
-    except Exception:
-        pass
-    return start
-
-
-data = _read_input()
-
-# Anchor all session state (usage log + Dream Memory store) to the repo the SESSION
-# is operating in — the payload's cwd — not the hook process's launch cwd. Without
-# this, a session launched in one repo but working in another (e.g. caddis ↔
-# docket) leaks the second repo's facts into the first's store. Mirrors guard.py.
-_session_cwd = data.get("cwd") or os.getcwd()
-
-print(
-    "\n[HARNESS] Session ending. Two things survive context death:\n"
-    "  1. relay.md — refresh it so the next session resumes exactly (run /handoff).\n"
-    "  2. Durable lessons — if you wrote or fixed code this session, dispatch the\n"
-    "     knowledge-transfer subagent BEFORE relay.md. Don't skip it just because you\n"
-    "     hand-wrote some docs. Record the outcome in relay.md's 'Learnings captured' line."
-)
-
-u = _summarise(data.get("transcript_path", ""))
-# V15/V16: record which skills/commands fired (names only) alongside the token totals, so the
-# pruning question is answerable from the log instead of taste. Computed unconditionally so
-# identity is captured even when the token parse yields nothing. V16 adds skills_read, because
-# counting only Skill tool_use produced a zero for every skill a command pointed the model at —
-# and those zeros were about to be read as evidence of disuse.
-skills, commands, skills_read = _extract_identity(data.get("transcript_path", ""))
-if u:
-    print(
-        f"\n[USAGE] this session ~ in {_fmt(u['input'])} · out {_fmt(u['output'])} · "
-        f"cache {_fmt(u['cache_write'] + u['cache_read'])} "
-        f"({_fmt(u['cache_read'])} read) · est. ${u['est_cost_usd']:.2f} "
-        f"(estimate — edit rates in session_end.py)"
-    )
-# Write a record whenever there is token data OR identity. Tying the write to tokens alone
-# would lose identity for any session whose usage parse returned nothing — pruning evidence
-# must not depend on token accounting succeeding.
-if u or skills or commands or skills_read:
-    try:
-        caddis_dir = str(artifact_root(_repo_root(_session_cwd)))
-        os.makedirs(caddis_dir, exist_ok=True)
-        rec = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "session": data.get("session_id", ""),
-            "input": u["input"] if u else 0,
-            "output": u["output"] if u else 0,
-            "cache_write": u["cache_write"] if u else 0,
-            "cache_read": u["cache_read"] if u else 0,
-            "est_cost_usd": u["est_cost_usd"] if u else 0.0,
-            "models": u["models"] if u else [],
-            "skills": sorted(skills),
-            "commands": sorted(commands),
-            # V16: skills the model READ because something pointed it there, as opposed to
-            # skills it CHOSE via the Skill tool. Kept as a separate key on purpose — merging
-            # them would make "the model picked this" indistinguishable from "a command made
-            # it read this", and that difference is the whole point of the measurement.
-            "skills_read": sorted(skills_read),
-        }
-        with open(os.path.join(caddis_dir, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec) + "\n")
-    except Exception:
-        pass
-
-# ── auto-captured session state ──────────────────────────────────────────────────────────
-# Runs LAST, after the usage log, so a failure here cannot cost the usage record.
-#
-# This is the answer to "the editor closed and I lost track of what I was doing". Nothing was
-# ever actually lost — Claude Code writes the transcript live and `claude --continue` reopens
-# it — but nobody reads back an 8 MB JSONL. This renders the small part a human needs, every
-# turn, with no command to remember. That is the whole point: the failure mode being solved
-# is precisely "there was no time to run /handoff".
-# Keep the per-session directory bounded. One file per session id grows without limit
-# otherwise, and these are recovery aids with a short useful life — the transcript is the
-# real record. Kept deliberately small: anything older than the newest few is describing a
-# session nobody is coming back to. Defined here rather than in session_state.py so a
-# version-skewed bundled copy of that module cannot break the import and cost ALL state
-# capture — the same fail-open discipline as the rest of this file.
-_STATE_KEEP = 8
-
-
-def _prune_session_states(directory: str, keep: int = _STATE_KEEP) -> None:
-    try:
-        entries = []
-        for name in os.listdir(directory):
-            if not name.endswith(".md"):
-                continue  # never touch the .session-state-*.tmp atomic-write scratch files
-            path = os.path.join(directory, name)
-            try:
-                entries.append((os.path.getmtime(path), path))
-            except OSError:
-                continue
-        for _mtime, path in sorted(entries, reverse=True)[keep:]:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
-    except Exception:
-        pass  # pruning is housekeeping; it must never cost the write that just succeeded
-
-
-if extract_state is not None:
-    try:
-        state = extract_state(data.get("transcript_path", ""))
-        _root = _repo_root(_session_cwd)
-        _text = render(state, {
-            "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "session": data.get("session_id", ""),
-            "branch": state.get("branch", ""),
-            "root": _root,
-        })
-        # ONE FILE PER SESSION, not one shared name. Two Claude sessions routinely share a
-        # single working tree on this fleet, so a flat `session-state.md` meant whichever
-        # session's Stop hook fired last overwrote the other's — every turn — and the next
-        # SessionStart then surfaced a PEER's state as "where the last turn left off". The
-        # session id was already being rendered INTO the file; only the filename was
-        # unqualified. Falls back to the flat name when the payload carries no session id,
-        # which is also the pre-2026-09-08 layout that inject_relay.py still reads.
-        _art_dir = str(artifact_root(_root))
-        _sid = str(data.get("session_id", "") or "").strip()
-        _slug = "".join(c for c in _sid if c.isalnum() or c in "-_")[:64]
-        if _slug:
-            _state_dir = os.path.join(_art_dir, "session-state")
-            _target = os.path.join(_state_dir, _slug + ".md")
+        # Anchor to the repo the SESSION is operating in — the payload's cwd — not the hook
+        # process's launch cwd. Mirrors guard.py.
+        # The root is the nearest folder holding `.git` (a FILE in a worktree), found without
+        # the `git rev-parse` subprocess this used to run every turn.
+        root = find_repo_root(str(data.get("cwd") or os.getcwd()))
+        # ONE FILE PER SESSION, not one shared name: two sessions routinely share a working
+        # tree, and a flat name let whichever stopped last overwrite the other. Falls back to
+        # the flat name when the payload carries no session id (the layout inject_relay.py
+        # still reads). The flat file is shared, so it never seeds a carry.
+        art_dir = str(artifact_root(root))
+        sid = str(data.get("session_id", "") or "").strip()
+        slug = "".join(c for c in sid if c.isalnum() or c in "-_")[:64]
+        if slug:
+            target = os.path.join(art_dir, "session-state", slug + ".md")
+            carry = read_carry(target)
         else:
-            _state_dir = ""
-            _target = os.path.join(_art_dir, "session-state.md")
-        if write_state(_target, _text):
-            if _state_dir:
-                _prune_session_states(_state_dir)
-            _shown = os.path.relpath(_target, _root).replace(os.sep, "/")
-            print(
-                "[STATE]   %s refreshed — after an abrupt close, read it or run "
-                "`claude --continue`." % _shown
-            )
+            target = os.path.join(art_dir, "session-state.md")
+            carry = None
+        state = extract_state(str(data.get("transcript_path", "") or ""), carry=carry)
+        text = render(state, {
+            "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "session": sid,
+            "branch": state.get("branch", ""),
+            "root": root,
+        })
+        write_state(target, text)
     except Exception:
         pass  # never let a recovery aid break the turn it is trying to protect
 
-# Dream Memory capture RETIRED 2026-08-26 — see the note in inject_relay.py. The store it fed
-# (.caddis/memory.jsonl) is left in place; nothing reads it. Claude Code's per-repo memory
-# directory holds the curated facts instead, with descriptions, types and an index.
-sys.exit(0)
+
+if __name__ == "__main__":
+    main()
+    sys.exit(0)

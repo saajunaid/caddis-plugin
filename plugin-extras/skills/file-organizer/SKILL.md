@@ -1,7 +1,7 @@
 ---
 name: file-organizer
 context: fork
-description: Intelligently organizes your files and folders across your computer by understanding context, finding duplicates, suggesting better structures, and automating cleanup tasks. Reduces cognitive load and keeps your digital workspace tidy without manual effort.
+description: "Organize files and folders by context: find duplicates, suggest better structures, automate cleanup."
 ---
 
 # File Organizer

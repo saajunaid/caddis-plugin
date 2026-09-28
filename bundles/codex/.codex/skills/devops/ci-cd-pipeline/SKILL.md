@@ -1,7 +1,7 @@
 ---
 name: ci-cd-pipeline
 context: fork
-description: CI/CD pipeline design and implementation for GitHub Actions, Azure DevOps, and general pipeline architecture. Use when creating build pipelines, deployment workflows, quality gates, environment promotion strategies, or automating release processes.
+description: "CI/CD pipelines for GitHub Actions and Azure DevOps: build and deploy workflows, quality gates, environment promotion and release automation."
 ---
 
 # CI/CD Pipeline Skill

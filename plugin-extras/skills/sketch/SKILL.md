@@ -1,6 +1,6 @@
 ---
 name: sketch
-description: Generate 2-3 interactive HTML design variants to explore UI directions side-by-side before committing to production code. Use for early-stage design exploration, comparing layout approaches, or when asked to "sketch this screen" or "show me variants".
+description: Generate 2-3 interactive HTML design variants to compare UI directions before production code. Use for early design exploration or when asked to "sketch this screen" or "show me variants".
 source: NousResearch/hermes-agent
 ---
 

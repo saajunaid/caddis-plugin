@@ -98,6 +98,20 @@ Watch the PR's checks job-by-job until completion:
 - If any check fails (red check): report the failure, classify the cause, and **stop before merging**.
   Do not merge a failing PR. Apply the minimum source fix and re-push.
 
+## Step 6b — Deploy boundary (before the merge; nothing skips it)
+
+The PR exists and is green. Run this before the merge:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" deploy-boundary --repo .
+```
+
+Exit **0** — go on to Step 7. Exit **1** (a push to the default branch deploys to production), exit
+**3** (it cannot tell), or any other non-zero code — **stop. Do not merge.** Hand the merge to the
+owner with the PR link; skip Steps 7–9. Show the gate's output and end the command. This holds
+whatever confirmation was given: `--yes`, a confirm flag, "just merge it" or an earlier approval
+cannot bypass it.
+
 ## Step 7 — Merge to default branch
 
 Once all required checks are **green**, there are no merge conflicts, and review requirements are satisfied:
@@ -143,6 +157,7 @@ Cleanup:       remote branch deleted / local branch deleted / backup ref dropped
 ## Rules
 
 - Never merge a PR whose required checks are red or absent.
+- Never merge unless `deploy-boundary` exited 0 on this run. No confirmation overrides it.
 - Never delete a feature branch before its merge is confirmed and any deploy validated.
 - Never `git add -A` without reviewing `git status` first (stage named files only).
 - Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.

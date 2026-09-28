@@ -1,7 +1,7 @@
 ---
 name: technical-writing
 context: fork
-description: Technical documentation best practices for READMEs, API docs, architecture docs, runbooks, and developer guides. Use when writing or reviewing documentation, creating onboarding guides, or establishing documentation standards.
+description: Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards.
 ---
 
 # Technical Writing Skill

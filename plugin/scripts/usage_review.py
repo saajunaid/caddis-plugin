@@ -2,7 +2,7 @@
 """caddis /usage-review: local usage analysis + harness self-tuning recommendations.
 
 Reads:
-  <artifact-dir>/usage-log.jsonl  per-session digest (Stop hook). Tries `.caddis/`, then the older
+  <artifact-dir>/usage-log.jsonl  per-session digest (/handoff). Tries `.caddis/`, then the older
                                   `.claude/usage-log.jsonl`.
   ~/.claude/projects/<slug>/      session transcripts (agent dispatches, context size)
   claude-harness/agents/*.md      agent model tiers (frontmatter)
@@ -660,7 +660,7 @@ def render_markdown(metrics: dict, findings: list[dict], days: int,
         f"| Output tokens | {_fmt(metrics['output'])} |",
         f"| Input + cache read | {_fmt(metrics['input'] + metrics['cache_read'])} |",
         f"| Cache efficiency | {_pct(metrics['cache_read'], metrics['input'] + metrics['cache_read'])} read from cache |",
-        f"| Est. cost equiv. | ${metrics['est_cost_usd']:.2f} (estimate; edit rates in session_end.py) |",
+        f"| Est. cost equiv. | ${metrics['est_cost_usd']:.2f} (estimate; edit rates in session_state.py) |",
         "",
         "## Findings",
         "",

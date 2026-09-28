@@ -1,6 +1,6 @@
 ---
 name: algorithmic-art
-description: Create browser-based visual art using p5.js — generative art, interactive visualizations, animations, 3D scenes (WebGL), audio-reactive visuals, and data visualizations. 7 production modes with export to HTML, PNG, GIF, MP4, SVG. Use for generative art, algorithmic art, flow fields, particle systems, creative coding, or any p5.js visual.
+description: "Generative and algorithmic art with p5.js: flow fields, particle systems, animations, WebGL, audio-reactive visuals; exports HTML, PNG, GIF, MP4, SVG. Use for creative coding or any p5.js visual."
 source: NousResearch/hermes-agent
 ---
 

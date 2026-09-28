@@ -1,7 +1,7 @@
 ---
 name: aws-cost-operations
 context: fork
-description: This skill provides AWS cost optimization, monitoring, and operational best practices with integrated MCP servers for billing analysis, cost estimation, observability, and security assessment.
+description: AWS cost optimization, monitoring and operations, with MCP servers for billing analysis, cost estimation, observability and security assessment.
 ---
 
 # AWS Cost & Operations

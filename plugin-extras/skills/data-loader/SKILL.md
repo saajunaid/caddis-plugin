@@ -1,7 +1,7 @@
 ---
 name: data-loader
 context: fork
-description: Load data from files (Excel, JSON, CSV) into databases. Use when user needs to import data files into any database system. Database-agnostic - supports SQL Server, PostgreSQL, MySQL, SQLite, and others.
+description: Load Excel, JSON or CSV files into any database (SQL Server, PostgreSQL, MySQL, SQLite and others). Use when importing data files into a database.
 ---
 
 # Data Loader Skill

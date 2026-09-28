@@ -1,6 +1,6 @@
 ---
 name: enterprise-dashboard-aesthetic-system
-description: "Use when: upgrading React/Vite enterprise dashboards, harmonizing dashboard pages, improving executive analytics UI aesthetics, creating cohesive dashboard design systems, adding tasteful motion, or turning data-heavy pages into a polished narrative cockpit. Applies to RevSight-style FastAPI + React + Tailwind + shadcn dashboards."
+description: "Use when upgrading or harmonizing React/Vite enterprise dashboards: executive analytics UI, cohesive dashboard design systems, tasteful motion, polished data-heavy pages (FastAPI + React + Tailwind + shadcn)."
 ---
 
 # Enterprise Dashboard Aesthetic System

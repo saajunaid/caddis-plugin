@@ -1,7 +1,7 @@
 ---
 name: golden-plan
 context: fork
-description: "USE THIS SKILL whenever a user asks for a comprehensive implementation plan, a full-stack build plan, a UI+backend plan, or says 'create a plan for building X' where X spans multiple phases or systems. Also activate when the user says 'plan this project', 'I need a detailed plan', 'build plan', 'implementation plan', or attaches a mockup/wireframe and asks how to build it. Produces a zero-ambiguity, evidence-gated plan with self-contained per-phase prompts, exhaustive data binding tables, per-phase validation checklists, and a global quality gate. Evidence-gated: before writing phases, verify required artefacts (mockup, data sample, API contract, scaffold inventory); if any BLOCKER is missing, ask for it and wait before proceeding. Dual-mode: generic by default, junai-pipeline only when explicitly requested. Agent-agnostic - any agent with read/search/edit tools can use this skill."
+description: "Use when the user asks for a comprehensive multi-phase plan (full-stack, UI + backend), says 'create a plan for building X', 'plan this project', 'I need a detailed plan', 'build plan', 'implementation plan', or attaches a mockup and asks how to build it. Produces an evidence-gated plan with self-contained phase prompts and validation gates."
 ---
 
 # Golden Plan

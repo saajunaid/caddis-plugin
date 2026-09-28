@@ -1,6 +1,6 @@
 ---
 name: sql
-description: Write high-quality, optimized SQL with best practices for performance, NULL handling, security, and readability. Database-agnostic patterns with dialect-specific notes.
+description: "Write optimized, secure, readable SQL: performance, NULL handling, dialect-specific notes."
 ---
 
 # SQL Expert Skill

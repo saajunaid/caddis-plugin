@@ -21,6 +21,9 @@ that hard-fails when it cannot read its inputs breaks every consumer the day it 
 first thing anyone does with a gate that cries wolf is switch it off. Only a genuine, positively
 identified violation is non-zero.
 
+One exception: `deploy-boundary` guards the production boundary and FAILS CLOSED. When it
+cannot tell, it exits 3 ("could not run" on the caddis scale), never 0.
+
 EXIT CODES
   0  proceed
   1  blocked           — a real violation; the caller must stop
@@ -440,7 +443,7 @@ def gate_vendor_drift(repo_root: Path) -> int:
 _DOC_PATH = re.compile(r"`([^`\s<>{}*?]+?\.(?:md|py|ts|tsx|json|ya?ml|sh|ps1|html|toml|sql))`")
 
 
-def gate_handover_check(doc: Path, repo_root: Path) -> int:
+def gate_handover_check(doc: Path, repo_root: Path, max_chars: int | None = None) -> int:
     """Every file a handover names must exist. Nothing else in a handover is machine-checkable.
 
     A succession prompt is written from memory, so it names files the writer BELIEVES are there.
@@ -454,8 +457,10 @@ def gate_handover_check(doc: Path, repo_root: Path) -> int:
     later withdrawal" — need conventions that do not exist yet, and a gate that pretends to check
     them would be worse than one that says it does not.
 
-    Degrades open on a missing/unreadable doc. Blocks only on a path the doc claims and the repo
-    does not have.
+    Degrades open on a missing/unreadable doc. Blocks on a path the doc claims and the repo does
+    not have, and -- only when the caller passes ``max_chars`` -- on a doc longer than that. The
+    cap is opt-in: /handoff caps a workstream relay at 4,000 characters, but a /spawn-hub prompt
+    must embed the full inventory verbatim and would never fit.
     """
     if not doc.is_file():
         return _degrade(f"no handover doc at {doc}")
@@ -463,6 +468,12 @@ def gate_handover_check(doc: Path, repo_root: Path) -> int:
         text = doc.read_text(encoding="utf-8", errors="ignore")
     except OSError as exc:
         return _degrade(f"cannot read {doc}: {type(exc).__name__}")
+
+    if max_chars is not None and len(text) > max_chars:
+        sys.stderr.write(
+            f"[caddis-gate] handover doc {doc.name} exceeds {max_chars:,} characters ({len(text)} chars)\n"
+        )
+        return EXIT_BLOCKED
 
     missing: list[str] = []
     for raw in sorted(set(_DOC_PATH.findall(text))):
@@ -617,6 +628,166 @@ def gate_docs_check(root: Path) -> int:
     return EXIT_BLOCKED if failures else EXIT_OK
 
 
+# ── gate: deploy-boundary ───────────────────────────────────────────────────
+# The owner's production boundary: an agent never merges into a repo whose default branch deploys
+# on every push. /ship, /ship-merge and /pr-merge run this before any merge or push to the default
+# branch, and hand the merge to the owner on anything but exit 0.
+#
+# FAILS CLOSED — the one deliberate exception to DEGRADE OPEN above. "Cannot tell" is exit 3,
+# never 0, because a false "clean" here is a production deploy nobody approved. Any positive
+# signal wins over every negative one: config cannot switch the check off.
+EXIT_CANNOT_TELL = 3
+
+_WORKFLOW_DIRS = (".github/workflows", ".gitea/workflows", ".forgejo/workflows")
+
+# An inherited GIT_DIR (from a hook or wrapper) would make `git -C <repo>` read another repository.
+_GIT_REPO_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                 "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE")
+
+
+def _git_out(repo: Path, *args: str) -> str | None:
+    """stdout of a git command in `repo`, or None when it fails."""
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPO_ENV}
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _ref_exists(repo: Path, ref: str) -> bool:
+    return _git_out(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") is not None
+
+
+def _default_branch_refs(repo: Path) -> list[str]:
+    """Every copy of the default branch: each remote's and the local branch of that name.
+
+    The name comes from any remote's recorded HEAD; with none recorded, `main` and `master` stand
+    in. Reading every copy is deliberate: a positive signal on any of them blocks.
+    """
+    remotes = (_git_out(repo, "remote") or "").split()
+    names: set[str] = set()
+    for remote in remotes:
+        target = (_git_out(repo, "symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD") or "").strip()
+        if target.startswith(f"refs/remotes/{remote}/"):
+            names.add(target[len(f"refs/remotes/{remote}/"):])
+    names = names or {"main", "master"}
+    refs = [f"refs/remotes/{r}/{n}" for r in remotes for n in sorted(names)]
+    refs += [f"refs/heads/{n}" for n in sorted(names)]
+    return [r for r in refs if _ref_exists(repo, r)]
+
+
+def _config_production_on_main(text: str) -> bool | None:
+    """True/False from `[deploy] production_on_main`; None when absent. Raises on a bad file."""
+    import tomllib
+    deploy = tomllib.loads(text).get("deploy", {})
+    if not isinstance(deploy, dict):
+        raise ValueError("[deploy] is not a table")
+    value = deploy.get("production_on_main")
+    if value is not None and not isinstance(value, bool):
+        raise ValueError(f"production_on_main is {value!r}, not true or false")
+    return value
+
+
+# A deploy is often not named "deploy". Letters-only boundaries on prod, so `deploy_prod` matches
+# and `product` or `reproduce` do not.
+_DEPLOY_WORD = re.compile(r"deploy|release|publish|(?<![a-z])prod(?:uction)?(?![a-z])", re.I)
+
+
+def _workflow_deploys(text: str) -> bool:
+    """True when the workflow's name, a job id or a job name looks like a deploy, or a job sets a
+    GitHub `environment:` (the forge's own marker for a deployment). Raises on a bad file.
+
+    The caller also checks the file name: a forge shows the file path as the workflow's name when
+    `name:` is unset.
+    """
+    import yaml
+    doc = yaml.safe_load(text)
+    if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
+        raise ValueError("not a workflow (no jobs mapping)")
+    labels = [doc.get("name")]
+    for job_id, job in doc["jobs"].items():
+        labels.append(job_id)
+        if isinstance(job, dict):
+            if job.get("environment"):
+                return True
+            labels.append(job.get("name"))
+    return any(_DEPLOY_WORD.search(str(label)) for label in labels if label is not None)
+
+
+def gate_deploy_boundary(repo: Path) -> int:
+    """EXIT_BLOCKED when a push to the default branch deploys to production, EXIT_OK when it
+    positively does not, EXIT_CANNOT_TELL otherwise."""
+    blocked: list[str] = []
+    unknown: list[str] = []
+
+    top = _git_out(repo, "rev-parse", "--show-toplevel") if repo.is_dir() else None
+    root = Path(top.strip()) if top else repo
+    refs = _default_branch_refs(root) if top else []
+    if not repo.is_dir():
+        unknown.append(f"{repo} is not a directory")
+    elif not top:
+        unknown.append(f"{repo} is not a git repository")
+    elif not refs:
+        unknown.append("cannot find the default branch (no remote HEAD, no main or master)")
+    # HEAD is what is about to be merged or pushed: a deploy it adds lands on the default branch.
+    # It only ever adds signals; the default branch is still read, so deleting there hides nothing.
+    sources = refs + (["HEAD"] if top and _ref_exists(root, "HEAD") else [])
+
+    # Config: the working tree and every source. Only `true` counts; config cannot switch it off.
+    configs: list[tuple[str, str | None]] = []
+    cfg = root / ".caddis" / "config.toml"
+    if cfg.is_file():
+        configs.append(("working tree", None))
+    for ref in sources:
+        text = _git_out(root, "show", f"{ref}:.caddis/config.toml")
+        if text is not None:
+            configs.append((ref, text))
+    for where, text in configs:
+        try:
+            if _config_production_on_main(cfg.read_text(encoding="utf-8") if text is None else text):
+                blocked.append(f".caddis/config.toml ({where}) sets production_on_main = true")
+        except Exception as exc:
+            unknown.append(f".caddis/config.toml ({where}) unreadable: {exc}")
+
+    # Workflows: read from committed trees, never the working tree.
+    for ref in sources:
+        listing = _git_out(root, "ls-tree", "-r", "-z", "--name-only", ref, "--", *_WORKFLOW_DIRS)
+        if listing is None:
+            unknown.append(f"cannot list workflows on {ref}")
+            continue
+        for path in listing.split("\0"):
+            # Forges run only the files directly inside the workflows directory.
+            if path.rsplit("/", 1)[0] not in _WORKFLOW_DIRS:
+                continue
+            if not path.lower().endswith((".yml", ".yaml")):
+                continue
+            text = _git_out(root, "show", f"{ref}:{path}")
+            try:
+                if text is None:
+                    raise OSError("git show failed")
+                if _DEPLOY_WORD.search(path.rsplit("/", 1)[1]) or _workflow_deploys(text):
+                    blocked.append(f"{path} on {ref} deploys")
+            except Exception as exc:
+                unknown.append(f"{path} on {ref} unreadable: {type(exc).__name__}: {exc}")
+
+    if blocked:
+        print("[gate] deploy-boundary: BLOCKED — a push to the default branch deploys to production")
+        for reason in dict.fromkeys(blocked):
+            print(f"    {reason}")
+        print("    Do not merge. Hand the merge to the owner with the PR link.")
+        return EXIT_BLOCKED
+    if unknown:
+        print("[gate] deploy-boundary: CANNOT TELL — treat as production")
+        for reason in dict.fromkeys(unknown):
+            print(f"    {reason}")
+        print("    Do not merge. Hand the merge to the owner with the PR link.")
+        return EXIT_CANNOT_TELL
+    print(f"[gate] deploy-boundary: clean — no deploy signal found on {', '.join(sources)}")
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="caddis machine gates")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -640,11 +811,21 @@ def main(argv: list[str] | None = None) -> int:
     hc = sub.add_parser("handover-check")
     hc.add_argument("--doc", required=True)
     hc.add_argument("--repo-root", default=".")
+    hc.add_argument("--max-chars", type=int, default=None,
+                    help="block a doc longer than this (relays: 4000); default: no cap")
     dc = sub.add_parser("docs-check")
     dc.add_argument("--root", default=".")
+    db = sub.add_parser("deploy-boundary")
+    db.add_argument("--repo", default=".")
     a = ap.parse_args(argv)
 
     plan = Path(getattr(a, "plan", "") or ".")
+    if a.cmd == "deploy-boundary":
+        try:
+            return gate_deploy_boundary(Path(a.repo).resolve())
+        except Exception as exc:
+            sys.stderr.write(f"[caddis-gate] deploy-boundary cannot evaluate: {type(exc).__name__}: {exc}\n")
+            return EXIT_CANNOT_TELL  # never degrade open across the production boundary
     if a.cmd == "docs-check":
         try:
             return gate_docs_check(Path(a.root).resolve())
@@ -665,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "vendor-drift":
             return gate_vendor_drift(Path(a.repo_root).resolve())
         if a.cmd == "handover-check":
-            return gate_handover_check(Path(a.doc), Path(a.repo_root).resolve())
+            return gate_handover_check(Path(a.doc), Path(a.repo_root).resolve(), a.max_chars)
         return gate_tracker(plan)
     except Exception as exc:  # pragma: no cover — a gate must never crash the caller
         return _degrade(f"{type(exc).__name__}: {exc}")

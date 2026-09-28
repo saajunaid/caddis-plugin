@@ -1,6 +1,6 @@
 ---
 name: brand-design
-description: "Comprehensive brand design: logo generation (55 styles), corporate identity program (50 deliverables, CIP mockups), icon design (15 styles, SVG), and social photos (HTML-to-screenshot, multi-platform). Use for logo, CIP, icon, or social media visual design tasks."
+description: "Brand design: logos, corporate identity (CIP) mockups, SVG icons and social media visuals. Use for logo, CIP, icon or social visual design tasks."
 license: MIT
 ---
 

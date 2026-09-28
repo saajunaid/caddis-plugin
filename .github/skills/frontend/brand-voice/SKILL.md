@@ -1,6 +1,6 @@
 ---
 name: brand-voice
-description: Brand voice, visual identity, messaging frameworks, asset management, and brand consistency. Use for branded content, tone of voice, marketing assets, brand compliance, and style guide work.
+description: Brand voice, tone, messaging frameworks and brand consistency. Use for branded content, marketing assets, brand compliance and style guides.
 ---
 
 # Brand

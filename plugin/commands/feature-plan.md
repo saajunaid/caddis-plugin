@@ -259,6 +259,11 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 <same structure>
 
 ## Execution protocol (standing rules — this plan is the memory, not anyone's head)
+Three rules: one attempt, one review.
+1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
+2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
+3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+
 - One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
   COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
 - **Session boundaries:** the executor WRITES the handoff (durable `relay.md` + Tracker) after any

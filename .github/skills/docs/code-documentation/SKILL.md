@@ -1,6 +1,6 @@
 ---
 name: code-documentation
-description: Writing effective code documentation - API docs, README files, inline comments, and technical guides. Use for documenting codebases, APIs, or writing developer guides.
+description: "Write code documentation: API docs, README files, inline comments and developer guides."
 source: wshobson/agents
 license: MIT
 ---

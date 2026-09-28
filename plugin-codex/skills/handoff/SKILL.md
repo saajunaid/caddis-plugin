@@ -5,7 +5,7 @@ description: End-of-session handoff — capture exact state so the next session 
 
 # /handoff — stop cleanly, write the resume doc
 
-You are ending a work session. Produce/refresh the resume doc (`.caddis/relay.md`) so the next session
+You are ending a work session. Produce/refresh this workstream's resume doc (`.caddis/relay/<name>.md`) so the next session
 (you, a future you, or another agent on any tool) can resume immediately. This is the anti-context-rot checkpoint.
 
 ## Step 1 — capture learnings FIRST (knowledge-transfer)
@@ -103,21 +103,42 @@ Nothing to say is the normal answer. Say nothing and move on — this must not b
 <!-- /shared:harness-friction-question -->
 
 ## Step 3 — write the resume doc (overwrite) with exactly these sections
-> **Where to write:** solo / single active branch → `.caddis/relay.md` (default).
-> **Team / parallel branches** → write `.caddis/relay/<current-branch>.md` instead, so two
-> developers never merge-conflict on one shared relay doc. The SessionStart hook prefers the
-> per-branch file automatically when it exists, then `.caddis/relay.md`, then the legacy
-> `.claude/relay/<branch>.md` and root `relay.md` (back-compat during the migration).
+> **Where to write:** this session's own workstream relay, `.caddis/relay/<name>.md`, through the
+> locked script — never with a plain file edit, which would skip the conflict check. `.caddis/relay.md`
+> is a generated index of all workstreams; do not write it by hand.
 >
-> A repo still on the pre-rename `.claudster/` won't see this relay until it's converted —
-> `/caddis:migrate-dir` does that.
+> Your session id is printed at session start as `[caddis] this session's id: <id>`; use it for
+> `session_id` and `--session-id`. Never guess one: a wrong id disables session matching.
+>
+> 1. **Name the workstream** (active plan's `feature`, else the branch; the script prints nothing
+>    on the default branch with no plan — then ask the user for a short name):
+>    `python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
+> 2. **Legacy repo:** if `.caddis/relay.md` exists and does not start with
+>    `<!-- caddis-workstream-index-v1 -->`, or an old `/digress` stack `.caddis/workstreams.json`
+>    exists, run `caddis_workstreams.py migrate-legacy` once first.
+>    It backs up the old file and stops without deleting anything on a conflict; report a conflict
+>    to the user and stop.
+> 3. **Read the stored version's hash** before you compose: `caddis_workstreams.py hash <name>`
+>    (prints `none` for a new workstream).
+> 4. **Write** the relay below to a temp file, then
+>    `caddis_workstreams.py write <name> <temp-file> --expected-hash <hash>`. Exit 1 means another
+>    session changed the relay since step 3: it prints the diff and writes nothing. Show the diff,
+>    merge by hand, and retry with the new hash. Never force it.
+> 5. **Refresh the index:** `caddis_workstreams.py render-index --session-id <id> --branch <branch>`.
+>
+> (Source checkout: `scripts/caddis_workstreams.py`.) A repo still on the pre-rename `.claudster/`
+> won't see this relay until it's converted — `/caddis:migrate-dir` does that.
 
 ```markdown
 ---
 type: relay
 workstream: <name>
 branch: <branch>
-generated: { by: <model>, at: <ISO time> }
+plan: <plan file name, or empty>
+session_id: <session id>
+generated:
+  by: <model>
+  at: <ISO time>
 ---
 
 # Relay — <feature>
@@ -148,7 +169,7 @@ advisory-context audit: <N candidates → M gaps → landed in <path>> | n/a (no
 
 ## Resume prompt
 \`\`\`
-Read relay.md, then the plan it points to. Continue from <phase/step>. Next action: <exact>.
+Read .caddis/relay/<name>.md, then the plan it points to. Continue from <phase/step>. Next action: <exact>.
 \`\`\`
 ```
 
@@ -168,7 +189,7 @@ handoff over it.
 ## Step 5 — check the handover you just wrote
 
 ```
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" handover-check --doc .caddis/relay.md
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" handover-check --doc .caddis/relay/<name>.md --max-chars 4000
 ```
 (falls back to `scripts/caddis_gate.py` in a source checkout; degrades open when the script is
 missing.) **Run it in the repo the handover is about** — a handover describing another repo will
@@ -181,13 +202,53 @@ incoming Hub looking for a prompt that was never written. Fix what it lists, the
 It also notes any generated artefact committed before its generator last changed. That is advisory,
 not blocking — but do not quote a report the note names without rebuilding it first.
 
+## Step 6 — reconcile task rows from session-state
+Run task reconciliation against the newest session-state file:
+```
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_todo.py" reconcile --session-state .caddis/session-state/<session-id>.md
+```
+This marks ad-hoc to-do items done by metadata ID; it never edits the Tracker and ignores phase rows.
+
+## Step 6b — record usage and tidy session state
+The Stop hook only writes the session-state file. These two used to run on every turn; they run
+here, once:
+```
+python "${CADDIS_PLUGIN_ROOT}/scripts/session_state.py" usage --session-id <session-id>
+python "${CADDIS_PLUGIN_ROOT}/scripts/session_state.py" prune
+```
+`usage` finds this session's transcript by its id and appends one token-and-skill record to
+`.caddis/usage-log.jsonl`, which `/usage-review` reads. Pass `--transcript <path>` if you know the
+path and it is not under the Claude config folder. `prune` keeps the newest 8 files in
+`.caddis/session-state/`; run it after Step 6, which reads this session's file. Include the
+`[USAGE]` line in your output. Both always exit 0; if the script is missing, skip this step.
+
+Then list old local state (falls back to `scripts/caddis_tidy.py`; skip if missing):
+```
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_tidy.py" --prune
+```
+It only lists: session-state files older than 7 days, logs over 5 MB to rotate, and (report
+only, never deleted) orphan `.lock` files and lane worktrees older than 7 days. Include its report. **Never
+add `--apply` yourself**; deleting is the user's choice. If they ask, run `--prune --apply`.
+
+## Step 7 — push prompt (interactive only)
+If this is an interactive session, ask the user every time — never reuse an earlier answer:
+`Push this note for another machine? (y/N)`
+Only on an explicit `y` in this session, run:
+```
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_relay_git.py" push <name> --user-said-yes
+```
+It publishes only `.caddis/relay/<name>.md` to `refs/caddis/relay/<name>` — never the branch, the
+index or staged files — after the secret filter passes. Report its one-line result. Anything but
+`y` means do nothing. Headless runs never ask and never push (the script also refuses headless).
+On the other machine, `/catchup <name>` fetches it.
+
 ## Rules
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in
   order: (1) interrupted mid-phase work → finish + commit it; else (2) the active plan's next not-started
   phase; else (3) the top open question/decision. Everything else is context, not the next step.
 - Only verified facts and real paths. Mark anything unconfirmed as `Unknown`.
 - Update the plan's tracker rows too (status + last commit) — relay and tracker must agree.
-- Don't commit unless asked. Report where `relay.md` was written and the one next action.
+- Don't commit unless asked. Report which `.caddis/relay/<name>.md` was written and the one next action.
 - **Never hand off a Hub session on the strength of "the context doc is designed for this."** That is the
   one instinct that has been measured and found wrong. Run Step 2b's audit instead.
 - **Prune the Done section — two rules, both apply:**
@@ -198,5 +259,5 @@ not blocking — but do not quote a report the note names without rebuilding it 
      are more, collapse the oldest into one summary line:
      `- [N prior milestones — see git log for full history]`
      Keep the 8 most recent bullets below it.
-  Target: relay.md stays under ~80 lines on disk. inject_relay.py caps injection at 120 lines as a
+  Target: the relay stays at most 4,000 characters (handover-check enforces it). inject_relay.py caps injection at 120 lines as a
   safety net, but the file itself should never reach that ceiling.

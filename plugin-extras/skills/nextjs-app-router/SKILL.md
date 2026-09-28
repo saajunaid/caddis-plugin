@@ -1,6 +1,6 @@
 ---
 name: nextjs-app-router
-description: Next.js 13+ App Router conventions, Server vs Client Components, Server Actions, Middleware, data fetching, Metadata API, and route handlers. Use for Next.js App Router directory structure, Server Actions, SSR/RSC patterns, generateMetadata, layout/page/error/loading.tsx conventions, route groups, parallel routes, or hydration issues. Companion to react-dev and react-best-practices.
+description: "Next.js App Router: Server vs Client Components, SSR/RSC, Server Actions, Middleware, data fetching, generateMetadata, route handlers, layout/page/error/loading.tsx, route groups, parallel routes, hydration issues."
 ---
 
 # Next.js App Router Skill

@@ -1,6 +1,6 @@
 ---
 name: port-to-github
-description: Move (port) an app or repository to GitHub from ANY source - a Gitea/GitLab/any git server URL, a local folder, a network (UNC) share, or a folder on a remote Windows box reached over WinRM - with or without existing git history. Keeps every branch and tag, verifies by SHA, translates Gitea/Forgejo Actions CI, enforces a source-only content policy (runtimes, binaries, data exports and dependencies stay out of the repo, over ALL history, with a runtime manifest and provisioning script so the environment is still reproducible), switches deploy checkouts to GitHub with automatic rollback, and retires the old host safely. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "put this folder on GitHub", "this app only exists on the server", "import the repo from the prod box", "keep binaries / MariaDB / PHP out of the repo", "check the repo only holds source", or "cut the deploy over to GitHub".
+description: Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over WinRM) — all branches and tags, SHA-verified, CI translated, history kept source-only, deploy cut over with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "put this folder on GitHub", "this app only exists on the server", "import the repo from the prod box", "keep binaries / MariaDB / PHP out of the repo", "check the repo only holds source", or "cut the deploy over to GitHub".
 ---
 
 # port-to-github

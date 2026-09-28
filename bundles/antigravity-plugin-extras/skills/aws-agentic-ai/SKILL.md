@@ -4,7 +4,7 @@ context: fork
 aliases:
   - bedrock-agentcore
   - aws-agentic-ai
-description: AWS Bedrock AgentCore comprehensive expert for deploying and managing all AgentCore services. Use when working with Gateway, Runtime, Memory, Identity, or any AgentCore component. Covers MCP target deployment, credential management, schema optimization, runtime configuration, memory management, and identity services.
+description: "AWS Bedrock AgentCore expert: deploy and manage Gateway, Runtime, Memory, Identity, MCP targets and credentials. Use when working with any AgentCore component."
 ---
 
 # AWS Bedrock AgentCore

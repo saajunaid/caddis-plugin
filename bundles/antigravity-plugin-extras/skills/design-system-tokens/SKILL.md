@@ -1,6 +1,6 @@
 ---
 name: design-system-tokens
-description: Token architecture and component specifications. Three-layer tokens (primitive → semantic → component), CSS variables, spacing/typography scales, and component state definitions. Use for design token creation and systematic design.
+description: Design token architecture (primitive → semantic → component), CSS variables, spacing and type scales, component state specs. Use when creating design tokens.
 license: MIT
 ---
 

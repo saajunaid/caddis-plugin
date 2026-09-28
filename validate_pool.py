@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -752,6 +753,64 @@ def check_skill_registry_in_dir(skills_dir: Path, label: str) -> CheckResult:
         r.info.append(f"extra registry-only entries (allowed in profile mode): {len(extra_in_registry)}")
 
     r.info.append(f"disk={len(disk)} listed={len(listed)}")
+    r.passed = not r.failures
+    return r
+
+
+# ---------------------------------------------------------------------------
+# Check 7b — Skill description budget
+# ---------------------------------------------------------------------------
+
+SKILL_DESCRIPTION_BUDGET_TOKENS = 6000
+
+
+def check_skill_description_budget(
+    skills_dir: Path | None = None, budget: int = SKILL_DESCRIPTION_BUDGET_TOKENS
+) -> CheckResult:
+    """Fail when the skill descriptions a runtime offers for auto-selection exceed the budget.
+
+    Every session loads each offered skill's description so the model can choose one, so their
+    sum is a fixed cost on every session. Tokens are estimated as ceil(chars / 4) per description,
+    after collapsing whitespace the way the registry does.
+
+    Which skills count: every SKILL.md under ``.github/skills/``. The copilot target in
+    runtime-targets.json ships that whole tree, the largest set of pool skills any runtime
+    offers (claude, codex and agy core + extras ship the same tree minus docs/document-skills).
+    A skill whose frontmatter sets ``disable-model-invocation: true`` is user-invocable only: the
+    runtime keeps its description out of the model's context, so it does not count.
+    ``user-invocable: false`` only hides a skill from the slash menu; the model still sees it, so
+    it counts. A SKILL.md without parseable frontmatter is skipped (check_skill_frontmatter
+    reports it).
+
+    Not counted: targets with ``commands_as_skills`` (codex, agy) also reshape every
+    ``claude-harness/commands/*.md`` into a skill, so those runtimes offer the command
+    descriptions on top of this total. This check budgets the skill pool only.
+    """
+    root = skills_dir or SKILLS_DIR
+    r = CheckResult(name="Skills — description budget for auto-selection")
+    sizes: list[tuple[int, str]] = []
+    for skill_md in sorted(root.rglob("SKILL.md")):
+        text = _read_text_safe(skill_md)
+        parsed = _split_frontmatter(text) if text is not None else None
+        if parsed is None:
+            continue
+        meta, _ = parsed
+        if meta.get("disable-model-invocation") is True:
+            continue
+        description = " ".join(str(meta.get("description", "")).split())
+        rel = "/".join(skill_md.relative_to(root).parts[:-1])
+        sizes.append((math.ceil(len(description) / 4), rel))
+
+    total = sum(tokens for tokens, _ in sizes)
+    r.info.append(f"{len(sizes)} skill(s) offered: {total} tokens (budget {budget})")
+    r.info.append("largest ten:")
+    for tokens, rel in sorted(sizes, key=lambda item: (-item[0], item[1]))[:10]:
+        r.info.append(f"  {tokens:>5}  {rel}")
+    if total > budget:
+        r.failures.append(
+            f"skill descriptions total {total} tokens, over the {budget}-token budget by "
+            f"{total - budget}; shorten the largest descriptions"
+        )
     r.passed = not r.failures
     return r
 
@@ -1740,6 +1799,7 @@ def main(argv: list[str] | None = None) -> int:
             check_prompts(),
             check_skill_frontmatter(),
             check_skill_registry(),
+            check_skill_description_budget(),
             check_document_frontmatter_contract(),
             check_golden_plan(),
         ]

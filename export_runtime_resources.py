@@ -6,9 +6,18 @@ import json
 import os
 import re
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    import caddis_frontmatter
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_frontmatter":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "claude-harness" / "scripts"))
+    import caddis_frontmatter
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_MANIFEST_PATH = PROJECT_ROOT / ".github" / "runtime-targets.json"
@@ -294,13 +303,9 @@ def split_frontmatter(text: str) -> tuple[str, str]:
 
 def extract_simple_frontmatter(frontmatter: str) -> dict[str, str]:
     """Extract simple frontmatter key/value pairs without a YAML dependency."""
-    data: dict[str, str] = {}
-    for line in frontmatter.splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        data[key.strip()] = value.strip().strip('"')
-    return data
+    parsed = caddis_frontmatter.parse(f"---\n{frontmatter}\n---\n")
+    # Callers format these as text; a nested map or list collapses to "" as it did before.
+    return {key: value if isinstance(value, str) else "" for key, value in parsed.items()}
 
 
 def extract_tools(frontmatter: str) -> list[str]:
@@ -461,13 +466,14 @@ def convert_commands_to_skills(commands_dir: Path, skills_dir: Path) -> int:
     for md in sorted(commands_dir.glob("*.md")):
         frontmatter, body = split_frontmatter(md.read_text(encoding="utf-8"))
         desc = extract_simple_frontmatter(frontmatter).get("description", "").strip()
+        rendered_desc = json.dumps(desc) if ": " in desc else desc
         dest = skills_dir / md.stem / "SKILL.md"
         if dest.exists():
             raise ValueError(
                 f"agy command->skill collision: skills/{md.stem}/SKILL.md already exists (command {md.name})"
             )
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(f"---\nname: {md.stem}\ndescription: {desc}\n---\n\n{body}", encoding="utf-8")
+        dest.write_text(f"---\nname: {md.stem}\ndescription: {rendered_desc}\n---\n\n{body}", encoding="utf-8")
         n += 1
     shutil.rmtree(commands_dir)
     return n

@@ -1,6 +1,6 @@
 ---
 name: confluence-hla
-description: Author enterprise High-Level Architecture (HLA) documents in Simplified Technical English and generate Confluence Storage Format XHTML with self-contained PlantUML diagrams, wrapped tables, and zero AI fingerprints. Use when creating high-level architecture designs, architecture documentation for Confluence, or converting markdown architecture to Confluence storage format.
+description: High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture.
 ---
 
 # Confluence High-Level Architecture (HLA) Authoring Skill

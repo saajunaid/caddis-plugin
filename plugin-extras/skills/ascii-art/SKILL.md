@@ -1,6 +1,6 @@
 ---
 name: ascii-art
-description: Create text-based ASCII art using the right tool for the job — banners, borders, image conversion, pre-made art, and LLM-generated custom art. Decision-routing framework across pyfiglet, cowsay, TOIlet, boxes, and more.
+description: Create ASCII art (banners, borders, image conversion, custom art), choosing between pyfiglet, cowsay, TOIlet, boxes and more.
 source: NousResearch/hermes-agent
 ---
 

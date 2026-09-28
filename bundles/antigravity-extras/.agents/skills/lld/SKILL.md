@@ -1,6 +1,6 @@
 ---
 name: lld
-description: Generates Lower-Level Design (LLD) Markdown documentation and converts to Confluence Storage Format XHTML with native PlantUML diagrams and auto-generated legends.
+description: Generate Lower-Level Design (LLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends.
 ---
 
 # Lower-Level Design (LLD) Authoring Skill

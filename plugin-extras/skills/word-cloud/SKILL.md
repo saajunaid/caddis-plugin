@@ -1,6 +1,6 @@
 ---
 name: word-cloud
-description: Generate beautiful word clouds — static or animated — from any input source. Handles text extraction from PDF, DOCX, XLSX, PPTX, HTML, CSV, TXT and produces production-ready components. Includes light/dark theming, sentiment/POS color coding, shape masking, and multiple animation modes.
+description: Generate static or animated word clouds from any text source (PDF, DOCX, XLSX, PPTX, HTML, CSV, TXT), with theming, sentiment coloring and shape masks.
 ---
 
 # Word Cloud Skill

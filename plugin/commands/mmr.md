@@ -21,6 +21,14 @@ An unknown flag returns a usage error.
 The exit codes follow `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
 4 error or bad usage. In particular, `caddis_adhoc.py` returns 4 for bad usage.
 
+## Three rules: one attempt, one review
+1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
+2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
+3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+
+`/mmr` is for handing a task to another model, not for normal reviews. For a normal review, use
+`/cross-review`.
+
 ## Natural Language Triggers
 You can trigger MMR naturally without typing the full slash command:
 - *"Run this on another lane: &lt;task&gt;"* &rarr; `/mmr "<task>"`

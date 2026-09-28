@@ -172,40 +172,103 @@ def _art_default(*parts: str) -> str:
     return os.path.join(str(artifact_root(ROOT)), *parts)
 
 
-def _resolve_relay() -> str:
-    """Prefer the current artifact dir; fall back to every legacy location.
-
-    Preference order (first existing wins):
-      1. .caddis/relay/<branch>.md          (per-branch team mode)
-      2. .caddis/relay.md                   (solo/default)
-      3. .claude/relay/<branch>.md          (legacy per-branch)
-      4. relay.md                           (legacy repo root)
-    When none exist yet, return the default under the dir this repo lives in; the isfile()
-    guard at the call site then no-ops cleanly. Team mode keeps each branch's resume state in
-    its own file so parallel developers never merge-conflict on relay.md.
-    Branch lookup is best-effort; any failure → skip the per-branch candidates.
+def _scan_relays(root: str) -> list[tuple[str, dict]]:
+    """Scan all .caddis/relay/*.md files, excluding done/ directories.
+    Returns list of (file_path, parsed_metadata).
     """
+    results: list[tuple[str, dict]] = []
+    try:
+        from caddis_frontmatter import parse
+    except Exception:
+        for p in (
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"),
+        ):
+            if os.path.isdir(p) and p not in sys.path:
+                sys.path.insert(0, p)
+        try:
+            from caddis_frontmatter import parse
+        except Exception:
+            def parse(t): return {}
+
+    for d in ARTIFACT_DIRS:
+        relay_dir = os.path.join(root, d, "relay")
+        if not os.path.isdir(relay_dir):
+            continue
+        try:
+            entries = list(os.scandir(relay_dir))  # exhausting it closes the handle
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith(".md"):
+                try:
+                    with open(entry.path, encoding="utf-8", errors="ignore") as handle:
+                        text = handle.read()
+                    meta = parse(text)
+                    results.append((entry.path, meta))
+                except Exception:
+                    continue
+    return results
+
+
+def _resolve_relay(session_id: str = "") -> tuple[str, str | None]:
+    """Resolve relay file according to Phase 7 resolution contract.
+
+    1. Session ID match takes precedence (matching meta['session_id'] with payload session_id).
+    2. Otherwise, if current branch is non-default, match relays by branch/workstream name.
+       If exactly 1 match: inject full relay.
+    3. If default branch or multiple/no matches: inject index (.caddis/relay.md).
+    Returns (relay_file_path, matched_workstream_name).
+    """
+    relays = _scan_relays(ROOT)
+
+    # 1. Session ID match takes precedence
+    if session_id:
+        for path, meta in relays:
+            if meta.get("session_id") and str(meta.get("session_id")) == str(session_id):
+                ws_name = meta.get("workstream") or os.path.splitext(os.path.basename(path))[0]
+                return path, ws_name
+
+    # 2. Branch lookup (best-effort)
     try:
         branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            ["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True, timeout=3,
         ).stdout.strip()
     except Exception:
         branch = ""
-    slug = ""
-    if branch and branch != "HEAD":
+
+    default_branches = {"main", "master", "trunk", "develop", "HEAD", ""}
+    slug = ""  # set below for a non-default branch; also read by the legacy fallback
+    if branch and branch not in default_branches:
         slug = "".join(c if (c.isalnum() or c in "-_.") else "-" for c in branch)
-    candidates: list[str] = []
-    if slug:
-        candidates += _art("relay", f"{slug}.md")
-    candidates += _art("relay.md")
-    if slug:
-        candidates.append(os.path.join(ROOT, ".claude", "relay", f"{slug}.md"))
-    candidates.append(os.path.join(ROOT, "relay.md"))
-    return _first_existing(candidates, _art_default("relay.md"))
+        matched = []
+        for path, meta in relays:
+            ws = meta.get("workstream")
+            b = meta.get("branch")
+            stem = os.path.splitext(os.path.basename(path))[0]
+            if (b and b in (branch, slug)) or (ws and ws in (branch, slug)) or stem in (branch, slug):
+                matched.append((path, ws or stem))
+        if len(matched) == 1:
+            return matched[0]
+
+    # 3. Fallback: index (.caddis/relay.md), then the legacy per-branch .claude/relay/<branch>.md,
+    #    then a root relay.md -- the order the hook used before workstream relays existed.
+    legacy_branch = []
+    if branch and branch not in default_branches:
+        legacy_branch = [os.path.join(ROOT, ".claude", "relay", f"{slug}.md")]
+    candidates = _art("relay.md") + legacy_branch + [os.path.join(ROOT, "relay.md")]
+    idx_path = _first_existing(candidates, _art_default("relay.md"))
+    return idx_path, None
 
 
-RELAY = _resolve_relay()
+_session_id = str(_payload.get("session_id", "") or "").strip() if isinstance(_payload, dict) else ""
+try:
+    RELAY, MATCHED_WORKSTREAM = _resolve_relay(_session_id)
+except Exception as _exc:  # fail open: a broken relay lookup must never break session start
+    _hook_note("relay resolution", _exc)
+    RELAY, MATCHED_WORKSTREAM = "", None
 
 def _truncate_relay(text: str) -> str:
     """Cap injected output at INJECT_MAX_LINES.
@@ -262,7 +325,7 @@ try:
                 _since = str(_f.get("pushedAt", ""))[:10]  # date part only
                 _wlines.append(
                     f'⛏ Parked workstream: {_loc} @ {_phase} — "{_reason}" '
-                    f"(since {_since}). Run /catchup [name] to pop."
+                    f"(since {_since}). Old /digress stack: /handoff or /catchup migrates it into workstream relays."
                 )
             if len(_stack) > 1:
                 _wlines.append(f"({len(_stack)} parked total)")
@@ -270,15 +333,61 @@ try:
 except Exception as _exc:
     _hook_note("parked-stack surface", _exc)
 
+if _session_id and not _is_headless():
+    # The commands write this id into relays (session_id) and index calls (--session-id);
+    # the model has no other way to know it.
+    print(f"[caddis] this session's id: {_session_id}")
+
 if os.path.isfile(RELAY) and not _is_headless():
     try:
-        text = open(RELAY, encoding="utf-8").read().strip()
-    except Exception:
-        sys.exit(0)
+        with open(RELAY, encoding="utf-8-sig") as _relay_file:
+            text = _relay_file.read().strip()
+    except Exception as _exc:
+        # An unreadable relay must not end the hook: seeding, peers and DOC-MAP still follow.
+        _hook_note("relay read", _exc)
+        text = ""
     if text:
         print("\n" + RELAY_FRAME_HEADER)
         print(_truncate_relay(text))
         print("\n" + RELAY_FRAME_FOOTER)
+
+# ── native task seeding (Claude Code SessionStart) ───────────────────────────────────────
+_source = str(_payload.get("source", "")).strip().lower() if isinstance(_payload, dict) else ""
+_task_tools_enabled = str(os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS", "")).strip().lower() in _TRUTHY
+_event = str(_payload.get("hook_event_name", "")).strip() if isinstance(_payload, dict) else ""
+# SessionStart only: this script also runs on PreCompact, whose payload has no "source".
+if (_task_tools_enabled and not _is_headless() and _event == "SessionStart"
+        and _source in {"startup", "resume", "clear", "fork"}):
+    try:
+        from pathlib import Path as _Path
+        # Installed plugin: <plugin>/hooks -> <plugin>/scripts (the manifest's destination).
+        # Source tree: claude-harness/hooks -> <repo>/scripts, where caddis_todo.py is authored.
+        _hooks_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for _sc_todo in (os.path.join(os.path.dirname(_hooks_parent), "scripts"),
+                         os.path.join(_hooks_parent, "scripts")):
+            if os.path.isdir(_sc_todo) and _sc_todo not in sys.path:
+                sys.path.insert(0, _sc_todo)
+        import caddis_todo as _ctodo
+        _open_items = _ctodo.open_work(_Path(ROOT), MATCHED_WORKSTREAM)
+        # Seed only what is actionable now: the next few phases plus a few ad-hoc items. The
+        # rest stays one /catchup away, so session start stays within its size budget.
+        _SEED_PHASES, _SEED_TODOS = 5, 5
+        _phases = [r for r in _open_items if r.get("kind") == "phase"]
+        _todos = [r for r in _open_items if r.get("kind") != "phase"]
+        _seed = _phases[:_SEED_PHASES] + _todos[:_SEED_TODOS]
+        _more = len(_open_items) - len(_seed)
+        if _seed:
+            print("\n=== open-work: NATIVE TASK SEEDING ===")
+            print("Create each row below as a native task with its open-work id in task metadata, skipping ids already on the board.")
+            print('Use TaskCreate with metadata {"id": "<id from the row>"}; /handoff closes finished to-dos by that id.')
+            if _more:
+                print(f"(+{_more} more open items — run /catchup to see them.)")
+            for _row in _seed:
+                _m_json = json.dumps({"id": _row["id"]})
+                print(f"- [ ] {' '.join(str(_row['title']).split())[:100]} <!-- caddis: {_m_json} -->")
+            print("=== end open-work ===")
+    except Exception as _exc:
+        _hook_note("native task seeding", _exc)
 
 # ── live peers in this same checkout ────────────────────────────────────────────────────────
 # Three Claude sessions worked in one shared tree on 2026-09-06. One switched branches

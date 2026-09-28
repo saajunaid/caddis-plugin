@@ -1,6 +1,6 @@
 ---
 name: setup-project-ai
-description: "Install or refresh the agent-agnostic development harness in a project — an AGENTS.md-canonical rules hierarchy (root + per-folder) with a CLAUDE.md @import shim beside each, lean subagents, slash commands, settings.json, and the frontend/python test env. USE THIS SKILL when setting up AI resources on a new or existing project, bootstrapping the rules files (AGENTS.md/CLAUDE.md), adding subagents/commands, or when the user says 'set up the harness', 'setup-project-ai', 'generate CLAUDE.md', 'onboard this project to Claude Code / Codex / agy', or runs /setup-project-ai. Combines a deterministic generator (scripts/setup_project_ai.py) for the must-not-vary mechanics with an AI enrichment step that curates project-specific AGENTS.md content."
+description: "Install or refresh the agent-agnostic harness in a project: AGENTS.md rules with CLAUDE.md shims, subagents, commands and settings. Use when setting up AI resources on a project, or the user says 'set up the harness', 'setup-project-ai', 'generate CLAUDE.md', 'onboard this project to Claude Code / Codex / agy', or runs /setup-project-ai."
 ---
 
 # setup-project-ai

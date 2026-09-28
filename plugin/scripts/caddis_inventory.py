@@ -47,6 +47,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    import caddis_frontmatter
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_frontmatter":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_frontmatter
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -71,15 +79,7 @@ def frontmatter(path: Path) -> dict[str, str]:
         text = path.read_text(encoding="utf-8", errors="ignore").lstrip("﻿")
     except OSError:
         return {}
-    if not text.startswith("---"):
-        return {}
-    end = text.find("\n---", 3)
-    out: dict[str, str] = {}
-    for line in text[3:end if end > 0 else 800].splitlines():
-        if ":" in line and not line.startswith((" ", "\t")):
-            k, _, v = line.partition(":")
-            out[k.strip()] = v.strip()
-    return out
+    return caddis_frontmatter.parse(text)
 
 
 def title_of(path: Path) -> str:

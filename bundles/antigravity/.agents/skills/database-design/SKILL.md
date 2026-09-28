@@ -1,6 +1,6 @@
 ---
 name: database-design
-description: Database schema design, optimization, and migration patterns for PostgreSQL, MySQL, and NoSQL databases. Use for designing schemas, writing migrations, or optimizing queries.
+description: Database schema design, migrations and query optimization for PostgreSQL, MySQL and NoSQL.
 source: wshobson/agents
 license: MIT
 ---

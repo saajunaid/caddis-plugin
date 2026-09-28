@@ -1,7 +1,7 @@
 ---
 name: pdf
 context: fork
-description: Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
+description: "PDF toolkit: extract text and tables, create, merge and split PDFs, fill forms. Use to process, generate or analyze PDF documents."
 license: Proprietary. LICENSE.txt has complete terms
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: warm-editorial-ui
-description: Apply the "Warm Editorial Refinement" design system — a sophisticated, executive-grade aesthetic with warm cream surfaces (light mode) and warm charcoal surfaces (dark mode), Bahnschrift + Plus Jakarta Sans typography, generous rounded corners, multi-layer shadows, and a warm neutral palette. Supports both light and dark themes via CSS custom properties and the `.dark` class. Use this skill whenever the user wants to build an app, dashboard, component, or web UI using the abc-project visual style. Trigger on phrases like "use our design system", "apply our template", "make it look like abc-project", "use the warm editorial style", "use our brand template", "add dark mode", or any request to build a new tool/app/dashboard for XYZ Brand or similar contexts. This is the canonical design template for all new frontend builds.
+description: Apply the "Warm Editorial Refinement" design system (warm cream/charcoal surfaces, Bahnschrift + Plus Jakarta Sans, layered shadows), the canonical template for new frontend builds. Use for apps, dashboards or UI in the abc-project style, or on "use our design system", "apply our template", "make it look like abc-project", "use the warm editorial style", "use our brand template", "add dark mode", or a new tool for XYZ Brand.
 ---
 
 # Warm Editorial Refinement — Design System

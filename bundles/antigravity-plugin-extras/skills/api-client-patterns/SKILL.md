@@ -1,6 +1,6 @@
 ---
 name: api-client-patterns
-description: Typed API client patterns for consuming REST APIs and tRPC. Use for typed fetch wrappers, zod response validation, API client factory, auth injection, TanStack Query (useQuery, useMutation, infinite queries, optimistic updates), tRPC end-to-end types, error handling with discriminated unions, OpenAPI client codegen, or pagination envelopes. Complements backend-development (server side) with client-side consumption patterns.
+description: "Typed client-side API consumption: fetch wrappers, zod validation, auth injection, TanStack Query (useQuery, useMutation, optimistic updates), tRPC, OpenAPI codegen, pagination. Use when consuming REST or tRPC APIs."
 ---
 
 # API Client Patterns Skill

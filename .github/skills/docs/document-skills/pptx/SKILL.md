@@ -1,7 +1,7 @@
 ---
 name: pptx
 context: fork
-description: "Presentation creation, editing, and analysis. When Claude needs to work with presentations (.pptx files) for: (1) Creating new presentations, (2) Modifying or editing content, (3) Working with layouts, (4) Adding comments or speaker notes, or any other presentation tasks"
+description: "Create, edit and analyze .pptx presentations: layouts, comments, speaker notes. Use for any presentation task."
 license: Proprietary. LICENSE.txt has complete terms
 ---
 

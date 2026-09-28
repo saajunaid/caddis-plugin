@@ -1,15 +1,10 @@
 ---
 name: responsive-mobile-native
 description: >
-  Use this skill whenever the user wants to make a web app or website work on mobile,
-  adapt a desktop-first app for mobile or tablet, make a site "feel native" on phones,
-  add responsive behaviour, fix a layout that breaks on small screens, or ship a
-  single codebase that works on desktop and mobile without two separate apps.
-  Also triggers for: "make this PWA", "mobile-friendly", "tablet layout", "bottom nav",
-  "touch gestures", "works on iPhone/Android", "responsive design", or any request to
-  support small screens alongside an existing desktop UI. Use this skill proactively —
-  if the user is building or fixing any web UI and mobile support is clearly missing or
-  incomplete, suggest and apply this skill.
+  Make a web app work and "feel native" on phones and tablets from one codebase: adapt desktop-first
+  layouts, fix small-screen breakage. Use for "make this PWA", "mobile-friendly", "tablet layout",
+  "bottom nav", "touch gestures", "works on iPhone/Android", "responsive design", or any web UI
+  missing mobile support.
 ---
 
 # Responsive Mobile-Native Skill

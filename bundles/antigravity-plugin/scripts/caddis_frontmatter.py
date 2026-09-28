@@ -108,6 +108,18 @@ def parse(text: str) -> dict:
     return out
 
 
+def split_document(text: str) -> tuple[dict, str]:
+    """Return parsed metadata and the untouched body after a complete leading header."""
+    source = text.lstrip("\ufeff")
+    lines = source.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    for index, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            return parse(source), "".join(lines[index + 1:])
+    return {}, text
+
+
 def validate(text: str, allowed_types: set[str]) -> str | None:
     """Report the first missing or unsupported required header field."""
     if _header_lines(text) is None:

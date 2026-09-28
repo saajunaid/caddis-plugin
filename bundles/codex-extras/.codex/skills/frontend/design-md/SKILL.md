@@ -1,6 +1,6 @@
 ---
 name: design-md
-description: Google's open DESIGN.md specification for describing visual identities to coding agents. YAML tokens + Markdown rationale + npx CLI for WCAG validation and W3C DTCG/Tailwind export. Use for formal, agent-consumable design system documentation.
+description: "Google's DESIGN.md spec for describing a visual identity to coding agents: YAML tokens, Markdown rationale, CLI for WCAG checks and DTCG/Tailwind export. Use for agent-readable design system docs."
 source: NousResearch/hermes-agent
 ---
 

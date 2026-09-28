@@ -6,7 +6,12 @@ the workspace's usage log (`<workspace>/.caddis/usage-log.jsonl`). Self-containe
 ship claudster_config.py), stdlib-only, and fully defensive:
 a Stop hook must never fail the turn, and must not print a non-JSON line to stdout (agy parses Stop-hook
 stdout as a `{"decision":…}` object — a stray string trips its "unsupported hook decision" path). So this
-does a pure side effect and prints NOTHING.
+does a pure side effect and prints NOTHING: empty stdout is agy's "no decision", while
+`{"decision": "continue"}` would stop the session from ending.
+
+Headless runs (CADDIS_HEADLESS, DOCKET_PLAN or DOCKET_BRANCH set and non-empty) are skipped, as in
+the Claude Stop hook, so review and lane runs leave no files. The record is one append with no
+transcript read, so it stays here rather than moving to /handoff (Phase 13).
 
 agy Stop stdin (camelCase protojson):
   {"executionNum":N, "terminationReason":"model_stop|max_steps_exceeded|error", "error":"",
@@ -60,11 +65,21 @@ def _workspace_roots(data):
         return []
     return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
 
+_HEADLESS_MARKERS = ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH")
+
+
+def _headless() -> bool:
+    """True when any marker is set to a non-empty value. `CADDIS_HEADLESS=` is not headless."""
+    return any(str(os.environ.get(name, "")).strip() for name in _HEADLESS_MARKERS)
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
     except Exception:
         data = {}
+    if _headless():
+        return
     try:
         roots = _workspace_roots(data) or [os.getcwd()]
         # Write the record to every root that ALREADY has a .caddis dir, rather than to
