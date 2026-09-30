@@ -94,7 +94,13 @@ what failed.
 
 Watch the PR's checks job-by-job until completion:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
-- GitHub lane: `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
+- GitHub lane: first record the head you are about to watch, then wait for PR checks outside the Claude session via `ci-watch`:
+  ```bash
+  gh pr view <pr> --json headRefOid        # write down headRefOid as <watched-sha>
+  python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  ```
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell → stop and report, do not merge.
+  Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 - If any check fails (red check): report the failure, classify the cause, and **stop before merging**.
   Do not merge a failing PR. Apply the minimum source fix and re-push.
 
@@ -115,6 +121,11 @@ cannot bypass it.
 ## Step 7 — Merge to default branch
 
 Once all required checks are **green**, there are no merge conflicts, and review requirements are satisfied:
+- Re-read PR head and merge state before merging (GitHub lane):
+  ```bash
+  gh pr view <pr> --json headRefOid,mergeStateStatus
+  ```
+  Merge only when `headRefOid` equals `<watched-sha>`, the head recorded before the watch started and `mergeStateStatus` is `CLEAN` (or `HAS_HOOKS`/`UNSTABLE` only if the repo's own rules allow it; else stop and report). The ci-watch report is a signal, not proof.
 - Use the repo's configured **merge strategy** — read it from repo settings (Gitea repo settings API /
   `gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`) and `AGENTS.md`;
   an explicit argument wins. Options: **squash**, **merge-commit**, rebase-merge. **Don't assume** —
@@ -128,7 +139,12 @@ Once all required checks are **green**, there are no merge conflicts, and review
 
 If the default branch triggers an automated deployment pipeline:
 - Gitea: `lint_and_test` → `deploy_prod` → `release_metadata` (`deploy-local` skill).
-- GitHub: `gh run watch <run-id> --exit-status` on the default branch. If CI-only, note that no deploy occurs.
+- GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
+  ```bash
+  python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  ```
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 9).
+  Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If CI-only, note that no deploy occurs.
 - Validate health and deployed SHA if a live service is deployed. If deploy validation fails, report
   immediately and **skip cleanup** (Step 9).
 

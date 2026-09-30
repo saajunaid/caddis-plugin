@@ -95,12 +95,17 @@ Track jobs in order: `lint_and_test` → `frontend_checks` (if present) → `dep
 `release_metadata` → `notify`. Report status as each job completes. On failure, classify it and apply
 the minimum fix (see `deploy-local` skill §6).
 
-**GitHub lane** — Watch the run the push triggered via the `gh` CLI:
-```
+**GitHub lane** — Find the run id for the pushed SHA, then wait outside the Claude session via `ci-watch`:
+```bash
 gh run list --branch <branch> --limit 1                 # find the run id for the pushed SHA
-gh run watch <run-id> --exit-status                      # stream until done; non-zero on failure
+python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <run-id>
+```
+Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop and report.
+On failure, pull only the failing job logs:
+```bash
 gh run view <run-id> --log-failed                        # on failure, pull only the failing job logs
 ```
+Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` (`gh-cli` skill).
 Report each job's status as it resolves. On failure, classify it and apply the minimum source fix.
 
 **Local-only lane** — no CI; skip monitoring.

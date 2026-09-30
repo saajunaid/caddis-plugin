@@ -28,6 +28,8 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
 
+import caddis_routing
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -69,7 +71,17 @@ DEFAULT_CHAINS = {
     "docs": ("agy", "glm", "claude"),
 }
 BUDGET_PATTERNS: dict[str, tuple[str, ...]] = {
-    "claude": (),
+    # Claude Code 2.1.283 CLI bundle (limit-message builder and its prefix list).
+    "claude": (
+        r"You[’']ve hit your (?:session|weekly|Opus|Sonnet|Fable|usage credit) limit\b",
+        r"You[’']ve hit your (?:channel's )?monthly spend limit\b",
+        r"You[’']ve hit your team's shared budget\b",
+        r"You[’']ve reached your Fable limit\b",
+        r"You[’']re out of (?:usage credits|extra usage)\b",
+        r"Your org is out of usage\b",
+        r"Your usage allocation has been disabled by your admin\b",
+        r"Your group's usage limit is set to \$0\b",
+    ),
     # https://docs.z.ai/api-reference/api-code
     "glm": (
         r"API Error: 429.*\"type\"\s*:\s*\"(?:1113|1308|1309|1310|1316|1317)\"",
@@ -943,6 +955,216 @@ def classify_exit(
     return RESULT_LANE_FAILED
 
 
+CLAUDE_FAMILY = frozenset({"opus", "sonnet", "claude"})
+
+
+def next_lane(
+    role: str,
+    after: str,
+    *,
+    home: Path,
+    repo: Path,
+    which=shutil.which,
+) -> str | None:
+    """Find the next available model, sharing one budget across Claude models."""
+    routing = caddis_routing.resolve(home, repo, which=which)
+    chain = routing[role]
+    if role != "coding" and after not in chain and after not in CLAUDE_FAMILY:
+        # `after` came from the coding fallback (a Claude model ran out first): carry on down
+        # the coding chain, and never hand the exhausted Claude budget back.
+        coding = routing["coding"]
+        if after not in coding:
+            return None
+        rest = [model for model in coding[coding.index(after) + 1:] if model not in CLAUDE_FAMILY]
+        return rest[0] if rest else None
+    candidates = chain[chain.index(after) + 1:] if after in chain else chain
+    if after in CLAUDE_FAMILY:
+        candidates = [model for model in candidates if model not in CLAUDE_FAMILY]
+        if not candidates and role != "coding":
+            # Fall to coding models this role has not already tried. The coding chain ran before
+            # its own Claude fallback, and a role that lists agy or codex ran them before Claude;
+            # restarting either would loop.
+            candidates = [
+                model for model in routing["coding"]
+                if model not in CLAUDE_FAMILY and model not in chain
+            ]
+    return candidates[0] if candidates else None
+
+
+def _ci_watch_block(output: str) -> dict[str, str] | None:
+    """Read the last complete watch report, ignoring an echoed prompt template."""
+    fields: dict[str, str] = {}
+    reports: list[dict[str, str]] = []
+    for line in output.splitlines():
+        match = re.match(
+            r"^\s*(?:[`*]+\s*)?(RESULT|CHECKS|MERGE_STATE|FAILING)[`*]*\s*:\s*[`*]*\s*(.*?)\s*[`*]*\s*$",
+            line, re.I,
+        )
+        if not match:
+            continue
+        key, value = match.group(1).upper(), match.group(2).strip().strip("`* ")
+        if key == "RESULT":
+            if fields:
+                reports.append(fields)
+            fields = {}
+        if fields or key == "RESULT":
+            fields[key] = value
+    if fields:
+        reports.append(fields)
+    if not reports:
+        return None
+    last = reports[-1]
+    if set(last) != {"RESULT", "CHECKS", "MERGE_STATE", "FAILING"}:
+        return None
+    if last["RESULT"].lower() not in {"pass", "fail", "timeout"}:
+        return None
+    return last
+
+
+def _print_ci_watch(result: str, checks: str, merge_state: str, failing: str, watcher: str) -> None:
+    print(f"RESULT: {result}")
+    print(f"CHECKS: {checks}")
+    print(f"MERGE_STATE: {merge_state}")
+    print(f"FAILING: {failing}")
+    print(f"WATCHER: {watcher}")
+
+
+def ci_watch(
+    target_kind: str,
+    target_id: int,
+    repo_slug: str | None,
+    timeout_s: int,
+    *,
+    home: Path,
+    repo: Path,
+    which=shutil.which,
+    run_agy=run_lane,
+    run_gh=subprocess.run,
+    clock=time.monotonic,
+) -> int:
+    """Wait for CI with the resolved watcher, using one shared time budget."""
+    if target_kind not in {"pr", "run"} or target_id <= 0 or timeout_s <= 0:
+        print("[caddis-lanes] ci-watch: target and timeout must be positive", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+    if repo_slug is not None and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_slug):
+        print("[caddis-lanes] ci-watch: --repo must be OWNER/NAME", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+
+    started = clock()
+    try:
+        watchers = caddis_routing.resolve(home, repo, which=which)["ci-watch"]
+    except caddis_routing.RoutingConfigError as exc:
+        print(f"[caddis-lanes] {exc}", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+
+    repo_opt = f" --repo {repo_slug}" if repo_slug else ""
+    if target_kind == "pr":
+        poll = f"gh pr checks {target_id}{repo_opt}"
+        state = f"gh pr view {target_id} --json mergeStateStatus,headRefOid{repo_opt}"
+    else:
+        poll = f"gh run view {target_id}{repo_opt}"
+        state = "n/a"
+    prompt = (
+        "Read-only CI watch. Poll with " + poll + " until every check has finished or the time runs out. "
+        + (f"For the PR, also poll {state}. " if target_kind == "pr" else "")
+        + "Never merge, push, comment, re-run, approve, close or edit anything. "
+        + "Then print exactly this block as the last thing you output, with actual values:\n"
+        "RESULT: pass|fail|timeout\n"
+        "CHECKS: <n passed>/<n total>\n"
+        "MERGE_STATE: <mergeStateStatus or n/a>\n"
+        "FAILING: <comma-separated failing check names, or none>"
+    )
+
+    for watcher in watchers:
+        if watcher == "claude":
+            break
+        if watcher != "agy":
+            print(f"[caddis-lanes] ci-watch: unsupported watcher {watcher}; skipping", file=sys.stderr)
+            continue
+        agy_path = which("agy")
+        if agy_path is None:
+            break
+        remaining = timeout_s - (clock() - started)
+        if remaining <= 0:
+            _print_ci_watch("timeout", "n/a", "n/a", "none", "agy")
+            return EXIT_CONFIG
+        try:
+            model = resolve_models(load_lanes_config(repo))["agy"]
+            effort = DEFAULT_EFFORT["agy"]
+        except LaneConfigError as exc:
+            print(f"[caddis-lanes] {exc}", file=sys.stderr)
+            _print_ci_watch("timeout", "n/a", "n/a", "none", "agy")
+            return EXIT_CONFIG
+        agy_argv = [
+            agy_path, "--model", f"{model}-{effort}",
+            "--dangerously-skip-permissions", "--output-format", "text", "--print",
+        ]
+        try:
+            run = run_agy(agy_argv, repo, prompt, False, remaining, child_env(os.environ, "agy", model))
+        except OSError as exc:
+            print(f"[caddis-lanes] ci-watch: agy could not start ({exc}); watching with gh", file=sys.stderr)
+            break
+        outcome = classify_exit("agy", run.returncode, run.output, run.timed_out)
+        if run.timed_out:
+            _print_ci_watch("timeout", "n/a", "n/a", "none", "agy")
+            return EXIT_CONFIG
+        if outcome in {RESULT_OUT_OF_BUDGET, RESULT_CONFIG_ERROR}:
+            reason = "out of budget" if outcome == RESULT_OUT_OF_BUDGET else "configuration error"
+            print(f"[caddis-lanes] ci-watch: agy {reason}; watching with gh", file=sys.stderr)
+            break
+        report = _ci_watch_block(run.output)
+        if report is not None:
+            result = report["RESULT"].lower()
+            _print_ci_watch(result, report["CHECKS"], report["MERGE_STATE"], report["FAILING"], "agy")
+            return {"pass": EXIT_OK, "fail": EXIT_FAIL, "timeout": EXIT_CONFIG}[result]
+        break
+
+    remaining = timeout_s - (clock() - started)
+    if remaining <= 0:
+        print("[caddis-lanes] ci-watch: time budget expired before gh", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+    gh_path = which("gh")
+    if gh_path is None:
+        print("[caddis-lanes] ci-watch: gh not found on PATH", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+    command = (
+        [gh_path, "pr", "checks", str(target_id), "--watch"]
+        if target_kind == "pr" else [gh_path, "run", "watch", str(target_id), "--exit-status"]
+    )
+    if repo_slug:
+        command.extend(["--repo", repo_slug])
+    try:
+        completed = run_gh(
+            command, cwd=repo, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=remaining,
+        )
+    except subprocess.TimeoutExpired:
+        print("[caddis-lanes] ci-watch: gh timed out", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+    except OSError as exc:
+        print(f"[caddis-lanes] ci-watch: gh could not start ({exc})", file=sys.stderr)
+        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+        return EXIT_CONFIG
+    output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+    if output:
+        print("\n".join(output.splitlines()[-40:]), file=sys.stderr)
+    no_checks = "no checks reported" in output.lower()
+    code = EXIT_OK if completed.returncode == 0 else (
+        EXIT_FAIL if completed.returncode == 1 and not no_checks else EXIT_CONFIG
+    )
+    _print_ci_watch(
+        "pass" if code == EXIT_OK else "fail" if code == EXIT_FAIL else "timeout",
+        "n/a", "n/a", "see gh output" if code == EXIT_FAIL else "none", "gh",
+    )
+    return code
+
+
 def load_wording_findings(text: str) -> list[str]:
     findings = []
     seen = set()
@@ -1595,6 +1817,17 @@ def main(argv: list[str] | None = None) -> int:
     show_chain.add_argument("--lane")
     show_chain.add_argument("--repo", type=Path)
 
+    next_model = subparsers.add_parser("next-lane")
+    next_model.add_argument("--role", required=True, choices=tuple(caddis_routing.DEFAULT_ROUTING))
+    next_model.add_argument("--after", required=True)
+
+    watch = subparsers.add_parser("ci-watch")
+    watch_target = watch.add_mutually_exclusive_group(required=True)
+    watch_target.add_argument("--pr", type=int)
+    watch_target.add_argument("--run", type=int)
+    watch.add_argument("--repo")
+    watch.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S)
+
     run = subparsers.add_parser("run")
     _add_phase_arguments(run)
     run.add_argument("--type", required=True)
@@ -1618,6 +1851,34 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "next-lane":
+            if args.after not in caddis_routing.KNOWN_MODELS:
+                print(f"[caddis-lanes] next-lane: unknown model {args.after!r}", file=sys.stderr)
+                return EXIT_CONFIG
+            try:
+                candidate = next_lane(
+                    args.role, args.after, home=Path.home(), repo=Path.cwd(), which=shutil.which
+                )
+            except caddis_routing.RoutingConfigError as exc:
+                print(f"[caddis-lanes] next-lane: {exc}", file=sys.stderr)
+                return EXIT_CONFIG
+            if candidate is None:
+                print(
+                    f"[caddis-lanes] next-lane: no lane left for {args.role} after {args.after}",
+                    file=sys.stderr,
+                )
+                return EXIT_CONFIG
+            print(candidate)
+            return EXIT_OK
+        if args.command == "ci-watch":
+            return ci_watch(
+                "pr" if args.pr is not None else "run",
+                args.pr if args.pr is not None else args.run,
+                args.repo,
+                args.timeout,
+                home=Path.home(),
+                repo=Path.cwd(),
+            )
         if args.command == "show-chain":
             cfg = load_lanes_config(args.repo if args.repo is not None else Path.cwd())
             chain = resolve_chain(args.type, cfg, first_lane=args.lane)

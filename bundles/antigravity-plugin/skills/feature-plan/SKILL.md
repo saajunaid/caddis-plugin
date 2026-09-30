@@ -154,6 +154,21 @@ session that is handed a phase belonging to another lane spawns that lane rather
 work; a headless one records the deviation in the Tracker. Write the launch command out in full, per
 phase — it is executed verbatim.
 
+**Choose each phase's Lane from the routing table.** Run
+`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
+Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
+of that role and write its Lane line as follows:
+
+- `opus`: `claude — /model opus`
+- `sonnet`: `claude — /model sonnet`
+- `claude`: `claude — this session`
+- `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format text -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+
+Replace `<plan path>` and `N` with this plan's path and phase number. If the routing command fails
+or exits 3, use `claude — this session` and state the reason in that phase.
+
 #### A phase may take a no-escalation lane only if its exit gate would fail on a spec error
 `glm-headless` cannot escalate: it does what the phase says. So completeness is only half the test —
 the other half is whether being **wrong** would be caught. Ask literally: *"if the instruction I just

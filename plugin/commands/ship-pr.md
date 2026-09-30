@@ -105,7 +105,12 @@ what failed.
 Watch the PR's checks job-by-job (never the deploy — PRs don't deploy here), including the
 scope-guard check when present:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
-- GitHub lane: `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
+- GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
+  ```bash
+  python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  ```
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell → stop and report, do not merge.
+  Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 On a red check, classify the failure and apply the minimum **source** fix, then re-push (through
 Step 4's safety if history must change).
 

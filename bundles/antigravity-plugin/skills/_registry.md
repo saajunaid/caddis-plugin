@@ -77,6 +77,7 @@
 |-------|------|-------------|
 | Add Rules | `add-rules/` | Create canonical rules for ANY folder — write <folder>/AGENTS.md (from the folder template) + a <folder>/CLAUDE.md @import shim. For folders the stack-map generator doesn't cover. |
 | Catchup | `catchup/` | Where were we? A quick list of what this session was doing and what is still open |
+| Cloud Phases | `cloud-phases/` | Run plan phases in Claude Code cloud sessions — write one prompt per phase, push, hand out paste lines, then take the PRs back |
 | Decide | `decide/` | Record a decision in one step — .caddis/decisions/<date>-<slug>.md |
 | Digress | `digress/` | Park the current workstream on the stack and switch to a new task — without losing the original |
 | Excalidraw Db | `excalidraw-db/` | Turn a SQL artifact into an Excalidraw diagram for a design review / ARB pack / slide — higher-level, drag-the-boxes format |

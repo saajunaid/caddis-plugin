@@ -547,6 +547,51 @@ if _DOC_MAP:
     print(f"\n[DOC-MAP] reference index available — read {os.path.relpath(_DOC_MAP, ROOT).replace(os.sep, '/')} "
           "first to find the right doc, then read it on demand (dispatch a subagent for heavy reads).")
 
+# ── model routing line (SessionStart) ─────────────────────────────────────────
+# Exactly one line at SessionStart: announces the resolved model for each role.
+# Headless runs print nothing; failure logs to hook error ledger and prints nothing.
+_event = str(_payload.get("hook_event_name", "")).strip() if isinstance(_payload, dict) else ""
+if _event == "SessionStart" and not _is_headless():
+    try:
+        from pathlib import Path as _Path
+
+        _hooks_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for _sc_routing in (
+            os.path.join(os.path.dirname(_hooks_parent), "scripts"),
+            os.path.join(_hooks_parent, "scripts"),
+        ):
+            if os.path.isdir(_sc_routing) and _sc_routing not in sys.path:
+                sys.path.insert(0, _sc_routing)
+        import caddis_routing as _crouting
+
+        _resolved = _crouting.resolve(home=_Path.home(), repo=_Path(ROOT))
+        _roles = _crouting.DEFAULT_ROUTING.keys()
+        _parts = []
+        for _role in _roles:
+            _models = _resolved.get(_role, [])
+            if len(_models) > 1 and _models[-1] == "claude":
+                _shown = _models[:-1]
+            else:
+                _shown = _models or ["claude"]
+            _parts.append(f"{_role}→{','.join(_shown)}")
+        _line = f"routing: {' · '.join(_parts)}"
+
+        _all_resolved = {m for _m_list in _resolved.values() for m in _m_list}
+        _default_models = {m for _m_list in _crouting.DEFAULT_ROUTING.values() for m in _m_list}
+        _missing = _default_models - _all_resolved
+        _reasons = {
+            "agy": "not installed",
+            "codex": "not installed",
+            "glm": "no key",
+            "deepseek": "no key",
+        }
+        _notes = [f"{m}: {_reasons[m]}" for m in sorted(_missing) if m in _reasons]
+        if _notes:
+            _line += f" ({'; '.join(_notes)})"
+        print(_line)
+    except Exception as _exc:
+        _hook_note("routing line", _exc)
+
 # Dream Memory surfacing was RETIRED 2026-08-26. It ranked facts by hit count, so the most-repeated
 # shell typo always outranked a real insight: 128 of 131 records were `failure-mode`, the top six were
 # a month stale with counts of 69-77, and the two genuinely useful records sat at hitCount 1 and never

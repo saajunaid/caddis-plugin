@@ -66,10 +66,24 @@ future run — ask every time, even for the same PR five minutes later.
 
 ## Step 3 — Merge
 
+Re-read PR head and merge state before merging (GitHub lane):
+```bash
+gh pr view <pr> --json headRefOid,mergeStateStatus
+```
+Merge only when `headRefOid` equals `<head-sha>` (the head that Step 1 found green and Step 2's
+confirmation named) and `mergeStateStatus` is `CLEAN` (or `HAS_HOOKS`/`UNSTABLE` only if the repo's
+own rules allow it). Otherwise stop and report: a new push needs a fresh Step 1 and a fresh confirm.
+A check report is a signal, not proof.
+
 Use the repo's configured **merge strategy** — read it from repo settings (Gitea repo settings API /
 `gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`) and `AGENTS.md`;
-an explicit argument wins. Options: **squash**, **merge-commit**, rebase-merge. **Don't assume** —
+an explicit argument wins. Options: **squash**, **merge-commit**, **rebase-merge**. **Don't assume** —
 if detection is inconclusive, say so and use merge-commit (never silently squash someone's history).
+
+Then merge:
+- GitHub: `gh pr merge <pr>` with `--squash` (squash), `--merge` (merge-commit) or `--rebase` (rebase-merge).
+- Gitea: call the Gitea PR merge API with the chosen strategy.
+
 Record the merge SHA.
 
 ## Step 4 — Monitor the deploy
@@ -77,8 +91,12 @@ Record the merge SHA.
 The merge lands on the default branch and triggers the pipeline. Watch it via the lane's skill:
 - Gitea: `lint_and_test` → `frontend_checks` (if present) → **`deploy_prod`** → `release_metadata`
   → `notify` (`deploy-local` skill §monitoring; classify + minimum-fix on failure).
-- GitHub: `gh run watch <run-id> --exit-status` on the default branch; if the workflow has a deploy
-  job, watch it through; if CI-only, note that no deploy occurs.
+- GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
+  ```bash
+  python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  ```
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 6).
+  Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If the workflow has a deploy job, watch it through; if CI-only, note that no deploy occurs.
 
 ## Step 5 — Post-deploy validation
 

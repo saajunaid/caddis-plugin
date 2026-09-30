@@ -96,10 +96,11 @@ def phase_lane(block: str) -> str:
 def launch_command(block: str) -> str:
     """The literal command for a non-claude lane, if the phase names one.
 
-    Also matches a caddis_lanes.py run command for the codex, agy and glm lanes.
+    Also matches a caddis_lanes.py run command or a direct codex/agy command.
     """
     m = re.search(
-        r'`((?:claude-(?:glm|oss|deepseek)|' + _LANES_RUN + r')[^`]*)`',
+        r'`((?:claude-(?:glm|oss|deepseek)\b|' + _LANES_RUN
+        + r'\b|codex\s+exec\b|agy\b)[^`]*)`',
         block,
     )
     return m.group(1).strip() if m else ""
@@ -141,6 +142,28 @@ def gate_lane(plan: Path, phase: int) -> int:
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s caddis_lanes command names --phase {named.group(1)}: {cmd}\n"
                 "  The lane would run another phase's work. Refusing to run it.\n")
+            return EXIT_MALFORMED
+    elif re.match(r"(?:codex\s+exec|agy)\b", cmd):
+        if "HEADLESS RUN RULES" not in cmd:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s direct command has no HEADLESS RUN RULES: {cmd}\n"
+                "  The child has no headless run rules. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        named = re.search(r"Implement Phase (\d+) only", cmd)
+        if not named:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s direct command has no phase restriction: {cmd}\n"
+                "  The lane could run the wrong phase. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        if int(named.group(1)) != phase:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s direct command names Phase {named.group(1)}: {cmd}\n"
+                "  The lane would run another phase's work. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        if cmd.startswith("agy") and not re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", cmd):
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s direct agy command has no -p/--print: {cmd}\n"
+                "  The child would not run headless. Refusing to run it.\n")
             return EXIT_MALFORMED
     elif not re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", cmd):
         sys.stderr.write(

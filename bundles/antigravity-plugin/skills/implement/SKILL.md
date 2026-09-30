@@ -166,8 +166,16 @@ row, visible to any later reader without an Advisory Hub having to catch it live
     lane worktrees and branches. It reports unmerged or dirty ones. It pushes the feature branch.
     The plan is not done until it prints `LEFTOVERS: 0`. Then run `/caddis:ship-pr`. Merging and
     post-merge cleanup stay with `/caddis:ship-merge` after the owner's go.
-10. **When Claude is out of budget**, the owner opens `caddis-run codex -m gpt-6-astra` and asks it
-    to follow this same subsection.
+10. **When a dispatched Claude run is out of budget**, read the output from the subagent or
+    `claude -p`. If it holds Claude usage-limit text (for example `You've hit your session limit`
+    or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
+    `caddis_lanes.py`), run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
+    Re-dispatch the same phase prompt to the printed lane with its direct launch command:
+    `codex exec ...` or `agy ... -p "..."`, using the same form that `/feature-plan` writes.
+    An out-of-budget switch is not an attempt (item 4). Record the fallback in the Tracker
+    `Lane` column, for example `sonnet -> agy (claude out of budget)`.
+    If `next-lane` exits 3, stop and report that no lane is left. As a last resort, the owner can
+    open `caddis-run codex -m gpt-6-astra` and ask it to follow this same subsection.
 
 **Advisory-Hub mode (conditional — OFF by default).** Check whether a companion file
 `<plan-dir>/<plan-stem>-advisory-context.md` exists (e.g. plan `.caddis/plans/foo.md` → look for
