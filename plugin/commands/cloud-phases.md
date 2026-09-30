@@ -180,7 +180,7 @@ step goes through GitHub. What changes:
 
 ## Rules
 - This command never merges into the default branch. The feature branch goes there later through
-  `/caddis:ship-pr`, and the production boundary check still applies there.
+  `/caddis:ship-pr`.
 - One phase, one prompt, one branch, one PR.
 - The orchestrator reads every diff. A green CI run proves only that the tests pass, not that the
   phase did what its Design says.

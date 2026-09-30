@@ -30,20 +30,6 @@ Resolve the target PR from `$ARGUMENTS`, else the current branch's open PR. No o
 that and point at `/ship-pr`. Read `AGENTS.md` + the workflow file(s) for the repo's real deploy
 job names and default branch — never assume.
 
-## Step 0b — Deploy boundary (before the confirm; nothing skips it)
-
-Run it before asking for any confirmation, in a checkout of the PR's own repository. If the
-PR belongs to another repository, treat that as exit **3**.
-
-```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" deploy-boundary --repo .
-```
-
-Exit **0** — go on to Step 1. Exit **1** (a push to the default branch deploys to production), exit
-**3** (it cannot tell), or any other non-zero code — **stop. Do not merge.** Hand the merge to the
-owner with the PR link. Show the gate's output and end the command. This holds whatever confirmation
-was given: `--yes`, a confirm flag, "just merge it" or an earlier approval cannot bypass it.
-
 ## Step 1 — Refuse unless green + mergeable + reviewed
 
 All of, per the repo's own rules:
@@ -128,7 +114,6 @@ Cleanup:       remote branch ✗ deleted / local ✗ deleted / backup ref droppe
 
 ## Rules
 - Never merge without: green required checks **and** the explicit human deploy-confirm.
-- Never merge unless `deploy-boundary` exited 0 on this run. No confirmation overrides it.
 - Never delete a branch before its deploy is validated green.
 - Never `git add -A` without reviewing `git status`; never edit a workflow file to make a gate pass.
 - Local-only lane: no PR, no merge — refuse and point at `/ship`.

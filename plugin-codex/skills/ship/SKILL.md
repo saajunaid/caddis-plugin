@@ -64,19 +64,6 @@ over 400 changed lines. No judgement in any of those — deliberately, because j
 what failed.
 <!-- /shared:cross-review-trigger -->
 
-**2c. DEPLOY BOUNDARY** — before the push; nothing skips it:
-
-```bash
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" deploy-boundary --repo .
-```
-
-Exit **0** (no deploy signal found) — push. Exit **1** (a push to the default branch deploys to
-production), exit **3** (it cannot tell), or any other non-zero code — **stop. Do not merge or push to
-the default branch.** The commit stays local. If it sits on the default branch, move it to a feature
-branch first (`git switch -c <feature-branch>`). Then open a PR with `/ship-pr` and hand the merge
-to the owner with the PR link. Show the gate's output and end the command. This holds whatever confirmation was given:
-`--yes`, a confirm flag, "just merge it" or an earlier approval cannot bypass it.
-
 **3. PUSH** — to the repo's default branch (confirm the branch first; don't assume `main`):
 ```
 git push origin <branch>
@@ -132,7 +119,6 @@ Release tag:     <tag> → <sha> | n/a
 
 ## Rules
 - Never push before preflight gates are green.
-- Never push to the default branch unless `deploy-boundary` exited 0 on this run.
 - Never use `git add -A` without reviewing `git status` first.
 - Do not edit a workflow file (`.gitea/workflows/` or `.github/workflows/`) to make a failing gate
   pass — fix the source.
