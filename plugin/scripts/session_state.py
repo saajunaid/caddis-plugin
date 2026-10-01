@@ -760,6 +760,10 @@ def prune_session_states(directory: str, keep: int = STATE_KEEP) -> int:
                 removed += 1
             except OSError:
                 pass
+            try:
+                os.unlink(path[:-3] + ".ended")  # the SessionEnd marker goes with its state file
+            except OSError:
+                pass
     except Exception:
         pass
     return removed

@@ -1,5 +1,9 @@
 """Stop hook: write this session's state file, and nothing else.
 
+The same script also runs on `SessionEnd` (hooks.json). There it writes only an `<id>.ended`
+marker next to the state file, so the SessionStart live-peer warning does not call a session that
+was just closed or cleared (`/clear` starts a NEW session id) a live peer.
+
 `Stop` fires at the end of EVERY assistant turn in EVERY session, so whatever runs here is a
 per-turn tax. Since Phase 13 (2026-09-27) it has one job: render
 `.caddis/session-state/<session-id>.md` from the tail of the transcript (see session_state.py).
@@ -77,6 +81,12 @@ def main() -> None:
         art_dir = str(artifact_root(root))
         sid = str(data.get("session_id", "") or "").strip()
         slug = "".join(c for c in sid if c.isalnum() or c in "-_")[:64]
+        if str(data.get("hook_event_name", "") or "") == "SessionEnd":
+            if slug and os.path.isdir(os.path.join(art_dir, "session-state")):
+                with open(os.path.join(art_dir, "session-state", slug + ".ended"), "w",
+                          encoding="utf-8") as marker:
+                    marker.write(str(data.get("reason", "") or "ended") + "\n")
+            return
         if slug:
             target = os.path.join(art_dir, "session-state", slug + ".md")
             carry = read_carry(target)

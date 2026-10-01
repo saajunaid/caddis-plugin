@@ -423,9 +423,17 @@ def _live_peers(own_session_id: str, now: float | None = None) -> list[tuple[str
             if own_session_id and sid == own_session_id:
                 continue  # `claude --continue` resumes the same id; that is not a peer
             try:
-                age = int(now - os.path.getmtime(os.path.join(base, name)))
+                mtime = os.path.getmtime(os.path.join(base, name))
+                age = int(now - mtime)
             except OSError:
                 continue
+            try:
+                # SessionEnd wrote a marker: the session was closed or cleared. A resumed session
+                # (`claude --continue`) rewrites its state file, which is newer than the marker.
+                if os.path.getmtime(os.path.join(base, sid + ".ended")) >= mtime:
+                    continue
+            except OSError:
+                pass
             if 0 <= age <= PEER_FRESH_S:
                 peers.append((sid, age))
         if peers:
