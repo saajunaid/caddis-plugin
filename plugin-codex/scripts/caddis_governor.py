@@ -406,6 +406,19 @@ def job_process_ids(job: int) -> list[int]:
     return [int(lst.ProcessIdList[i]) for i in range(lst.NumberOfProcessIdsInList)]
 
 
+def query_named_job(name: str) -> tuple[float, list[int]]:
+    """Read a named job from a separate process using query access only."""
+    if sys.platform != "win32" or not name:
+        raise GovernorError("a Windows job name is required")
+    job = kernel32.OpenJobObjectW(JOB_OBJECT_QUERY, False, name)
+    if not job:
+        raise _winerr("OpenJobObjectW(query)")
+    try:
+        return job_cpu_seconds(job), job_process_ids(job)
+    finally:
+        close_job(job)
+
+
 def close_job(job: int) -> None:
     """Close a job handle. Never call it on the last handle of a job the calling process belongs to."""
     kernel32.CloseHandle(job)
@@ -451,7 +464,8 @@ def _host_kind() -> str:
 
 
 def exec_governed(argv: list[str], scope: str, budget: Path | None = None,
-                  machine_budget: Path | None = None, allow_uncapped: bool = False) -> int:
+                  machine_budget: Path | None = None, allow_uncapped: bool = False,
+                  job_name: str | None = None) -> int:
     """Run `argv` under the scope's limits and return its exit code.
 
     On Windows this puts the CURRENT process into the job for the rest of its life, so it is only
@@ -470,7 +484,7 @@ def exec_governed(argv: list[str], scope: str, budget: Path | None = None,
             parent = verified_parent_percent(os.environ)
             rate = effective_cpu_rate(limits, parent)
             machine_pct = effective_machine_percent(limits, parent)
-            name = new_job_name()
+            name = job_name or new_job_name()
             job = create_job(limits, rate, name)
             try:
                 assign_current_process(job)
@@ -518,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     p_exec.add_argument("--scope", choices=SCOPES, required=True)
     p_exec.add_argument("--budget", type=Path)
     p_exec.add_argument("--machine-budget", type=Path, help=argparse.SUPPRESS)  # additional ceiling only
+    p_exec.add_argument("--job-name", help=argparse.SUPPRESS)
     p_exec.add_argument("--allow-uncapped", action="store_true",
                         help="where no cap can be applied (no systemd-run, macOS), run at lower priority anyway")
     p_show = sub.add_parser("show", help="print the effective limits")
@@ -538,7 +553,8 @@ def main(argv: list[str] | None = None) -> int:
     if not command:
         sys.stderr.write("usage: caddis_governor.py exec --scope session|lane [--budget PATH] -- <command...>\n")
         return EXIT_USAGE
-    return exec_governed(command, args.scope, args.budget, args.machine_budget, args.allow_uncapped)
+    return exec_governed(command, args.scope, args.budget, args.machine_budget,
+                         args.allow_uncapped, args.job_name)
 
 
 if __name__ == "__main__":

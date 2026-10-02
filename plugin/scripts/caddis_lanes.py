@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+from functools import lru_cache
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -16,17 +18,20 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 try:
     import caddis_exit
+    from caddis_heavy_slot import HeavySlotBusy, heavy_slot
 except ModuleNotFoundError as exc:
-    if exc.name != "caddis_exit":
+    if exc.name not in {"caddis_exit", "caddis_heavy_slot"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
+    from caddis_heavy_slot import HeavySlotBusy, heavy_slot
 
 import caddis_routing
 
@@ -39,13 +44,17 @@ EXIT_FAIL = caddis_exit.BLOCKED
 EXIT_USAGE = caddis_exit.ERROR
 EXIT_CONFIG = caddis_exit.NOT_RUN
 EXIT_ALL_OUT = caddis_exit.NOT_RUN
+EXIT_NOT_RUN = caddis_exit.NOT_RUN
 RESULT_OK = "OK"
 RESULT_LANE_FAILED = "LANE-FAILED"
+RESULT_STALLED = "LANE-STALLED"
 RESULT_OUT_OF_BUDGET = "OUT-OF-BUDGET"
 RESULT_CONFIG_ERROR = "CONFIG-ERROR"
 RESULT_RESOURCE = "FAILED-RESOURCE"
 MAX_ATTEMPTS = 2
 DEFAULT_TIMEOUT_S = 3600
+DEFAULT_IDLE_TIMEOUT_S = 900
+IDLE_SAMPLE_S = 15
 LANE_IDS = ("claude", "glm", "codex-sol", "codex-astra", "agy")
 TASK_TYPES = ("backend", "hard", "ui", "tests", "docs")
 LANES_TMP = Path(tempfile.gettempdir()) / "caddis-lanes"
@@ -154,6 +163,17 @@ class LaneRun:
     duration_s: float
     pid: int
     started: float
+    stalled: bool = False
+    idle_seconds: int = 0
+    processes: list[dict] | None = None
+
+
+@dataclass
+class LaneProbe:
+    mtime_ns: int
+    cpu_seconds: float | None
+    pids: frozenset[int] | None
+    processes: list[dict]
 
 
 @dataclass
@@ -320,13 +340,14 @@ def governor_path() -> Path:
     )
 
 
-def governed_argv(argv: list[str]) -> list[str]:
+def governed_argv(argv: list[str], job_name: str | None = None) -> list[str]:
     return [
         sys.executable,
         str(governor_path()),
         "exec",
         "--scope",
         "lane",
+        *(["--job-name", job_name] if job_name else []),
         "--",
         *argv,
     ]
@@ -455,6 +476,88 @@ def release_lock(lock: Path) -> None:
         _release_acquisition_guard(guard_fd)
 
 
+def newest_file_mtime(cwd: Path) -> int:
+    newest = 0
+    files = 0
+    pending = [cwd]
+    while pending and files < 20000:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name == ".git" or (
+                        directory == cwd / ".caddis" and entry.name == "orchestrator"
+                    ):
+                        continue
+                    pending.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=False):
+                    files += 1
+                    newest = max(newest, entry.stat(follow_symlinks=False).st_mtime_ns)
+                    if files >= 20000:
+                        break
+    return newest
+
+
+def default_probe(pid: int, cwd: Path, job_name: str | None) -> LaneProbe:
+    mtime = newest_file_mtime(cwd)
+    if sys.platform == "win32":
+        governor = _governor_probe_module()
+        cpu, pids = governor.query_named_job(job_name)
+        names = _windows_process_names(pids)
+    elif sys.platform.startswith("linux"):
+        ticks = os.sysconf("SC_CLK_TCK")
+        members = []
+        for path in Path("/proc").iterdir():
+            if not path.name.isdecimal():
+                continue
+            try:
+                stat = (path / "stat").read_text(encoding="utf-8")
+                fields = stat[stat.rfind(")") + 2 :].split()
+                if int(fields[3]) == pid:
+                    members.append((int(path.name), stat[stat.find("(") + 1 : stat.rfind(")")],
+                                    (int(fields[11]) + int(fields[12])) / ticks))
+            except (OSError, ValueError, IndexError):
+                continue
+        pids = [item[0] for item in members]
+        cpu = sum(item[2] for item in members)
+        names = {item[0]: item[1] for item in members}
+    else:
+        return LaneProbe(mtime, None, None, [])
+    return LaneProbe(mtime, cpu, frozenset(pids),
+                     [{"pid": member, "name": names.get(member, "unknown")} for member in sorted(pids)])
+
+
+@lru_cache(maxsize=1)
+def _governor_probe_module():
+    return _load_file_module("_caddis_governor_probe", governor_path())
+
+
+def _windows_process_names(pids: list[int]) -> dict[int, str]:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
+                                                    wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    names = {}
+    for pid in pids:
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            continue
+        try:
+            buffer = ctypes.create_unicode_buffer(32768)
+            size = wintypes.DWORD(len(buffer))
+            if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                names[pid] = Path(buffer.value).name
+        finally:
+            kernel32.CloseHandle(handle)
+    return names
+
+
 def run_lane(
     argv: list[str],
     cwd: Path,
@@ -462,14 +565,19 @@ def run_lane(
     stdin_prompt: bool,
     timeout_s: int,
     env: dict,
+    idle_timeout_s: int = DEFAULT_IDLE_TIMEOUT_S,
+    clock=time.monotonic,
+    sleep=time.sleep,
+    probe=default_probe,
 ) -> LaneRun:
-    full = governed_argv(argv)
+    job_name = f"Local\\caddis-governor-{os.getpid()}-{secrets.token_hex(8)}" if sys.platform == "win32" else None
+    full = governed_argv(argv, job_name)
     if not stdin_prompt:
         full.append(prompt)
     validate_codex_argv(full)
 
     started = time.time()
-    monotonic_started = time.monotonic()
+    monotonic_started = clock()
     popen_options = {}
     if sys.platform != "win32":
         popen_options["start_new_session"] = True
@@ -479,46 +587,116 @@ def run_lane(
         stdin=subprocess.PIPE if stdin_prompt else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         env=env,
         **popen_options,
     )
-    timed_out = False
-    output = ""
-    try:
+    timed_out = stalled = False
+    idle_seconds = 0
+    processes = None
+    chunks: list[bytes] = []
+    byte_count = [0]
+
+    def read_output() -> None:
+        assert proc.stdout is not None
         try:
-            output, _ = proc.communicate(
-                input=prompt if stdin_prompt else None,
-                timeout=timeout_s,
-            )
-        except subprocess.TimeoutExpired as first_timeout:
-            kill_governed(proc)
-            timed_out = True
+            while chunk := proc.stdout.read1(65536):
+                chunks.append(chunk)
+                byte_count[0] += len(chunk)
+        except OSError:
+            pass  # the pipe can close when the governed process is killed
+
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    try:
+        if stdin_prompt:
+            assert proc.stdin is not None
+            stdin_pipe = proc.stdin
+
+            def write_prompt() -> None:
+                # On its own thread: a child that never reads its stdin would block this write for
+                # ever, and the wall-clock and idle limits below must still apply to it.
+                try:
+                    stdin_pipe.write(prompt.encode("utf-8"))
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+                finally:
+                    try:
+                        stdin_pipe.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        pass
+
+            threading.Thread(target=write_prompt, daemon=True).start()
+        previous = None
+        previous_bytes = byte_count[0]
+        last_active = monotonic_started
+        last_sample = monotonic_started
+        next_sample = monotonic_started + IDLE_SAMPLE_S
+        if idle_timeout_s:
             try:
-                output, _ = proc.communicate(timeout=30)
-            except subprocess.TimeoutExpired as second_timeout:
+                previous = probe(proc.pid, cwd, job_name)
+            except Exception:
+                pass
+        while proc.poll() is None:
+            now = clock()
+            if now - monotonic_started >= timeout_s:
+                timed_out = True
                 kill_governed(proc)
-                captured = second_timeout.output or first_timeout.output or ""
-                output = (
-                    captured.decode("utf-8", errors="replace")
-                    if isinstance(captured, bytes)
-                    else captured
-                )
+                break
+            until_sample = max(next_sample - now, 0) if idle_timeout_s else 0.25
+            sleep(min(0.25, until_sample, timeout_s - (now - monotonic_started)))
+            if proc.poll() is not None or not idle_timeout_s:
+                continue
+            now = clock()
+            if now < next_sample:
+                continue
+            next_sample = now + IDLE_SAMPLE_S
+            try:
+                current = probe(proc.pid, cwd, job_name)
+            except Exception:
+                current = None
+            if current is None or previous is None:
+                last_active = now  # unknown activity must not cause a false stall
+            else:
+                elapsed = max(now - last_sample, 0)
+                active = (byte_count[0] != previous_bytes or
+                          current.mtime_ns != previous.mtime_ns or
+                          current.pids != previous.pids or
+                          (current.cpu_seconds is not None and previous.cpu_seconds is not None and
+                           current.cpu_seconds - previous.cpu_seconds > elapsed / 60))
+                if active:
+                    last_active = now
+            previous, previous_bytes, last_sample = current, byte_count[0], now
+            if now - last_active >= idle_timeout_s and now - monotonic_started < timeout_s:
+                stalled = True
+                idle_seconds = int(now - last_active)
+                processes = current.processes
+                kill_governed(proc)
+                break
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            kill_governed(proc)
+        reader.join(timeout=30)
     except BaseException:
         kill_governed(proc)
         raise
 
     return LaneRun(
         returncode=proc.returncode,
-        output=output,
+        output=b"".join(chunks).decode("utf-8", errors="replace"),
         timed_out=timed_out,
-        duration_s=time.monotonic() - monotonic_started,
+        duration_s=clock() - monotonic_started,
         pid=proc.pid,
         started=started,
+        stalled=stalled,
+        idle_seconds=idle_seconds,
+        processes=processes,
     )
 
+
+
+# ci_watch compares its `run_agy` argument with this by identity (see the idle watchdog note there).
+_LANE_RUNNER = run_lane
 
 def gate_commands(repo_root: Path, worktree: Path, cfg: dict) -> list[list[str]]:
     configured = cfg.get("gate_cmds")
@@ -556,43 +734,65 @@ def run_gates(
     env: dict,
     timeout_s: int = 1800,
 ) -> list[GateResult]:
-    results = []
-    for command in cmds:
-        try:
-            completed = subprocess.run(
-                governed_argv(command),
-                cwd=cwd,
-                env=env,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout_s,
-            )
-        except subprocess.TimeoutExpired:
-            results.append(
+    try:
+        with heavy_slot("gates"):
+            results = []
+            for command in cmds:
+                try:
+                    completed = subprocess.run(
+                        governed_argv(command),
+                        cwd=cwd,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=timeout_s,
+                    )
+                except subprocess.TimeoutExpired:
+                    results.append(
+                        GateResult(
+                            cmd=shlex.join(command),
+                            returncode=-1,
+                            passed=False,
+                            tail=f"timed out after {timeout_s}s",
+                        )
+                    )
+                    continue
+
+                output = _combined_output(completed)
+                passed = completed.returncode == 0 or (
+                    completed.returncode == 5 and "pytest" in " ".join(command)
+                )
+                results.append(
+                    GateResult(
+                        cmd=shlex.join(command),
+                        returncode=completed.returncode,
+                        passed=passed,
+                        tail=output[-2000:],
+                    )
+                )
+            return results
+    except HeavySlotBusy as exc:
+        msg = f"heavy-run slot busy: {exc.holder}" if exc.holder else "heavy-run slot busy"
+        if cmds:
+            return [
                 GateResult(
                     cmd=shlex.join(command),
-                    returncode=-1,
+                    returncode=EXIT_NOT_RUN,
                     passed=False,
-                    tail=f"timed out after {timeout_s}s",
+                    tail=msg,
                 )
-            )
-            continue
-
-        output = _combined_output(completed)
-        passed = completed.returncode == 0 or (
-            completed.returncode == 5 and "pytest" in " ".join(command)
-        )
-        results.append(
+                for command in cmds
+            ]
+        return [
             GateResult(
-                cmd=shlex.join(command),
-                returncode=completed.returncode,
-                passed=passed,
-                tail=output[-2000:],
+                cmd="",
+                returncode=EXIT_NOT_RUN,
+                passed=False,
+                tail=msg,
             )
-        )
-    return results
+        ]
 
 
 def oss_review_path() -> Path | None:
@@ -788,7 +988,15 @@ def load_lanes_config(repo_root: Path) -> dict:
     lanes = data.get("lanes", {})
     if not isinstance(lanes, dict):
         raise LaneConfigError(f"[lanes] in {config_path} is not a table")
+    idle_timeout(lanes)
     return lanes
+
+
+def idle_timeout(cfg: dict, override: int | None = None) -> int:
+    value = cfg.get("idle_timeout_s", DEFAULT_IDLE_TIMEOUT_S) if override is None else override
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise LaneConfigError(f"invalid [lanes] idle_timeout_s: {value!r}")
+    return value
 
 
 def resolve_models(cfg: dict) -> dict[str, str]:
@@ -937,9 +1145,12 @@ def classify_exit(
     output: str,
     timed_out: bool,
     guard_killed: bool = False,
+    stalled: bool = False,
 ) -> str:
     if guard_killed:
         return RESULT_RESOURCE
+    if stalled:
+        return RESULT_STALLED
     if timed_out:
         return RESULT_LANE_FAILED
     if any(re.search(pattern, output, re.I) for pattern in CONFIG_PATTERNS[lane]):
@@ -1109,7 +1320,10 @@ def ci_watch(
             "--dangerously-skip-permissions", "--output-format", "text", "--print",
         ]
         try:
-            run = run_agy(agy_argv, repo, prompt, False, remaining, child_env(os.environ, "agy", model))
+            # A CI watcher legitimately sits idle while CI runs, so the idle watchdog is off for it;
+            # the wall-clock limit (`remaining`) still applies.
+            watcher = (lambda *a: run_lane(*a, idle_timeout_s=0)) if run_agy is _LANE_RUNNER else run_agy
+            run = watcher(agy_argv, repo, prompt, False, remaining, child_env(os.environ, "agy", model))
         except OSError as exc:
             print(f"[caddis-lanes] ci-watch: agy could not start ({exc}); watching with gh", file=sys.stderr)
             break
@@ -1202,6 +1416,7 @@ def build_prompt(
         "- Never use --no-verify. Never read or edit .env files or any secret. Never "
         "run anything against production.\n"
         "- Do not implement any other phase.\n"
+        "- Run every command in the foreground and wait for it to finish. Start no background tasks, watchers or dev servers.\n"
         "Resource budget (enforced by the machine, not by this text):\n"
         f"- You run inside a Windows Job Object: {limits_line}. Exceeding it slows "
         "you down; it does not stop the limit.\n"
@@ -1361,11 +1576,27 @@ def _run_post_checks(
     before: dict[str, str | None],
 ) -> tuple[str, int]:
     worktree = Path(packet["worktree"])
-    gates = run_gates(
-        gate_commands(repo, worktree, cfg),
-        worktree,
-        gate_env(repo, dict(os.environ)),
-    )
+    # The heavy-run slot covers the project's own test commands only. The review is a network call and
+    # must not hold a slot that another gate is waiting for.
+    try:
+        with heavy_slot("gates"):
+            gates = run_gates(
+                gate_commands(repo, worktree, cfg),
+                worktree,
+                gate_env(repo, dict(os.environ)),
+            )
+    except HeavySlotBusy as exc:
+        msg = f"heavy-run slot busy: {exc.holder}" if exc.holder else "heavy-run slot busy"
+        packet.update(
+            {
+                "gates": [{"cmd": "gates", "returncode": EXIT_NOT_RUN, "passed": False, "tail": msg}],
+                "gates_passed": False,
+                "next": "stop",
+            }
+        )
+        packet.pop("_freeze_before", None)
+        return "stop", EXIT_NOT_RUN
+
     review = run_review(worktree, dict(os.environ))
     pythons = list(before)
     if pythons:
@@ -1411,6 +1642,7 @@ def _run_command(
     packet_path: Path,
 ) -> int:
     cfg = load_lanes_config(repo)
+    idle_timeout_s = idle_timeout(cfg, args.idle_timeout)
     block = phase_block_text(plan, args.phase)
     findings_text = ""
     if args.findings is not None:
@@ -1484,6 +1716,7 @@ def _run_command(
             prompt_via_stdin(lane),
             args.timeout,
             child_env(dict(os.environ), lane, model),
+            idle_timeout_s=idle_timeout_s,
         )
         killed = guard_killed_since(lane_run.started, {lane_run.pid})
         result = classify_exit(
@@ -1492,6 +1725,7 @@ def _run_command(
             lane_run.output,
             lane_run.timed_out,
             killed,
+            lane_run.stalled,
         )
         packet["lanes_tried"].append(
             {
@@ -1502,9 +1736,18 @@ def _run_command(
                 "returncode": lane_run.returncode,
                 "duration_s": lane_run.duration_s,
                 "timed_out": lane_run.timed_out,
+                "stalled": lane_run.stalled,
+                "idle_seconds": lane_run.idle_seconds,
             }
         )
         packet["result"] = result
+        if lane_run.stalled:
+            packet.update({
+                "stall": "idle",
+                "idle_seconds": lane_run.idle_seconds,
+                "tail": f"idle for {lane_run.idle_seconds}s; process tree before kill: "
+                        f"{json.dumps(lane_run.processes or [])}",
+            })
         if result == RESULT_RESOURCE:
             packet["next"] = "stop"
             write_packet(packet_path, packet)
@@ -1518,12 +1761,15 @@ def _run_command(
             write_packet(packet_path, packet)
             print(f"NEXT: stop (config error on {lane})")
             return EXIT_CONFIG
-        if result == RESULT_LANE_FAILED:
+        if result in (RESULT_LANE_FAILED, RESULT_STALLED):
             packet["next"] = (
                 "takeover" if args.attempt >= MAX_ATTEMPTS else "redo"
             )
             write_packet(packet_path, packet)
-            print(f"NEXT: {packet['next']}")
+            if result == RESULT_STALLED:
+                print(f"NEXT: {packet['next']} (lane idle {lane_run.idle_seconds}s; see packet)")
+            else:
+                print(f"NEXT: {packet['next']}")
             return EXIT_FAIL
         break
     else:
@@ -1840,6 +2086,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--lane")
     run.add_argument("--findings", type=Path)
     run.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S)
+    run.add_argument("--idle-timeout", type=int)
     run.add_argument("--allow-load", action="store_true")
 
     check = subparsers.add_parser("check")

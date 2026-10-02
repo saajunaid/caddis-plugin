@@ -377,6 +377,225 @@ def check_venv(target: Path, install: bool, dry: bool) -> list[str]:
     return notes
 
 
+GATE_STEP_PY = r'''#!/usr/bin/env python3
+"""caddis_gate_step.py — Per-step gate runner with timeout and process tree cleanup.
+
+Runs under the PROJECT's interpreter, which may be older than 3.11: no `tomllib` at import time
+(the config file is skipped, with one stderr line, when it is missing) and annotations are not evaluated.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+try:
+    import tomllib
+except ImportError:  # Python < 3.11
+    tomllib = None
+
+
+def format_elapsed(seconds: float) -> str:
+    total_s = max(0, int(round(seconds)))
+    if total_s < 60:
+        return f"{total_s}s"
+    m = total_s // 60
+    s = total_s % 60
+    return f"{m}m{s:02d}s"
+
+
+def with_faulthandler(argv: list[str], name: str, env: dict[str, str] | None = None) -> list[str]:
+    argv = list(argv)
+    if name != "pytest":
+        return argv
+    if any("faulthandler_timeout" in str(arg) for arg in argv):
+        return argv
+    env_opts = (env.get("PYTEST_ADDOPTS") if env is not None else os.environ.get("PYTEST_ADDOPTS")) or ""
+    if "faulthandler_timeout" in env_opts:
+        return argv
+    return argv + ["-o", "faulthandler_timeout=300"]
+
+
+def kill_process_tree(proc: subprocess.Popen) -> None:
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+    else:
+        try:
+            pgid = os.getpgid(proc.pid)
+        except Exception:
+            pgid = proc.pid
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    if "--" in argv:
+        sep_idx = argv.index("--")
+        runner_args = argv[:sep_idx]
+        cmd = argv[sep_idx + 1:]
+    else:
+        runner_args = argv
+        cmd = []
+
+    parser = argparse.ArgumentParser(description="caddis quality gate step runner")
+    parser.add_argument("--name", required=True, help="Step name")
+    parser.add_argument("--timeout", type=int, required=True, help="Default timeout in seconds")
+    parser.add_argument("cmd", nargs="*", help="Command to run (if -- not used)")
+
+    args = parser.parse_args(runner_args)
+    if not cmd:
+        cmd = args.cmd
+        if cmd and cmd[0] == "--":
+            cmd = cmd[1:]
+
+    if not cmd:
+        print("[gate] error: no command specified to run", file=sys.stderr)
+        return 1
+
+    name = args.name
+    timeout = args.timeout
+
+    # Config: read .caddis/config.toml in the current directory if present
+    cfg_path = Path(".caddis/config.toml")
+    gate_cfg: dict = {}
+    if cfg_path.is_file() and tomllib is None:
+        print("[gate] note: .caddis/config.toml not read (needs Python 3.11 or later)", file=sys.stderr)
+    elif cfg_path.is_file():
+        try:
+            with open(cfg_path, "rb") as f:
+                raw_cfg = tomllib.load(f)
+            if isinstance(raw_cfg, dict):
+                g = raw_cfg.get("gate", {})
+                if isinstance(g, dict):
+                    gate_cfg = g
+        except Exception as exc:
+            print(f"[gate] warning: malformed .caddis/config.toml ({exc})", file=sys.stderr)
+
+    # Section [gate]: timeout_<name> overrides --timeout for that step name
+    candidate_keys = (
+        f"timeout_{name}",
+        f"timeout_{name.replace('-', '_')}",
+        f"timeout_{name.replace('_', '-')}",
+    )
+    for k in candidate_keys:
+        if k in gate_cfg:
+            val = gate_cfg[k]
+            if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+                timeout = val
+            else:
+                print(
+                    f"[gate] warning: invalid {k}={val!r} in config (must be positive integer)",
+                    file=sys.stderr,
+                )
+            break
+
+    # Env var CADDIS_GATE_TIMEOUT_<NAME upper, - replaced by _> overrides config
+    env_var_name = f"CADDIS_GATE_TIMEOUT_{name.upper().replace('-', '_')}"
+    if env_var_name in os.environ:
+        raw_val = os.environ[env_var_name].strip()
+        try:
+            env_timeout = int(raw_val)
+            if env_timeout > 0:
+                timeout = env_timeout
+            else:
+                print(
+                    f"[gate] warning: invalid {env_var_name}={raw_val!r} (must be positive integer)",
+                    file=sys.stderr,
+                )
+        except ValueError:
+            print(
+                f"[gate] warning: invalid {env_var_name}={raw_val!r} (must be integer)",
+                file=sys.stderr,
+            )
+
+    # pytest_args (list of strings) are appended to pytest command ONLY when --name is pytest
+    if name == "pytest":
+        pytest_args = gate_cfg.get("pytest_args")
+        if isinstance(pytest_args, list):
+            for pa in pytest_args:
+                if isinstance(pa, str):
+                    cmd.append(pa)
+                else:
+                    cmd.append(str(pa))
+
+    # Pytest hang dump
+    cmd = with_faulthandler(cmd, name, os.environ)
+
+    # Print start line
+    print(f"[gate] {name}: start (limit {timeout}s)", flush=True)
+
+    start_time = time.monotonic()
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+
+    try:
+        proc = subprocess.Popen(cmd, **kwargs)
+    except Exception as exc:
+        print(f"[gate] {name}: failed to start {cmd[0]}: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_process_tree(proc)
+        print(
+            f"[gate] {name}: TIMEOUT after {timeout}s - killed the process tree",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 124
+
+    elapsed = time.monotonic() - start_time
+    rc = proc.returncode
+    print(f"[gate] {name}: done in {format_elapsed(elapsed)} (exit {rc})", flush=True)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+
+
 # Enforced "green before push" gate. Installed into .git/hooks/pre-push. Pure POSIX sh
 # so it runs under Git's bundled shell on Windows/Linux/macOS.
 #
@@ -398,6 +617,13 @@ PRE_PUSH_HOOK = r"""#!/usr/bin/env sh
 set -eu
 echo "[caddis] pre-push quality gate"
 fail=0
+if command -v dirname >/dev/null 2>&1; then
+  GATE_RUN="$(dirname "$0")/caddis_gate_step.py"
+elif [ -n "${0%/*}" ] && [ "${0%/*}" != "$0" ]; then
+  GATE_RUN="${0%/*}/caddis_gate_step.py"
+else
+  GATE_RUN="./caddis_gate_step.py"
+fi
 
 # Prefer the project's virtualenv over PATH. Checked in venv-layout order for both
 # Windows (Scripts/) and POSIX (bin/) so the same hook works on either.
@@ -424,10 +650,20 @@ py_sources_exist() {
 
 py_gate() {
   tool=$1; shift
+  timeout=300
+  case "$tool" in
+    ruff) timeout=300 ;;
+    mypy) timeout=600 ;;
+    pytest) timeout=1200 ;;
+  esac
   if py_has "$tool"; then
-    echo "[gate] $tool $*"
     rc=0
-    "$PY" -m "$tool" "$@" || rc=$?
+    if [ -f "$GATE_RUN" ]; then
+      "$PY" "$GATE_RUN" --name "$tool" --timeout "$timeout" -- "$PY" -m "$tool" "$@" || rc=$?
+    else
+      echo "[gate] $tool $*"
+      "$PY" -m "$tool" "$@" || rc=$?
+    fi
     if [ "$rc" -ne 0 ]; then
   # pytest exit 5 = "no tests collected". A repo that has not written tests yet is not a
   # failing repo, and blocking it would hit exactly the fresh-scaffold case this fix exists
@@ -457,9 +693,15 @@ if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
   fi
 fi
 if [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then
-  npm run 2>/dev/null | grep -q " lint"      && { echo "[gate] npm run lint"; npm run lint --silent || fail=1; }
-  npm run 2>/dev/null | grep -q " typecheck" && { echo "[gate] npm run typecheck"; npm run typecheck --silent || fail=1; }
-  npm run 2>/dev/null | grep -q " test"       && { echo "[gate] npm test"; npm test --silent || fail=1; }
+  if [ -f "$GATE_RUN" ] && [ -n "$PY" ]; then
+    npm run 2>/dev/null | grep -q " lint"      && { "$PY" "$GATE_RUN" --name npm-lint --timeout 600 -- npm run lint --silent || fail=1; }
+    npm run 2>/dev/null | grep -q " typecheck" && { "$PY" "$GATE_RUN" --name npm-typecheck --timeout 600 -- npm run typecheck --silent || fail=1; }
+    npm run 2>/dev/null | grep -q " test"       && { "$PY" "$GATE_RUN" --name npm-test --timeout 1200 -- npm test --silent || fail=1; }
+  else
+    npm run 2>/dev/null | grep -q " lint"      && { echo "[gate] npm run lint"; npm run lint --silent || fail=1; }
+    npm run 2>/dev/null | grep -q " typecheck" && { echo "[gate] npm run typecheck"; npm run typecheck --silent || fail=1; }
+    npm run 2>/dev/null | grep -q " test"       && { echo "[gate] npm test"; npm test --silent || fail=1; }
+  fi
 fi
 # Doc-coverage discipline (any stack). The checker exits non-zero ONLY on a hard invariant
 # (missing route / dangling doc-map link); soft signals warn without failing. Auto-skips when the
@@ -469,8 +711,12 @@ if [ -f "scripts/check_doc_coverage.py" ]; then
   DOC_PY="$PY"
   if [ -z "$DOC_PY" ]; then DOC_PY=$(command -v python || command -v python3 || true); fi
   if [ -n "$DOC_PY" ]; then
-    echo "[gate] doc coverage"
-    "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1
+    if [ -f "$GATE_RUN" ]; then
+      "$DOC_PY" "$GATE_RUN" --name doc-coverage --timeout 120 -- "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1
+    else
+      echo "[gate] doc coverage"
+      "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1
+    fi
   fi
 fi
 if [ "$fail" -ne 0 ]; then
@@ -491,6 +737,7 @@ def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
         return ["pre-push gate: .git is a worktree pointer — skipped (install manually if wanted)"]
     hooks_dir = git / "hooks"
     dest = hooks_dir / "pre-push"
+    step_dest = hooks_dir / "caddis_gate_step.py"
     if dest.exists() and not force:
         _hook_txt = dest.read_text(encoding="utf-8", errors="ignore")
         managed = "caddis" in _hook_txt or "claudster" in _hook_txt  # recognise pre-rename hooks too
@@ -498,12 +745,14 @@ def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
     if not dry:
         hooks_dir.mkdir(parents=True, exist_ok=True)
         dest.write_text(PRE_PUSH_HOOK, encoding="utf-8", newline="\n")
+        step_dest.write_text(GATE_STEP_PY, encoding="utf-8", newline="\n")
         try:
-            import os, stat
+            import stat
             dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            step_dest.chmod(step_dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         except Exception:
             pass
-    notes.append("pre-push gate: installed .git/hooks/pre-push (green-before-push enforced)")
+    notes.append("pre-push gate: installed .git/hooks/pre-push and caddis_gate_step.py (green-before-push enforced)")
     return notes
 
 

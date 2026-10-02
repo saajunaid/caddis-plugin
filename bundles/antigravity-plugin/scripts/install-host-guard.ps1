@@ -2,6 +2,8 @@
 param(
     [switch]$Apply,
     [string]$NssmSha256,
+    # Where the NSSM binary to copy lives. Default: the first nssm.exe on PATH, else C:\Tools\nssm\nssm.exe.
+    [string]$NssmPath,
     [ValidateSet('report', 'enforce')]
     [string]$Mode = 'report'
 )
@@ -9,7 +11,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$sourceNssm = 'C:\Tools\nssm\nssm.exe'
+if ($NssmPath) {
+    $sourceNssm = $NssmPath
+} else {
+    $foundNssm = Get-Command 'nssm.exe' -ErrorAction SilentlyContinue
+    if ($foundNssm) { $sourceNssm = $foundNssm.Source } else { $sourceNssm = 'C:\Tools\nssm\nssm.exe' }
+}
 $serviceName = 'caddis-host-guard'
 $programRoot = Join-Path $env:ProgramFiles 'caddis'
 $nssmDir = Join-Path $programRoot 'nssm'

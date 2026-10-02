@@ -36,6 +36,7 @@ FIX_HINTS: dict[str, str] = {
     "deny-rules": "run /caddis:setup-project-ai to add the missing deny rules",
     "gitignore": "run /caddis:setup-project-ai to add the missing .caddis ignore entries",
     "misfiled": "move the file into a caddis document folder, or delete it",
+    "host-guard": "see docs/guide/resource-protection.md (install-host-guard.ps1)",
 }
 
 # Probed contract versions (docs/analysis/*-contract.md). WARN when the installed binary drifts past
@@ -452,6 +453,38 @@ def keys_line(env: Mapping[str, str]) -> tuple[str, str]:
         return ("INFO", "keys: could not check")
 
 
+def host_guard_findings(
+    run: Callable[..., object] | None = None,
+    budget_path: Path | None = None,
+) -> list[tuple[str, str]]:
+    """Check host guard installation on Windows. Levels: WARN (never raises)."""
+    if sys.platform != "win32":
+        return []
+
+    run = run or subprocess.run
+    out: list[tuple[str, str]] = []
+
+    try:
+        res = run(["sc", "query", "caddis-host-guard"], capture_output=True, text=True)
+        rc = getattr(res, "returncode", 0)
+        if rc != 0:  # 1060 is "no such service"; any other failure also means "cannot confirm it runs"
+            out.append(("WARN", f"caddis-host-guard service not found — {FIX_HINTS['host-guard']}"))
+    except Exception:
+        return []
+
+    if budget_path is None:
+        prog_data = os.environ.get("ProgramData", r"C:\ProgramData")
+        budget_path = Path(prog_data) / "caddis" / "host-budget.toml"
+
+    try:
+        if not budget_path.is_file():
+            out.append(("WARN", f"{budget_path} missing — {FIX_HINTS['host-guard']}"))
+    except Exception:
+        pass
+
+    return out
+
+
 # ── project checks (read-only — WARN or INFO, never FAIL) ─────────────────────
 def deny_rule_findings(dest: Path) -> list[tuple[str, str]]:
     dest = Path(dest)
@@ -592,6 +625,12 @@ def run(dest: Path, quiet: bool) -> int:
     if k_level == "FAIL":
         hard = 1
     print(f"  {k_level:4} {k_text}")
+
+    host = host_guard_findings()
+    if host:
+        print("-- host")
+        for level, text in host:
+            print(f"  {level:4} {text}")
 
     print("-- project")
     proj_findings = deny_rule_findings(dest) + gitignore_findings(dest) + misfiled_findings(dest)
