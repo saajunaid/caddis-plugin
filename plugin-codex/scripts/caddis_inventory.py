@@ -263,6 +263,8 @@ def stale_artifacts(root: Path) -> list[dict]:
             target = root / m
             if not target.is_file():
                 continue
+            if not _run(["git", "ls-files", "--", m], root):
+                continue  # untracked or git-ignored: rebuilt locally, so an old commit says nothing
             t_art = _run(["git", "log", "-1", "--format=%ct", "--", m], root)
             t_gen = _run(["git", "log", "-1", "--format=%ct", "--", f"scripts/{script.name}"], root)
             if not t_art or not t_gen:

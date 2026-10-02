@@ -584,7 +584,13 @@ if _event == "SessionStart" and not _is_headless():
             _parts.append(f"{_role}→{','.join(_shown)}")
         _line = f"routing: {' · '.join(_parts)}"
 
-        _all_resolved = {m for _m_list in _resolved.values() for m in _m_list}
+        # "Missing" means the machine lacks the tool or key, not that this repo's config leaves the
+        # model out of its chains: judge availability on the default table, with no config read.
+        _no_config = _Path(ROOT) / ".caddis-no-routing-config"
+        _all_resolved = {
+            m for _m_list in _crouting.resolve(home=_no_config, repo=_no_config).values()
+            for m in _m_list
+        }
         _default_models = {m for _m_list in _crouting.DEFAULT_ROUTING.values() for m in _m_list}
         _missing = _default_models - _all_resolved
         _reasons = {

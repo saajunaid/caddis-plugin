@@ -992,7 +992,13 @@ def next_lane(
 
 
 def _ci_watch_block(output: str) -> dict[str, str] | None:
-    """Read the last complete watch report, ignoring an echoed prompt template."""
+    """Read the last complete watch report, ignoring an echoed prompt template.
+
+    The block must hold exactly RESULT, CHECKS, MERGE_STATE and FAILING, RESULT first. A reordered
+    or extended block returns None, and the caller then falls back to `gh` without saying why:
+    that is safe (the watch prompt pins the order) but invisible, so keep the prompt and this
+    reader in step.
+    """
     fields: dict[str, str] = {}
     reports: list[dict[str, str]] = []
     for line in output.splitlines():

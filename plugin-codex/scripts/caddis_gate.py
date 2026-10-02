@@ -108,6 +108,18 @@ _LANES_RUN = r'python\s+"?\$\{CLAUDE_PLUGIN_ROOT\}/scripts/caddis_lanes\.py"?\s+
 
 # ── gate: lane-check ────────────────────────────────────────────────────────
 
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+
+
+def _has_print_flag(cmd: str) -> bool:
+    """True when the command carries a real -p/--print flag.
+
+    The quoted prompt is blanked first: a prompt that merely contains the text " -p " must not
+    count, or an interactive child passes the gate (R3 cross-review, 2026-09-30).
+    """
+    return bool(re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", _QUOTED.sub('""', cmd)))
+
+
 def gate_lane(plan: Path, phase: int) -> int:
     if not plan.is_file():
         return _degrade(f"no plan at {plan}")
@@ -157,12 +169,12 @@ def gate_lane(plan: Path, phase: int) -> int:
                 f"[caddis-gate] phase {phase}'s direct command names Phase {named.group(1)}: {cmd}\n"
                 "  The lane would run another phase's work. Refusing to run it.\n")
             return EXIT_MALFORMED
-        if cmd.startswith("agy") and not re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", cmd):
+        if cmd.startswith("agy") and not _has_print_flag(cmd):
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s direct agy command has no -p/--print: {cmd}\n"
                 "  The child would not run headless. Refusing to run it.\n")
             return EXIT_MALFORMED
-    elif not re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", cmd):
+    elif not _has_print_flag(cmd):
         sys.stderr.write(
             f"[caddis-gate] phase {phase}'s launch command has no -p/--print: {cmd}\n"
             "  Without it the child is not marked headless, reads the same Lane line, and spawns\n"
@@ -496,14 +508,37 @@ def gate_handover_check(doc: Path, repo_root: Path, max_chars: int | None = None
         return EXIT_BLOCKED
 
     missing: list[str] = []
-    for raw in sorted(set(_DOC_PATH.findall(text))):
-        # A backtick often wraps a whole command; the path is the token that looks like one.
-        cand = next((tok for tok in raw.split() if "/" in tok or tok.endswith(".md")), raw)
-        cand = cand.strip("(),;:'\"")
-        if cand.startswith(("http://", "https://", "~", "$")) or ".." in cand:
-            continue
-        if not (repo_root / cand).exists():
-            missing.append(cand)
+    try:
+        # One rule for both gates: `caddis_spawn.check_document` already treats a bare filename
+        # that matches no tracked file as a note (probably another repository's file), and one
+        # that matches tracked files as a block that names the full path. Two gates giving
+        # different answers to the same question is the defect this replaces.
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import caddis_spawn
+        findings = caddis_spawn.check_document(text, repo_root)
+        missing = sorted(set(findings.missing_paths))
+        for name in findings.unresolved_names:
+            sys.stderr.write(
+                f"[caddis-gate] note: `{name}` is a bare filename that matches no tracked file here; "
+                "not checked\n")
+    except Exception as exc:
+        # Degrade to the plain existence rule, but say why: a bug inside the shared helper must
+        # not hide behind the fallback (an ImportError is the expected, quiet case).
+        if not isinstance(exc, ImportError):
+            sys.stderr.write(
+                f"[caddis-gate] note: shared path check failed ({type(exc).__name__}: {exc}); "
+                "using the plain existence rule\n")
+        missing = []
+        for raw in sorted(set(_DOC_PATH.findall(text))):
+            # A backtick often wraps a whole command; the path is the token that looks like one.
+            cand = next((tok for tok in raw.split() if "/" in tok or tok.endswith(".md")), raw)
+            cand = cand.strip("(),;:'\"")
+            if cand.startswith(("http://", "https://", "~", "$")) or ".." in cand:
+                continue
+            if not (repo_root / cand).exists():
+                missing.append(cand)
 
     stale: list[dict] = []
     try:

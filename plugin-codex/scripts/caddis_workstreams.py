@@ -259,6 +259,7 @@ def render_index(root: Path, session_id: str | None, branch: str | None) -> str:
                 rows.append((at.timestamp(), f"- {label} ({branch_label}, {_age(at, now)}): {_next_step(content)}"))
             except (ValueError, KeyError, TypeError, AttributeError, OSError, UnicodeError):
                 continue
+        unnamed: list[tuple[datetime, str, str, str]] = []
         states = artifact / "session-state"
         if states.exists() and not states.resolve().is_relative_to(artifact.resolve()):
             raise ValueError("session-state directory escapes artifact root")
@@ -277,9 +278,22 @@ def render_index(root: Path, session_id: str | None, branch: str | None) -> str:
                 asked = request.group(1).strip() if request else ""
                 note = _single_line(asked, 80) if asked and not asked.startswith("<") else "recent session"
                 branch_label = _single_line(state_branch.group(1), 40) if state_branch else "unknown branch"
-                rows.append((modified.timestamp(), f"- unnamed session {label} ({branch_label}, {_age(modified, now)}): {note}"))
+                if session_id and path.stem == session_id:
+                    rows.append((modified.timestamp(), f"- this session, no relay yet ({branch_label}): {note}"))
+                else:
+                    unnamed.append((modified, label, branch_label, note))
             except (OSError, UnicodeError):
                 continue
+        if unnamed:
+            # One line for every other session without a relay: a forked, peer or never-handed-off
+            # session is repeated text at every session start and buries the real workstreams.
+            unnamed.sort(key=lambda item: (-item[0].timestamp(), item[1]))
+            newest, label, _branch_label, note = unnamed[0]
+            count = len(unnamed)
+            noun = "session" if count == 1 else "sessions"
+            rows.append((newest.timestamp(),
+                         f"- {count} other {noun} without a relay (newest {label}, {_age(newest, now)}): "
+                         f"{note}; see .caddis/session-state/"))
         rows.sort(key=lambda item: (-item[0], item[1]))
         heading = _INDEX_MARKER + "# Workstream index\n"
         if session_id or branch:
