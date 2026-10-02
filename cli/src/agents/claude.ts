@@ -118,9 +118,10 @@ async function status(): Promise<AgentStatus> {
 function steps(action: DriveAction): { cmd: string; args: string[] }[] {
   if (action === 'install') {
     // `plugin install` is idempotent for an already-installed plugin and is
-    // what a first run needs; the marketplace must be refreshed first or the
-    // install resolves against a stale cached index.
+    // what a first run needs; the marketplace must be added and refreshed first or
+    // the install resolves against a stale cached index.
     return [
+      { cmd: BIN, args: ['plugin', 'marketplace', 'add', 'saajunaid/caddis-plugin'] },
       { cmd: BIN, args: ['plugin', 'marketplace', 'update', MARKETPLACE] },
       { cmd: BIN, args: ['plugin', 'install', PLUGIN] },
     ];
@@ -151,15 +152,29 @@ async function drive(action: DriveAction, options: DriveOptions): Promise<DriveR
   for (const step of planned) {
     const command = formatCommand(step.cmd, step.args);
     const result = await run(step.cmd, step.args);
+
+    const isMarketplaceAdd = step.args[1] === 'marketplace' && step.args[2] === 'add';
+    const isMarketplaceUpdate = step.args[1] === 'marketplace' && step.args[2] === 'update';
+
+    let ok = result.ok;
+    let code = result.code;
+    if (!ok && isMarketplaceAdd) {
+      const output = `${result.stdout}\n${result.stderr}`;
+      if (/already (exists|added|configured|installed|on disk)/i.test(output)) {
+        ok = true;
+        code = 0;
+      }
+    }
+
     results.push({
       command,
-      ok: result.ok,
-      code: result.code,
-      output: result.ok ? undefined : tail(result.stderr || result.stdout || result.failure || ''),
+      ok,
+      code,
+      output: ok ? undefined : tail(result.stderr || result.stdout || result.failure || ''),
     });
     // The marketplace refresh is advisory: a transient network failure there
     // should not stop the update itself from being attempted.
-    if (!result.ok && step.args[1] !== 'marketplace') {
+    if (!ok && !isMarketplaceUpdate) {
       return { ok: false, skipped: false, steps: results, message: `\`${command}\` failed` };
     }
   }

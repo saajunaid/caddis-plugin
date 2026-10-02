@@ -6,11 +6,15 @@
  * agent on the machine, which caddis each one actually has, whether that
  * matches what this CLI ships, and the exact command that fixes each gap.
  */
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import process from 'node:process';
 import type { AgentAdapter } from '../agents/types.js';
 import { detail, heading, hint, item, line, color, renderBanner } from '../util/log.js';
-import { bundleManifest, packageInfo } from '../util/pkg.js';
+import path from 'node:path';
+import { run } from '../util/exec.js';
+import { bundleManifest, bundlePath, packageInfo } from '../util/pkg.js';
+import { findBin } from '../util/which.js';
 import type { AgentReport, DriftState, Report } from './report.js';
 import { gather } from './report.js';
 
@@ -19,6 +23,11 @@ export interface DoctorOptions {
   /** Exit non-zero when anything needs attention. For CI. */
   strict?: boolean;
   json?: boolean;
+}
+
+export interface ProjectCheck {
+  ran: boolean;
+  exitCode: number | null;
 }
 
 const REQUIRED_NODE_MAJOR = 20;
@@ -40,7 +49,8 @@ export async function doctor(options: DoctorOptions): Promise<number> {
   const findings: Problem[] = [];
 
   if (options.json) {
-    line(JSON.stringify(toJson(report), null, 2));
+    const project = await renderProject(findings, { quiet: true });
+    line(JSON.stringify(toJson(report, project), null, 2));
     return 0;
   }
 
@@ -48,6 +58,7 @@ export async function doctor(options: DoctorOptions): Promise<number> {
 
   renderEnvironment(report, findings);
   renderAgents(report, findings);
+  await renderProject(findings);
   renderSummary(report, findings);
 
   return options.strict && findings.some((f) => f.kind === 'problem') ? 1 : 0;
@@ -126,6 +137,66 @@ function renderAgents(report: Report, problems: Problem[]): void {
       if (extrasProblem.fix) hint(color.bold(extrasProblem.fix));
     }
   }
+}
+
+async function renderProject(problems: Problem[], options?: { quiet?: boolean }): Promise<ProjectCheck> {
+  const quiet = options?.quiet ?? false;
+  const python = await findBin('python');
+  if (!python) {
+    if (!quiet) {
+      heading('Project');
+      item('fail', 'python not on PATH');
+    }
+    problems.push({
+      kind: 'problem',
+      text: 'python not on PATH',
+      fix: 'install Python 3.11 or later (see docs/ONBOARDING.md)',
+    });
+    return { ran: false, exitCode: null };
+  }
+
+  const bundle = bundlePath('antigravity-plugin', { requireManifest: false });
+  const script = bundle ? path.join(bundle, 'scripts', 'claudster_doctor.py') : null;
+
+  if (!script || !existsSync(script)) {
+    if (!quiet) {
+      heading('Project');
+      item('fail', 'claudster_doctor.py missing');
+    }
+    problems.push({
+      kind: 'problem',
+      text: 'claudster_doctor.py missing from antigravity-plugin bundle',
+      fix: 'reinstall: npm i -g @caddis/cli',
+    });
+    return { ran: false, exitCode: null };
+  }
+
+  if (!quiet) {
+    heading('Project');
+  }
+
+  const result = await run(python, [script, '--dest', process.cwd()], { timeout: 60_000 });
+
+  if (!quiet && result.stdout) {
+    const lines = result.stdout.replace(/\r\n/g, '\n').split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+    for (const l of lines) {
+      line(l ? `    ${l}` : '');
+    }
+  }
+
+  // Exit 1 is the Python check's own FAIL; `!ok` also covers a crash or a timeout (no exit code).
+  if (result.code === 1 || !result.ok) {
+    problems.push({
+      kind: 'problem',
+      text: 'project health check failed',
+      fix: 'read the FAIL lines above',
+    });
+  }
+
+  return { ran: true, exitCode: result.code };
 }
 
 function renderSummary(report: Report, findings: Problem[]): void {
@@ -281,7 +352,7 @@ function problemFor(entry: AgentReport, poolVersion: string): Problem | null {
   }
 }
 
-function toJson(report: Report) {
+function toJson(report: Report, project?: ProjectCheck) {
   return {
     cliVersion: report.cliVersion,
     cliUpdate: report.cliUpdate ?? null,
@@ -303,5 +374,6 @@ function toJson(report: Report) {
       extrasDrift: entry.extrasDrift ?? null,
       note: entry.status.note ?? entry.detection.note ?? null,
     })),
+    project: project ?? { ran: false, exitCode: null },
   };
 }

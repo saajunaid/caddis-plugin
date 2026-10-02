@@ -144,11 +144,46 @@ describe('claude adapter drive', () => {
     ]);
   });
 
-  it('uses `plugin install` for the install action', async () => {
+  it('adds the marketplace before installing', async () => {
     mockWhich.mockResolvedValue('/usr/bin/claude');
     mockRun.mockResolvedValue(ok());
     const result = await claudeAdapter.drive('install', { dryRun: false });
-    expect(result.steps.at(-1)?.command).toBe('claude plugin install caddis@caddis');
+    expect(result.ok).toBe(true);
+    const commands = result.steps.map((step) => step.command);
+    expect(commands).toEqual([
+      'claude plugin marketplace add saajunaid/caddis-plugin',
+      'claude plugin marketplace update caddis',
+      'claude plugin install caddis@caddis',
+    ]);
+  });
+
+  it('an already-present marketplace counts as success', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/claude');
+    mockRun
+      .mockResolvedValueOnce(ok('2.1.220')) // detect
+      .mockResolvedValueOnce(fail("Marketplace 'caddis' already on disk", 1)) // marketplace add exits 1 with already text
+      .mockResolvedValueOnce(ok()) // marketplace update
+      .mockResolvedValueOnce(ok()); // plugin install
+    const result = await claudeAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(true);
+    expect(result.steps[0]?.ok).toBe(true);
+    expect(result.steps.map((s) => s.command)).toEqual([
+      'claude plugin marketplace add saajunaid/caddis-plugin',
+      'claude plugin marketplace update caddis',
+      'claude plugin install caddis@caddis',
+    ]);
+  });
+
+  it('a failed marketplace add stops the install', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/claude');
+    mockRun
+      .mockResolvedValueOnce(ok('2.1.220')) // detect
+      .mockResolvedValueOnce(fail('network timeout connecting to github', 1)); // marketplace add fails
+    const result = await claudeAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(false);
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]?.ok).toBe(false);
+    expect(result.message).toMatch(/marketplace add.*failed/);
   });
 
   it('--dry-run lists the commands and executes nothing', async () => {

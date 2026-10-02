@@ -11,7 +11,7 @@ Implement the plan at **$ARGUMENTS** (falls back to the `DOCKET_PLAN` env var if
 (it counts as an explicit argument). Only when both are empty, find the active plan:
 
 ```bash
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -67,9 +67,9 @@ folder you will touch (the canonical rules; `CLAUDE.md` is an `@AGENTS.md` shim)
 **Run the machine gates first — they decide, not your reading of the prose below.**
 
 ```bash
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" verdict-gate  --plan <plan> --phase <N>
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_gate.py" verdict-gate  --plan <plan> --phase <N>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
 ```
 
 Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
@@ -125,7 +125,7 @@ lane the plan planned. A deviation then shows up as a diff between the phase blo
 row, visible to any later reader without an Advisory Hub having to catch it live.
 
 **Multi-lane phases — `caddis_lanes.py`.** Use this procedure when the phase launch command is
-`python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_lanes.py" run …`.
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_lanes.py" run …`.
 
 1. In an interactive session, run the phase's literal command. The script creates a temporary
    worktree. It runs the lane or its fallback chain inside a resource-capped job. It re-runs the
@@ -169,7 +169,7 @@ row, visible to any later reader without an Advisory Hub having to catch it live
 10. **When a dispatched Claude run is out of budget**, read the output from the subagent or
     `claude -p`. If it holds Claude usage-limit text (for example `You've hit your session limit`
     or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
-    `caddis_lanes.py`), run `python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
+    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
     `codex exec ...` or `agy ... -p "..."`, using the same form that `/feature-plan` writes.
     An out-of-budget switch is not an attempt (item 4). Record the fallback in the Tracker
@@ -355,7 +355,7 @@ finished (every `## Tracker` row is `done`, no halt, no blocker) — a mid-plan 
 Flip the plan's own frontmatter `status:` to `done` (your judgment call: only if the Tracker
 genuinely backs it up), commit that with the final phase, then run:
 ```
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_tidy.py" --apply
 ```
 (falls back to `scripts/caddis_tidy.py` from a source checkout; **skip this step if the script is
 missing** — degrades open, same as the gates in Step 1). A **collision**

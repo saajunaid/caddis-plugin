@@ -6,8 +6,16 @@ vi.mock('../src/util/pkg.js', async (importOriginal) => {
     ...actual,
     packageInfo: () => ({ root: '/pkg', name: '@caddis/cli', version: '0.1.0' }),
     bundleManifest: vi.fn(() => ({ poolVersion: '1.3.39', bundles: { 'antigravity-plugin': '1.3.39' } })),
+    // doctor's Project step looks for the Python doctor in this bundle.
+    bundlePath: vi.fn(() => '/mock/bundle'),
   };
 });
+// ... and for python on PATH, so these tests do not depend on the machine they run on.
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, existsSync: vi.fn(() => true) };
+});
+vi.mock('../src/util/which.js', () => ({ findBin: vi.fn(async () => '/usr/bin/python') }));
 vi.mock('../src/util/exec.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/util/exec.js')>();
   return { ...actual, run: vi.fn() };
@@ -93,7 +101,11 @@ describe('doctor', () => {
   });
 
   it('a registry lookup failure does not add a phantom finding (never blocks doctor offline)', async () => {
-    mockRun.mockResolvedValue({ ok: false, code: 1, stdout: '', stderr: 'ENOTFOUND' } satisfies RunResult);
+    // Only the npm registry lookup fails; the Python project check (a different command) succeeds.
+    mockRun.mockImplementation(async (cmd) =>
+      cmd === 'npm'
+        ? ({ ok: false, code: 1, stdout: '', stderr: 'ENOTFOUND' } satisfies RunResult)
+        : ({ ok: true, code: 0, stdout: '', stderr: '' } satisfies RunResult));
     const code = await doctor({ adapters: realWorldAdapters(), strict: true });
     expect(capture.output()).toContain('2 things to fix:'); // unchanged from the baseline case
     expect(code).toBe(1); // still 1, from the real claude/agy drift -- not from the failed lookup

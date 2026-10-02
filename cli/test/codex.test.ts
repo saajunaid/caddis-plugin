@@ -1,49 +1,43 @@
 /**
- * The Codex adapter is the only one that owns its own install semantics.
+ * OpenAI Codex adapter tests.
  *
- * Claude Code has a marketplace and agy has `agy plugin install <dir>`; both adapters just
- * drive a vendor command and let the vendor decide what lands where. Codex has no such
- * command — skills are directories under `~/.codex/skills/`, so this adapter copies files
- * itself. That makes it the only adapter capable of destroying a user's data, and these
- * tests exist mostly to pin the boundaries of what it is allowed to touch.
- *
- * Layout facts asserted here were MEASURED against codex-cli 0.150.1 on 2026-08-27 by
- * planting probe skills and grepping codex's own session transcript — not by asking the
- * model, which contradicted itself three times and then invented a marker string.
+ * Codex 0.159.0+ has a native plugin marketplace:
+ *   install = `codex plugin marketplace add https://github.com/saajunaid/caddis-plugin`
+ *           + `codex plugin add caddis-codex@caddis`
+ *   update  = `codex plugin marketplace upgrade caddis`
+ *           + `codex plugin add caddis-codex@caddis`
+ *   status  = parse `codex plugin list` for `caddis-codex@caddis`
  */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock binary discovery. Without this the suite shells out to the REAL `codex --version`
-// with a 20s timeout: it passed alone in 426ms and failed at 24s under parallel load.
-// A test that depends on the developer's PATH — and on how loaded their machine is — is
-// not a test. Mocked, it asserts the adapter's logic and nothing else.
 vi.mock('../src/util/which.js', () => ({ findBin: vi.fn() }));
-
-// Mock the bundle lookup too. `cli/bundles/` is GENERATED at build time, and the CI publish
-// workflow runs tests BEFORE that build — so in CI bundlePath() returns null while on a dev
-// machine it returns a real path. That difference made the dry-run test below pass locally
-// and fail in CI. A test whose precondition depends on whether someone has built recently is
-// not a test; here the precondition is stated outright.
-vi.mock('../src/util/pkg.js', () => ({
-  bundlePath: vi.fn(),
-  bundleManifest: vi.fn(() => ({ poolVersion: '1.3.83' })),
-}));
-
-import { caddisSkillsDir, codexAdapter, statusFromHome, versionFile } from '../src/agents/codex.js';
-import { findBin } from '../src/util/which.js';
-import { bundlePath } from '../src/util/pkg.js';
-
-const mockWhich = vi.mocked(findBin);
-const mockBundle = vi.mocked(bundlePath);
-beforeEach(() => {
-  mockWhich.mockReset();
-  mockWhich.mockResolvedValue(null); // default: codex absent
-  mockBundle.mockReset();
-  mockBundle.mockReturnValue(null);  // default: no bundle shipped
+vi.mock('../src/util/exec.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/util/exec.js')>();
+  return { ...actual, run: vi.fn() };
 });
+
+import {
+  caddisSkillsDir,
+  codexAdapter,
+  parseCodexPluginList,
+  versionFile,
+} from '../src/agents/codex.js';
+import { run } from '../src/util/exec.js';
+import { findBin } from '../src/util/which.js';
+import type { RunResult } from '../src/util/exec.js';
+
+const mockRun = vi.mocked(run);
+const mockWhich = vi.mocked(findBin);
+
+function ok(stdout = ''): RunResult {
+  return { ok: true, code: 0, stdout, stderr: '' };
+}
+function fail(stderr = 'boom', code = 1): RunResult {
+  return { ok: false, code, stdout: '', stderr };
+}
 
 const scratches: string[] = [];
 function tmpHome(): string {
@@ -51,11 +45,20 @@ function tmpHome(): string {
   scratches.push(dir);
   return dir;
 }
-afterEach(() => {
-  while (scratches.length) rmSync(scratches.pop()!, { recursive: true, force: true });
+
+let currentHome = '';
+
+beforeEach(() => {
+  mockRun.mockReset();
+  mockWhich.mockReset();
+  currentHome = tmpHome();
+  vi.spyOn(os, 'homedir').mockReturnValue(currentHome);
 });
 
-// ── where it installs ───────────────────────────────────────────────────────────────
+afterEach(() => {
+  vi.restoreAllMocks();
+  while (scratches.length) rmSync(scratches.pop()!, { recursive: true, force: true });
+});
 
 describe('install location', () => {
   it('namespaces everything under a single caddis/ directory', () => {
@@ -64,10 +67,6 @@ describe('install location', () => {
   });
 
   it('never installs flat into the user skills root', () => {
-    // A flat install would drop ~141 directories beside the user's own skills, which on the
-    // machine this was written for already held 134 — with real collisions (api-design,
-    // tdd-workflow). Codex indexes nested skills, so namespacing costs nothing and makes
-    // the install collision-proof and removable in one rm -rf.
     const home = tmpHome();
     const dir = caddisSkillsDir(home);
     expect(dir).not.toBe(path.join(home, '.codex', 'skills'));
@@ -75,140 +74,285 @@ describe('install location', () => {
   });
 });
 
-// ── what status can and cannot claim ────────────────────────────────────────────────
+describe('parseCodexPluginList', () => {
+  const SAMPLE_LIST = `
+Marketplace \`caddis\`
+C:\\Users\\user\\.codex\\.tmp\\marketplaces\\caddis\\.claude-plugin\\marketplace.json
+caddis@caddis         not installed                C:\\Users\\user\\plugin
+caddis-extras@caddis  not installed                C:\\Users\\user\\plugin-extras
+caddis-codex@caddis   installed, enabled  1.3.125  C:\\Users\\user\\plugin-codex
+`;
 
-describe('status', () => {
-  it('reports not-installed on a clean machine', () => {
-    const status = statusFromHome(tmpHome());
+  it('reads the caddis-codex version from plugin list output', () => {
+    expect(parseCodexPluginList(SAMPLE_LIST)).toEqual({
+      installed: true,
+      disabled: false,
+      version: '1.3.125',
+    });
+  });
+
+  it('detects disabled status', () => {
+    const disabled = `caddis-codex@caddis   installed, disabled  1.3.124  /path`;
+    expect(parseCodexPluginList(disabled)).toEqual({
+      installed: true,
+      disabled: true,
+      version: '1.3.124',
+    });
+  });
+
+  it('reports not installed when listed as not installed', () => {
+    const notInstalled = `caddis-codex@caddis         not installed                /path`;
+    expect(parseCodexPluginList(notInstalled)).toEqual({
+      installed: false,
+    });
+  });
+
+  it('returns null when absent from list', () => {
+    expect(parseCodexPluginList('openai-templates@openai-curated-remote installed, enabled 0.1.1')).toBeNull();
+  });
+});
+
+describe('codex adapter detect', () => {
+  it('reports absent when binary is not on PATH', async () => {
+    mockWhich.mockResolvedValue(null);
+    const detected = await codexAdapter.detect();
+    expect(detected.present).toBe(false);
+  });
+
+  it('reports present with agent version', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(ok('codex-cli 0.159.0'));
+    const detected = await codexAdapter.detect();
+    expect(detected).toMatchObject({ present: true, path: '/usr/bin/codex', agentVersion: '0.159.0' });
+  });
+
+  it('stays present when --version fails', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(fail());
+    const detected = await codexAdapter.detect();
+    expect(detected.present).toBe(true);
+    expect(detected.agentVersion).toBeUndefined();
+    expect(detected.note).toMatch(/--version` failed/);
+  });
+});
+
+describe('codex status', () => {
+  it('codex status reads codex plugin list', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    const sampleOutput = `
+PLUGIN               STATUS              VERSION   SOURCE
+caddis-codex@caddis  installed, enabled  1.3.125   /home/user/plugins/caddis
+`;
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0')) // detect
+      .mockResolvedValueOnce(ok(sampleOutput)); // plugin list
+
+    const status = await codexAdapter.status();
+    expect(status).toMatchObject({
+      installed: true,
+      version: '1.3.125',
+      disabled: false,
+      source: '`codex plugin list`',
+    });
+  });
+
+  it('reports not installed when plugin is absent', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0'))
+      .mockResolvedValueOnce(ok('other-plugin installed, enabled 1.0.0'));
+    const status = await codexAdapter.status();
     expect(status.installed).toBe(false);
-    expect(status.version).toBeUndefined();
+    expect(status.note).toMatch(/not installed/);
   });
 
-  it('reads the version caddis wrote, because codex keeps no manifest of its own', () => {
-    const home = tmpHome();
-    mkdirSync(caddisSkillsDir(home), { recursive: true });
-    writeFileSync(versionFile(home), '1.3.82\n', 'utf8');
-    expect(statusFromHome(home)).toMatchObject({ installed: true, version: '1.3.82' });
-  });
-
-  it('admits it does not know the version of a hand-installed tree', () => {
-    // Installed-but-unknown must never be reported as a version, or `caddis status` would
-    // compare a guess against the shipped pool and call the result drift.
-    const home = tmpHome();
-    mkdirSync(path.join(caddisSkillsDir(home), 'workflow'), { recursive: true });
-    const status = statusFromHome(home);
-    expect(status.installed).toBe(true);
-    expect(status.version).toBeUndefined();
-    expect(status.note).toMatch(/no version marker/i);
-  });
-
-  it('survives an unreadable marker without throwing', () => {
-    const home = tmpHome();
-    mkdirSync(versionFile(home), { recursive: true }); // a DIRECTORY where a file belongs
-    const status = statusFromHome(home);
-    expect(status.installed).toBe(true);
-    expect(status.version).toBeUndefined();
+  it('degrades gracefully when plugin list fails', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0'))
+      .mockResolvedValueOnce(fail('codex error', 1));
+    const status = await codexAdapter.status();
+    expect(status.installed).toBe(false);
+    expect(status.note).toMatch(/could not read plugin list/);
   });
 });
 
-// ── the boundaries that matter ──────────────────────────────────────────────────────
-
-describe('what it refuses to touch', () => {
-  it('does not write the user config — the highest-risk thing it could do', () => {
-    const source = readFileSync(new URL('../src/agents/codex.ts', import.meta.url), 'utf8');
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    // ~/.codex/config.toml holds the user's model, sandbox policy and feature flags.
-    // Merging into it silently would be the one mistake worth failing a build over.
-    expect(code).not.toMatch(/config\.toml['"`]/);
-    expect(code).toContain('config.toml.example');
-  });
-
-  it('removes only its own subtree, never the user skills root', () => {
-    const source = readFileSync(new URL('../src/agents/codex.ts', import.meta.url), 'utf8');
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    const removals = [...code.matchAll(/rmSync\(([^,]+),/g)].map((m) => m[1]!.trim());
-    expect(removals.length).toBeGreaterThan(0);
-    for (const target of removals) {
-      // `dest` is caddisSkillsDir(). Anything else being recursively removed is a bug.
-      expect(target).toBe('dest');
-    }
-  });
-});
-
-// ── drive() behaviour that does not need a real codex ───────────────────────────────
-
-describe('drive', () => {
+describe('codex drive', () => {
   it('skips cleanly when codex is absent', async () => {
+    mockWhich.mockResolvedValue(null);
     const result = await codexAdapter.drive('install', { dryRun: false });
     expect(result).toMatchObject({ ok: true, skipped: true, steps: [] });
     expect(result.message).toMatch(/not installed/i);
   });
 
-  it('a dry run writes nothing even when codex IS present', async () => {
+  it('codex install uses the plugin commands', async () => {
     mockWhich.mockResolvedValue('/usr/bin/codex');
-    // A bundle laid out the way the exporter produces one: skills under .codex/skills/.
-    const bundle = mkdtempSync(path.join(tmpdir(), 'caddis-bundle-'));
-    scratches.push(bundle);
-    mkdirSync(path.join(bundle, '.codex', 'skills'), { recursive: true });
-    mockBundle.mockReturnValue(bundle);
+    mockRun.mockResolvedValue(ok());
 
-    const home = tmpHome();
-    const before = existsSync(caddisSkillsDir(home));
-    const result = await codexAdapter.drive('install', { dryRun: true });
-
+    const result = await codexAdapter.drive('install', { dryRun: false });
     expect(result.ok).toBe(true);
-    expect(result.skipped).toBe(true);
-    expect(result.message).toMatch(/dry run/i);
-    expect(existsSync(caddisSkillsDir(home))).toBe(before); // nothing written
+    const commands = result.steps.map((s) => s.command);
+    expect(commands).toEqual([
+      'codex plugin marketplace add https://github.com/saajunaid/caddis-plugin',
+      'codex plugin add caddis-codex@caddis',
+    ]);
   });
 
-  it('fails loudly when the shipped bundle is missing, rather than half-installing', async () => {
-    // The case CI actually hits when tests run before the build. It must be a clean,
-    // explanatory failure — never a silent skip that reads as success.
+  it('codex update uses marketplace upgrade and plugin add', async () => {
     mockWhich.mockResolvedValue('/usr/bin/codex');
-    mockBundle.mockReturnValue(null);
-    const result = await codexAdapter.drive('install', { dryRun: true });
+    mockRun.mockResolvedValue(ok());
 
+    const result = await codexAdapter.drive('update', { dryRun: false });
+    expect(result.ok).toBe(true);
+    const commands = result.steps.map((s) => s.command);
+    expect(commands).toEqual([
+      'codex plugin marketplace upgrade caddis',
+      'codex plugin add caddis-codex@caddis',
+    ]);
+  });
+
+  it('--dry-run lists the commands and executes nothing', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(ok('0.159.0'));
+
+    const result = await codexAdapter.drive('install', { dryRun: true });
+    expect(result.skipped).toBe(true);
+    expect(result.steps).toHaveLength(2);
+    expect(mockRun.mock.calls.every(([, args]) => args[0] === '--version')).toBe(true);
+  });
+
+  it('removes the old caddis skill copy only with its marker', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(ok());
+
+    const home = tmpHome();
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+
+    // Setup legacy install with marker
+    mkdirSync(caddisSkillsDir(home), { recursive: true });
+    writeFileSync(versionFile(home), '1.3.82\n', 'utf8');
+    writeFileSync(path.join(caddisSkillsDir(home), 'some-file.txt'), 'legacy', 'utf8');
+
+    const result = await codexAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(true);
+    expect(existsSync(caddisSkillsDir(home))).toBe(false);
+    expect(result.steps.some((s) => s.command.includes('remove legacy'))).toBe(true);
+  });
+
+  it('keeps the legacy copy when the plugin install fails', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    // detect ok, marketplace add ok, plugin add fails
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0'))
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: '', stderr: 'boom' });
+
+    const home = tmpHome();
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    mkdirSync(caddisSkillsDir(home), { recursive: true });
+    writeFileSync(versionFile(home), '1.3.82\n', 'utf8');
+
+    const result = await codexAdapter.drive('install', { dryRun: false });
     expect(result.ok).toBe(false);
-    expect(result.skipped).toBe(false);
-    expect(result.message).toMatch(/bundle is missing/i);
+    expect(existsSync(caddisSkillsDir(home))).toBe(true); // a failed install must not leave nothing
+    expect(result.steps.some((s) => s.command.includes('remove legacy'))).toBe(false);
+  });
+
+  it('a failed marketplace upgrade is advisory: the plugin step still runs', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0')) // detect
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: '', stderr: 'network down' }) // upgrade
+      .mockResolvedValueOnce(ok()); // plugin add
+
+    const home = tmpHome();
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+
+    const result = await codexAdapter.drive('update', { dryRun: false });
+    expect(result.ok).toBe(true);
+    expect(result.steps.map((s) => s.command)).toEqual([
+      expect.stringContaining('marketplace upgrade'),
+      expect.stringContaining('plugin add'),
+    ]);
+    expect(result.steps[0]?.ok).toBe(false);
+  });
+
+  it('says so when --extras is asked for, because Codex has no extras plugin', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(ok());
+    const home = tmpHome();
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+
+    const result = await codexAdapter.drive('install', { dryRun: false, extras: true });
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('--extras has no Codex plugin');
+  });
+
+  it('warns about a marker-less old skills folder and leaves it alone', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(ok());
+    const home = tmpHome();
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    mkdirSync(caddisSkillsDir(home), { recursive: true });
+    writeFileSync(path.join(caddisSkillsDir(home), 'custom.txt'), 'mine', 'utf8');
+
+    const result = await codexAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(true);
+    expect(existsSync(caddisSkillsDir(home))).toBe(true);
+    expect(result.message).toContain('did not write it');
+  });
+
+  it('does not remove legacy directory without marker', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun.mockResolvedValue(ok());
+
+    const home = tmpHome();
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+
+    // Directory without marker
+    mkdirSync(caddisSkillsDir(home), { recursive: true });
+    writeFileSync(path.join(caddisSkillsDir(home), 'custom.txt'), 'custom', 'utf8');
+
+    const result = await codexAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(true);
+    expect(existsSync(caddisSkillsDir(home))).toBe(true);
+    expect(result.steps.some((s) => s.command.includes('remove legacy'))).toBe(false);
+  });
+
+  it('an already-present marketplace counts as success on install', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0')) // detect
+      .mockResolvedValueOnce(fail("Marketplace `caddis` is already added from ...", 1)) // marketplace add exits 1
+      .mockResolvedValueOnce(ok()); // plugin add
+
+    const result = await codexAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(true);
+    expect(result.steps[0]?.ok).toBe(true);
+  });
+
+  it('fails when a plugin command fails', async () => {
+    mockWhich.mockResolvedValue('/usr/bin/codex');
+    mockRun
+      .mockResolvedValueOnce(ok('0.159.0'))
+      .mockResolvedValueOnce(ok()) // marketplace add ok
+      .mockResolvedValueOnce(fail('plugin not found', 1)); // plugin add fails
+
+    const result = await codexAdapter.drive('install', { dryRun: false });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/plugin add.*failed/);
+  });
+});
+
+describe('what it refuses to touch', () => {
+  it('never writes config.toml', () => {
+    const source = readFileSync(new URL('../src/agents/codex.ts', import.meta.url), 'utf8');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/config\.toml['"`]/);
   });
 
   it('is registered as supported, and says config is never merged', () => {
     expect(codexAdapter.supported).toBe(true);
     expect(codexAdapter.summary).toMatch(/never merged/i);
-  });
-});
-
-// ── a real copy, exercised without codex present ────────────────────────────────────
-
-describe('the copy itself', () => {
-  it('replaces the caddis subtree and leaves neighbours alone', () => {
-    const home = tmpHome();
-    const skillsRoot = path.join(home, '.codex', 'skills');
-    const mine = path.join(skillsRoot, 'users-own-skill');
-    mkdirSync(mine, { recursive: true });
-    writeFileSync(path.join(mine, 'SKILL.md'), 'do not touch me', 'utf8');
-
-    // a stale caddis install with a skill that no longer ships
-    const stale = path.join(caddisSkillsDir(home), 'workflow', 'retired-skill');
-    mkdirSync(stale, { recursive: true });
-    writeFileSync(path.join(stale, 'SKILL.md'), 'stale', 'utf8');
-
-    // what drive() does, in the same order
-    const fresh = mkdtempSync(path.join(tmpdir(), 'caddis-src-'));
-    scratches.push(fresh);
-    mkdirSync(path.join(fresh, 'workflow', 'current-skill'), { recursive: true });
-    writeFileSync(path.join(fresh, 'workflow', 'current-skill', 'SKILL.md'), 'fresh', 'utf8');
-
-    rmSync(caddisSkillsDir(home), { recursive: true, force: true });
-    cpSync(fresh, caddisSkillsDir(home), { recursive: true });
-
-    // the stale skill is GONE — leaving it would keep it in codex's index, and the model
-    // may act on a skill that no longer ships
-    expect(existsSync(stale)).toBe(false);
-    expect(existsSync(path.join(caddisSkillsDir(home), 'workflow', 'current-skill'))).toBe(true);
-    // and the user's own skill is untouched
-    expect(readFileSync(path.join(mine, 'SKILL.md'), 'utf8')).toBe('do not touch me');
   });
 });

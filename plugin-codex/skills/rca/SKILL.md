@@ -64,7 +64,7 @@ it gets filled in for real.
 ### Step 4 — verify
 
 ```bash
-python "${CADDIS_PLUGIN_ROOT}/scripts/caddis_gate.py" docs-check --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_gate.py" docs-check --root .
 ```
 
 Exit 0 means the header is valid. Do not report the item as filed until this passes.

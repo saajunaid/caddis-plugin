@@ -23,8 +23,20 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+
+FIX_HINTS: dict[str, str] = {
+    "python-missing": "install Python 3.11 or later; on Linux also run: sudo apt install python-is-python3",
+    "python-store-alias": "this is the Microsoft Store alias; install Python from python.org or with winget, then turn off the alias in Settings > Apps > App execution aliases",
+    "python-old": "install Python 3.11 or later and make it the first python on PATH",
+    "git-missing": "install git (Windows: winget install Git.Git; Linux: sudo apt install git)",
+    "keys-none": "optional: run caddis keys to add GLM or DeepSeek keys",
+    "deny-rules": "run /caddis:setup-project-ai to add the missing deny rules",
+    "gitignore": "run /caddis:setup-project-ai to add the missing .caddis ignore entries",
+    "misfiled": "move the file into a caddis document folder, or delete it",
+}
 
 # Probed contract versions (docs/analysis/*-contract.md). WARN when the installed binary drifts past
 # these — the recorded schemas may be stale and want a re-probe.
@@ -35,6 +47,29 @@ AGENTS_MD_BUDGET = 200  # always-loaded rules file line budget (mirrors check_do
 # the doctor is a standalone, import-free diagnostic that must run from a bare checkout.
 ARTIFACT_DIRS = (".caddis",)
 ENV_PREFIX = "CADDIS"
+
+# Known top-level document and working artifact folders under .caddis/
+KNOWN_CADDIS_DIRS: set[str] = {
+    "plans",
+    "prd",
+    "kb",
+    "rca",
+    "decisions",
+    "parking-lot",
+    "reviews",
+    "todo-list",
+    "comms",
+    "handoffs",
+    "prompts",
+    "relay",
+    "session-state",
+    "advisory-hub-reports",
+    "orchestrator",
+    "spawn-session",
+    "metrics",
+    "agent-docs",
+    "backlog",
+}
 
 
 def _home() -> Path:
@@ -288,7 +323,7 @@ def _file_signals(dest: Path) -> list[str]:
         signals.append(f"{len(dangling)} dangling DOC-MAP link(s) — run /caddis:kb")
     days = days_since_last_doctor()
     if days is not None and days >= 30:
-        signals.append(f"{days} days since last caddis doctor — run caddis-init --doctor")
+        signals.append(f"{days} days since last caddis doctor — run caddis doctor")
     # Listed LAST but it is the most dangerous signal here: the others degrade a session's quality,
     # this one silently runs old code and reports success. It is cheap (a file compare) and almost
     # always empty, so it costs nothing to carry.
@@ -312,19 +347,30 @@ def nudge_line(dest: Path) -> str | None:
     return f"[caddis] {head}{more}"
 
 
+def _load_sibling(name: str, fallback_dir: Path | str | None = None):
+    """Load a helper module by filename/module name: sibling first, then fallback_dir."""
+    scripts = Path(__file__).resolve().parent
+    file_name = name if name.endswith(".py") else f"{name}.py"
+    mod_name = name[:-3] if name.endswith(".py") else name
+    path = scripts / file_name
+    if not path.is_file() and fallback_dir:
+        path = Path(fallback_dir) / file_name
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location(f"caddis_{mod_name}", path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def hook_errors(dest: Path) -> str:
     """Recent hook failures, counted by hook. Empty when the ledger is clean."""
     scripts = Path(__file__).resolve().parent
-    hook_log_path = scripts / "hook_log.py"
-    if not hook_log_path.is_file():  # source checkout; installed copies are siblings
-        hook_log_path = scripts.parent / "claude-harness" / "scripts" / "hook_log.py"
     try:
-        spec = importlib.util.spec_from_file_location("caddis_hook_log", hook_log_path)
-        if spec is None or spec.loader is None:
-            return ""
-        hook_log = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook_log)
-        if not hook_log.summarise(str(dest), days=7):
+        hook_log = _load_sibling("hook_log.py", scripts.parent / "claude-harness" / "scripts")
+        if hook_log is None or not hook_log.summarise(str(dest), days=7):
             return ""
         cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - 7 * 86400))
         counts: dict[str, int] = {}
@@ -342,6 +388,182 @@ def hook_errors(dest: Path) -> str:
         return ""  # a damaged ledger must not break the doctor
 
 
+def machine_findings(which: Callable[[str], str | None] | None = None,
+                     version: Callable[[str], str | None] | None = None) -> list[tuple[str, str]]:
+    """Machine faults that stop caddis on a new laptop. Levels: OK, INFO, FAIL (never raises)."""
+    which = which or shutil.which  # resolved at call time, so a test can patch shutil.which
+    version = version or _binary_version
+
+    out: list[tuple[str, str]] = []
+
+    # python
+    py_path = which("python")
+    if py_path is None:
+        out.append(("FAIL", f"python (on PATH): not found — {FIX_HINTS['python-missing']}"))
+    elif "windowsapps" in py_path.lower() or "WindowsApps" in py_path:
+        out.append(("FAIL", f"python (on PATH): [{py_path}] — {FIX_HINTS['python-store-alias']}"))
+    else:
+        ver_str = None
+        try:
+            ver_str = version(py_path)
+        except Exception:
+            ver_str = None
+
+        m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", ver_str or "")
+        if not m:
+            out.append(("INFO", "python (on PATH): could not read its version"))
+        else:
+            major, minor = int(m.group(1)), int(m.group(2))
+            ver_display = (ver_str or "").strip()
+            if ver_display.startswith("Python "):
+                ver_display = ver_display[7:].strip()
+            if (major, minor) < (3, 11):
+                out.append(("FAIL", f"python (on PATH): {ver_display} [{py_path}] — {FIX_HINTS['python-old']}"))
+            else:
+                out.append(("OK", f"python (on PATH): {ver_display} [{py_path}]"))
+
+    # git
+    git_path = which("git")
+    if git_path is None:
+        out.append(("FAIL", f"git: not found — {FIX_HINTS['git-missing']}"))
+    else:
+        out.append(("OK", f"git: [{git_path}]"))
+
+    return out
+
+
+def keys_line(env: Mapping[str, str]) -> tuple[str, str]:
+    scripts = Path(__file__).resolve().parent
+    try:
+        oss_model = _load_sibling("oss_model.py", scripts.parent / "claude-harness" / "scripts")
+        if oss_model is None:
+            return ("INFO", "keys: could not check")
+
+        env_dict = dict(env)
+        fake_home = env_dict.get(f"{ENV_PREFIX}_FAKE_HOME") or os.environ.get(f"{ENV_PREFIX}_FAKE_HOME")
+        if fake_home and "CADDIS_KEYS_FILE" not in env_dict:
+            env_dict["CADDIS_KEYS_FILE"] = str(Path(fake_home) / ".caddis" / "keys.env")
+
+        providers = oss_model.configured_providers(env_dict)
+        if providers:
+            return ("OK", f"keys: {', '.join(providers)}")
+        return ("INFO", f"keys: none — {FIX_HINTS['keys-none']}")
+    except Exception:
+        return ("INFO", "keys: could not check")
+
+
+# ── project checks (read-only — WARN or INFO, never FAIL) ─────────────────────
+def deny_rule_findings(dest: Path) -> list[tuple[str, str]]:
+    dest = Path(dest)
+    if _is_caddis_source(dest):
+        return []
+
+    scripts = Path(__file__).resolve().parent
+    tmpl_path = scripts.parent / "settings.template.json"
+    if not tmpl_path.is_file():
+        tmpl_path = scripts.parent / "claude-harness" / "settings.template.json"
+    if not tmpl_path.is_file():
+        return []
+
+    settings_path = dest / ".claude" / "settings.json"
+    if not settings_path.is_file():
+        return [("INFO", "no .claude/settings.json")]
+
+    try:
+        tmpl = json.loads(tmpl_path.read_text(encoding="utf-8"))
+        required_deny = tmpl.get("permissions", {}).get("deny", [])
+    except Exception:
+        return []
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        dest_deny = set(settings.get("permissions", {}).get("deny", []))
+    except Exception:
+        dest_deny = set()
+
+    missing = [r for r in required_deny if r not in dest_deny]
+    if missing:
+        return [("WARN", f"deny rules: {len(missing)} missing — {FIX_HINTS['deny-rules']}")]
+    return []
+
+
+def gitignore_findings(dest: Path) -> list[tuple[str, str]]:
+    dest = Path(dest)
+    if _is_caddis_source(dest):
+        return []
+    if not (dest / ".caddis").is_dir():
+        return []
+
+    scripts = Path(__file__).resolve().parent
+    try:
+        setup_mod = _load_sibling("setup_project_ai.py", scripts.parent / "scripts")
+        if setup_mod is None:
+            return [("INFO", "gitignore: could not check")]
+        artifact_gitignore = getattr(setup_mod, "ARTIFACT_GITIGNORE", None)
+        if not artifact_gitignore:
+            return [("INFO", "gitignore: could not check")]
+
+        entries = [
+            line.strip()
+            for line in artifact_gitignore.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+        caddis_ignore = dest / ".caddis" / ".gitignore"
+        caddis_lines: set[str] = set()
+        if caddis_ignore.is_file():
+            try:
+                caddis_lines = {line.strip() for line in caddis_ignore.read_text(encoding="utf-8", errors="replace").splitlines()}
+            except OSError:
+                pass
+
+        root_ignore = dest / ".gitignore"
+        root_lines: set[str] = set()
+        if root_ignore.is_file():
+            try:
+                root_lines = {line.strip() for line in root_ignore.read_text(encoding="utf-8", errors="replace").splitlines()}
+            except OSError:
+                pass
+
+        missing: list[str] = []
+        for entry in entries:
+            if entry in caddis_lines or f".caddis/{entry}" in root_lines:
+                continue
+            missing.append(entry)
+
+        if missing:
+            first_three = ", ".join(missing[:3])
+            return [("WARN", f"gitignore: {len(missing)} missing ({first_three}) — {FIX_HINTS['gitignore']}")]
+        return []
+    except Exception:
+        return [("INFO", "gitignore: could not check")]
+
+
+def misfiled_findings(dest: Path) -> list[tuple[str, str]]:
+    dest = Path(dest)
+    if _is_caddis_source(dest):
+        return []
+
+    caddis_dir = dest / ".caddis"
+    if not caddis_dir.is_dir():
+        return []
+
+    out: list[tuple[str, str]] = []
+    try:
+        subdirs = sorted(p for p in caddis_dir.iterdir() if p.is_dir())
+    except OSError:
+        return []
+
+    for top_dir in subdirs:
+        if top_dir.name in _SKIP_DIRS:
+            continue
+        if top_dir.name not in KNOWN_CADDIS_DIRS:
+            md_files = list(top_dir.rglob("*.md"))
+            if md_files:
+                out.append(("WARN", f".caddis/{top_dir.name}/ is not a caddis folder ({len(md_files)} file(s)) — {FIX_HINTS['misfiled']}"))
+    return out
+
+
 # ── report ───────────────────────────────────────────────────────────────────
 def run(dest: Path, quiet: bool) -> int:
     if quiet:  # SessionStart mode: only the nudge, never non-zero
@@ -352,7 +574,7 @@ def run(dest: Path, quiet: bool) -> int:
 
     hard = 0
     print(f"=== caddis doctor — {dest} ===")
-    print(f"python: {sys.version.split()[0]}  ({sys.executable})")
+    print(f"python (running this check): {sys.version.split()[0]}  ({sys.executable})")
     for name in ("codex", "agy", "claude"):
         path = _which(name)
         if path:
@@ -360,6 +582,26 @@ def run(dest: Path, quiet: bool) -> int:
             print(f"  {name:7} OK   {ver}   [{path}]")
         else:
             print(f"  {name:7} not found on PATH (install, or open a new terminal so PATH refreshes)")
+
+    print("-- machine")
+    for level, text in machine_findings():
+        if level == "FAIL":
+            hard = 1
+        print(f"  {level:4} {text}")
+    k_level, k_text = keys_line(os.environ)
+    if k_level == "FAIL":
+        hard = 1
+    print(f"  {k_level:4} {k_text}")
+
+    print("-- project")
+    proj_findings = deny_rule_findings(dest) + gitignore_findings(dest) + misfiled_findings(dest)
+    if proj_findings:
+        for level, text in proj_findings:
+            if level == "FAIL":
+                hard = 1
+            print(f"  {level:4} {text}")
+    else:
+        print("  OK   deny rules, gitignore entries and document folders clean")
 
     print("-- rules integrity")
     findings = rules_findings(dest)

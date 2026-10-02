@@ -581,6 +581,10 @@ def _validate_skill_roster(
     return problems
 
 
+# `${VAR}`, `${VAR:-x}` and `$VAR`: the whole reference, so the sigil is never left behind.
+_PLUGIN_ROOT_REF = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT(?::[-=+?][^}]*)?\}|\$CLAUDE_PLUGIN_ROOT\b")
+
+
 def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportStats:
     """Export one runtime target from the canonical .github source."""
     canonical_root = PROJECT_ROOT / manifest["canonical_root"]
@@ -750,20 +754,23 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
         if n:
             print(f"[OK] {target['name']}: {n} command(s) reshaped into skills")
 
-    # Codex sets NO plugin-root variable — verified live: CLAUDE_PLUGIN_ROOT is UNSET, and the
-    # only CODEX_* vars are session/sandbox ones. 16 of the 31 converted skills shell out via
-    # that variable, so they would fail silently. Rewrite it to one the user can set, with the
-    # deterministic install path documented in the bundle's own README.
-    if target.get("plugin_root_var"):
-        var = target["plugin_root_var"]
+    # Codex sets NO plugin-root variable in shell commands — verified live: CLAUDE_PLUGIN_ROOT
+    # and CADDIS_PLUGIN_ROOT are unset. Rewrite CLAUDE_PLUGIN_ROOT to the deterministic plugin
+    # cache path, expanding {version} and keeping ${HOME} literal.
+    if target.get("plugin_root_path"):
+        root = target["plugin_root_path"].replace("{version}", target["plugin"]["version"])
         n = 0
         for md in (workspace_root / "skills").rglob("SKILL.md"):
             t = md.read_text(encoding="utf-8")
             if "CLAUDE_PLUGIN_ROOT" in t:
-                md.write_text(t.replace("CLAUDE_PLUGIN_ROOT", var), encoding="utf-8")
+                # `${VAR}`, `${VAR:-x}` and `$VAR` become the path whole; a bare mention in prose
+                # follows. Folding the sigil into the pattern keeps `$VAR` from becoming `$${HOME}`.
+                new_t = _PLUGIN_ROOT_REF.sub(lambda _m: root, t)
+                new_t = new_t.replace("CLAUDE_PLUGIN_ROOT", root)
+                md.write_text(new_t, encoding="utf-8")
                 n += 1
         if n:
-            print(f"[OK] {target['name']}: CLAUDE_PLUGIN_ROOT -> {var} in {n} skill(s)")
+            print(f"[OK] {target['name']}: CLAUDE_PLUGIN_ROOT -> {root} in {n} skill(s)")
 
     if target.get("agy_plugin"):
         write_agy_plugin_manifest(workspace_root, target, manifest)
