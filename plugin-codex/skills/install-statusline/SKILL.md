@@ -33,16 +33,16 @@ different field names — agy's payload is a sibling of Claude Code's, not a cop
 
 Find the renderer in this install and run it. Try these paths in order and use the first that exists:
 
-- `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_statusline.py`
+- `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_statusline.py`
 - `claude-harness/scripts/caddis_statusline.py` (working inside the caddis source repo)
 
 Then:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_statusline.py" --install          # both hosts
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_statusline.py" --install --host claude
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_statusline.py" --install --host agy
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_statusline.py" --install --dry-run # print, write nothing
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_statusline.py" --install          # both hosts
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_statusline.py" --install --host claude
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_statusline.py" --install --host agy
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_statusline.py" --install --dry-run # print, write nothing
 ```
 
 `--install` does four things:

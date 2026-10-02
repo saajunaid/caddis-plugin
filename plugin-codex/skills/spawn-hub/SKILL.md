@@ -125,7 +125,7 @@ an id that *disappeared*. Nothing caught a file that *exists and is invisible*, 
 failure and just as silent:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_gate.py" hub-artifacts --reports .caddis/advisory-hub-reports
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_gate.py" hub-artifacts --reports .caddis/advisory-hub-reports
 ```
 
 Exit 1 means you wrote a phase prompt the successor will never learn about. It will find no prompt,
@@ -151,8 +151,8 @@ audit trail this pattern has.
 generator:**
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" preflight
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_inventory.py" --with-tests
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" preflight
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_inventory.py" --with-tests
 ```
 
 `preflight` **refuses on a dirty tree**: the incoming Hub pulls, so uncommitted work is invisible to
@@ -193,10 +193,10 @@ Then write the judgement half yourself. It must contain:
    > verdict:
    >
    > ```bash
-   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" handshake open   --id <id>
-   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" handshake status --id <id>
-   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" handshake record --id <id> --event answers
-   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" handshake close  --id <id>
+   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" handshake open   --id <id>
+   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" handshake status --id <id>
+   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" handshake record --id <id> --event answers
+   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" handshake close  --id <id>
    > ```
    >
    > It reports whether this runtime can message a peer at all and falls back to the paste route
@@ -225,7 +225,7 @@ Then write the judgement half yourself. It must contain:
    > **Every question must be answerable from a committed file. Prove it, do not assume it:**
    >
    > ```
-   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" verify-question \
+   > python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" verify-question \
    >   --answer-in .caddis/kb/some-note.md --needle "the phrase that answers it"
    > ```
    >
@@ -295,9 +295,9 @@ exists to shed.
 ### Check the prompt before you hand it over
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_gate.py" handover-check \
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_gate.py" handover-check \
   --doc .caddis/advisory-hub-reports/hub-NN.spawn.md
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_spawn.py" check \
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_spawn.py" check \
   --doc .caddis/advisory-hub-reports/hub-NN.spawn.md
 ```
 

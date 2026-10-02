@@ -22,11 +22,14 @@ vi.mock('../src/util/exec.js', async (importOriginal) => {
 import { existsSync } from 'node:fs';
 import { doctor } from '../src/commands/doctor.js';
 import { run } from '../src/util/exec.js';
-import { bundlePath } from '../src/util/pkg.js';
+import { bundlePath, packageInfo } from '../src/util/pkg.js';
 import { findBin } from '../src/util/which.js';
 import type { RunResult } from '../src/util/exec.js';
 import { captureStdout, fakeAdapter } from './helpers.js';
 
+// The registry lookup must say "this is the newest": use the version the package really has, so a
+// version bump at release time cannot turn a clean doctor into "CLI behind" (it did on 0.4.40).
+const CLI_VERSION = packageInfo().version;
 let capture: ReturnType<typeof captureStdout>;
 const mockWhich = vi.mocked(findBin);
 const mockBundle = vi.mocked(bundlePath);
@@ -40,7 +43,7 @@ beforeEach(() => {
   mockRun.mockReset();
   mockRun.mockImplementation(async (cmd, args) => {
     if (cmd === 'npm') {
-      return { ok: true, code: 0, stdout: '0.4.39', stderr: '' };
+      return { ok: true, code: 0, stdout: CLI_VERSION, stderr: '' };
     }
     return {
       ok: true,
@@ -62,7 +65,7 @@ function cleanAdapters() {
 describe('caddis doctor project health check', () => {
   it('prints the python report under Project', async () => {
     mockRun.mockImplementation(async (cmd) => {
-      if (cmd === 'npm') return { ok: true, code: 0, stdout: '0.4.39', stderr: '' };
+      if (cmd === 'npm') return { ok: true, code: 0, stdout: CLI_VERSION, stderr: '' };
       return {
         ok: true,
         code: 0,
@@ -97,7 +100,7 @@ describe('caddis doctor project health check', () => {
 
   it('a failing python report fails --strict', async () => {
     mockRun.mockImplementation(async (cmd) => {
-      if (cmd === 'npm') return { ok: true, code: 0, stdout: '0.4.39', stderr: '' };
+      if (cmd === 'npm') return { ok: true, code: 0, stdout: CLI_VERSION, stderr: '' };
       return {
         ok: false,
         code: 1,
@@ -115,7 +118,7 @@ describe('caddis doctor project health check', () => {
 
   it('a clean python report keeps --strict at 0', async () => {
     mockRun.mockImplementation(async (cmd) => {
-      if (cmd === 'npm') return { ok: true, code: 0, stdout: '0.4.39', stderr: '' };
+      if (cmd === 'npm') return { ok: true, code: 0, stdout: CLI_VERSION, stderr: '' };
       return {
         ok: true,
         code: 0,
@@ -132,7 +135,7 @@ describe('caddis doctor project health check', () => {
 
   it('json carries the project exit code', async () => {
     mockRun.mockImplementation(async (cmd) => {
-      if (cmd === 'npm') return { ok: true, code: 0, stdout: '0.4.39', stderr: '' };
+      if (cmd === 'npm') return { ok: true, code: 0, stdout: CLI_VERSION, stderr: '' };
       return {
         ok: true,
         code: 0,

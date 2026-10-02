@@ -16,7 +16,7 @@ Context / args: **$ARGUMENTS** — an optional target repo path (default: this r
 
 ## Step 1 — locate the migrator
 It ships with the harness. Try, in order:
-- `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_migrate_dir.py` — a plugin install.
+- `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_migrate_dir.py` — a plugin install.
 - `scripts/caddis_migrate_dir.py` — the harness source repo itself.
 
 ## Step 2 — check the tree first (L1: shared worktrees)
@@ -29,7 +29,7 @@ pass `--allow-dirty` on a tree whose changes you didn't make.
 
 ## Step 3 — dry run
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_migrate_dir.py" <target>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_migrate_dir.py" <target>
 ```
 Read the plan it prints. Two shapes:
 - **Simple** — only `.claudster/` exists → one `git mv .claudster .caddis` (history preserved).
@@ -42,7 +42,7 @@ Show the user the dry-run output before applying.
 
 ## Step 4 — apply
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_migrate_dir.py" <target> --apply
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_migrate_dir.py" <target> --apply
 ```
 It also rewrites `.claudster/…` path references inside the repo's **live** state — `.caddis/relay.md`
 and `.caddis/workstreams.json` (parked-workstream plan paths). Historical artifacts (past plans,
@@ -53,7 +53,7 @@ Resolve any CONFLICT it reported by hand, then re-run — the command is idempot
 ## Step 5 — verify, then commit
 ```
 git -C <target> status --short          # renames should show as R (history preserved)
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_migrate_dir.py" <target> --check    # exit 0 = no legacy dir left
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_migrate_dir.py" <target> --check    # exit 0 = no legacy dir left
 ```
 Then run the repo's own gate (its tests, and `check_doc_coverage.py --check` if present) and commit
 the rename **on its own**, e.g. `chore(caddis): migrate .claudster/ -> .caddis/`.

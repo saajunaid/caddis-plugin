@@ -20,7 +20,7 @@ Two modes:
 - `/caddis:cloud-phases [plan] [phases]` — **dispatch**: Steps 1–6.
 - `/caddis:cloud-phases intake` — **intake**: Step 7, after the owner has run the sessions.
 
-With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.126/scripts/caddis_todo.py" active-plan`,
+With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_todo.py" active-plan`,
 or the one `status: current` plan in `.caddis/plans/`). If there is none, or more than one, ask.
 
 ## Step 1 — check the preconditions (stop on any failure)
