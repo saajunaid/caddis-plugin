@@ -23,3 +23,8 @@ Nothing to set: the skills find their scripts in the installed plugin folder.
 
 Skills are flat — `skills/<name>/SKILL.md` — which is what Codex loads. Measured in a live
 install: 134 flat versus 6 nested.
+
+## Trust the hooks
+
+After installing caddis-codex, open codex once. Open the hooks review screen with `/hooks`. Review and trust the caddis hooks, because hooks do not run until they are trusted.
+

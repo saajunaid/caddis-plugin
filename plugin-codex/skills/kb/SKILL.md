@@ -15,7 +15,7 @@ It ships with the harness. Try, in order:
 
 ## Step 2 — run the reindexer
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/check_doc_coverage.py" --reindex
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/check_doc_coverage.py" --reindex
 ```
 It is **additive and safe** — never deletes your rows:
 - **Missing map** → creates `.caddis/kb/DOC-MAP.md` from a scaffold, pre-linking the repo's obvious
@@ -36,14 +36,14 @@ Read the `[kb]` summary it printed, then:
   - The note is **gone for good** → remove its row. To clear all dangling rows at once, use the
     destructive opt-in — but **show the dangling list and confirm with the user first**:
     ```
-    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/check_doc_coverage.py" --prune
+    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/check_doc_coverage.py" --prune
     ```
     `--prune` removes *only* index rows that link to missing files (never valid rows, never prose),
     and still indexes any orphan notes in the same run.
 
 ## Step 4 — verify clean
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/check_doc_coverage.py" --check
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/check_doc_coverage.py" --check
 ```
 Exit `0` = the index is honest (no dangling links; every note indexed). The SessionStart hook will now
 surface the `[DOC-MAP]` "read the index first" pointer for future sessions in this repo.

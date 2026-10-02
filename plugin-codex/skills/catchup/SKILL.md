@@ -68,12 +68,12 @@ on is worse than one sentence admitting there is nothing to recap.
 
 **No argument:** this is the last step of the catchup procedure above, not a separate one.
 After the list, add the workstream index and the open work:
-1. Refresh and show the index: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_workstreams.py" render-index`,
+1. Refresh and show the index: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/caddis_workstreams.py" render-index`,
    then display `.caddis/relay.md`. If it refuses a legacy `.caddis/relay.md`, display that file
    as it is and suggest `/handoff`, which migrates it.
 2. Show open work for the current workstream:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_todo.py" open-work
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/caddis_todo.py" open-work
    ```
 Before saying `Nothing is parked.`, check for an old `/digress` stack: if `.caddis/workstreams.json`
 exists, run `caddis_workstreams.py migrate-legacy` (it keeps a backup and reports conflicts
@@ -81,9 +81,9 @@ instead of overwriting), then show the index again. Only with no relays and no o
 `Nothing is parked.`
 
 **Named load** (`/catchup <name>`):
-1. Load it: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_workstreams.py" read <name>`.
+1. Load it: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/caddis_workstreams.py" read <name>`.
 2. If it prints nothing, the relay may be on another machine. Ask before fetching, then run
-   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_relay_git.py" fetch <name>`. It reads only
+   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/caddis_relay_git.py" fetch <name>`. It reads only
    `refs/caddis/relay/<name>`, never checks out or merges, and refuses to replace a different local
    relay. Pass `--replace` only if the user confirms the local one may be overwritten.
 3. Restate where you were and resume the workstream.

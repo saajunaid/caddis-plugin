@@ -47,7 +47,7 @@ found: <YYYY-MM-DD>
 ## Step 4 — verify
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.127/scripts/caddis_gate.py" docs-check --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.128/scripts/caddis_gate.py" docs-check --root .
 ```
 
 Exit 0 means the header is valid. Do not report the item as filed until this passes.

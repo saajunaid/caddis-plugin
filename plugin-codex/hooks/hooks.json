@@ -1,0 +1,26 @@
+{
+  "description": "caddis harness loop for Codex CLI: session-resume injection (SessionStart) and safety guard (PreToolUse on Bash and apply_patch). Requires python on PATH.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/inject_relay.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
