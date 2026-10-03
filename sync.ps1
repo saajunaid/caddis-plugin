@@ -1445,6 +1445,28 @@ function caddis-push {
                 & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "claude"))
                 $reExportOk = ($LASTEXITCODE -eq 0)
                 Pop-Location
+                # The codex plugin follows the caddis version (version_follows) and writes it into its
+                # plugin.json label AND into every skill script path. It was exported before this bump,
+                # so without a re-export the mirror's plugin-codex/ carries last release's number and
+                # `caddis status` shows Codex one behind (measured over three publishes, 2026-10-02).
+                # Refresh the whole plugin-codex/ tree, not only plugin.json, so label and paths agree.
+                Push-Location $ProjectRoot
+                & $claudePython.Path @($claudePython.PrefixArgs + @("export_runtime_resources.py", "--profile", "codex-plugin"))
+                $codexReExportOk = ($LASTEXITCODE -eq 0)
+                Pop-Location
+                $rebuiltCodex = Join-Path $codexBundle "plugin-codex"
+                if ($codexReExportOk -and (Test-Path $rebuiltCodex)) {
+                    $destCodexBumped = Join-Path $CADDIS_POOL "plugin-codex"
+                    if (Test-Path $destCodexBumped) { Remove-ItemRobust $destCodexBumped }
+                    Copy-Item $rebuiltCodex $CADDIS_POOL -Recurse -Force
+                    foreach ($privateSkill in $PLUGIN_PRIVATE_SKILLS) {
+                        $privatePath = Join-Path $destCodexBumped "skills\$privateSkill"
+                        if (Test-Path $privatePath) { Remove-Item $privatePath -Recurse -Force }
+                    }
+                    Write-Host "  [OK]  codex plugin re-exported -> plugin-codex/ now at $bumpedCaddis" -ForegroundColor Green
+                } else {
+                    Write-Host "  [WARN]  codex re-export failed; plugin-codex/ may lag the $bumpedCaddis bump." -ForegroundColor Yellow
+                }
                 $rebuiltPlugin = Join-Path $claudeBundle "plugin\.claude-plugin\plugin.json"
                 if ($reExportOk -and (Test-Path $rebuiltPlugin)) {
                     Copy-Item $rebuiltPlugin (Join-Path $CADDIS_POOL "plugin\.claude-plugin\plugin.json") -Force
@@ -2233,7 +2255,9 @@ function caddis-ship {
         [switch]$PublishMcp,   # retired 2026-09-25: MCP publishing removed in R1
         [switch]$PublishCaddisExtension,
         [switch]$PublishAll,
-        [switch]$SkipSmokeTest
+        [switch]$SkipSmokeTest,
+        # The source commit stages tracked changes only. Untracked files stop the ship unless this is typed.
+        [switch]$IncludeUntracked
     )
 
     foreach ($retiredParam in @("McpVersion", "PublishMcp")) {
@@ -2318,7 +2342,22 @@ function caddis-ship {
             $statusOutput = @(git status --porcelain)
             $hasSourceChanges = -not [string]::IsNullOrWhiteSpace(($statusOutput | Out-String).Trim())
             if ($hasSourceChanges) {
-                git add -A | Out-Null
+                # Never `git add -A` here: it commits every untracked file nobody reviewed (a local
+                # scratch folder, a key file). Tracked changes are staged with `git add -u`. Untracked
+                # files stop the ship, listed by name, until each is `git add`-ed by name, ignored, or
+                # the owner types -IncludeUntracked.
+                $untrackedFiles = @(git ls-files --others --exclude-standard)
+                if ($untrackedFiles.Count -gt 0 -and -not $IncludeUntracked) {
+                    Write-Host "  [ABORT]  Untracked files would be left out or swept in. Stage each by name (git add <file>), ignore it, or pass -IncludeUntracked:" -ForegroundColor Red
+                    foreach ($untrackedFile in ($untrackedFiles | Select-Object -First 20)) {
+                        Write-Host "           $untrackedFile" -ForegroundColor Red
+                    }
+                    if ($untrackedFiles.Count -gt 20) {
+                        Write-Host "           ... and $($untrackedFiles.Count - 20) more" -ForegroundColor Red
+                    }
+                    return $false
+                }
+                if ($IncludeUntracked) { git add -A | Out-Null } else { git add -u | Out-Null }
                 git commit -m $Message | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     Write-Host "  [ABORT]  Source commit failed." -ForegroundColor Red

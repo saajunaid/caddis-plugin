@@ -1,6 +1,12 @@
 ---
 name: advisory-hub
-description: A long-lived "Hub" session re-derives each phase of a multi-session plan instead of trusting its self-report. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "advisory context", "who checks the implementing session", "the plan turned out to be wrong", "hand off the hub", "re-derive don't trust", or a long plan with expensive-to-reverse work (a migration, a security change, production data correctness) needs independent checks; not for short features. Hub artefacts, including `hub-NN.spawn.md`, go in `.caddis/advisory-hub-reports/`.
+description: >-
+  A long-lived "Hub" session re-derives each phase of a multi-session plan instead of trusting its
+  self-report. Use when the user says "advisory hub", "validate this phase", "phase report", "hub
+  verdict", "who checks the implementing session", "re-derive don't trust", "hand off the hub", or a
+  long plan with expensive-to-reverse work (migration, security change, production data correctness)
+  needs independent checks; not for short features. Hub artefacts go in
+  `.caddis/advisory-hub-reports/`.
 ---
 
 # Advisory Hub — cross-session phase validation

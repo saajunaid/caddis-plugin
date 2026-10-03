@@ -36,11 +36,11 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
-| Adopt App | `adopt-app/` | Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard — inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "bring this up to standard", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production". |
+| Adopt App | `adopt-app/` | >- |
 | Ci Cd Pipeline | `ci-cd-pipeline/` | CI/CD pipelines for GitHub Actions and Azure DevOps: build and deploy workflows, quality gates, environment promotion and release automation. |
 | Gh Cli | `gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
-| Port To Github | `port-to-github/` | Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over WinRM) — all branches and tags, SHA-verified, CI translated, history kept source-only, deploy cut over with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "put this folder on GitHub", "this app only exists on the server", "import the repo from the prod box", "keep binaries / MariaDB / PHP out of the repo", "check the repo only holds source", or "cut the deploy over to GitHub". |
+| Port To Github | `port-to-github/` | >- |
 | Safe Cleanup | `safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
 | Using Git Worktrees | `using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
 | Windows Deployment | `windows-deployment/` | Deploy FastAPI + React/Vite apps to Windows Server with NSSM services, IIS or nginx reverse proxy and git-pull. Use for Windows prod deploys, NSSM, reverse proxy setup, dev/prod config, or prod troubleshooting. |
@@ -118,7 +118,7 @@
 |-------|------|-------------|
 | Draw Io | `draw-io/` | draw.io diagram creation, editing, and review. Use for .drawio XML editing, PNG conversion, layout adjustment, and AWS icon usage. |
 | Mermaid Diagrams | `mermaid-diagrams/` | Software diagrams in Mermaid: class, sequence, flowchart, ERD, C4, state, git graph, gantt. Use for domain models, API flows, processes and database schemas. |
-| Particle Art | `particle-art/` | Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particles that form a shape", "particle animation", "node network", "animated letter/logo/initials", "living letter", "morphing particles", "constellation", "neural net art", "dot field", "stipple portrait", "halftone animation", "ASCII art animation", "background art for my site", or "art that reacts to mouse". |
+| Particle Art | `particle-art/` | >- |
 
 ### Testing
 
@@ -133,7 +133,7 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
-| Advisory Hub | `advisory-hub/` | A long-lived "Hub" session re-derives each phase of a multi-session plan instead of trusting its self-report. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "advisory context", "who checks the implementing session", "the plan turned out to be wrong", "hand off the hub", "re-derive don't trust", or a long plan with expensive-to-reverse work (a migration, a security change, production data correctness) needs independent checks; not for short features. Hub artefacts, including `hub-NN.spawn.md`, go in `.caddis/advisory-hub-reports/`. |
+| Advisory Hub | `advisory-hub/` | >- |
 | Best Practices | `best-practices/` | >- |
 | Brainstorming | `brainstorming/` | You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. |
 | Context Curator | `context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |

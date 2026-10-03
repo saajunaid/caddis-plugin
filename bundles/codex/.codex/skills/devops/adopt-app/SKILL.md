@@ -1,6 +1,11 @@
 ---
 name: adopt-app
-description: Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard — inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "bring this up to standard", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production".
+description: >-
+  Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard:
+  inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this
+  app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on
+  the server", "what would it take to get this into CI", "nobody knows how this is deployed", or "it
+  started as a prototype and now it is production".
 ---
 
 # adopt-app

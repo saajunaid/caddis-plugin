@@ -3,12 +3,11 @@ name: tech-explainer
 context: fork
 description: >-
   Plain-language explainer, with ranked Mermaid diagrams and Simplified Technical English, for a
-  reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain
-  this to X", "explainer", "write this up for someone non-technical", "plain English", "simplified
-  technical english", "STE", "explain our findings", "write up the benchmark results", "answer my
-  manager's recommendations", "why is it slow — document it", "make a doc with diagrams explaining
-  the stack", or summarises an investigation for a reader who won't read the raw data. Not for build
-  hand-offs (explainer-doc) or READMEs.
+  reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain this
+  to X", "explainer", "write this up for someone non-technical", "plain English", "STE", "explain our
+  findings", "write up the benchmark results", "why is it slow — document it", or summarises an
+  investigation for a reader who won't read the raw data. Not for build hand-offs (explainer-doc) or
+  READMEs.
 ---
 
 # tech-explainer — make a stranger understand, and able to push back

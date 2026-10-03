@@ -12,7 +12,7 @@ from pathlib import Path
 
 try:
     import caddis_exit
-    from caddis_file_lock import atomic_write, locked_path
+    from caddis_file_lock import atomic_write, locked_path, retry_denied
     from caddis_frontmatter import parse, split_document
     from caddis_workstreams import _artifact, _name
 except ModuleNotFoundError as exc:
@@ -21,7 +21,7 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
-    from caddis_file_lock import atomic_write, locked_path
+    from caddis_file_lock import atomic_write, locked_path, retry_denied
     from caddis_frontmatter import parse, split_document
     from caddis_workstreams import _artifact, _name
 
@@ -41,15 +41,17 @@ def _path(root: Path, workstream: str | None) -> tuple[Path, Path]:
     if folder.is_symlink() or not folder.resolve().is_relative_to(artifact.resolve()):
         raise ValueError("todo-list path escapes artifact root")
     path = folder / f"{name}.md"
-    if path.is_symlink():  # reads are unlocked, so refuse here as well as in locked_path
+    # Reads are unlocked, so refuse here as well as in locked_path. On Windows a writer replacing the file
+    # makes this probe (and the read below) fail with PermissionError for an instant, so both retry.
+    if retry_denied(path.is_symlink):
         raise ValueError("to-do file may not be a symlink")
     return artifact, path
 
 
 def _read(path: Path, workstream: str | None) -> list[dict]:
-    if not path.exists():
+    if not retry_denied(path.exists):
         return []
-    text = path.read_text(encoding="utf-8")
+    text = retry_denied(lambda: path.read_text(encoding="utf-8"))
     header, body = split_document(text)
     name = workstream or "inbox"
     if header.get("type") != "todo" or header.get("workstream") != name or header.get("status") not in {"current", "done"}:

@@ -182,6 +182,7 @@ class GateResult:
     returncode: int
     passed: bool
     tail: str
+    duration_s: float = 0.0
 
 
 @dataclass
@@ -738,6 +739,7 @@ def run_gates(
         with heavy_slot("gates"):
             results = []
             for command in cmds:
+                gate_started = time.monotonic()
                 try:
                     completed = subprocess.run(
                         governed_argv(command),
@@ -756,6 +758,7 @@ def run_gates(
                             returncode=-1,
                             passed=False,
                             tail=f"timed out after {timeout_s}s",
+                            duration_s=time.monotonic() - gate_started,
                         )
                     )
                     continue
@@ -770,6 +773,7 @@ def run_gates(
                         returncode=completed.returncode,
                         passed=passed,
                         tail=output[-2000:],
+                        duration_s=time.monotonic() - gate_started,
                     )
                 )
             return results
@@ -1417,6 +1421,9 @@ def build_prompt(
         "run anything against production.\n"
         "- Do not implement any other phase.\n"
         "- Run every command in the foreground and wait for it to finish. Start no background tasks, watchers or dev servers.\n"
+        "- Test economy: after each step run only the tests for the file or module you changed. Run the full suite "
+        "only for the baseline and once at the end. Do not run a review loop in this lane; the orchestrator reviews. "
+        "Print a progress line every 20 minutes. Never start a second heavy test run while one is still running.\n"
         "Resource budget (enforced by the machine, not by this text):\n"
         f"- You run inside a Windows Job Object: {limits_line}. Exceeding it slows "
         "you down; it does not stop the limit.\n"
@@ -1558,6 +1565,23 @@ def _gate_dict(result: GateResult) -> dict:
         "returncode": result.returncode,
         "passed": result.passed,
         "tail": result.tail,
+        "duration_s": round(result.duration_s, 1),
+    }
+
+
+def _time_split(packet: dict, gates: list[GateResult], review_s: float) -> dict:
+    """Measured seconds the orchestrator can read: the lane run, the gate commands, the review.
+
+    What happens INSIDE the lane (edits versus the lane's own test runs) is not measured: the idle
+    sampler sees process image names every IDLE_SAMPLE_S seconds, not command lines, so it cannot tell a
+    pytest run from any other python process.
+    """
+    return {
+        "lane_s": round(sum(float(lane.get("duration_s") or 0) for lane in packet.get("lanes_tried", [])), 1),
+        "gates_s": round(sum(gate.duration_s for gate in gates), 1),
+        "gate_runs": len(gates),
+        "review_s": round(review_s, 1),
+        "in_lane": "not measured: only process names are visible inside a lane",
     }
 
 
@@ -1597,7 +1621,9 @@ def _run_post_checks(
         packet.pop("_freeze_before", None)
         return "stop", EXIT_NOT_RUN
 
+    review_started = time.monotonic()
     review = run_review(worktree, dict(os.environ))
+    review_s = time.monotonic() - review_started
     pythons = list(before)
     if pythons:
         after = {python: freeze_snapshot(python) for python in pythons}
@@ -1626,6 +1652,7 @@ def _run_post_checks(
             "gates": [_gate_dict(gate) for gate in gates],
             "gates_passed": gates_passed,
             "review": _review_dict(review),
+            "time_split": _time_split(packet, gates, review_s),
             "freeze_unchanged": freeze_unchanged,
             "next": next_step,
         }

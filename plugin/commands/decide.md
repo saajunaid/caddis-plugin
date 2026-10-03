@@ -29,7 +29,7 @@ comes out differently.
 ```markdown
 ---
 type: adr
-status: accepted
+status: current
 found: <YYYY-MM-DD>
 ---
 

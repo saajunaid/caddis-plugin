@@ -22,6 +22,7 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
+| Adopt Rbac | `coding/adopt-rbac/` | Pointer to the org's RBAC adoption skill. Use for "add RBAC to this app" or "adopt rbac-kit". |
 | Anchor Review | `coding/anchor-review/` | Single-model adversarial review technique — 3-lens analysis with confidence scoring and self-challenge |
 | API Client Patterns | `coding/api-client-patterns/` | Typed client-side API consumption: fetch wrappers, zod validation, auth injection, TanStack Query (useQuery, useMutation, optimistic updates), tRPC, OpenAPI codegen, pagination. Use when consuming REST or tRPC APIs. |
 | API Design | `coding/api-design/` | REST and GraphQL API design: endpoints, resource schemas, versioning, pagination, error responses, OpenAPI. Use when designing or reviewing API contracts. |
@@ -29,6 +30,7 @@
 | Backend Development | `coding/backend-development/` | Backend API design, database schemas, microservices and TDD. Use for backend system architecture. |
 | Backend To Frontend Handoff Docs | `coding/backend-to-frontend-handoff/` | Document a finished backend API for frontend integration. Use when the user says 'create handoff', 'document API', 'frontend handoff', or 'API documentation'. |
 | Caching Patterns | `coding/caching-patterns/` | Caching strategies for Streamlit and FastAPI applications |
+| Case Management | `coding/case-management/` | Pointer to the org's case-management blueprint. Use for "add case management". |
 | Code Explainer | `coding/code-explainer/` | Explain code with diagrams, analogies and step-by-step walkthroughs. Use when teaching a codebase or answering "how does this work?" |
 | Code Review | `coding/code-review/` | Automated code review for quality, security, performance and best practices. Use when reviewing code changes, PRs, or doing code audits. |
 | Codebase Audit | `coding/codebase-audit/` | Audit an unfamiliar codebase before architecture or implementation work. Use for a new codebase, pre-implementation audit, codebase review, technical due diligence or onboarding. Produces AUDIT-FINDINGS.md and QUESTIONS.md. |
@@ -62,13 +64,13 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
-| Adopt App | `devops/adopt-app/` | Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard — inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "bring this up to standard", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production". |
+| Adopt App | `devops/adopt-app/` | Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard: inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production". |
 | Changelog Generator | `devops/changelog-generator/` | Create user-facing changelogs and release notes from git commit history, grouping changes and rewriting technical commits in plain language. |
 | Deploy Local | `devops/deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
 | Gh CLI | `devops/gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `devops/git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
 | Monorepo | `devops/monorepo/` | Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting. |
-| Port To GitHub | `devops/port-to-github/` | Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over WinRM) — all branches and tags, SHA-verified, CI translated, history kept source-only, deploy cut over with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "put this folder on GitHub", "this app only exists on the server", "import the repo from the prod box", "keep binaries / MariaDB / PHP out of the repo", "check the repo only holds source", or "cut the deploy over to GitHub". |
+| Port To GitHub | `devops/port-to-github/` | Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over WinRM): all branches and tags, SHA-verified, CI translated, source-only history, deploy cut over with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "this app only exists on the server", "import the repo from the prod box", "keep binaries out of the repo", or "cut the deploy over to GitHub". |
 | Safe Cleanup | `devops/safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
 | Update README | `devops/update-readme/` | Detect feature commits and update README sections (Features, API, Usage) to match, then stage only the README. Use when features, routes or components were added. |
 | Using Git Worktrees | `devops/using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
@@ -91,7 +93,7 @@
 | LLD | `docs/lld/` | Generate Lower-Level Design (LLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
 | Naming Analyzer | `docs/naming-analyzer/` | Suggest better variable, function, and class names based on context and conventions. |
 | PRD To Code | `docs/prd-to-code/` | Turn a PRD into working application code with a 6-phase method. Use when starting a project from requirements or specs. |
-| Tech Explainer | `docs/tech-explainer/` | Plain-language explainer, with ranked Mermaid diagrams and Simplified Technical English, for a reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain this to X", "explainer", "write this up for someone non-technical", "plain English", "simplified technical english", "STE", "explain our findings", "write up the benchmark results", "answer my manager's recommendations", "why is it slow — document it", "make a doc with diagrams explaining the stack", or summarises an investigation for a reader who won't read the raw data. Not for build hand-offs (explainer-doc) or READMEs. |
+| Tech Explainer | `docs/tech-explainer/` | Plain-language explainer, with ranked Mermaid diagrams and Simplified Technical English, for a reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain this to X", "explainer", "write this up for someone non-technical", "plain English", "STE", "explain our findings", "write up the benchmark results", "why is it slow — document it", or summarises an investigation for a reader who won't read the raw data. Not for build hand-offs (explainer-doc) or READMEs. |
 | Technical Writing | `docs/technical-writing/` | Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards. |
 | Writing Plans | `docs/writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code |
 
@@ -145,7 +147,7 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
-| Advisory Hub | `workflow/advisory-hub/` | A long-lived "Hub" session re-derives each phase of a multi-session plan instead of trusting its self-report. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "advisory context", "who checks the implementing session", "the plan turned out to be wrong", "hand off the hub", "re-derive don't trust", or a long plan with expensive-to-reverse work (a migration, a security change, production data correctness) needs independent checks; not for short features. Hub artefacts, including `hub-NN.spawn.md`, go in `.caddis/advisory-hub-reports/`. |
+| Advisory Hub | `workflow/advisory-hub/` | A long-lived "Hub" session re-derives each phase of a multi-session plan instead of trusting its self-report. Use when the user says "advisory hub", "validate this phase", "phase report", "hub verdict", "who checks the implementing session", "re-derive don't trust", "hand off the hub", or a long plan with expensive-to-reverse work (migration, security change, production data correctness) needs independent checks; not for short features. Hub artefacts go in `.caddis/advisory-hub-reports/`. |
 | Agent Md Refactor | `workflow/agent-md-refactor/` | Refactor bloated agent instruction files (AGENTS.md, .cursorrules, .github/ files) into linked, progressively disclosed docs. |
 | Agent Orchestration | `workflow/agent-orchestration/` | Blueprint for orchestrating the agent pipeline from spec to planning, implementation, testing and debugging, plus when a second model is worth it, the intent→model map and cost guardrails. |
 | Ask Questions If Underspecified | `workflow/asking-questions/` | Clarify requirements before implementing. Do not use automatically, only when invoked explicitly. |
@@ -174,7 +176,7 @@
 | Draw Io | `media/draw-io/` | draw.io diagram creation, editing, and review. Use for .drawio XML editing, PNG conversion, layout adjustment, and AWS icon usage. |
 | Excalidraw | `media/excalidraw/` | Brand-themed Excalidraw diagrams for project documentation |
 | Mermaid Diagrams | `media/mermaid-diagrams/` | Software diagrams in Mermaid: class, sequence, flowchart, ERD, C4, state, git graph, gantt. Use for domain models, API flows, processes and database schemas. |
-| Particle Art | `media/particle-art/` | Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particles that form a shape", "particle animation", "node network", "animated letter/logo/initials", "living letter", "morphing particles", "constellation", "neural net art", "dot field", "stipple portrait", "halftone animation", "ASCII art animation", "background art for my site", or "art that reacts to mouse". |
+| Particle Art | `media/particle-art/` | Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particle animation", "particles that form a shape", "animated letter/logo/initials", "morphing particles", "constellation", "neural net art", "halftone animation", "ASCII art animation", or "art that reacts to mouse". |
 | Plantuml | `media/plantuml/` | Brand-themed PlantUML diagrams for project documentation |
 | SVG Create | `media/svg-create/` | Brand-themed SVG diagrams with consistent color palette and accessible design |
 

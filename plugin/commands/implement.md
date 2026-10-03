@@ -156,6 +156,14 @@ row, visible to any later reader without an Advisory Hub having to catch it live
     `AGENTS.md`. Never write orchestration notes to `.caddis/kb/`.
 7. **Never write a load or stress test into a lane prompt or findings file.** The script refuses
    this wording without `--allow-load`. Only the owner gives that flag.
+7b. **Write test economy into every agent brief, not only the lane prompt.** The script already adds it
+   to its lane prompts. A brief you write yourself (an Agent-tool subagent, a peer session) needs the same
+   five lines: after each step run only the tests for the file or module you changed; run the full suite only
+   for the baseline and once at the end; run no review loop inside the agent (you review); report progress
+   every 20 minutes; never start a second heavy test run while one is still running. **Two parallel agents
+   must not both run full suites.** Measured 2026-10-02 on one shared box: a 2,063-test suite took 2.7 min
+   alone and 6.7 min beside a second test-heavy agent, and one agent's brief (baseline, tests after each of 9
+   module switches, full gates, in-agent review) cost 30-40 of its 59 minutes.
 8. Record these Tracker values:
    - `Model` = the packet's `model`.
    - `Lane` = the lanes tried, joined with ` -> ` and followed by the reason. For example,

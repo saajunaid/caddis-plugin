@@ -1,7 +1,12 @@
 ---
 name: particle-art
 version: 1.0.0
-description: Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particles that form a shape", "particle animation", "node network", "animated letter/logo/initials", "living letter", "morphing particles", "constellation", "neural net art", "dot field", "stipple portrait", "halftone animation", "ASCII art animation", "background art for my site", or "art that reacts to mouse".
+description: >-
+  Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable
+  theming, mouse interaction). Use for animated hero art or a living logo, or on "particle animation",
+  "particles that form a shape", "animated letter/logo/initials", "morphing particles",
+  "constellation", "neural net art", "halftone animation", "ASCII art animation", or "art that reacts
+  to mouse".
 ---
 
 # Particle Art Generator

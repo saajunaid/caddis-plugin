@@ -22,11 +22,13 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
+| Adopt Rbac | `adopt-rbac/` | >- |
 | Anchor Review | `anchor-review/` | Single-model adversarial review technique — 3-lens analysis with confidence scoring and self-challenge |
 | Api Client Patterns | `api-client-patterns/` | Typed client-side API consumption: fetch wrappers, zod validation, auth injection, TanStack Query (useQuery, useMutation, optimistic updates), tRPC, OpenAPI codegen, pagination. Use when consuming REST or tRPC APIs. |
 | Architecture Design | `architecture-design/` | Design application architecture and system diagrams with layered patterns, Mermaid C4 diagrams, SQL Server data platform, and on-premise deployment considerations. |
 | Backend To Frontend Handoff Docs | `backend-to-frontend-handoff/` | Document a finished backend API for frontend integration. Use when the user says 'create handoff', 'document API', 'frontend handoff', or 'API documentation'. |
 | Caching Patterns | `caching-patterns/` | Caching strategies for Streamlit and FastAPI applications |
+| Case Management | `case-management/` | >- |
 | Code Explainer | `code-explainer/` | Explain code with diagrams, analogies and step-by-step walkthroughs. Use when teaching a codebase or answering "how does this work?" |
 | Cross Review | `cross-review/` | Have a different vendor's model (DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff. |
 | Llm Application Dev | `llm-application-dev/` | LLM applications: prompt engineering, RAG and LLM integration. Use for AI-powered features, chatbots or LLM automation. |
