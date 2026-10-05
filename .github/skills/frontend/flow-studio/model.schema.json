@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "flow-studio model",
+  "description": "What an author writes. The engine renders it. validate.mjs also enforces rules a schema cannot (unique ids, links that point at real nodes, no overlap, no orphan).",
+  "type": "object",
+  "required": ["version", "meta", "layout", "columns", "lanes", "states", "nodes", "links"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "meta": {
+      "type": "object",
+      "required": ["title", "help", "asOf", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "help": { "type": "string" },
+        "asOf": { "type": "string" },
+        "source": { "type": "string" },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "layout": { "const": "columns-lanes" },
+    "columns": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["id", "title", "width"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" }, "title": { "type": "string" }, "short": { "type": "string" },
+          "width": { "type": "number", "minimum": 60 }, "phase": { "type": "string" }
+        }
+      }
+    },
+    "lanes": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["id", "title"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" }, "title": { "type": "string" }, "badge": { "type": "string" },
+          "badgeTone": { "enum": ["ok", "warn", "muted"] }, "note": { "type": "string" }, "gap": { "type": "boolean" }
+        }
+      }
+    },
+    "states": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": {
+        "type": "object", "required": ["word", "tone", "border", "edge", "motion", "bucket"], "additionalProperties": false,
+        "properties": {
+          "word": { "type": "string" },
+          "tone": { "enum": ["ok", "warn", "crit", "info", "muted", "accent"] },
+          "border": { "enum": ["solid", "dashed", "dotted"] },
+          "edge": { "enum": ["flow", "dash", "dash-short", "dot"] },
+          "motion": { "enum": ["flow", "flow-slow", "breathe", "none"] },
+          "bucket": { "enum": ["good", "neutral", "gap"] }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "kind", "lane", "col", "row", "state", "title"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["card", "group", "chip", "gateway", "start", "end", "event", "placeholder", "note"] },
+          "lane": { "type": "string" }, "col": { "type": "integer", "minimum": 0 }, "colSpan": { "type": "integer", "minimum": 1 },
+          "row": { "type": "number" }, "state": { "type": "string" },
+          "stateIn": { "type": "object", "additionalProperties": { "type": "string" } },
+          "visibleIn": { "type": "array", "items": { "type": "string" } },
+          "title": { "type": "string" }, "subtitle": { "type": "string" },
+          "members": { "type": "array", "items": { "type": "string" } },
+          "weight": { "type": "number", "minimum": 0 }, "ref": { "type": "string" },
+          "upgrade": { "type": "string" }, "allowIsolated": { "type": "boolean" }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "from", "to", "state"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" }, "from": { "type": "string" }, "to": { "type": "string" }, "state": { "type": "string" },
+          "stateIn": { "type": "object", "additionalProperties": { "type": "string" } },
+          "visibleIn": { "type": "array", "items": { "type": "string" } }, "label": { "type": "string" }
+        }
+      }
+    },
+    "views": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "label"], "additionalProperties": false,
+        "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "default": { "type": "boolean" } }
+      }
+    },
+    "inspector": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "relations": {
+          "type": "array", "maxItems": 3,
+          "items": {
+            "type": "object", "required": ["id", "label", "dir"], "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" }, "label": { "type": "string" }, "dir": { "enum": ["up", "down"] },
+              "filter": { "type": "object", "additionalProperties": false, "properties": { "col": { "type": "integer" }, "kind": { "type": "string" } } }
+            }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["id", "label", "dir", "staleText"], "additionalProperties": false,
+            "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "dir": { "const": "down" }, "staleText": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["anchor", "title", "text"], "additionalProperties": false,
+        "properties": { "anchor": { "type": "string" }, "title": { "type": "string" }, "text": { "type": "string" } }
+      }
+    }
+  }
+}

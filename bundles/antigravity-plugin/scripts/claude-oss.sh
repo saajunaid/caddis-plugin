@@ -33,11 +33,22 @@ fi
 # act on it — the SessionStart relay injection is skipped for headless runs, because a run
 # handed its task on the command line does not need a resume pointer and was observed
 # EXECUTING the relay's leftover next step before its own prompt.
+headless=0
 for _arg in "$@"; do
   case "$_arg" in
-    -p|--print) export CADDIS_HEADLESS=1 ;;
+    -p|--print)
+      export CADDIS_HEADLESS=1
+      headless=1
+      ;;
   esac
 done
+
+if [ "$headless" -eq 1 ] && [ "$provider" = "glm" ]; then
+  # Print mode exits on the first end_turn without waiting for background tasks.
+  # GLM can background steps and exit with 'standing by', returning no review.
+  # Disable background tasks so GLM executes verification steps synchronously.
+  export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
+fi
 
 # Prefer python3, fall back to python.
 PY="python3"; command -v "$PY" >/dev/null 2>&1 || PY="python"

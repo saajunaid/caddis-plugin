@@ -28,7 +28,7 @@ an optional one-line purpose.
    doesn't support; prefer a short honest file over a padded one.
 
 4. **Write `<folder>/AGENTS.md`** from the folder template `claude-md/folder-agents.md.tmpl` (resolve
-   `<harness-root>` the same way `/setup-project-ai` does: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.130/claude-md/…` for a
+   `<harness-root>` the same way `/setup-project-ai` does: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.131/claude-md/…` for a
    plugin install, else the `claude-harness/claude-md/…` checkout path). Fill `{{FOLDER}}` and
    `{{FOLDER_PURPOSE}}`, then replace the `<…>` section stubs (Conventions, Gotchas / non-obvious,
    Adding functionality) with what you learned in Step 3. Keep it lean (the ~80-line budget applies).

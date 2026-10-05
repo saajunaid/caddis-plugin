@@ -1,0 +1,1783 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "DATA LINEAGE: WHAT FEEDS WHAT</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+    "help": "Read left to right: source, load, build, serve. A dashed amber lane has no lineage document yet. Scroll to zoom, drag to pan.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+    "asOf": "2026-09-30",
+    "source": "Fictional data for the flow-studio example (Northwind Analytics). Measured links come from a pretend read; declared links from pretend documents. Declared data goes stale, so every declared snapshot carries its date.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+    "labels": {
+      "tileGood": "measured links between groups</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tileNeutral": "declared links between groups</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tileGap": "not recorded: click to show</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tileUpgrade": "measurable now: click to show</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "ledgerTitle": "What this read could not establish</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    }
+  },
+  "layout": "columns-lanes",
+  "columns": [
+    {
+      "id": "source",
+      "title": "Source systems</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "SOURCE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 150,
+      "phase": "ORIGIN</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "host",
+      "title": "DB hosts</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "HOST</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 130,
+      "phase": "ORIGIN</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "db",
+      "title": "Databases</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "DATABASE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 150,
+      "phase": "ORIGIN</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "jobs",
+      "title": "Jobs and programs</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "JOBS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 215,
+      "phase": "LOAD</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "tables",
+      "title": "Tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "TABLES</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 205,
+      "phase": "LOAD</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "refresh",
+      "title": "App refreshers</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "REFRESHERS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 185,
+      "phase": "BUILD</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "report",
+      "title": "Reporting tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "REPORT TABLES</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 195,
+      "phase": "BUILD</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "apps",
+      "title": "Apps</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "APPS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 160,
+      "phase": "SERVE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "pages",
+      "title": "Pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "short": "PAGES</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "width": 160,
+      "phase": "SERVE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    }
+  ],
+  "lanes": [
+    {
+      "id": "store",
+      "title": "storefront</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "document 2026-09-30</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "ok",
+      "note": "complete in the document · the order database itself is never read today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "batch",
+      "title": "Batch worker batch-02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "infrastructure</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "muted",
+      "note": "36 jobs and the analytics tables · no lineage source reads them</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "bill",
+      "title": "billing</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "document 2026-09-12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "ok",
+      "note": "the document lists 5 to 6 reporting tables · the read measures 20</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "search",
+      "title": "search-app</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "no lineage document</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "warn",
+      "gap": true,
+      "note": "known: 27 reporting tables, the app · missing: refresher jobs, pages · reads warehouse tables (inferred from code)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "reco",
+      "title": "recommender</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "no lineage document</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "warn",
+      "gap": true,
+      "note": "known: one reporting table · missing: loaders, source tables, refresher, pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "desk",
+      "title": "support-desk</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "document 2026-09-12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "ok",
+      "note": "no refresher and no reporting tables: it reads its own tables directly</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "more",
+      "title": "6 more apps</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "no lineage document</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "warn",
+      "gap": true,
+      "note": "they report a health route only</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "feed",
+      "title": "partner-feed</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badge": "document 2026-09-18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "badgeTone": "warn",
+      "note": "a file pipeline, not tables and pages: it needs a different model</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    }
+  ],
+  "states": {
+    "measured": {
+      "word": "MEASURED</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tone": "ok",
+      "border": "solid",
+      "edge": "flow",
+      "motion": "flow",
+      "bucket": "good"
+    },
+    "declared": {
+      "word": "DECLARED</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tone": "muted",
+      "border": "dashed",
+      "edge": "dash",
+      "motion": "flow-slow",
+      "bucket": "neutral"
+    },
+    "inferred": {
+      "word": "INFERRED</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tone": "muted",
+      "border": "dashed",
+      "edge": "dash-short",
+      "motion": "flow-slow",
+      "bucket": "neutral"
+    },
+    "unrecorded": {
+      "word": "NOT RECORDED</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "tone": "warn",
+      "border": "dotted",
+      "edge": "dot",
+      "motion": "breathe",
+      "bucket": "gap"
+    }
+  },
+  "nodes": [
+    {
+      "id": "ORD",
+      "kind": "card",
+      "lane": "store",
+      "col": 0,
+      "row": 0,
+      "state": "declared",
+      "title": "Order feed</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "orders share, source system</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "orders.fact_order</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "orders.dim_customer</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "orders.fact_return</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "ref.attributes</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "ref.topics</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "SUP",
+      "kind": "card",
+      "lane": "store",
+      "col": 0,
+      "row": 1,
+      "state": "declared",
+      "title": "Support tool</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "ticket extracts, source system</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_DB1",
+      "kind": "card",
+      "lane": "store",
+      "col": 1,
+      "row": 1,
+      "state": "measured",
+      "title": "dbhost-01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "SQL host</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "STOREDB</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "WAREHOUSE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "H_GPU",
+      "kind": "card",
+      "lane": "store",
+      "col": 1,
+      "row": 2,
+      "state": "declared",
+      "title": "gpuhost-01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "GPU host</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_OLD",
+      "kind": "card",
+      "lane": "store",
+      "col": 1,
+      "row": 3,
+      "state": "declared",
+      "title": "legacy-host</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "SQL host, not read today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "D_STORE",
+      "kind": "card",
+      "lane": "store",
+      "col": 2,
+      "row": 1,
+      "state": "declared",
+      "title": "STOREDB</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "database, never read today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "upgrade": "probe it: the monitor already reads it for another check</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "D_OLD",
+      "kind": "card",
+      "lane": "store",
+      "col": 2,
+      "row": 3,
+      "state": "declared",
+      "title": "5 databases</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "on legacy-host</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 5,
+      "members": [
+        "CRM</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "BILLING_OLD</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "CUSTOMER</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "TICKETS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "ARCHIVE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_ORD",
+      "kind": "group",
+      "lane": "store",
+      "col": 3,
+      "row": 0,
+      "state": "declared",
+      "title": "4 order ETL pipelines</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "on batch-02, no table link today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 4,
+      "members": [
+        "Orders core load (10:00)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Topic job (script)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Voice pipeline (job not known)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Chat pipeline (job not known)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "J_CUST",
+      "kind": "group",
+      "lane": "store",
+      "col": 3,
+      "row": 1,
+      "state": "declared",
+      "title": "Customer view + 3 loaders</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "07:15 · loaders 06:45 and 08:15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 4,
+      "members": [
+        "Customer view daily load (07:15)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Tickets loader (06:45)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Cases loader (08:15)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Interactions loader (job not in repo)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "J_SUM",
+      "kind": "card",
+      "lane": "store",
+      "col": 3,
+      "row": 2,
+      "state": "declared",
+      "title": "summary engine daemon</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "on the GPU host</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_EXT",
+      "kind": "group",
+      "lane": "store",
+      "col": 3,
+      "row": 3,
+      "state": "declared",
+      "title": "3 external loaders</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "loader unverified in the document</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 3,
+      "members": [
+        "Legacy CRM side (loader unverified)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Billing side (loader unverified)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Contract data owner (loader unverified)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_ORD",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 0,
+      "state": "declared",
+      "title": "STOREDB · order tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "6 tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 6,
+      "members": [
+        "dbo.Orders</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.OrderLines</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.Returns</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.OrderTopics</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.Samples</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.LoadState</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_CUST",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 1,
+      "state": "declared",
+      "title": "STOREDB · customer tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "5 tables incl. loaders</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 5,
+      "members": [
+        "dbo.CustomerEvent</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.LoaderTickets</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.LoaderCases</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.LoaderInteractions</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.LoaderForms</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_SUM",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 2,
+      "state": "declared",
+      "title": "STOREDB · summary</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "2 objects</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 2,
+      "members": [
+        "dbo.CustomerSummary</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.vw_CurrentSummary</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_EXT",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 3,
+      "state": "declared",
+      "title": "customer, contract data</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "3 objects</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 3,
+      "members": [
+        "CUSTOMERS (view)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.mobile_customers</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.contracts</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_STORE",
+      "kind": "group",
+      "lane": "store",
+      "col": 5,
+      "row": 1.5,
+      "state": "declared",
+      "title": "storefront refreshers</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "18 app producers</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 18,
+      "members": [
+        "refresh_job_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_job_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "upgrade": "read the app's refresh_state once the database is probed</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_STORE",
+      "kind": "group",
+      "lane": "store",
+      "col": 6,
+      "row": 1.5,
+      "state": "declared",
+      "title": "rs_storefront</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "8 tables the app reads</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 8,
+      "members": [
+        "dashboard_cache</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "identity_map</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "source_coverage</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "topic_coverage</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "explorer</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "explorer_topic</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "duration_dist</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "refresh_state</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_STORE",
+      "kind": "card",
+      "lane": "store",
+      "col": 7,
+      "row": 1.5,
+      "state": "measured",
+      "title": "storefront</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "app, health route measured</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "/health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "P_STORE",
+      "kind": "group",
+      "lane": "store",
+      "col": 8,
+      "row": 1.5,
+      "state": "declared",
+      "title": "storefront pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "12 pages · 183 elements</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 12,
+      "members": [
+        "Customer view and search</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Analytics</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Overview</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Explorer</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Queues</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Self-service</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Shell</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "App analytics</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Data quality</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Settings</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_B2",
+      "kind": "card",
+      "lane": "batch",
+      "col": 1,
+      "row": 4.85,
+      "state": "measured",
+      "title": "batch-02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "batch worker</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "ANALYTICS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "36 scheduled jobs</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "D_AN",
+      "kind": "card",
+      "lane": "batch",
+      "col": 2,
+      "row": 4.85,
+      "state": "measured",
+      "title": "ANALYTICS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "database</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "J_B36",
+      "kind": "group",
+      "lane": "batch",
+      "col": 3,
+      "row": 4.85,
+      "state": "measured",
+      "title": "36 jobs on batch-02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "35 read, 1 never read</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 36,
+      "members": [
+        "NIGHTLY_ETL_STG_TO_LIVE_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_16</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_17</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_19</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "NIGHTLY_ETL_STG_TO_LIVE_20</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "T_AN",
+      "kind": "group",
+      "lane": "batch",
+      "col": 4,
+      "row": 4.85,
+      "state": "measured",
+      "title": "ANALYTICS · dbo</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "23 tables, no writer recorded</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 23,
+      "members": [
+        "dbo.table_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_16</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_17</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.table_18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "ERP",
+      "kind": "card",
+      "lane": "bill",
+      "col": 0,
+      "row": 6.6,
+      "state": "declared",
+      "title": "Legacy ERP</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "via linked server</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "FILES",
+      "kind": "card",
+      "lane": "bill",
+      "col": 0,
+      "row": 7.6,
+      "state": "declared",
+      "title": "3 SFTP sources</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "partner file drops</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 3,
+      "members": [
+        "Partner A SFTP</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Partner B SFTP</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "Partner C SFTP</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_DB1",
+      "kind": "chip",
+      "lane": "bill",
+      "col": 1,
+      "row": 7.1,
+      "state": "measured",
+      "title": "dbhost-01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "shown in the storefront lane</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ],
+      "ref": "H_DB1"
+    },
+    {
+      "id": "D_WH",
+      "kind": "card",
+      "lane": "bill",
+      "col": 2,
+      "row": 7.1,
+      "state": "measured",
+      "title": "WAREHOUSE</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "database</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "J_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 3,
+      "row": 6.6,
+      "state": "declared",
+      "title": "11 billing programs</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "Python, scheduler, RPA</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 11,
+      "members": [
+        "etl_erp_to_warehouse.py</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "daily_validation.py</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "orchestrator.ps1</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "tap_load.ps1</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_W47",
+      "kind": "group",
+      "lane": "bill",
+      "col": 3,
+      "row": 7.6,
+      "state": "measured",
+      "title": "47 jobs on dbhost-01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "45 read, 2 never read</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 47,
+      "members": [
+        "DAILY_LOAD_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_16</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_17</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_19</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_20</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_21</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_22</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_23</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_24</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_25</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_26</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_27</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_28</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_29</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "DAILY_LOAD_30</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "T_WH",
+      "kind": "group",
+      "lane": "bill",
+      "col": 4,
+      "row": 7.1,
+      "state": "measured",
+      "title": "WAREHOUSE · dbo</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "138 tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 138,
+      "members": [
+        "dbo.fact_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_16</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_17</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_19</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_20</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_21</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_22</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_23</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_24</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_25</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_26</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_27</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_28</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_29</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.fact_30</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "R_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 5,
+      "row": 7.1,
+      "state": "declared",
+      "title": "billing refresher</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "11 jobs, 300 s loop</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 11,
+      "members": [
+        "case_recurrence</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "cdr_count</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "file_delivery</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "file_recon</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "filter_values</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "monthly_cycle</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "roaming_daily</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "roaming_subscribers</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "sms_fraud</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "source_coverage</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "trends_daily</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "upgrade": "read the app's refresh_state: the monitor can already read it</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 6,
+      "row": 7.1,
+      "state": "measured",
+      "title": "rs_billing</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "20 tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 20,
+      "members": [
+        "rs_billing.table_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_16</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_17</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_19</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_billing.table_20</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "A_BILL",
+      "kind": "card",
+      "lane": "bill",
+      "col": 7,
+      "row": 7.1,
+      "state": "measured",
+      "title": "billing</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "app, health route measured</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "/health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "P_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 8,
+      "row": 7.1,
+      "state": "declared",
+      "title": "billing pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "12 pages · 17 elements</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 12,
+      "members": [
+        "/</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/runs</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/control-totals</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/pipelines</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/exceptions</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/roaming</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/billing-cycles</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/fraud</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/subscribers</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/trends</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_WH",
+      "kind": "chip",
+      "lane": "search",
+      "col": 4,
+      "row": 9.4,
+      "state": "measured",
+      "title": "WAREHOUSE · dbo</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "shown in the billing lane</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ],
+      "ref": "T_WH"
+    },
+    {
+      "id": "R_SEARCH",
+      "kind": "group",
+      "lane": "search",
+      "col": 5,
+      "row": 9.4,
+      "state": "unrecorded",
+      "title": "search refresher</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "6 jobs, not recorded</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 6,
+      "upgrade": "read the app's refresh_state</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_SEARCH",
+      "kind": "group",
+      "lane": "search",
+      "col": 6,
+      "row": 9.4,
+      "state": "measured",
+      "title": "rs_search</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "27 tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 27,
+      "members": [
+        "rs_search.table_01</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_02</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_03</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_04</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_05</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_06</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_07</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_08</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_09</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_10</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_11</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_12</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_13</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_14</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_15</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_16</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_17</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_18</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_19</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_20</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_21</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_22</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_23</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_24</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_25</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_26</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "rs_search.table_27</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "A_SEARCH",
+      "kind": "card",
+      "lane": "search",
+      "col": 7,
+      "row": 9.4,
+      "state": "measured",
+      "title": "search-app</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "app, health route measured</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "/health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "P_SEARCH",
+      "kind": "card",
+      "lane": "search",
+      "col": 8,
+      "row": 9.4,
+      "state": "unrecorded",
+      "title": "search-app pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "no lineage document yet</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_STORE",
+      "kind": "chip",
+      "lane": "reco",
+      "col": 2,
+      "row": 11.15,
+      "state": "declared",
+      "title": "STOREDB</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "shown in the storefront lane</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ],
+      "ref": "D_STORE"
+    },
+    {
+      "id": "W_RECO",
+      "kind": "placeholder",
+      "lane": "reco",
+      "col": 3,
+      "row": 11.15,
+      "state": "unrecorded",
+      "title": "recommender loaders, tables and refresher: not recorded</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "No lineage document. Close it with a document, the loader's name, or the app's refresh_state.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "colSpan": 3,
+      "weight": 3,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_RECO",
+      "kind": "group",
+      "lane": "reco",
+      "col": 6,
+      "row": 11.15,
+      "state": "measured",
+      "title": "rs_reco</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "source_coverage read; the rest not read</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "rs_reco.source_coverage</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "upgrade": "probe the database to list the rest</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_RECO",
+      "kind": "card",
+      "lane": "reco",
+      "col": 7,
+      "row": 11.15,
+      "state": "measured",
+      "title": "recommender</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "app, health route measured</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "/health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "P_RECO",
+      "kind": "card",
+      "lane": "reco",
+      "col": 8,
+      "row": 11.15,
+      "state": "unrecorded",
+      "title": "recommender pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "no lineage document yet</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_UAT",
+      "kind": "card",
+      "lane": "desk",
+      "col": 1,
+      "row": 12.9,
+      "state": "declared",
+      "title": "uat-host</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "SQL host, not read today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "D_FB",
+      "kind": "card",
+      "lane": "desk",
+      "col": 2,
+      "row": 12.9,
+      "state": "declared",
+      "title": "Feedback_DB</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "database, never read today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "J_DESK",
+      "kind": "group",
+      "lane": "desk",
+      "col": 3,
+      "row": 12.9,
+      "state": "declared",
+      "title": "support-desk pipeline</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "12 steps</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 12,
+      "members": [
+        "Extract pending appointments (agent job)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "daily pipeline script</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "diagnostics processor</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "summary generator</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "recommendations saver</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "weekly report</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "lock reaper (300 s)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "analytics rollup (600 s)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_DESK",
+      "kind": "group",
+      "lane": "desk",
+      "col": 4,
+      "row": 12.9,
+      "state": "declared",
+      "title": "Desk tables and legacy DBs</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "9 objects</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 9,
+      "members": [
+        "dbo.Pending_Calls</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.Case_Assignment</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.Case_Diagnostics</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.Case_Feedback</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.Case_Recommendation</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dbo.vw_CaseDetail</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "LEGACY.CASES</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "LEGACY.INTERACTIONS</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "LEGACY.OUTAGES</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_DESK",
+      "kind": "placeholder",
+      "lane": "desk",
+      "col": 5,
+      "row": 12.9,
+      "state": "declared",
+      "title": "No refresher, no reporting tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "The app reads its own tables directly (no rs_ schema).</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "colSpan": 2,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_DESK",
+      "kind": "card",
+      "lane": "desk",
+      "col": 7,
+      "row": 12.9,
+      "state": "measured",
+      "title": "support-desk</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "app, health route measured</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "members": [
+        "/api/health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "P_DESK",
+      "kind": "group",
+      "lane": "desk",
+      "col": 8,
+      "row": 12.9,
+      "state": "declared",
+      "title": "support-desk pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "10 pages · 15 elements</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 10,
+      "members": [
+        "/</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/queue</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/cases/$caseId</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/ai-impact</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/map</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/reports</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/app-analytics</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "/settings</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_MORE",
+      "kind": "placeholder",
+      "lane": "more",
+      "col": 0,
+      "row": 14.65,
+      "state": "unrecorded",
+      "title": "six more apps: finance, nps, uni, kiosk, board, monitor</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "No lineage document for these apps yet. They report a health route only, so nothing about their data is recorded.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "colSpan": 7,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_MORE",
+      "kind": "group",
+      "lane": "more",
+      "col": 7,
+      "row": 14.65,
+      "state": "measured",
+      "title": "6 more apps</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "health routes measured</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "weight": 6,
+      "members": [
+        "finance /health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "nps /health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "uni /health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "kiosk /health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "board /api/health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "monitor /health</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      ]
+    },
+    {
+      "id": "P_MORE",
+      "kind": "card",
+      "lane": "more",
+      "col": 8,
+      "row": 14.65,
+      "state": "unrecorded",
+      "title": "their pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "no lineage document yet</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_FEED",
+      "kind": "placeholder",
+      "lane": "feed",
+      "col": 0,
+      "row": 16.4,
+      "state": "unrecorded",
+      "title": "partner-feed: a file pipeline (.in in; .pdf .xml out)</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "Its document has no pages, routes or SQL tables, so the standard columns do not apply. Decision needed: how to model files and billing cycles.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "colSpan": 7,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_FEED",
+      "kind": "card",
+      "lane": "feed",
+      "col": 7,
+      "row": 16.4,
+      "state": "unrecorded",
+      "title": "partner-feed</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "subtitle": "app, not recorded as tables</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "id": "H_DB1-D_STORE",
+      "from": "H_DB1",
+      "to": "D_STORE",
+      "state": "declared"
+    },
+    {
+      "id": "H_DB1-D_WH",
+      "from": "H_DB1",
+      "to": "D_WH",
+      "state": "measured",
+      "visibleIn": [
+        "today"
+      ]
+    },
+    {
+      "id": "H_B2-D_AN",
+      "from": "H_B2",
+      "to": "D_AN",
+      "state": "measured"
+    },
+    {
+      "id": "H_UAT-D_FB",
+      "from": "H_UAT",
+      "to": "D_FB",
+      "state": "declared"
+    },
+    {
+      "id": "H_OLD-D_OLD",
+      "from": "H_OLD",
+      "to": "D_OLD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_AN-J_B36",
+      "from": "D_AN",
+      "to": "J_B36",
+      "state": "measured",
+      "label": "1 job</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "J_B36-T_AN",
+      "from": "J_B36",
+      "to": "T_AN",
+      "state": "unrecorded"
+    },
+    {
+      "id": "C_DB1-D_WH",
+      "from": "C_DB1",
+      "to": "D_WH",
+      "state": "measured",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_WH-J_W47",
+      "from": "D_WH",
+      "to": "J_W47",
+      "state": "measured",
+      "label": "35 jobs</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "D_WH-J_BILL",
+      "from": "D_WH",
+      "to": "J_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "ERP-J_BILL",
+      "from": "ERP",
+      "to": "J_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "FILES-J_W47",
+      "from": "FILES",
+      "to": "J_W47",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_W47-T_WH",
+      "from": "J_W47",
+      "to": "T_WH",
+      "state": "inferred",
+      "label": "69 links</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "J_BILL-T_WH",
+      "from": "J_BILL",
+      "to": "T_WH",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_WH-R_BILL",
+      "from": "T_WH",
+      "to": "R_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_BILL-T_RS_BILL",
+      "from": "R_BILL",
+      "to": "T_RS_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_BILL-A_BILL",
+      "from": "T_RS_BILL",
+      "to": "A_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_BILL-P_BILL",
+      "from": "A_BILL",
+      "to": "P_BILL",
+      "state": "declared",
+      "label": "17 routes</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "ORD-J_ORD",
+      "from": "ORD",
+      "to": "J_ORD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_STORE-J_ORD",
+      "from": "D_STORE",
+      "to": "J_ORD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_ORD-T_ORD",
+      "from": "J_ORD",
+      "to": "T_ORD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "SUP-J_CUST",
+      "from": "SUP",
+      "to": "J_CUST",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_STORE-J_CUST",
+      "from": "D_STORE",
+      "to": "J_CUST",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_CUST-T_CUST",
+      "from": "J_CUST",
+      "to": "T_CUST",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_STORE-J_SUM",
+      "from": "D_STORE",
+      "to": "J_SUM",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_GPU-J_SUM",
+      "from": "H_GPU",
+      "to": "J_SUM",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_SUM-T_SUM",
+      "from": "J_SUM",
+      "to": "T_SUM",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_OLD-J_EXT",
+      "from": "D_OLD",
+      "to": "J_EXT",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_EXT-T_EXT",
+      "from": "J_EXT",
+      "to": "T_EXT",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_ORD-R_STORE",
+      "from": "T_ORD",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_CUST-R_STORE",
+      "from": "T_CUST",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_SUM-R_STORE",
+      "from": "T_SUM",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_EXT-R_STORE",
+      "from": "T_EXT",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_STORE-T_RS_STORE",
+      "from": "R_STORE",
+      "to": "T_RS_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_STORE-A_STORE",
+      "from": "T_RS_STORE",
+      "to": "A_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_STORE-P_STORE",
+      "from": "A_STORE",
+      "to": "P_STORE",
+      "state": "declared",
+      "label": "74 routes</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_WH-R_SEARCH",
+      "from": "C_WH",
+      "to": "R_SEARCH",
+      "state": "inferred",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_SEARCH-T_RS_SEARCH",
+      "from": "R_SEARCH",
+      "to": "T_RS_SEARCH",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_SEARCH-A_SEARCH",
+      "from": "T_RS_SEARCH",
+      "to": "A_SEARCH",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_SEARCH-P_SEARCH",
+      "from": "A_SEARCH",
+      "to": "P_SEARCH",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_STORE-W_RECO",
+      "from": "C_STORE",
+      "to": "W_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_RECO-T_RS_RECO",
+      "from": "W_RECO",
+      "to": "T_RS_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_RECO-A_RECO",
+      "from": "T_RS_RECO",
+      "to": "A_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_RECO-P_RECO",
+      "from": "A_RECO",
+      "to": "P_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_FB-J_DESK",
+      "from": "D_FB",
+      "to": "J_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_DESK-T_DESK",
+      "from": "J_DESK",
+      "to": "T_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_DESK-W_DESK",
+      "from": "T_DESK",
+      "to": "W_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_DESK-A_DESK",
+      "from": "W_DESK",
+      "to": "A_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_DESK-P_DESK",
+      "from": "A_DESK",
+      "to": "P_DESK",
+      "state": "declared",
+      "label": "18 routes</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_MORE-A_MORE",
+      "from": "W_MORE",
+      "to": "A_MORE",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_MORE-P_MORE",
+      "from": "A_MORE",
+      "to": "P_MORE",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_FEED-A_FEED",
+      "from": "W_FEED",
+      "to": "A_FEED",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    }
+  ],
+  "views": [
+    {
+      "id": "today",
+      "label": "Today</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "id": "complete",
+      "label": "Complete</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "default": true
+    }
+  ],
+  "inspector": {
+    "relations": [
+      {
+        "id": "up",
+        "label": "Feeds this</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dir": "up"
+      },
+      {
+        "id": "down",
+        "label": "Downstream</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dir": "down"
+      },
+      {
+        "id": "pages",
+        "label": "Pages</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dir": "down",
+        "filter": {
+          "col": 8
+        }
+      }
+    ],
+    "actions": [
+      {
+        "id": "stale",
+        "label": "Simulate: this stops updating</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+        "dir": "down",
+        "staleText": "potentially stale</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+      }
+    ]
+  },
+  "notes": [
+    {
+      "anchor": "#layerstrip",
+      "title": "Completeness strip</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "One cell per column: a stacked bar (good, neutral, gap) and 'known / recorded'. Data: node weights by state bucket. An empty column shows a dotted track, never a full bar.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "anchor": "#kpis",
+      "title": "Summary tiles</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "Links by state bucket, groups with a gap, and groups that can be improved. The last two are buttons that dim everything else (aria-pressed).</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "anchor": "#modeSwitch",
+      "title": "View switch</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "Today shows what the current page can record. Complete adds the declared layer. Both views come from one model: visibleIn and stateIn decide what each view shows.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "anchor": "#viewport",
+      "title": "Canvas</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "Wheel zooms around the cursor, drag pans, double-click fits. The first view fits the width (zoom 0.6 or more); 0 fits everything.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "anchor": "#tools",
+      "title": "Canvas controls</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "Select, hand, zoom in and out, fit, 100 percent, zoom to selection and fullscreen. Keys: V H + - 0 1 F and the arrows.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "anchor": "#inspector",
+      "title": "Inspector</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "Slides in on a click and closes with Esc. The three buttons highlight the groups that feed this one, the groups downstream, and the last column. The red button simulates a failure.</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    },
+    {
+      "anchor": "<img src=x onerror=window.__pwned=1>",
+      "title": "</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  ",
+      "text": "</script><img src=x onerror=\"window.__pwned=1\"><b>\"'&  "
+    }
+  ]
+}

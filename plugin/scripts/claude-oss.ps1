@@ -32,7 +32,7 @@ if (-not $provider) {
 
 # Save the current ANTHROPIC_* so we can restore them — this launcher shares the session.
 $restore = @{}
-foreach ($name in "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", "CADDIS_HEADLESS") {
+foreach ($name in "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", "CADDIS_HEADLESS", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS") {
   $restore[$name] = [Environment]::GetEnvironmentVariable($name)
 }
 
@@ -42,7 +42,15 @@ foreach ($name in "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN
 # EXECUTING the relay's leftover next step before its own prompt.
 $headless = $false
 foreach ($a in $rest) { if ($a -eq "-p" -or $a -eq "--print") { $headless = $true } }
-if ($headless) { $env:CADDIS_HEADLESS = "1" }
+if ($headless) {
+  $env:CADDIS_HEADLESS = "1"
+  if ($provider -eq "glm") {
+    # Print mode exits on the first end_turn without waiting for background tasks.
+    # GLM can background steps and exit with 'standing by', returning no review.
+    # Disable background tasks so GLM executes verification steps synchronously.
+    $env:CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1"
+  }
+}
 
 try {
   # Resolve endpoint/model/key. The three stdout lines are captured into a variable and
@@ -54,7 +62,11 @@ try {
   $env:ANTHROPIC_MODEL      = $cfg[1]
   $env:ANTHROPIC_AUTH_TOKEN = $cfg[2]
 
-  & claude @rest
+  if ($MyInvocation.ExpectingInput) {
+    $input | & claude @rest
+  } else {
+    & claude @rest
+  }
   exit $LASTEXITCODE
 } finally {
   foreach ($name in $restore.Keys) {

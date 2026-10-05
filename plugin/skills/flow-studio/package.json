@@ -1,0 +1,11 @@
+{
+  "name": "flow-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test src/*.test.ts scripts/lib/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "build:engine": "node --experimental-strip-types scripts/build-engine.mjs",
+    "check:engine": "node --experimental-strip-types scripts/build-engine.mjs --check"
+  }
+}

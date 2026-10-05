@@ -1,0 +1,1778 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "DATA LINEAGE: WHAT FEEDS WHAT",
+    "help": "Read left to right: source, load, build, serve. A dashed amber lane has no lineage document yet. Scroll to zoom, drag to pan.",
+    "asOf": "2026-09-30",
+    "source": "Fictional data for the flow-studio example (Northwind Analytics). Measured links come from a pretend read; declared links from pretend documents. Declared data goes stale, so every declared snapshot carries its date.",
+    "labels": {
+      "tileGood": "measured links between groups",
+      "tileNeutral": "declared links between groups",
+      "tileGap": "not recorded: click to show",
+      "tileUpgrade": "measurable now: click to show",
+      "ledgerTitle": "What this read could not establish"
+    }
+  },
+  "layout": "columns-lanes",
+  "columns": [
+    {
+      "id": "source",
+      "title": "Source systems",
+      "short": "SOURCE",
+      "width": 150,
+      "phase": "ORIGIN"
+    },
+    {
+      "id": "host",
+      "title": "DB hosts",
+      "short": "HOST",
+      "width": 130,
+      "phase": "ORIGIN"
+    },
+    {
+      "id": "db",
+      "title": "Databases",
+      "short": "DATABASE",
+      "width": 150,
+      "phase": "ORIGIN"
+    },
+    {
+      "id": "jobs",
+      "title": "Jobs and programs",
+      "short": "JOBS",
+      "width": 215,
+      "phase": "LOAD"
+    },
+    {
+      "id": "tables",
+      "title": "Tables",
+      "short": "TABLES",
+      "width": 205,
+      "phase": "LOAD"
+    },
+    {
+      "id": "refresh",
+      "title": "App refreshers",
+      "short": "REFRESHERS",
+      "width": 185,
+      "phase": "BUILD"
+    },
+    {
+      "id": "report",
+      "title": "Reporting tables",
+      "short": "REPORT TABLES",
+      "width": 195,
+      "phase": "BUILD"
+    },
+    {
+      "id": "apps",
+      "title": "Apps",
+      "short": "APPS",
+      "width": 160,
+      "phase": "SERVE"
+    },
+    {
+      "id": "pages",
+      "title": "Pages",
+      "short": "PAGES",
+      "width": 160,
+      "phase": "SERVE"
+    }
+  ],
+  "lanes": [
+    {
+      "id": "store",
+      "title": "storefront",
+      "badge": "document 2026-09-30",
+      "badgeTone": "ok",
+      "note": "complete in the document · the order database itself is never read today"
+    },
+    {
+      "id": "batch",
+      "title": "Batch worker batch-02",
+      "badge": "infrastructure",
+      "badgeTone": "muted",
+      "note": "36 jobs and the analytics tables · no lineage source reads them"
+    },
+    {
+      "id": "bill",
+      "title": "billing",
+      "badge": "document 2026-09-12",
+      "badgeTone": "ok",
+      "note": "the document lists 5 to 6 reporting tables · the read measures 20"
+    },
+    {
+      "id": "search",
+      "title": "search-app",
+      "badge": "no lineage document",
+      "badgeTone": "warn",
+      "gap": true,
+      "note": "known: 27 reporting tables, the app · missing: refresher jobs, pages · reads warehouse tables (inferred from code)"
+    },
+    {
+      "id": "reco",
+      "title": "recommender",
+      "badge": "no lineage document",
+      "badgeTone": "warn",
+      "gap": true,
+      "note": "known: one reporting table · missing: loaders, source tables, refresher, pages"
+    },
+    {
+      "id": "desk",
+      "title": "support-desk",
+      "badge": "document 2026-09-12",
+      "badgeTone": "ok",
+      "note": "no refresher and no reporting tables: it reads its own tables directly"
+    },
+    {
+      "id": "more",
+      "title": "6 more apps",
+      "badge": "no lineage document",
+      "badgeTone": "warn",
+      "gap": true,
+      "note": "they report a health route only"
+    },
+    {
+      "id": "feed",
+      "title": "partner-feed",
+      "badge": "document 2026-09-18",
+      "badgeTone": "warn",
+      "note": "a file pipeline, not tables and pages: it needs a different model"
+    }
+  ],
+  "states": {
+    "measured": {
+      "word": "MEASURED",
+      "tone": "ok",
+      "border": "solid",
+      "edge": "flow",
+      "motion": "flow",
+      "bucket": "good"
+    },
+    "declared": {
+      "word": "DECLARED",
+      "tone": "muted",
+      "border": "dashed",
+      "edge": "dash",
+      "motion": "flow-slow",
+      "bucket": "neutral"
+    },
+    "inferred": {
+      "word": "INFERRED",
+      "tone": "muted",
+      "border": "dashed",
+      "edge": "dash-short",
+      "motion": "flow-slow",
+      "bucket": "neutral"
+    },
+    "unrecorded": {
+      "word": "NOT RECORDED",
+      "tone": "warn",
+      "border": "dotted",
+      "edge": "dot",
+      "motion": "breathe",
+      "bucket": "gap"
+    }
+  },
+  "nodes": [
+    {
+      "id": "ORD",
+      "kind": "card",
+      "lane": "store",
+      "col": 0,
+      "row": 0,
+      "state": "declared",
+      "title": "Order feed",
+      "subtitle": "orders share, source system",
+      "members": [
+        "orders.fact_order",
+        "orders.dim_customer",
+        "orders.fact_return",
+        "ref.attributes",
+        "ref.topics"
+      ],
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "SUP",
+      "kind": "card",
+      "lane": "store",
+      "col": 0,
+      "row": 1,
+      "state": "declared",
+      "title": "Support tool",
+      "subtitle": "ticket extracts, source system",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_DB1",
+      "kind": "card",
+      "lane": "store",
+      "col": 1,
+      "row": 1,
+      "state": "measured",
+      "title": "dbhost-01",
+      "subtitle": "SQL host",
+      "members": [
+        "STOREDB",
+        "WAREHOUSE"
+      ]
+    },
+    {
+      "id": "H_GPU",
+      "kind": "card",
+      "lane": "store",
+      "col": 1,
+      "row": 2,
+      "state": "declared",
+      "title": "gpuhost-01",
+      "subtitle": "GPU host",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_OLD",
+      "kind": "card",
+      "lane": "store",
+      "col": 1,
+      "row": 3,
+      "state": "declared",
+      "title": "legacy-host",
+      "subtitle": "SQL host, not read today",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "D_STORE",
+      "kind": "card",
+      "lane": "store",
+      "col": 2,
+      "row": 1,
+      "state": "declared",
+      "title": "STOREDB",
+      "subtitle": "database, never read today",
+      "upgrade": "probe it: the monitor already reads it for another check",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "D_OLD",
+      "kind": "card",
+      "lane": "store",
+      "col": 2,
+      "row": 3,
+      "state": "declared",
+      "title": "5 databases",
+      "subtitle": "on legacy-host",
+      "weight": 5,
+      "members": [
+        "CRM",
+        "BILLING_OLD",
+        "CUSTOMER",
+        "TICKETS",
+        "ARCHIVE"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_ORD",
+      "kind": "group",
+      "lane": "store",
+      "col": 3,
+      "row": 0,
+      "state": "declared",
+      "title": "4 order ETL pipelines",
+      "subtitle": "on batch-02, no table link today",
+      "weight": 4,
+      "members": [
+        "Orders core load (10:00)",
+        "Topic job (script)",
+        "Voice pipeline (job not known)",
+        "Chat pipeline (job not known)"
+      ],
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "J_CUST",
+      "kind": "group",
+      "lane": "store",
+      "col": 3,
+      "row": 1,
+      "state": "declared",
+      "title": "Customer view + 3 loaders",
+      "subtitle": "07:15 · loaders 06:45 and 08:15",
+      "weight": 4,
+      "members": [
+        "Customer view daily load (07:15)",
+        "Tickets loader (06:45)",
+        "Cases loader (08:15)",
+        "Interactions loader (job not in repo)"
+      ],
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "J_SUM",
+      "kind": "card",
+      "lane": "store",
+      "col": 3,
+      "row": 2,
+      "state": "declared",
+      "title": "summary engine daemon",
+      "subtitle": "on the GPU host",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_EXT",
+      "kind": "group",
+      "lane": "store",
+      "col": 3,
+      "row": 3,
+      "state": "declared",
+      "title": "3 external loaders",
+      "subtitle": "loader unverified in the document",
+      "weight": 3,
+      "members": [
+        "Legacy CRM side (loader unverified)",
+        "Billing side (loader unverified)",
+        "Contract data owner (loader unverified)"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_ORD",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 0,
+      "state": "declared",
+      "title": "STOREDB · order tables",
+      "subtitle": "6 tables",
+      "weight": 6,
+      "members": [
+        "dbo.Orders",
+        "dbo.OrderLines",
+        "dbo.Returns",
+        "dbo.OrderTopics",
+        "dbo.Samples",
+        "dbo.LoadState"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_CUST",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 1,
+      "state": "declared",
+      "title": "STOREDB · customer tables",
+      "subtitle": "5 tables incl. loaders",
+      "weight": 5,
+      "members": [
+        "dbo.CustomerEvent",
+        "dbo.LoaderTickets",
+        "dbo.LoaderCases",
+        "dbo.LoaderInteractions",
+        "dbo.LoaderForms"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_SUM",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 2,
+      "state": "declared",
+      "title": "STOREDB · summary",
+      "subtitle": "2 objects",
+      "weight": 2,
+      "members": [
+        "dbo.CustomerSummary",
+        "dbo.vw_CurrentSummary"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_EXT",
+      "kind": "group",
+      "lane": "store",
+      "col": 4,
+      "row": 3,
+      "state": "declared",
+      "title": "customer, contract data",
+      "subtitle": "3 objects",
+      "weight": 3,
+      "members": [
+        "CUSTOMERS (view)",
+        "dbo.mobile_customers",
+        "dbo.contracts"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_STORE",
+      "kind": "group",
+      "lane": "store",
+      "col": 5,
+      "row": 1.5,
+      "state": "declared",
+      "title": "storefront refreshers",
+      "subtitle": "18 app producers",
+      "weight": 18,
+      "members": [
+        "refresh_job_01",
+        "refresh_job_02",
+        "refresh_job_03",
+        "refresh_job_04",
+        "refresh_job_05",
+        "refresh_job_06",
+        "refresh_job_07",
+        "refresh_job_08",
+        "refresh_job_09",
+        "refresh_job_10",
+        "refresh_job_11",
+        "refresh_job_12",
+        "refresh_job_13",
+        "refresh_job_14"
+      ],
+      "upgrade": "read the app's refresh_state once the database is probed",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_STORE",
+      "kind": "group",
+      "lane": "store",
+      "col": 6,
+      "row": 1.5,
+      "state": "declared",
+      "title": "rs_storefront",
+      "subtitle": "8 tables the app reads",
+      "weight": 8,
+      "members": [
+        "dashboard_cache",
+        "identity_map",
+        "source_coverage",
+        "topic_coverage",
+        "explorer",
+        "explorer_topic",
+        "duration_dist",
+        "refresh_state"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_STORE",
+      "kind": "card",
+      "lane": "store",
+      "col": 7,
+      "row": 1.5,
+      "state": "measured",
+      "title": "storefront",
+      "subtitle": "app, health route measured",
+      "members": [
+        "/health"
+      ]
+    },
+    {
+      "id": "P_STORE",
+      "kind": "group",
+      "lane": "store",
+      "col": 8,
+      "row": 1.5,
+      "state": "declared",
+      "title": "storefront pages",
+      "subtitle": "12 pages · 183 elements",
+      "weight": 12,
+      "members": [
+        "Customer view and search",
+        "Health",
+        "Analytics",
+        "Overview",
+        "Explorer",
+        "Queues",
+        "Self-service",
+        "Shell",
+        "App analytics",
+        "Data quality",
+        "Settings"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_B2",
+      "kind": "card",
+      "lane": "batch",
+      "col": 1,
+      "row": 4.85,
+      "state": "measured",
+      "title": "batch-02",
+      "subtitle": "batch worker",
+      "members": [
+        "ANALYTICS",
+        "36 scheduled jobs"
+      ]
+    },
+    {
+      "id": "D_AN",
+      "kind": "card",
+      "lane": "batch",
+      "col": 2,
+      "row": 4.85,
+      "state": "measured",
+      "title": "ANALYTICS",
+      "subtitle": "database"
+    },
+    {
+      "id": "J_B36",
+      "kind": "group",
+      "lane": "batch",
+      "col": 3,
+      "row": 4.85,
+      "state": "measured",
+      "title": "36 jobs on batch-02",
+      "subtitle": "35 read, 1 never read",
+      "weight": 36,
+      "members": [
+        "NIGHTLY_ETL_STG_TO_LIVE_01",
+        "NIGHTLY_ETL_STG_TO_LIVE_02",
+        "NIGHTLY_ETL_STG_TO_LIVE_03",
+        "NIGHTLY_ETL_STG_TO_LIVE_04",
+        "NIGHTLY_ETL_STG_TO_LIVE_05",
+        "NIGHTLY_ETL_STG_TO_LIVE_06",
+        "NIGHTLY_ETL_STG_TO_LIVE_07",
+        "NIGHTLY_ETL_STG_TO_LIVE_08",
+        "NIGHTLY_ETL_STG_TO_LIVE_09",
+        "NIGHTLY_ETL_STG_TO_LIVE_10",
+        "NIGHTLY_ETL_STG_TO_LIVE_11",
+        "NIGHTLY_ETL_STG_TO_LIVE_12",
+        "NIGHTLY_ETL_STG_TO_LIVE_13",
+        "NIGHTLY_ETL_STG_TO_LIVE_14",
+        "NIGHTLY_ETL_STG_TO_LIVE_15",
+        "NIGHTLY_ETL_STG_TO_LIVE_16",
+        "NIGHTLY_ETL_STG_TO_LIVE_17",
+        "NIGHTLY_ETL_STG_TO_LIVE_18",
+        "NIGHTLY_ETL_STG_TO_LIVE_19",
+        "NIGHTLY_ETL_STG_TO_LIVE_20"
+      ]
+    },
+    {
+      "id": "T_AN",
+      "kind": "group",
+      "lane": "batch",
+      "col": 4,
+      "row": 4.85,
+      "state": "measured",
+      "title": "ANALYTICS · dbo",
+      "subtitle": "23 tables, no writer recorded",
+      "weight": 23,
+      "members": [
+        "dbo.table_01",
+        "dbo.table_02",
+        "dbo.table_03",
+        "dbo.table_04",
+        "dbo.table_05",
+        "dbo.table_06",
+        "dbo.table_07",
+        "dbo.table_08",
+        "dbo.table_09",
+        "dbo.table_10",
+        "dbo.table_11",
+        "dbo.table_12",
+        "dbo.table_13",
+        "dbo.table_14",
+        "dbo.table_15",
+        "dbo.table_16",
+        "dbo.table_17",
+        "dbo.table_18"
+      ]
+    },
+    {
+      "id": "ERP",
+      "kind": "card",
+      "lane": "bill",
+      "col": 0,
+      "row": 6.6,
+      "state": "declared",
+      "title": "Legacy ERP",
+      "subtitle": "via linked server",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "FILES",
+      "kind": "card",
+      "lane": "bill",
+      "col": 0,
+      "row": 7.6,
+      "state": "declared",
+      "title": "3 SFTP sources",
+      "subtitle": "partner file drops",
+      "weight": 3,
+      "members": [
+        "Partner A SFTP",
+        "Partner B SFTP",
+        "Partner C SFTP"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_DB1",
+      "kind": "chip",
+      "lane": "bill",
+      "col": 1,
+      "row": 7.1,
+      "state": "measured",
+      "title": "dbhost-01",
+      "subtitle": "shown in the storefront lane",
+      "visibleIn": [
+        "complete"
+      ],
+      "ref": "H_DB1"
+    },
+    {
+      "id": "D_WH",
+      "kind": "card",
+      "lane": "bill",
+      "col": 2,
+      "row": 7.1,
+      "state": "measured",
+      "title": "WAREHOUSE",
+      "subtitle": "database"
+    },
+    {
+      "id": "J_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 3,
+      "row": 6.6,
+      "state": "declared",
+      "title": "11 billing programs",
+      "subtitle": "Python, scheduler, RPA",
+      "weight": 11,
+      "members": [
+        "etl_erp_to_warehouse.py",
+        "daily_validation.py",
+        "orchestrator.ps1",
+        "tap_load.ps1"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_W47",
+      "kind": "group",
+      "lane": "bill",
+      "col": 3,
+      "row": 7.6,
+      "state": "measured",
+      "title": "47 jobs on dbhost-01",
+      "subtitle": "45 read, 2 never read",
+      "weight": 47,
+      "members": [
+        "DAILY_LOAD_01",
+        "DAILY_LOAD_02",
+        "DAILY_LOAD_03",
+        "DAILY_LOAD_04",
+        "DAILY_LOAD_05",
+        "DAILY_LOAD_06",
+        "DAILY_LOAD_07",
+        "DAILY_LOAD_08",
+        "DAILY_LOAD_09",
+        "DAILY_LOAD_10",
+        "DAILY_LOAD_11",
+        "DAILY_LOAD_12",
+        "DAILY_LOAD_13",
+        "DAILY_LOAD_14",
+        "DAILY_LOAD_15",
+        "DAILY_LOAD_16",
+        "DAILY_LOAD_17",
+        "DAILY_LOAD_18",
+        "DAILY_LOAD_19",
+        "DAILY_LOAD_20",
+        "DAILY_LOAD_21",
+        "DAILY_LOAD_22",
+        "DAILY_LOAD_23",
+        "DAILY_LOAD_24",
+        "DAILY_LOAD_25",
+        "DAILY_LOAD_26",
+        "DAILY_LOAD_27",
+        "DAILY_LOAD_28",
+        "DAILY_LOAD_29",
+        "DAILY_LOAD_30"
+      ]
+    },
+    {
+      "id": "T_WH",
+      "kind": "group",
+      "lane": "bill",
+      "col": 4,
+      "row": 7.1,
+      "state": "measured",
+      "title": "WAREHOUSE · dbo",
+      "subtitle": "138 tables",
+      "weight": 138,
+      "members": [
+        "dbo.fact_01",
+        "dbo.fact_02",
+        "dbo.fact_03",
+        "dbo.fact_04",
+        "dbo.fact_05",
+        "dbo.fact_06",
+        "dbo.fact_07",
+        "dbo.fact_08",
+        "dbo.fact_09",
+        "dbo.fact_10",
+        "dbo.fact_11",
+        "dbo.fact_12",
+        "dbo.fact_13",
+        "dbo.fact_14",
+        "dbo.fact_15",
+        "dbo.fact_16",
+        "dbo.fact_17",
+        "dbo.fact_18",
+        "dbo.fact_19",
+        "dbo.fact_20",
+        "dbo.fact_21",
+        "dbo.fact_22",
+        "dbo.fact_23",
+        "dbo.fact_24",
+        "dbo.fact_25",
+        "dbo.fact_26",
+        "dbo.fact_27",
+        "dbo.fact_28",
+        "dbo.fact_29",
+        "dbo.fact_30"
+      ]
+    },
+    {
+      "id": "R_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 5,
+      "row": 7.1,
+      "state": "declared",
+      "title": "billing refresher",
+      "subtitle": "11 jobs, 300 s loop",
+      "weight": 11,
+      "members": [
+        "case_recurrence",
+        "cdr_count",
+        "file_delivery",
+        "file_recon",
+        "filter_values",
+        "monthly_cycle",
+        "roaming_daily",
+        "roaming_subscribers",
+        "sms_fraud",
+        "source_coverage",
+        "trends_daily"
+      ],
+      "upgrade": "read the app's refresh_state: the monitor can already read it",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 6,
+      "row": 7.1,
+      "state": "measured",
+      "title": "rs_billing",
+      "subtitle": "20 tables",
+      "weight": 20,
+      "members": [
+        "rs_billing.table_01",
+        "rs_billing.table_02",
+        "rs_billing.table_03",
+        "rs_billing.table_04",
+        "rs_billing.table_05",
+        "rs_billing.table_06",
+        "rs_billing.table_07",
+        "rs_billing.table_08",
+        "rs_billing.table_09",
+        "rs_billing.table_10",
+        "rs_billing.table_11",
+        "rs_billing.table_12",
+        "rs_billing.table_13",
+        "rs_billing.table_14",
+        "rs_billing.table_15",
+        "rs_billing.table_16",
+        "rs_billing.table_17",
+        "rs_billing.table_18",
+        "rs_billing.table_19",
+        "rs_billing.table_20"
+      ]
+    },
+    {
+      "id": "A_BILL",
+      "kind": "card",
+      "lane": "bill",
+      "col": 7,
+      "row": 7.1,
+      "state": "measured",
+      "title": "billing",
+      "subtitle": "app, health route measured",
+      "members": [
+        "/health"
+      ]
+    },
+    {
+      "id": "P_BILL",
+      "kind": "group",
+      "lane": "bill",
+      "col": 8,
+      "row": 7.1,
+      "state": "declared",
+      "title": "billing pages",
+      "subtitle": "12 pages · 17 elements",
+      "weight": 12,
+      "members": [
+        "/",
+        "/runs",
+        "/control-totals",
+        "/pipelines",
+        "/exceptions",
+        "/roaming",
+        "/billing-cycles",
+        "/fraud",
+        "/subscribers",
+        "/trends"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_WH",
+      "kind": "chip",
+      "lane": "search",
+      "col": 4,
+      "row": 9.4,
+      "state": "measured",
+      "title": "WAREHOUSE · dbo",
+      "subtitle": "shown in the billing lane",
+      "visibleIn": [
+        "complete"
+      ],
+      "ref": "T_WH"
+    },
+    {
+      "id": "R_SEARCH",
+      "kind": "group",
+      "lane": "search",
+      "col": 5,
+      "row": 9.4,
+      "state": "unrecorded",
+      "title": "search refresher",
+      "subtitle": "6 jobs, not recorded",
+      "weight": 6,
+      "upgrade": "read the app's refresh_state",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_SEARCH",
+      "kind": "group",
+      "lane": "search",
+      "col": 6,
+      "row": 9.4,
+      "state": "measured",
+      "title": "rs_search",
+      "subtitle": "27 tables",
+      "weight": 27,
+      "members": [
+        "rs_search.table_01",
+        "rs_search.table_02",
+        "rs_search.table_03",
+        "rs_search.table_04",
+        "rs_search.table_05",
+        "rs_search.table_06",
+        "rs_search.table_07",
+        "rs_search.table_08",
+        "rs_search.table_09",
+        "rs_search.table_10",
+        "rs_search.table_11",
+        "rs_search.table_12",
+        "rs_search.table_13",
+        "rs_search.table_14",
+        "rs_search.table_15",
+        "rs_search.table_16",
+        "rs_search.table_17",
+        "rs_search.table_18",
+        "rs_search.table_19",
+        "rs_search.table_20",
+        "rs_search.table_21",
+        "rs_search.table_22",
+        "rs_search.table_23",
+        "rs_search.table_24",
+        "rs_search.table_25",
+        "rs_search.table_26",
+        "rs_search.table_27"
+      ]
+    },
+    {
+      "id": "A_SEARCH",
+      "kind": "card",
+      "lane": "search",
+      "col": 7,
+      "row": 9.4,
+      "state": "measured",
+      "title": "search-app",
+      "subtitle": "app, health route measured",
+      "members": [
+        "/health"
+      ]
+    },
+    {
+      "id": "P_SEARCH",
+      "kind": "card",
+      "lane": "search",
+      "col": 8,
+      "row": 9.4,
+      "state": "unrecorded",
+      "title": "search-app pages",
+      "subtitle": "no lineage document yet",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_STORE",
+      "kind": "chip",
+      "lane": "reco",
+      "col": 2,
+      "row": 11.15,
+      "state": "declared",
+      "title": "STOREDB",
+      "subtitle": "shown in the storefront lane",
+      "visibleIn": [
+        "complete"
+      ],
+      "ref": "D_STORE"
+    },
+    {
+      "id": "W_RECO",
+      "kind": "placeholder",
+      "lane": "reco",
+      "col": 3,
+      "row": 11.15,
+      "state": "unrecorded",
+      "title": "recommender loaders, tables and refresher: not recorded",
+      "subtitle": "No lineage document. Close it with a document, the loader's name, or the app's refresh_state.",
+      "colSpan": 3,
+      "weight": 3,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_RECO",
+      "kind": "group",
+      "lane": "reco",
+      "col": 6,
+      "row": 11.15,
+      "state": "measured",
+      "title": "rs_reco",
+      "subtitle": "source_coverage read; the rest not read",
+      "members": [
+        "rs_reco.source_coverage"
+      ],
+      "upgrade": "probe the database to list the rest",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_RECO",
+      "kind": "card",
+      "lane": "reco",
+      "col": 7,
+      "row": 11.15,
+      "state": "measured",
+      "title": "recommender",
+      "subtitle": "app, health route measured",
+      "members": [
+        "/health"
+      ]
+    },
+    {
+      "id": "P_RECO",
+      "kind": "card",
+      "lane": "reco",
+      "col": 8,
+      "row": 11.15,
+      "state": "unrecorded",
+      "title": "recommender pages",
+      "subtitle": "no lineage document yet",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_UAT",
+      "kind": "card",
+      "lane": "desk",
+      "col": 1,
+      "row": 12.9,
+      "state": "declared",
+      "title": "uat-host",
+      "subtitle": "SQL host, not read today",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "D_FB",
+      "kind": "card",
+      "lane": "desk",
+      "col": 2,
+      "row": 12.9,
+      "state": "declared",
+      "title": "Feedback_DB",
+      "subtitle": "database, never read today",
+      "stateIn": {
+        "today": "unrecorded"
+      }
+    },
+    {
+      "id": "J_DESK",
+      "kind": "group",
+      "lane": "desk",
+      "col": 3,
+      "row": 12.9,
+      "state": "declared",
+      "title": "support-desk pipeline",
+      "subtitle": "12 steps",
+      "weight": 12,
+      "members": [
+        "Extract pending appointments (agent job)",
+        "daily pipeline script",
+        "diagnostics processor",
+        "summary generator",
+        "recommendations saver",
+        "weekly report",
+        "lock reaper (300 s)",
+        "analytics rollup (600 s)"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_DESK",
+      "kind": "group",
+      "lane": "desk",
+      "col": 4,
+      "row": 12.9,
+      "state": "declared",
+      "title": "Desk tables and legacy DBs",
+      "subtitle": "9 objects",
+      "weight": 9,
+      "members": [
+        "dbo.Pending_Calls",
+        "dbo.Case_Assignment",
+        "dbo.Case_Diagnostics",
+        "dbo.Case_Feedback",
+        "dbo.Case_Recommendation",
+        "dbo.vw_CaseDetail",
+        "LEGACY.CASES",
+        "LEGACY.INTERACTIONS",
+        "LEGACY.OUTAGES"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_DESK",
+      "kind": "placeholder",
+      "lane": "desk",
+      "col": 5,
+      "row": 12.9,
+      "state": "declared",
+      "title": "No refresher, no reporting tables",
+      "subtitle": "The app reads its own tables directly (no rs_ schema).",
+      "colSpan": 2,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_DESK",
+      "kind": "card",
+      "lane": "desk",
+      "col": 7,
+      "row": 12.9,
+      "state": "measured",
+      "title": "support-desk",
+      "subtitle": "app, health route measured",
+      "members": [
+        "/api/health"
+      ]
+    },
+    {
+      "id": "P_DESK",
+      "kind": "group",
+      "lane": "desk",
+      "col": 8,
+      "row": 12.9,
+      "state": "declared",
+      "title": "support-desk pages",
+      "subtitle": "10 pages · 15 elements",
+      "weight": 10,
+      "members": [
+        "/",
+        "/queue",
+        "/cases/$caseId",
+        "/ai-impact",
+        "/map",
+        "/reports",
+        "/app-analytics",
+        "/settings"
+      ],
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_MORE",
+      "kind": "placeholder",
+      "lane": "more",
+      "col": 0,
+      "row": 14.65,
+      "state": "unrecorded",
+      "title": "six more apps: finance, nps, uni, kiosk, board, monitor",
+      "subtitle": "No lineage document for these apps yet. They report a health route only, so nothing about their data is recorded.",
+      "colSpan": 7,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_MORE",
+      "kind": "group",
+      "lane": "more",
+      "col": 7,
+      "row": 14.65,
+      "state": "measured",
+      "title": "6 more apps",
+      "subtitle": "health routes measured",
+      "weight": 6,
+      "members": [
+        "finance /health",
+        "nps /health",
+        "uni /health",
+        "kiosk /health",
+        "board /api/health",
+        "monitor /health"
+      ]
+    },
+    {
+      "id": "P_MORE",
+      "kind": "card",
+      "lane": "more",
+      "col": 8,
+      "row": 14.65,
+      "state": "unrecorded",
+      "title": "their pages",
+      "subtitle": "no lineage document yet",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_FEED",
+      "kind": "placeholder",
+      "lane": "feed",
+      "col": 0,
+      "row": 16.4,
+      "state": "unrecorded",
+      "title": "partner-feed: a file pipeline (.in in; .pdf .xml out)",
+      "subtitle": "Its document has no pages, routes or SQL tables, so the standard columns do not apply. Decision needed: how to model files and billing cycles.",
+      "colSpan": 7,
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_FEED",
+      "kind": "card",
+      "lane": "feed",
+      "col": 7,
+      "row": 16.4,
+      "state": "unrecorded",
+      "title": "partner-feed",
+      "subtitle": "app, not recorded as tables",
+      "visibleIn": [
+        "complete"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "id": "H_DB1-D_STORE",
+      "from": "H_DB1",
+      "to": "D_STORE",
+      "state": "declared"
+    },
+    {
+      "id": "H_DB1-D_WH",
+      "from": "H_DB1",
+      "to": "D_WH",
+      "state": "measured",
+      "visibleIn": [
+        "today"
+      ]
+    },
+    {
+      "id": "H_B2-D_AN",
+      "from": "H_B2",
+      "to": "D_AN",
+      "state": "measured"
+    },
+    {
+      "id": "H_UAT-D_FB",
+      "from": "H_UAT",
+      "to": "D_FB",
+      "state": "declared"
+    },
+    {
+      "id": "H_OLD-D_OLD",
+      "from": "H_OLD",
+      "to": "D_OLD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_AN-J_B36",
+      "from": "D_AN",
+      "to": "J_B36",
+      "state": "measured",
+      "label": "1 job"
+    },
+    {
+      "id": "J_B36-T_AN",
+      "from": "J_B36",
+      "to": "T_AN",
+      "state": "unrecorded"
+    },
+    {
+      "id": "C_DB1-D_WH",
+      "from": "C_DB1",
+      "to": "D_WH",
+      "state": "measured",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_WH-J_W47",
+      "from": "D_WH",
+      "to": "J_W47",
+      "state": "measured",
+      "label": "35 jobs"
+    },
+    {
+      "id": "D_WH-J_BILL",
+      "from": "D_WH",
+      "to": "J_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "ERP-J_BILL",
+      "from": "ERP",
+      "to": "J_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "FILES-J_W47",
+      "from": "FILES",
+      "to": "J_W47",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_W47-T_WH",
+      "from": "J_W47",
+      "to": "T_WH",
+      "state": "inferred",
+      "label": "69 links"
+    },
+    {
+      "id": "J_BILL-T_WH",
+      "from": "J_BILL",
+      "to": "T_WH",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_WH-R_BILL",
+      "from": "T_WH",
+      "to": "R_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_BILL-T_RS_BILL",
+      "from": "R_BILL",
+      "to": "T_RS_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_BILL-A_BILL",
+      "from": "T_RS_BILL",
+      "to": "A_BILL",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_BILL-P_BILL",
+      "from": "A_BILL",
+      "to": "P_BILL",
+      "state": "declared",
+      "label": "17 routes",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "ORD-J_ORD",
+      "from": "ORD",
+      "to": "J_ORD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_STORE-J_ORD",
+      "from": "D_STORE",
+      "to": "J_ORD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_ORD-T_ORD",
+      "from": "J_ORD",
+      "to": "T_ORD",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "SUP-J_CUST",
+      "from": "SUP",
+      "to": "J_CUST",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_STORE-J_CUST",
+      "from": "D_STORE",
+      "to": "J_CUST",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_CUST-T_CUST",
+      "from": "J_CUST",
+      "to": "T_CUST",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_STORE-J_SUM",
+      "from": "D_STORE",
+      "to": "J_SUM",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "H_GPU-J_SUM",
+      "from": "H_GPU",
+      "to": "J_SUM",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_SUM-T_SUM",
+      "from": "J_SUM",
+      "to": "T_SUM",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_OLD-J_EXT",
+      "from": "D_OLD",
+      "to": "J_EXT",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_EXT-T_EXT",
+      "from": "J_EXT",
+      "to": "T_EXT",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_ORD-R_STORE",
+      "from": "T_ORD",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_CUST-R_STORE",
+      "from": "T_CUST",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_SUM-R_STORE",
+      "from": "T_SUM",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_EXT-R_STORE",
+      "from": "T_EXT",
+      "to": "R_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_STORE-T_RS_STORE",
+      "from": "R_STORE",
+      "to": "T_RS_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_STORE-A_STORE",
+      "from": "T_RS_STORE",
+      "to": "A_STORE",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_STORE-P_STORE",
+      "from": "A_STORE",
+      "to": "P_STORE",
+      "state": "declared",
+      "label": "74 routes",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_WH-R_SEARCH",
+      "from": "C_WH",
+      "to": "R_SEARCH",
+      "state": "inferred",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "R_SEARCH-T_RS_SEARCH",
+      "from": "R_SEARCH",
+      "to": "T_RS_SEARCH",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_SEARCH-A_SEARCH",
+      "from": "T_RS_SEARCH",
+      "to": "A_SEARCH",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_SEARCH-P_SEARCH",
+      "from": "A_SEARCH",
+      "to": "P_SEARCH",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "C_STORE-W_RECO",
+      "from": "C_STORE",
+      "to": "W_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_RECO-T_RS_RECO",
+      "from": "W_RECO",
+      "to": "T_RS_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_RS_RECO-A_RECO",
+      "from": "T_RS_RECO",
+      "to": "A_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_RECO-P_RECO",
+      "from": "A_RECO",
+      "to": "P_RECO",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "D_FB-J_DESK",
+      "from": "D_FB",
+      "to": "J_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "J_DESK-T_DESK",
+      "from": "J_DESK",
+      "to": "T_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "T_DESK-W_DESK",
+      "from": "T_DESK",
+      "to": "W_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_DESK-A_DESK",
+      "from": "W_DESK",
+      "to": "A_DESK",
+      "state": "declared",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_DESK-P_DESK",
+      "from": "A_DESK",
+      "to": "P_DESK",
+      "state": "declared",
+      "label": "18 routes",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_MORE-A_MORE",
+      "from": "W_MORE",
+      "to": "A_MORE",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "A_MORE-P_MORE",
+      "from": "A_MORE",
+      "to": "P_MORE",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    },
+    {
+      "id": "W_FEED-A_FEED",
+      "from": "W_FEED",
+      "to": "A_FEED",
+      "state": "unrecorded",
+      "visibleIn": [
+        "complete"
+      ]
+    }
+  ],
+  "views": [
+    {
+      "id": "today",
+      "label": "Today"
+    },
+    {
+      "id": "complete",
+      "label": "Complete",
+      "default": true
+    }
+  ],
+  "inspector": {
+    "relations": [
+      {
+        "id": "up",
+        "label": "Feeds this",
+        "dir": "up"
+      },
+      {
+        "id": "down",
+        "label": "Downstream",
+        "dir": "down"
+      },
+      {
+        "id": "pages",
+        "label": "Pages",
+        "dir": "down",
+        "filter": {
+          "col": 8
+        }
+      }
+    ],
+    "actions": [
+      {
+        "id": "stale",
+        "label": "Simulate: this stops updating",
+        "dir": "down",
+        "staleText": "potentially stale"
+      }
+    ]
+  },
+  "notes": [
+    {
+      "anchor": "#layerstrip",
+      "title": "Completeness strip",
+      "text": "One cell per column: a stacked bar (good, neutral, gap) and 'known / recorded'. Data: node weights by state bucket. An empty column shows a dotted track, never a full bar."
+    },
+    {
+      "anchor": "#kpis",
+      "title": "Summary tiles",
+      "text": "Links by state bucket, groups with a gap, and groups that can be improved. The last two are buttons that dim everything else (aria-pressed)."
+    },
+    {
+      "anchor": "#modeSwitch",
+      "title": "View switch",
+      "text": "Today shows what the current page can record. Complete adds the declared layer. Both views come from one model: visibleIn and stateIn decide what each view shows."
+    },
+    {
+      "anchor": "#viewport",
+      "title": "Canvas",
+      "text": "Wheel zooms around the cursor, drag pans, double-click fits. The first view fits the width (zoom 0.6 or more); 0 fits everything."
+    },
+    {
+      "anchor": "#tools",
+      "title": "Canvas controls",
+      "text": "Select, hand, zoom in and out, fit, 100 percent, zoom to selection and fullscreen. Keys: V H + - 0 1 F and the arrows."
+    },
+    {
+      "anchor": "#inspector",
+      "title": "Inspector",
+      "text": "Slides in on a click and closes with Esc. The three buttons highlight the groups that feed this one, the groups downstream, and the last column. The red button simulates a failure."
+    }
+  ]
+}
