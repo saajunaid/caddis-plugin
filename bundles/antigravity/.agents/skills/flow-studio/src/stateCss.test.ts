@@ -21,6 +21,13 @@ test("each state gets a node rule, a word rule and an edge rule", () => {
     assert.ok(css.includes(`path.edge.st-${id}`), `edge ${id}`);
   }
 });
+test("gateway polygons receive each state's stroke and tint", () => {
+  const css = stateCss(states);
+  for (const id of Object.keys(states)) {
+    assert.match(css, new RegExp(`\\.node\\.st-${id}\\.gateway polygon \\{[^}]*stroke:var\\(--`));
+    assert.match(css, new RegExp(`\\.node\\.st-${id}\\.gateway polygon \\{[^}]*fill:color-mix\\(`));
+  }
+});
 test("a dotted state is a tinted card with a dotted border", () => {
   const css = stateCss(states);
   assert.match(css, /\.node\.st-gap\s*\{[^}]*dotted/);

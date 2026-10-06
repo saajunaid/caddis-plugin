@@ -15,7 +15,7 @@ Your job is the half a script cannot do: **write what the words mean here.**
 ## Step 1 — get the candidates
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.131/scripts/caddis_glossary.py"
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.132/scripts/caddis_glossary.py"
 ```
 
 It ranks the words this repo says often that plain English does not, and marks which already

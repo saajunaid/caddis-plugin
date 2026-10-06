@@ -1,0 +1,18 @@
+.flow-native { position: relative; min-height: 460px; overflow: hidden; }
+.flow-native-tools { display: flex; gap: .5rem; align-items: center; padding: .5rem; }
+.flow-native-cols { position: relative; height: 2.5rem; overflow: hidden; }
+.flow-native-cols span { position: absolute; overflow: hidden; white-space: nowrap; }
+.flow-native-viewport { position: relative; height: 440px; overflow: hidden; touch-action: none; outline-offset: -2px; }
+.flow-native-world { position: absolute; transform-origin: 0 0; }
+.flow-native-lane, .flow-native-node, .flow-native-edges { position: absolute; }
+.flow-native-lane { border: 1px solid currentColor; opacity: .45; pointer-events: none; }
+.flow-native-lane strong { display: block; padding: .3rem; }
+.flow-native-node { display: flex; text-align: left; background: inherit; color: inherit; border: 1px solid currentColor; }
+.flow-native-node-main { flex: 1; min-width: 0; padding: .4rem; background: transparent; color: inherit; border: 0; text-align: left; }
+.flow-native-node-main[aria-pressed="true"] { outline: 2px solid currentColor; }
+.flow-native-toggle { align-self: start; padding: 0 .35rem; cursor: pointer; }
+.flow-native .insp { position: absolute; top: 0; right: 0; bottom: 0; width: min(320px, 90%); background: Canvas; color: CanvasText; border-left: 1px solid; overflow: auto; }
+.flow-native .insp-h { display: flex; justify-content: space-between; padding: 1rem; }
+.flow-native .insp-b { padding: 1rem; }
+.flow-native .counts, .flow-native .drill { display: flex; gap: .5rem; flex-wrap: wrap; }
+.flow-native-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

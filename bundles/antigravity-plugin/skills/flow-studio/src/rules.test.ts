@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Model } from "./model.ts";
-import { baselineView, defaultView, nodeVisible, nodeStateId, linkVisible, linkStateId, isNew, isImproved, bucketOf, canonOf } from "./rules.ts";
+import { baselineView, defaultView, nodeVisible, nodeStateId, linkVisible, linkStateId, isNew, isImproved, bucketOf, canonOf, effectiveLinks, initialCollapsed, columnTitle, toggleGroupState } from "./rules.ts";
 
 const m = (): Model => ({
   version: 1,
@@ -85,4 +85,51 @@ test("canonOf maps a chip to its real node and leaves others alone", () => {
   assert.equal(canonOf(nodes, "k"), "a");
   assert.equal(canonOf(nodes, "b"), "b");
   assert.equal(canonOf(nodes, "missing"), "missing");
+});
+test("collapsed groups replace members and merge duplicate links with the worst state", () => {
+  const mm = m();
+  mm.nodes.push({ id: "group", kind: "group", lane: "l1", col: 0, row: 5, state: "good", title: "Group", contains: ["a", "b"] });
+  mm.links.push({ id: "b-c", from: "b", to: "c", state: "gap" });
+  mm.links.push({ id: "a-b", from: "a", to: "b", state: "good" });
+  const collapsed = new Set(["group"]), nodes = byId(mm);
+  assert.equal(nodeVisible(mm, "full", mm.nodes.find(n => n.id === "a")!, collapsed), false);
+  assert.equal(nodeVisible(mm, "full", mm.nodes.find(n => n.id === "group")!, collapsed), true);
+  const links = effectiveLinks(mm, "full", collapsed, nodes);
+  assert.equal(links.filter(l => l.from === "group" && l.to === "c").length, 1);
+  assert.equal(links.find(l => l.from === "group" && l.to === "c")?.state, "gap");
+  assert.ok(!links.some(l => l.from === l.to));
+  collapsed.clear();
+  assert.equal(nodeVisible(mm, "full", mm.nodes.find(n => n.id === "a")!, collapsed), true);
+  assert.equal(nodeVisible(mm, "full", mm.nodes.find(n => n.id === "group")!, collapsed), false);
+});
+
+test("groups with contains start collapsed unless collapsed is false", () => {
+  const mm = m();
+  mm.nodes.push({ id: "default", kind: "group", lane: "l1", state: "good", title: "Default", contains: ["a"] });
+  mm.nodes.push({ id: "expanded", kind: "group", lane: "l1", state: "good", title: "Expanded", contains: ["b"], collapsed: false });
+  const collapsed = initialCollapsed(mm);
+  assert.deepEqual([...collapsed], ["default"]);
+  assert.equal(nodeVisible(mm, "full", mm.nodes.find(n => n.id === "a")!, collapsed), false);
+  assert.equal(nodeVisible(mm, "full", mm.nodes.find(n => n.id === "b")!, collapsed), true);
+});
+test("a free node with no column has an empty table column", () => {
+  const mm = m(); mm.layout = "free";
+  delete mm.nodes[0]!.col;
+  assert.equal(columnTitle(mm, mm.nodes[0]!), "");
+  assert.equal(columnTitle(mm, mm.nodes[1]!), "B");
+});
+test("toggleGroup selects a visible child on expansion and its group on collapse", () => {
+  const mm = m();
+  mm.nodes.push({ id: "group", kind: "group", lane: "l1", state: "good", title: "Group", contains: ["a", "b"] });
+  const starting = new Set(["group"]);
+  const expanded = toggleGroupState(mm, "full", starting, "group")!;
+  assert.equal(expanded.expanding, true);
+  assert.equal(expanded.selected, "a");
+  assert.equal(expanded.collapsed.has("group"), false);
+  assert.equal(starting.has("group"), true);
+  const folded = toggleGroupState(mm, "full", expanded.collapsed, "group")!;
+  assert.equal(folded.expanding, false);
+  assert.equal(folded.selected, "group");
+  assert.equal(folded.collapsed.has("group"), true);
+  assert.equal(toggleGroupState(mm, "full", starting, "missing"), null);
 });

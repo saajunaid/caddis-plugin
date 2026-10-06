@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "EXPENSE APPROVAL WORKFLOW",
+    "help": "Track corporate expense reports from submission through management review, policy thresholds, and final disbursement.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail expense system. No real employee records or transactions are used."
+  },
+  "layout": "auto",
+  "columns": [
+    { "id": "submit", "title": "Submit", "width": 150 },
+    { "id": "review", "title": "Manager review", "width": 160 },
+    { "id": "policy", "title": "Policy check", "width": 160 },
+    { "id": "finance", "title": "Finance review", "width": 160 },
+    { "id": "audit", "title": "Compliance", "width": 150 },
+    { "id": "payout", "title": "Disbursement", "width": 160 },
+    { "id": "settled", "title": "Close", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "employee", "title": "Employee" },
+    { "id": "manager", "title": "Manager" },
+    { "id": "finance", "title": "Finance" },
+    { "id": "auditor", "title": "Auditor" }
+  ],
+  "states": {
+    "pending": { "word": "PENDING", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "approved": { "word": "APPROVED", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "rejected": { "word": "REJECTED", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "none", "bucket": "gap" },
+    "waiting": { "word": "WAITING", "tone": "accent", "border": "dashed", "edge": "dash", "motion": "breathe", "bucket": "neutral" }
+  },
+  "nodes": [
+    { "id": "emp_draft", "kind": "start", "lane": "employee", "state": "pending", "title": "Draft claim", "subtitle": "Enter expenses" },
+    { "id": "emp_submit", "kind": "card", "lane": "employee", "state": "pending", "title": "Submit claim", "subtitle": "Attach receipts" },
+    { "id": "emp_resubmit", "kind": "card", "lane": "employee", "state": "waiting", "title": "Revise claim", "subtitle": "Add details", "sla": 120 },
+    { "id": "emp_notified", "kind": "end", "lane": "employee", "state": "approved", "title": "Receive notice", "subtitle": "Claim updated" },
+    { "id": "mgr_review", "kind": "card", "lane": "manager", "state": "pending", "title": "Review claim", "subtitle": "Verify line items" },
+    { "id": "mgr_gate", "kind": "gateway", "lane": "manager", "state": "pending", "title": "Manager approves?", "subtitle": "Approval threshold" },
+    { "id": "mgr_reject", "kind": "end", "lane": "manager", "state": "rejected", "title": "Manager rejected", "subtitle": "Claim denied" },
+    { "id": "fin_gate", "kind": "gateway", "lane": "finance", "state": "pending", "title": "Over the limit?", "subtitle": "Policy limit check" },
+    { "id": "fin_standard", "kind": "card", "lane": "finance", "state": "approved", "title": "Standard approve", "subtitle": "Within limits" },
+    { "id": "fin_exec", "kind": "card", "lane": "finance", "state": "pending", "title": "Exec approval", "subtitle": "Above threshold", "sla": 45 },
+    { "id": "fin_disburse", "kind": "card", "lane": "finance", "state": "approved", "title": "Process payment", "subtitle": "Issue reimbursement", "metrics": { "label": "Batch queue", "value": 14, "max": 20, "unit": "claims", "series": [8, 10, 12, 11, 14] } },
+    { "id": "fin_paid", "kind": "end", "lane": "finance", "state": "approved", "title": "Paid", "subtitle": "Funds transferred" },
+    { "id": "fin_reject", "kind": "end", "lane": "finance", "state": "rejected", "title": "Rejected", "subtitle": "Policy violation" },
+    { "id": "aud_sample", "kind": "card", "lane": "auditor", "state": "pending", "title": "Sample review", "subtitle": "Random audit" },
+    { "id": "aud_verify", "kind": "card", "lane": "auditor", "state": "approved", "title": "Tax check", "subtitle": "Validate tax codes" },
+    { "id": "aud_archive", "kind": "end", "lane": "auditor", "state": "approved", "title": "Archive file", "subtitle": "Store records" }
+  ],
+  "links": [
+    { "id": "l_draft_sub", "from": "emp_draft", "to": "emp_submit", "state": "pending" },
+    { "id": "l_sub_rev", "from": "emp_submit", "to": "mgr_review", "state": "pending" },
+    { "id": "l_rev_mgate", "from": "mgr_review", "to": "mgr_gate", "state": "pending" },
+    { "id": "l_mgate_fgate", "from": "mgr_gate", "to": "fin_gate", "state": "approved", "label": "Approved" },
+    { "id": "l_mgate_mrej", "from": "mgr_gate", "to": "mgr_reject", "state": "rejected", "label": "Rejected" },
+    { "id": "l_mgate_info", "from": "mgr_gate", "to": "emp_resubmit", "state": "waiting", "kind": "loop-back", "label": "Needs more info" },
+    { "id": "l_resub_rev", "from": "emp_resubmit", "to": "mgr_review", "state": "pending" },
+    { "id": "l_fgate_std", "from": "fin_gate", "to": "fin_standard", "state": "approved", "label": "Under limit" },
+    { "id": "l_fgate_exec", "from": "fin_gate", "to": "fin_exec", "state": "pending", "label": "Over limit" },
+    { "id": "l_fgate_frej", "from": "fin_gate", "to": "fin_reject", "state": "rejected", "label": "Policy breach" },
+    { "id": "l_std_pay", "from": "fin_standard", "to": "fin_disburse", "state": "approved" },
+    { "id": "l_exec_aud", "from": "fin_exec", "to": "aud_verify", "state": "approved" },
+    { "id": "l_aud_pay", "from": "aud_verify", "to": "fin_disburse", "state": "approved" },
+    { "id": "l_pay_paid", "from": "fin_disburse", "to": "fin_paid", "state": "approved" },
+    { "id": "l_paid_notif", "from": "fin_paid", "to": "emp_notified", "state": "approved" },
+    { "id": "l_aud_sample", "from": "fin_standard", "to": "aud_sample", "state": "pending" },
+    { "id": "l_sample_arch", "from": "aud_sample", "to": "aud_archive", "state": "approved" }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "upstream", "label": "Submitted by", "dir": "up" },
+      { "id": "down", "label": "Routes to", "dir": "down" },
+      { "id": "audit", "label": "Audit record", "dir": "down" }
+    ],
+    "actions": [
+      {
+        "id": "sim_reject",
+        "label": "Simulate: reject claim",
+        "dir": "down",
+        "staleText": "Claim rejected. Notification sent to employee."
+      }
+    ]
+  },
+  "notes": [
+    {
+      "anchor": "#viewport",
+      "title": "Expense routing overview",
+      "text": "Expenses route through management sign-off and finance policy thresholds before payment."
+    },
+    {
+      "anchor": "#n_mgr_gate",
+      "title": "Manager approval gate",
+      "text": "Managers verify expense legitimacy, reject non-compliant items, or ask for receipts."
+    },
+    {
+      "anchor": "#n_fin_gate",
+      "title": "Policy limit gateway",
+      "text": "Expenses above the standard threshold escalate to executive finance approval."
+    },
+    {
+      "anchor": "#playbar",
+      "title": "Scenario playback",
+      "text": "Select the standard or executive path to see workflow routing and SLA timing."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "standard_path",
+      "label": "Standard approval",
+      "steps": [
+        { "link": "l_draft_sub", "at": 0, "caption": "Employee submits expense report" },
+        { "link": "l_sub_rev", "at": 10, "caption": "Direct manager begins receipt review" },
+        { "link": "l_rev_mgate", "at": 20, "caption": "Receipts verified and approved by manager" },
+        { "link": "l_mgate_fgate", "at": 30, "caption": "Claim enters finance policy check" },
+        { "link": "l_fgate_std", "at": 40, "caption": "Total falls within standard spending policy" },
+        { "link": "l_std_pay", "at": 50, "caption": "Finance schedules payment batch" },
+        { "link": "l_pay_paid", "at": 60, "caption": "Payment disbursed directly to bank account" }
+      ]
+    },
+    {
+      "id": "exec_path",
+      "label": "Executive approval",
+      "steps": [
+        { "link": "l_draft_sub", "at": 0, "caption": "Employee submits high-value travel claim" },
+        { "link": "l_sub_rev", "at": 10, "caption": "Manager approves baseline receipts" },
+        { "link": "l_rev_mgate", "at": 20, "caption": "Manager routes to finance queue" },
+        { "link": "l_mgate_fgate", "at": 30, "caption": "Policy engine flags claim above standard limit" },
+        { "link": "l_fgate_exec", "at": 55, "caption": "Executive review exceeds target SLA window" },
+        { "link": "l_exec_aud", "at": 70, "caption": "Tax compliance auditor validates receipts" },
+        { "link": "l_aud_pay", "at": 85, "caption": "Auditor clears claim for disbursement" },
+        { "link": "l_pay_paid", "at": 100, "caption": "Reimbursement paid to employee" }
+      ]
+    }
+  ]
+}

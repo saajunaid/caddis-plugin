@@ -70,15 +70,21 @@
   .bandlabel b { font-size:13px; } .bandlabel .bd { font-size:10.5px; font-weight:700; padding:0 6px; border:1px solid currentColor; color:var(--muted); letter-spacing:.03em; text-transform:uppercase; }
   .bandlabel .bd.t-ok { color:var(--ok); } .bandlabel .bd.t-warn { color:var(--warn); } .bandlabel .bn { font-size:11.5px; color:var(--muted); }
   .node { position:absolute; background:var(--panel); border:1px solid var(--edge); border-radius:8px; padding:5px 10px 7px; box-shadow:var(--shadow); transition:opacity .35s, transform .35s, box-shadow .2s, border-color .2s; cursor:pointer; z-index:2; }
+  .node.gateway { border:0; background:transparent; box-shadow:none; padding:0; border-radius:0; display:flex; align-items:center; justify-content:center; }
+  .node.gateway svg.gw { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .node.gateway polygon { stroke-width:2; vector-effect:non-scaling-stroke; }
+  .node.gateway .gw-title { position:relative; width:58%; text-align:center; font-size:11px; font-weight:600; line-height:1.2; color:var(--fg); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow-wrap:anywhere; }
+  .node.gateway:hover, .node.gateway.lit, .node.gateway.sel { filter:drop-shadow(0 0 7px var(--accent)); }
   .node.wide { overflow:hidden; }
   .node:hover { border-color:var(--accent); box-shadow:0 0 0 3px var(--glow), var(--shadow); }
   .node .t { display:flex; gap:4px; align-items:flex-start; font-weight:600; line-height:1.25; font-size:13px; }
   .node .t .name { overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .node .fold { flex:none; color:var(--accent); font-size:11px; }
   .node .s { color:var(--muted); font-size:12px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ev { font-size:10.5px; font-weight:700; letter-spacing:.03em; }
   .node.wide .t { font-weight:500; } .node.wide .s { white-space:normal; }
-  .node.ref { padding:4px 9px; border-style:dashed; box-shadow:none; background:color-mix(in srgb, var(--panel) 70%, transparent); } .node.ref .t { font-size:12px; } .node.ref .s { font-size:11px; }
-  .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.28; } .node.off { opacity:0; transform:translateY(8px); pointer-events:none; }
+  .node.ref { padding:4px 9px; border-style:dashed; box-shadow:none; background:color-mix(in srgb, var(--panel) 70%, transparent); } .node.ref .t { font-size:12px; } .node.ref .t .name { display:block; min-width:0; white-space:nowrap; text-overflow:ellipsis; } .node.ref .s { font-size:11px; }
+  .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.28; } .node.off { opacity:0; visibility:hidden; transform:translateY(8px); pointer-events:none; }
   .node .bar { position:absolute; left:0; right:0; bottom:0; display:flex; height:4px; overflow:hidden; border-radius:0 0 7px 7px; background:var(--panel2); } .node .bar i { display:block; height:100%; } .bar .good { background:var(--ok); } .bar .neutral { background:var(--muted); } .bar .gap { background:var(--warn); }
   .newdot { display:none; width:7px; height:7px; border-radius:50%; background:var(--accent); margin:5px 4px 0 0; flex:none; } body.alt .node.isnew .newdot { display:inline-block; }
   body.alt .node.isnew.pulse { animation:newring 1.8s ease-out 1; }
@@ -155,3 +161,30 @@
   @keyframes beat { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);} 70%,100%{box-shadow:0 0 0 9px transparent;} }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } path.edge.hot { stroke-dasharray:none; } }
   @media (max-width: 1100px) { .summary { grid-template-columns:1fr; } .workspace { height:auto; } .workspace .canvaswrap { height:75vh; } .insp { width:min(340px, 92%); } #drawer { width:100%; } .layerstrip { grid-template-columns:repeat(3,1fr) !important; } }
+  #banner:not([hidden]) { margin:0 14px 10px; padding:8px 12px; color:var(--crit); background:var(--crit-bg); border:1px solid var(--crit); font-size:12px; }
+  #playbar:not([hidden]) { display:flex; flex-wrap:wrap; align-items:center; gap:7px; padding:7px 12px; border-top:1px solid var(--rule); background:var(--panel); font-size:12px; }
+  #playbar select, #playbar button { font-size:11px; }
+  #pbScrub { flex:1 1 140px; min-width:90px; }
+  #pbCaption { flex:1 1 100%; color:var(--fg); }
+  #pbCounter { font:11px var(--mono); color:var(--fg); }
+  #pbCounter.warn { color:var(--warn); } #pbCounter.breach { color:var(--crit); font-weight:700; }
+  #pbChoices { display:flex; gap:5px; flex-wrap:wrap; } #pbChoices:empty { display:none; }
+  #pbChoices .suggested { border-color:var(--accent); box-shadow:inset 0 -2px 0 var(--accent); }
+  circle.token { fill:var(--accent); stroke:var(--panel); stroke-width:2; filter:drop-shadow(0 0 5px var(--accent)); pointer-events:none; }
+  path.edge.playing { stroke:var(--accent); stroke-width:3; filter:drop-shadow(0 0 5px var(--accent)); opacity:1; }
+  path.edge.visited { stroke:var(--accent); opacity:.7; }
+  .node.playing { outline:2px solid var(--accent); outline-offset:2px; }
+  /* The pulse runs only while the player really plays; a paused step keeps the plain outline. */
+  body.playing .node.playing { animation:selpulse 1.8s ease-out infinite; }
+  .node.visited::after { content:"✓"; position:absolute; right:3px; bottom:1px; color:var(--accent); font-size:11px; }
+  .node.updated { animation:newring 1.2s ease-out 1; }
+  .node.added { animation:rise 1.2s ease-out 1; }
+  .node .t .name { min-width:0; flex:1 1 auto; }
+  .node .metric-badge { flex:none; max-width:72px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative; padding-bottom:3px; text-align:right; font:11px var(--mono); color:var(--accent); }
+  .node .metric-badge i { display:block; height:2px; position:absolute; bottom:0; left:0; background:var(--accent); }
+  .node .s.has-spark { padding-right:60px; }
+  .node .spark { position:absolute; right:6px; bottom:4px; overflow:visible; }
+  .node.gateway .metric-badge { position:absolute; right:9px; top:18px; }
+  .node.gateway:has(.metric-badge) .gw-title, .node.gateway.has-metrics .gw-title { width:45%; margin-right:42px; }
+  .node .spark polyline, .metrics polyline { fill:none; stroke:var(--accent); stroke-width:1.5; }
+  .metrics svg { max-width:100%; margin-top:8px; } .metric-range { display:flex; justify-content:space-between; width:300px; max-width:100%; font:10px var(--mono); color:var(--muted); }

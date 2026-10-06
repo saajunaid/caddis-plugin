@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "SUPPORT TICKET LIFECYCLE",
+    "help": "Track support tickets from submission to resolution across four operational tiers. Follow escalation paths and identify SLA breach risks.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail support desk data. No real customer or ticket records are used."
+  },
+  "layout": "columns-lanes",
+  "columns": [
+    { "id": "new", "title": "New", "width": 150 },
+    { "id": "triage", "title": "Triage", "width": 150 },
+    { "id": "progress", "title": "In progress", "width": 160 },
+    { "id": "waiting", "title": "Waiting", "width": 150 },
+    { "id": "resolved", "title": "Resolved", "width": 160 },
+    { "id": "closed", "title": "Closed", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "customer", "title": "Customer" },
+    { "id": "l1", "title": "Support L1" },
+    { "id": "l2", "title": "Support L2" },
+    { "id": "billing", "title": "Billing team" }
+  ],
+  "states": {
+    "on_time": { "word": "ON TIME", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "at_risk": { "word": "AT RISK", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "breached": { "word": "BREACHED", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "breathe", "bucket": "gap" },
+    "closed": { "word": "CLOSED", "tone": "muted", "border": "solid", "edge": "dash-short", "motion": "none", "bucket": "good" }
+  },
+  "nodes": [
+    { "id": "cust-submit", "kind": "start", "lane": "customer", "col": 0, "row": 0, "state": "on_time", "title": "Submit ticket" },
+    { "id": "cust-notify", "kind": "event", "lane": "customer", "col": 1, "row": 0, "state": "on_time", "title": "Receipt notice" },
+    { "id": "cust-confirm", "kind": "end", "lane": "customer", "col": 5, "row": 0, "state": "closed", "title": "Confirm resolution" },
+    { "id": "l1-triage", "kind": "gateway", "lane": "l1", "col": 1, "row": 2, "state": "on_time", "title": "Triage issue" },
+    { "id": "l1-work", "kind": "card", "lane": "l1", "col": 2, "row": 2, "state": "on_time", "title": "Apply standard fix", "metrics": { "label": "Active tickets", "value": 9, "max": 15, "unit": "tickets", "series": [4, 6, 7, 9, 8, 9] } },
+    { "id": "l1-wait", "kind": "card", "lane": "l1", "col": 3, "row": 2, "state": "at_risk", "title": "Await customer", "sla": 120, "metrics": { "label": "Hold queue", "value": 5, "max": 10, "unit": "tickets" } },
+    { "id": "l1-resolve", "kind": "card", "lane": "l1", "col": 4, "row": 2, "state": "on_time", "title": "Resolve ticket", "sla": 120, "metrics": { "label": "Resolved today", "value": 24, "unit": "tickets" } },
+    { "id": "l2-investigate", "kind": "card", "lane": "l2", "col": 2, "row": 5, "state": "on_time", "title": "Diagnose fault", "metrics": { "label": "Deep analysis", "value": 4, "max": 8, "unit": "tickets" } },
+    { "id": "l2-qa", "kind": "card", "lane": "l2", "col": 3, "row": 5, "state": "on_time", "title": "Verify fix" },
+    { "id": "l2-resolve", "kind": "card", "lane": "l2", "col": 4, "row": 5, "state": "on_time", "title": "Deploy code fix" },
+    { "id": "bill-review", "kind": "card", "lane": "billing", "col": 2, "row": 8, "state": "on_time", "title": "Review charges" },
+    { "id": "bill-audit", "kind": "card", "lane": "billing", "col": 3, "row": 8, "state": "on_time", "title": "Audit credit" },
+    { "id": "bill-adjust", "kind": "card", "lane": "billing", "col": 4, "row": 8, "state": "on_time", "title": "Issue refund" },
+    { "id": "ticket-close", "kind": "end", "lane": "billing", "col": 5, "row": 8, "state": "closed", "title": "Archive file" }
+  ],
+  "links": [
+    { "id": "l-submit-triage", "from": "cust-submit", "to": "l1-triage", "state": "on_time" },
+    { "id": "l-submit-notify", "from": "cust-submit", "to": "cust-notify", "state": "on_time" },
+    { "id": "l-triage-work", "from": "l1-triage", "to": "l1-work", "state": "on_time", "label": "Tier 1 issue" },
+    { "id": "l-triage-l2", "from": "l1-triage", "to": "l2-investigate", "state": "on_time", "label": "Escalate L2" },
+    { "id": "l-triage-bill", "from": "l1-triage", "to": "bill-review", "state": "on_time", "label": "Billing issue" },
+    { "id": "l-work-wait", "from": "l1-work", "to": "l1-wait", "state": "at_risk", "label": "Request details" },
+    { "id": "l-work-resolve", "from": "l1-work", "to": "l1-resolve", "state": "on_time", "label": "Fix ready" },
+    { "id": "l-wait-resolve", "from": "l1-wait", "to": "l1-resolve", "state": "on_time", "label": "Details given" },
+    { "id": "l-l2-qa", "from": "l2-investigate", "to": "l2-qa", "state": "on_time" },
+    { "id": "l-l2-back", "from": "l2-investigate", "to": "l1-triage", "state": "at_risk", "kind": "loop-back", "label": "Back to triage" },
+    { "id": "l-qa-resolve", "from": "l2-qa", "to": "l2-resolve", "state": "on_time" },
+    { "id": "l-bill-audit", "from": "bill-review", "to": "bill-audit", "state": "on_time" },
+    { "id": "l-audit-adjust", "from": "bill-audit", "to": "bill-adjust", "state": "on_time" },
+    { "id": "l-resolve-confirm", "from": "l1-resolve", "to": "cust-confirm", "state": "on_time" },
+    { "id": "l-l2resolve-confirm", "from": "l2-resolve", "to": "cust-confirm", "state": "on_time" },
+    { "id": "l-adjust-close", "from": "bill-adjust", "to": "ticket-close", "state": "on_time" },
+    { "id": "l-reopen", "from": "cust-confirm", "to": "l1-work", "state": "at_risk", "kind": "loop-back", "label": "Reopened" }
+  ],
+  "scenarios": [
+    {
+      "id": "happy",
+      "label": "Happy path",
+      "steps": [
+        { "link": "l-submit-triage", "at": 0, "caption": "Ticket submitted by customer" },
+        { "link": "l-triage-work", "at": 15, "caption": "Triaged as standard Tier 1 fix" },
+        { "link": "l-work-resolve", "at": 45, "caption": "Standard solution applied" },
+        { "link": "l-resolve-confirm", "at": 65, "caption": "Solution submitted for customer review" }
+      ]
+    },
+    {
+      "id": "escalated",
+      "label": "Escalated",
+      "steps": [
+        { "link": "l-submit-triage", "at": 0, "caption": "Customer submits urgent ticket" },
+        { "link": "l-triage-work", "at": 15, "caption": "Initial triage begins in Tier 1" },
+        { "link": "l-work-wait", "at": 40, "caption": "Additional system logs requested" },
+        { "link": "l-wait-resolve", "at": 150, "caption": "Customer responds after SLA threshold" },
+        { "link": "l-resolve-confirm", "at": 170, "caption": "Resolution sent to customer" },
+        { "link": "l-reopen", "at": 190, "caption": "Customer reports recurrence" },
+        { "link": "l-work-resolve", "at": 215, "caption": "Secondary remediation verified" },
+        { "link": "l-resolve-confirm", "at": 235, "caption": "Updated fix accepted" }
+      ]
+    }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "preceding", "label": "Came from", "dir": "up" },
+      { "id": "down", "label": "Hands off to", "dir": "down" },
+      { "id": "closing", "label": "Resolution path", "dir": "down", "filter": { "kind": "end" } }
+    ],
+    "actions": [
+      { "id": "sim-breach", "label": "Simulate: SLA breach", "dir": "down", "staleText": "Simulating SLA breach ripple across support queues" }
+    ]
+  },
+  "notes": [
+    { "anchor": "#n_l1-triage", "title": "Initial triage gateway", "text": "Tier 1 triage evaluates request urgency and routes tickets to appropriate support queues." },
+    { "anchor": "#n_l1-wait", "title": "Customer response SLA", "text": "Tickets placed on hold await customer details and carry a strict two-hour target window." },
+    { "anchor": "#n_cust-confirm", "title": "Resolution verification", "text": "The ticket is reopened if customer validation fails during final review." },
+    { "anchor": "#playbar", "title": "Scenario playback", "text": "Switch between happy path and escalated breach workflows to observe token movement." }
+  ]
+}

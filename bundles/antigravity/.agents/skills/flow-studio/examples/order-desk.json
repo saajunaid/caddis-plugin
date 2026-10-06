@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "ORDER DESK: FROM REQUEST TO CLOSE",
+    "help": "Follow a fictional order from intake to close. Open the fulfilment group to see its tasks. A request for more details returns to verification.",
+    "asOf": "2026-10-05",
+    "source": "Fictional Order desk example. No live orders or customer records are used."
+  },
+  "layout": "auto",
+  "columns": [
+    { "id": "intake", "title": "Intake", "width": 150 },
+    { "id": "verify", "title": "Verify", "width": 150 },
+    { "id": "route", "title": "Route", "width": 150 },
+    { "id": "prepare", "title": "Prepare", "width": 150 },
+    { "id": "tasks", "title": "Tasks", "width": 150 },
+    { "id": "fulfil", "title": "Fulfil", "width": 150 },
+    { "id": "update", "title": "Update", "width": 150 },
+    { "id": "close", "title": "Close", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "desk", "title": "Order desk" },
+    { "id": "checks", "title": "Checks" },
+    { "id": "fulfilment", "title": "Fulfilment" }
+  ],
+  "states": {
+    "ready": { "word": "READY", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "waiting": { "word": "WAITING", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "review": { "word": "REVIEW", "tone": "info", "border": "solid", "edge": "dash-short", "motion": "flow-slow", "bucket": "neutral" }
+  },
+  "nodes": [
+    { "id": "intake", "kind": "start", "lane": "desk", "state": "ready", "title": "New request" },
+    { "id": "verify", "kind": "card", "lane": "desk", "state": "review", "title": "Verify details" },
+    { "id": "route", "kind": "gateway", "lane": "desk", "state": "review", "title": "Ready?" },
+    { "id": "hold", "kind": "card", "lane": "desk", "state": "waiting", "title": "Ask for details", "sla": 60 },
+    { "id": "quote", "kind": "card", "lane": "desk", "state": "ready", "title": "Confirm terms" },
+    { "id": "stock", "kind": "card", "lane": "checks", "state": "review", "title": "Check stock", "metrics": { "label": "Items ready", "value": 8, "max": 10, "unit": "items", "series": [2, 3, 5, 5, 7, 8] } },
+    { "id": "payment", "kind": "card", "lane": "checks", "state": "review", "title": "Check payment", "metrics": { "label": "Checks", "value": 4, "max": 5 } },
+    { "id": "fulfil-group", "kind": "group", "lane": "fulfilment", "col": 5, "state": "ready", "title": "Prepare parcel", "contains": ["pick", "pack", "dispatch"] },
+    { "id": "pick", "kind": "card", "lane": "fulfilment", "state": "ready", "title": "Pick items" },
+    { "id": "pack", "kind": "card", "lane": "fulfilment", "state": "ready", "title": "Pack items" },
+    { "id": "dispatch", "kind": "card", "lane": "fulfilment", "state": "ready", "title": "Dispatch", "metrics": { "label": "Parcels", "value": 3, "unit": "sent" } },
+    { "id": "notify", "kind": "card", "lane": "desk", "state": "ready", "title": "Send update" },
+    { "id": "receipt", "kind": "card", "lane": "desk", "state": "ready", "title": "File receipt" },
+    { "id": "close", "kind": "end", "lane": "desk", "state": "ready", "title": "Close order" }
+  ],
+  "links": [
+    { "id": "l-intake-verify", "from": "intake", "to": "verify", "state": "ready" },
+    { "id": "l-verify-route", "from": "verify", "to": "route", "state": "review" },
+    { "id": "l-route-hold", "from": "route", "to": "hold", "state": "waiting", "label": "Need details" },
+    { "id": "l-hold-verify", "from": "hold", "to": "verify", "state": "waiting", "kind": "loop-back", "label": "Details added" },
+    { "id": "l-route-quote", "from": "route", "to": "quote", "state": "ready", "label": "Ready" },
+    { "id": "l-quote-stock", "from": "quote", "to": "stock", "state": "review" },
+    { "id": "l-quote-payment", "from": "quote", "to": "payment", "state": "review" },
+    { "id": "l-quote-pick", "from": "quote", "to": "pick", "state": "ready" },
+    { "id": "l-quote-pack", "from": "quote", "to": "pack", "state": "ready" },
+    { "id": "l-stock-dispatch", "from": "stock", "to": "dispatch", "state": "review" },
+    { "id": "l-payment-dispatch", "from": "payment", "to": "dispatch", "state": "review" },
+    { "id": "l-pick-dispatch", "from": "pick", "to": "dispatch", "state": "ready" },
+    { "id": "l-pack-dispatch", "from": "pack", "to": "dispatch", "state": "ready" },
+    { "id": "l-dispatch-notify", "from": "dispatch", "to": "notify", "state": "ready" },
+    { "id": "l-dispatch-receipt", "from": "dispatch", "to": "receipt", "state": "ready" },
+    { "id": "l-notify-close", "from": "notify", "to": "close", "state": "ready" },
+    { "id": "l-receipt-close", "from": "receipt", "to": "close", "state": "ready" }
+  ],
+  "scenarios": [
+    { "id": "happy", "label": "Happy path", "steps": [
+      { "link": "l-intake-verify", "at": 0, "caption": "Request reaches verification" },
+      { "link": "l-verify-route", "at": 10, "caption": "Details are checked" },
+      { "link": "l-route-quote", "at": 20, "caption": "Ready to confirm terms" },
+      { "link": "l-quote-stock", "at": 30, "caption": "Stock is checked" },
+      { "link": "l-stock-dispatch", "at": 40, "caption": "Parcel is dispatched" },
+      { "link": "l-dispatch-notify", "at": 50, "caption": "An update is sent" },
+      { "link": "l-notify-close", "at": 60, "caption": "Order is closed" }
+    ] },
+    { "id": "escalated", "label": "Escalated", "steps": [
+      { "link": "l-intake-verify", "at": 0, "caption": "Request reaches verification" },
+      { "link": "l-verify-route", "at": 20, "caption": "Details need review" },
+      { "link": "l-route-hold", "at": 90, "caption": "More details are needed" },
+      { "link": "l-hold-verify", "at": 120, "caption": "Details arrive" },
+      { "link": "l-verify-route", "at": 140, "caption": "Details are checked again" },
+      { "link": "l-route-quote", "at": 150, "caption": "Terms can proceed" },
+      { "link": "l-quote-stock", "at": 160, "caption": "Stock is checked" },
+      { "link": "l-stock-dispatch", "at": 170, "caption": "Parcel is dispatched" },
+      { "link": "l-dispatch-notify", "at": 180, "caption": "An update is sent" },
+      { "link": "l-notify-close", "at": 190, "caption": "Order is closed" }
+    ] }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "up", "label": "Came from", "dir": "up" },
+      { "id": "down", "label": "Goes to", "dir": "down" },
+      { "id": "closed", "label": "Closed", "dir": "down", "filter": { "kind": "end" } }
+    ]
+  },
+  "notes": [
+    { "anchor": "#n_route", "title": "A decision with named exits", "text": "The desk either asks for more details or confirms the order can move on." },
+    { "anchor": "#n_fulfil-group", "title": "A group that can open", "text": "The parcel preparation tasks are folded into one node until the reader opens the group." }
+  ]
+}

@@ -20,3 +20,21 @@ export function relatives(edges: Edge[], canonOf: (id: string) => string, start:
 export function connected(edges: Edge[], canonOf: (id: string) => string, start: string): Set<string> {
   return new Set([...relatives(edges, canonOf, start, "up"), ...relatives(edges, canonOf, start, "down")]);
 }
+
+/** Undirected breadth-first radius around one or more nodes. */
+export function withinHops(edges: Edge[], canonOf: (id: string) => string, starts: string[], n: number): Set<string> {
+  const found = new Set(starts.map(canonOf));
+  const radius = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  let frontier = [...found];
+  for (let hop = 0; hop < radius && frontier.length; hop++) {
+    const next: string[] = [];
+    const current = new Set(frontier);
+    for (const edge of edges) {
+      const a = canonOf(edge.from), b = canonOf(edge.to);
+      if (current.has(a) && !found.has(b)) { found.add(b); next.push(b); }
+      if (current.has(b) && !found.has(a)) { found.add(a); next.push(a); }
+    }
+    frontier = next;
+  }
+  return found;
+}

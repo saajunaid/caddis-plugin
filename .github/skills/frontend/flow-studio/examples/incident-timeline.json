@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "OUTAGE INCIDENT TIMELINE",
+    "help": "Examine a multi-service outage timeline from root failure through blast radius propagation and final recovery.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail production telemetry. No real hostnames or outage incidents are used."
+  },
+  "layout": "columns-lanes",
+  "columns": [
+    { "id": "t_minus_30", "title": "T-30m", "width": 150 },
+    { "id": "t_minus_10", "title": "T-10m", "width": 150 },
+    { "id": "t_zero", "title": "T0", "width": 150 },
+    { "id": "t_plus_10", "title": "T+10m", "width": 150 },
+    { "id": "t_plus_30", "title": "T+30m", "width": 150 },
+    { "id": "t_plus_1h", "title": "T+1h", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "gateway", "title": "Gateway" },
+    { "id": "orders", "title": "Orders API" },
+    { "id": "db", "title": "Database" },
+    { "id": "cache", "title": "Cache" },
+    { "id": "alerting", "title": "Alerting" },
+    { "id": "oncall", "title": "On-call" }
+  ],
+  "states": {
+    "normal": { "word": "NORMAL", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "degraded": { "word": "DEGRADED", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "failed": { "word": "FAILED", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "breathe", "bucket": "gap" },
+    "recovered": { "word": "RECOVERED", "tone": "accent", "border": "solid", "edge": "dash-short", "motion": "none", "bucket": "good" }
+  },
+  "views": [
+    { "id": "detection", "label": "At detection", "default": true },
+    { "id": "fixed", "label": "After the fix" }
+  ],
+  "nodes": [
+    { "id": "gw-drain", "kind": "card", "lane": "gateway", "col": 3, "row": 0, "state": "degraded", "stateIn": { "fixed": "normal" }, "title": "Throttle ingress" },
+    { "id": "gw-green", "kind": "end", "lane": "gateway", "col": 5, "row": 0, "state": "recovered", "stateIn": { "fixed": "recovered" }, "title": "Gateway clear" },
+    { "id": "ord-normal", "kind": "start", "lane": "orders", "col": 0, "row": 2, "state": "normal", "stateIn": { "fixed": "normal" }, "title": "Baseline traffic" },
+    { "id": "ord-circuit", "kind": "card", "lane": "orders", "col": 3, "row": 2, "state": "degraded", "stateIn": { "fixed": "normal" }, "title": "Trip circuit breaker" },
+    { "id": "ord-healthy", "kind": "end", "lane": "orders", "col": 5, "row": 2, "state": "recovered", "stateIn": { "fixed": "recovered" }, "title": "Orders nominal" },
+    { "id": "db-load", "kind": "card", "lane": "db", "col": 1, "row": 4, "state": "degraded", "stateIn": { "fixed": "normal" }, "title": "Lock contention" },
+    { "id": "db-fail", "kind": "card", "lane": "db", "col": 2, "row": 4, "state": "failed", "stateIn": { "fixed": "normal" }, "title": "Pool exhausted" },
+    { "id": "db-restart", "kind": "card", "lane": "db", "col": 3, "row": 4, "state": "degraded", "stateIn": { "fixed": "normal" }, "title": "Promote replica" },
+    { "id": "db-stable", "kind": "end", "lane": "db", "col": 5, "row": 4, "state": "recovered", "stateIn": { "fixed": "recovered" }, "title": "Database stable" },
+    { "id": "c-flush", "kind": "card", "lane": "cache", "col": 1, "row": 6, "state": "degraded", "stateIn": { "fixed": "normal" }, "title": "Memory eviction" },
+    { "id": "c-reconnect", "kind": "card", "lane": "cache", "col": 4, "row": 6, "state": "normal", "stateIn": { "fixed": "recovered" }, "title": "Rebuild cache" },
+    { "id": "alt-status", "kind": "card", "lane": "alerting", "col": 3, "row": 8, "state": "degraded", "stateIn": { "fixed": "normal" }, "title": "Post status page" },
+    { "id": "onc-page", "kind": "card", "lane": "oncall", "col": 3, "row": 10, "state": "failed", "stateIn": { "fixed": "normal" }, "title": "Page engineer", "sla": 120, "metrics": { "label": "Ack time", "value": 150, "max": 180, "unit": "s" } },
+    { "id": "onc-mitigate", "kind": "card", "lane": "oncall", "col": 4, "row": 10, "state": "normal", "stateIn": { "fixed": "recovered" }, "title": "Execute runbook" },
+    { "id": "onc-resolve", "kind": "end", "lane": "oncall", "col": 5, "row": 10, "state": "recovered", "stateIn": { "fixed": "recovered" }, "title": "Incident resolved" }
+  ],
+  "links": [
+    { "id": "l-ord-dbload", "from": "ord-normal", "to": "db-load", "state": "degraded" },
+    { "id": "l-ord-cflush", "from": "ord-normal", "to": "c-flush", "state": "degraded" },
+    { "id": "l-dbload-fail", "from": "db-load", "to": "db-fail", "state": "failed" },
+    { "id": "l-cflush-fail", "from": "c-flush", "to": "db-fail", "state": "failed" },
+    { "id": "l-fail-page", "from": "db-fail", "to": "onc-page", "state": "failed", "label": "P1 alarm" },
+    { "id": "l-fail-gw", "from": "db-fail", "to": "gw-drain", "state": "degraded", "label": "Ingress drop" },
+    { "id": "l-fail-ord", "from": "db-fail", "to": "ord-circuit", "state": "degraded", "label": "500 spikes" },
+    { "id": "l-fail-restart", "from": "db-fail", "to": "db-restart", "state": "degraded", "label": "Failover" },
+    { "id": "l-fail-alt", "from": "db-fail", "to": "alt-status", "state": "degraded", "label": "SLO breached" },
+    { "id": "l-restart-cache", "from": "db-restart", "to": "c-reconnect", "state": "normal" },
+    { "id": "l-page-mitigate", "from": "onc-page", "to": "onc-mitigate", "state": "normal" },
+    { "id": "l-ord-mitigate", "from": "ord-circuit", "to": "onc-mitigate", "state": "normal" },
+    { "id": "l-cache-ord", "from": "c-reconnect", "to": "ord-healthy", "state": "recovered" },
+    { "id": "l-gw-green", "from": "gw-drain", "to": "gw-green", "state": "recovered" },
+    { "id": "l-mitigate-db", "from": "onc-mitigate", "to": "db-stable", "state": "recovered" },
+    { "id": "l-mitigate-resolve", "from": "onc-mitigate", "to": "onc-resolve", "state": "recovered" },
+    { "id": "l-alt-resolve", "from": "alt-status", "to": "onc-resolve", "state": "recovered" }
+  ],
+  "scenarios": [
+    {
+      "id": "mitigation",
+      "label": "Remediation path",
+      "steps": [
+        { "link": "l-page-mitigate", "at": 0, "caption": "On-call executes mitigation runbook" },
+        { "link": "l-mitigate-db", "at": 30, "caption": "Database replica confirmed stable" }
+      ]
+    },
+    {
+      "id": "escalated",
+      "label": "Incident replay",
+      "steps": [
+        { "link": "l-ord-dbload", "at": 0, "caption": "T-30m: High volume drives database connection strain" },
+        { "link": "l-dbload-fail", "at": 30, "caption": "T-10m: Lock contention triggers connection pool exhaustion" },
+        { "link": "l-fail-page", "at": 150, "caption": "T0: Outage alarm breaches acknowledgment SLA" },
+        { "link": "l-page-mitigate", "at": 210, "caption": "T+10m: Primary failover script executed" },
+        { "link": "l-mitigate-resolve", "at": 300, "caption": "T+30m: Services restored and status cleared" }
+      ]
+    }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "upstream-cause", "label": "Root cause", "dir": "up" },
+      { "id": "down", "label": "Blast radius", "dir": "down" },
+      { "id": "recovery", "label": "Resolved at", "dir": "down", "filter": { "kind": "end" } }
+    ],
+    "actions": [
+      { "id": "sim-blast", "label": "Simulate: this failed", "dir": "down", "staleText": "Simulating failure propagation across dependents" }
+    ]
+  },
+  "notes": [
+    { "anchor": "#n_db-fail", "title": "Root failure trigger", "text": "Connection pool collapse directly triggers downstream throttling and circuit breaker activation." },
+    { "anchor": "#n_onc-page", "title": "On-call paging SLA", "text": "Paging policies mandate engineer acknowledgement within two minutes of P1 alarm generation." },
+    { "anchor": "#modeSwitch", "title": "Incident timeline views", "text": "Toggle between initial outage detection and post-mitigation stable state." },
+    { "anchor": "#playbar", "title": "Incident chronology replay", "text": "Run replay to observe chronological outage progression from trigger to resolution." }
+  ]
+}

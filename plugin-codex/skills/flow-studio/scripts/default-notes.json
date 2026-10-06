@@ -1,0 +1,67 @@
+[
+  {
+    "anchor": "#title",
+    "title": "Page frame",
+    "text": "Display the main scenario headline, subtitle, and timestamp. Render all text using textContent or esc() to prevent script injection."
+  },
+  {
+    "anchor": "#layerstrip",
+    "title": "Completeness strip",
+    "text": "Show completeness per column with stacked horizontal bars for good, neutral, and gap counts. Render dotted tracks for empty columns."
+  },
+  {
+    "anchor": "#kpis",
+    "title": "Summary tiles",
+    "text": "Show total links, gap count, and upgrade opportunities. Make tiles interactive buttons that filter canvas focus when clicked."
+  },
+  {
+    "anchor": "#modeSwitch",
+    "title": "View switch",
+    "text": "Provide segmented buttons to switch perspectives. Update visible nodes and overridden link states from a single underlying data model."
+  },
+  {
+    "anchor": "#q",
+    "title": "Search and radius",
+    "text": "Filter nodes by name or identifier. Use the hops selector to reveal upstream and downstream connections within N degrees."
+  },
+  {
+    "anchor": "#viewport",
+    "title": "Canvas viewport",
+    "text": "Support smooth pan and zoom around cursor. Fit initial view to width so users see all phases immediately without manual zooming."
+  },
+  {
+    "anchor": "#tools",
+    "title": "Canvas controls",
+    "text": "Provide quick zoom in, zoom out, fit-to-screen, 100% scale, and pan hand controls. Bind standard keyboard shortcuts V, H, +, -, 0, and F."
+  },
+  {
+    "anchor": "#inspector",
+    "title": "Side inspector",
+    "text": "Slide out an inspector card on node selection. Display incoming links, outgoing links, metadata, and what-if simulation buttons."
+  },
+  {
+    "anchor": "#legend",
+    "title": "State legend",
+    "text": "Display color chips and state labels for good, neutral, warning, and critical states. Keep states distinguishable without color alone."
+  },
+  {
+    "anchor": "#ledger",
+    "title": "Change ledger",
+    "text": "List recent schema updates, audit entries, or unverified links beneath the canvas. Render tabular details cleanly."
+  },
+  {
+    "anchor": "#tbl",
+    "title": "Accessible table view",
+    "text": "Provide a collapsible HTML table containing all graph nodes, states, and relations. Ensures screen reader parity with canvas visuals."
+  },
+  {
+    "anchor": "#playbar",
+    "title": "Scenario playback",
+    "text": "Provide play, pause, step-by-step, reset, and scrubbing controls. Animate token flow across links during scenario execution."
+  },
+  {
+    "anchor": "#notesBtn",
+    "title": "Implementation notes",
+    "text": "Toggle developer guidance cards and anchored target markers. Map numeric badges directly to corresponding drawer documentation cards."
+  }
+]

@@ -22,6 +22,14 @@ export function install(ctx: Ctx): void {
       const a = anchorOf(n.anchor);
       if (!a) continue;
       let r = a.getBoundingClientRect();
+      if (!r.width && !r.height) {
+        // A closed <details> hides the anchor, so the marker sits on the outermost closed details.
+        // An open details hides nothing: an anchor that is still zero-size inside one is hidden for
+        // another reason and gets no marker.
+        let d = a.closest<HTMLDetailsElement>("details");
+        while (d && d.open) d = d.parentElement?.closest<HTMLDetailsElement>("details") ?? null;
+        if (d) r = d.getBoundingClientRect();
+      }
       if (!r.width && !r.height) continue;
       if (a.id === "inspector" && !a.classList.contains("open")) {
         const vr = els.vp.getBoundingClientRect();

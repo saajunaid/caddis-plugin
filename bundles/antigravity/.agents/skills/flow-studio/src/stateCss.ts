@@ -26,6 +26,7 @@ export function stateCss(states: Model["states"]): string {
       const glow = s.bucket === "good" ? ` box-shadow:0 0 14px -4px color-mix(in srgb, ${T} 55%, transparent), var(--shadow);` : "";
       out.push(`.node.st-${c} { border-left:4px ${s.border} ${T};${glow} --breath:${T}; }`);
     }
+    out.push(`.node.st-${c}.gateway polygon { stroke:${T}; fill:color-mix(in srgb, ${T} 10%, var(--panel)); }`);
     out.push(`.ev.st-${c} { color:${T}; }`);
     if (s.motion === "breathe") out.push(`.node.st-${c}:not(.dim) { animation:breathe 3.2s ease-in-out infinite; }`);
 

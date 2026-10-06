@@ -4,6 +4,8 @@
 
 import { readFileSync } from "node:fs";
 import { validateModel } from "../src/model.ts";
+import { autoLayout } from "../src/autolayout.ts";
+import { prepareModel } from "./lib/auto-entry-guard.mjs";
 
 export function loadModel(path) {
   let text;
@@ -32,7 +34,9 @@ if (process.argv[1]?.endsWith("validate.mjs")) {
     console.error("usage: node --experimental-strip-types scripts/validate.mjs <model.json>");
     process.exit(2);
   }
-  const errors = report(validateModel(loadModel(path)));
+  const model = loadModel(path);
+  const ready = prepareModel(model, autoLayout);
+  const errors = report(validateModel(ready));
   console.log(errors ? `${errors} error(s)` : "OK");
   process.exit(errors ? 1 : 0);
 }

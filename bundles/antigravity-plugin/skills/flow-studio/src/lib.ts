@@ -1,0 +1,20 @@
+/** Replaced with the shared template at library build time. */
+export const SHELL_BODY_HTML = "/*__SHELL_BODY__*/";
+export { mount, type FlowStudio } from "./engine.ts";
+export * from "./model.ts";
+export { autoLayout } from "./autolayout.ts";
+export { computeGeometry } from "./layout.ts";
+export type { Geometry, LayoutOptions, Placed } from "./layout.ts";
+export * from "./viewport.ts";
+export * from "./routing.ts";
+export * from "./trace.ts";
+export * from "./rules.ts";
+export * from "./playback.ts";
+export * from "./diff.ts";
+export * as viewport from "./viewport.ts";
+export * as routing from "./routing.ts";
+export * as trace from "./trace.ts";
+export * as rules from "./rules.ts";
+export * as playback from "./playback.ts";
+export * as diff from "./diff.ts";
+export { stateCss } from "./stateCss.ts";

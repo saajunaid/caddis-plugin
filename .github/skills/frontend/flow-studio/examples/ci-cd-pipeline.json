@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "CI/CD RELEASE PIPELINE",
+    "help": "Track automated build, test, security scan, and deployment stages across services and platform environments.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail deployment pipeline. No real product or hostnames are used."
+  },
+  "layout": "columns-lanes",
+  "columns": [
+    { "id": "commit", "title": "Commit", "width": 140 },
+    { "id": "build", "title": "Build", "width": 150 },
+    { "id": "test", "title": "Test", "width": 140 },
+    { "id": "scan", "title": "Scan", "width": 150 },
+    { "id": "staging", "title": "Staging", "width": 150 },
+    { "id": "verify", "title": "Verify", "width": 150 },
+    { "id": "production", "title": "Production", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "service-a", "title": "Service A" },
+    { "id": "service-b", "title": "Service B" },
+    { "id": "platform", "title": "Platform" }
+  ],
+  "states": {
+    "passed": { "word": "PASSED", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "running": { "word": "RUNNING", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "failed": { "word": "FAILED", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "breathe", "bucket": "gap" },
+    "skipped": { "word": "SKIPPED", "tone": "muted", "border": "solid", "edge": "dash-short", "motion": "none", "bucket": "neutral" },
+    "manual": { "word": "MANUAL", "tone": "accent", "border": "solid", "edge": "flow", "motion": "none", "bucket": "good" }
+  },
+  "nodes": [
+    { "id": "c_a", "kind": "start", "lane": "service-a", "col": 0, "row": 0, "state": "passed", "title": "Commit A" },
+    { "id": "b_a", "kind": "card", "lane": "service-a", "col": 1, "row": 0, "state": "passed", "title": "Build A", "metrics": { "label": "Build time", "value": 42, "unit": "s", "series": [35, 40, 42, 39, 42] } },
+    { "id": "t_a", "kind": "card", "lane": "service-a", "col": 2, "row": 0, "state": "passed", "title": "Unit test A" },
+    { "id": "s_a", "kind": "card", "lane": "service-a", "col": 3, "row": 0, "state": "passed", "title": "Security scan A", "sla": 90 },
+    { "id": "d_stg_a", "kind": "card", "lane": "service-a", "col": 4, "row": 0, "state": "passed", "title": "Deploy stage A" },
+    { "id": "d_prd_a", "kind": "end", "lane": "service-a", "col": 6, "row": 0, "state": "manual", "title": "Deploy prod A" },
+    { "id": "c_b", "kind": "start", "lane": "service-b", "col": 0, "row": 2.0, "state": "passed", "title": "Commit B" },
+    { "id": "b_b", "kind": "card", "lane": "service-b", "col": 1, "row": 2.0, "state": "passed", "title": "Build B", "metrics": { "label": "Build time", "value": 58, "unit": "s", "series": [50, 52, 55, 60, 58] } },
+    { "id": "t_b", "kind": "card", "lane": "service-b", "col": 2, "row": 2.0, "state": "passed", "title": "Unit test B" },
+    { "id": "s_b", "kind": "card", "lane": "service-b", "col": 3, "row": 2.0, "state": "failed", "title": "Security scan B", "sla": 40 },
+    { "id": "d_stg_b", "kind": "card", "lane": "service-b", "col": 4, "row": 2.0, "state": "skipped", "title": "Deploy stage B" },
+    { "id": "d_prd_b", "kind": "end", "lane": "service-b", "col": 6, "row": 2.0, "state": "skipped", "title": "Deploy prod B" },
+    { "id": "cfg_env", "kind": "card", "lane": "platform", "col": 0, "row": 4.0, "state": "passed", "title": "Config check" },
+    { "id": "inf_stg", "kind": "card", "lane": "platform", "col": 4, "row": 4.0, "state": "passed", "title": "Stage cluster" },
+    { "id": "v_smoke", "kind": "card", "lane": "platform", "col": 5, "row": 4.0, "state": "passed", "title": "Smoke test" },
+    { "id": "gate_appr", "kind": "gateway", "lane": "platform", "col": 5, "row": 5.1, "state": "manual", "title": "Approved?" },
+    { "id": "notif", "kind": "end", "lane": "platform", "col": 6, "row": 4.0, "state": "passed", "title": "Release notify" }
+  ],
+  "links": [
+    { "id": "l_cfg_ba", "from": "cfg_env", "to": "b_a", "state": "passed" },
+    { "id": "l_cfg_bb", "from": "cfg_env", "to": "b_b", "state": "passed" },
+    { "id": "l_ca_ba", "from": "c_a", "to": "b_a", "state": "passed" },
+    { "id": "l_ba_ta", "from": "b_a", "to": "t_a", "state": "passed" },
+    { "id": "l_ta_sa", "from": "t_a", "to": "s_a", "state": "passed" },
+    { "id": "l_sa_da", "from": "s_a", "to": "d_stg_a", "state": "passed" },
+    { "id": "l_da_sm", "from": "d_stg_a", "to": "v_smoke", "state": "passed" },
+    { "id": "l_inf_gate", "from": "inf_stg", "to": "gate_appr", "state": "passed" },
+    { "id": "l_gate_prd", "from": "gate_appr", "to": "d_prd_a", "state": "manual", "label": "Approved" },
+    { "id": "l_gate_rej", "from": "gate_appr", "to": "d_stg_a", "state": "failed", "kind": "loop-back", "label": "Rejected" },
+    { "id": "l_rollback", "from": "d_prd_a", "to": "d_stg_a", "state": "running", "kind": "loop-back", "label": "Roll back" },
+    { "id": "l_cb_bb", "from": "c_b", "to": "b_b", "state": "passed" },
+    { "id": "l_bb_tb", "from": "b_b", "to": "t_b", "state": "passed" },
+    { "id": "l_tb_sb", "from": "t_b", "to": "s_b", "state": "failed" },
+    { "id": "l_sb_stg", "from": "s_b", "to": "d_stg_b", "state": "skipped" },
+    { "id": "l_sb_cb", "from": "s_b", "to": "c_b", "state": "failed", "kind": "loop-back", "label": "Fix CVE" },
+    { "id": "l_stgb_sm", "from": "d_stg_b", "to": "v_smoke", "state": "skipped" },
+    { "id": "l_sm_prdb", "from": "v_smoke", "to": "d_prd_b", "state": "skipped" },
+    { "id": "l_sm_notif", "from": "v_smoke", "to": "notif", "state": "passed" }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "upstream", "label": "Builds upon", "dir": "up" },
+      { "id": "down", "label": "Deploys to", "dir": "down" },
+      { "id": "related", "label": "Associated with", "dir": "down" }
+    ],
+    "actions": [
+      {
+        "id": "sim_rollback",
+        "label": "Simulate: trigger rollback",
+        "dir": "down",
+        "staleText": "Rollback initiated. Production traffic diverted."
+      }
+    ]
+  },
+  "notes": [
+    {
+      "anchor": "#viewport",
+      "title": "Pipeline overview",
+      "text": "This board coordinates service releases across staging and production environments."
+    },
+    {
+      "anchor": "#n_gate_appr",
+      "title": "Approval gate",
+      "text": "Production deployments require manual sign-off after smoke tests complete."
+    },
+    {
+      "anchor": "#tools",
+      "title": "Toolbar actions",
+      "text": "Use toolbar buttons to zoom or focus on active service lanes."
+    },
+    {
+      "anchor": "#playbar",
+      "title": "Playback controls",
+      "text": "Step through deployment scenarios to observe branch choices and rollback paths."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "green_release",
+      "label": "Green release",
+      "steps": [
+        { "link": "l_ca_ba", "at": 0, "caption": "Service A code committed" },
+        { "link": "l_ba_ta", "at": 15, "caption": "Service A compiled successfully" },
+        { "link": "l_ta_sa", "at": 30, "caption": "Unit test suite passed" },
+        { "link": "l_sa_da", "at": 45, "caption": "Security scan cleared with no vulnerabilities" },
+        { "link": "l_da_sm", "at": 60, "caption": "Staging deployment completed" },
+        { "link": "l_sm_notif", "at": 75, "caption": "Smoke tests verified and platform notified" }
+      ]
+    },
+    {
+      "id": "failed_scan",
+      "label": "Failed scan",
+      "steps": [
+        { "link": "l_cb_bb", "at": 0, "caption": "Service B code committed" },
+        { "link": "l_bb_tb", "at": 15, "caption": "Service B compiled" },
+        { "link": "l_tb_sb", "at": 60, "caption": "Vulnerability scan detected critical issue and breached SLA" },
+        { "link": "l_sb_cb", "at": 80, "caption": "Pipeline halted and sent back for developer remediation" }
+      ]
+    }
+  ]
+}

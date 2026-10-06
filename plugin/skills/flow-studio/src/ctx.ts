@@ -22,6 +22,7 @@ export interface Els {
   ledger: HTMLElement;
   table: HTMLElement;
   q: HTMLInputElement;
+  hops: HTMLSelectElement;
   matchinfo: HTMLElement;
   modeSwitch: HTMLElement;
   drawer: HTMLElement;
@@ -34,6 +35,17 @@ export interface Els {
   readat: HTMLElement;
   help: HTMLElement;
   footer: HTMLElement;
+  playbar: HTMLElement;
+  pbScenario: HTMLSelectElement;
+  pbPlay: HTMLButtonElement;
+  pbStep: HTMLButtonElement;
+  pbReset: HTMLButtonElement;
+  pbSpeed: HTMLSelectElement;
+  pbScrub: HTMLInputElement;
+  pbCaption: HTMLElement;
+  pbCounter: HTMLElement;
+  pbChoices: HTMLElement;
+  banner: HTMLElement;
 }
 
 export type Filter = "gap" | "upgrade" | null;
@@ -62,12 +74,14 @@ export interface Fns {
   placeMarkers(): void;
   escape(): void;
   setMode(id: string): void;
+  toggleGroup(id: string): void;
 }
 
 export interface Ctx {
   model: Model;
   root: ParentNode;
   els: Els;
+  onSelect?: (id: string | null) => void;
   notes: NoteDef[];
   nodes: Map<string, NodeDef>;
   links: LinkDef[];
@@ -75,9 +89,11 @@ export interface Ctx {
   view: View;
   reduced: boolean;
   mode: string;
+  collapsed: Set<string>;
   selected: string | null;
   hl: string | null;
   query: string;
+  hops: number;
   filter: Filter;
   tool: "select" | "hand";
   spaceDown: boolean;

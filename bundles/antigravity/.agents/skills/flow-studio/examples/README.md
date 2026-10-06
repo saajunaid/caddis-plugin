@@ -5,6 +5,14 @@ Model files only. Build one with `node --experimental-strip-types scripts/build.
 | File | What it shows |
 |---|---|
 | `lineage.json` | A fictional data estate ("Northwind Analytics"): nine columns from source system to page, eight lanes (documented, infrastructure, gaps), four evidence states, two views (Today and Complete), portal chips, wide placeholders, the failure what-if. The proof that the generic engine reproduces a hand-built lineage page. |
+| `order-desk.json` | A retail order lifecycle that shows column-lane layout, gateway diamonds, and scenario playback with SLA breach detection. |
+| `ticket-lifecycle.json` | A support ticket workflow that shows column-and-lane layout, loop-back links, metrics, and scenario playback with SLA breach. |
+| `agent-journey.json` | An AI customer service workflow that shows phase columns, actor lanes, gateway branching, and loop-back error recovery. |
+| `incident-timeline.json` | A service outage timeline that shows time bucket columns, blast radius simulation, and before-and-after views. |
+| `ci-cd-pipeline.json` | A deployment pipeline that shows build stages, service lanes, approval gateways, and release rollback links. |
+| `approval-flow.json` | An expense approval workflow that shows automatic layout, role lanes, multiple decision gateways, and loop-back review paths. |
+| `service-map.json` | A microservice architecture that shows auto layout, collapsible data store groups, service health metrics, and blast radius simulation. |
+| `state-machine.json` | An order state machine that shows automatic layout, terminal and active order states, and return-flow loop-back transitions. |
 | `hostile.json` | The same model with markup and script text in every free-text field (`</script>`, an image with an `onerror`, quotes, U+2028 and U+2029). The check harness loads it to prove nothing executes. Do not use it as a template. |
 
 All data is fictional. The names are invented, and no real host, job, table or repository appears in them.

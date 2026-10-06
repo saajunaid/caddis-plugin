@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "ORDER STATE MACHINE",
+    "help": "Track lifecycle transitions of an order across active processing, cancellation, fulfillment, and returns.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail state machine. No real customer or order records are used."
+  },
+  "layout": "auto",
+  "columns": [
+    { "id": "creation", "title": "Creation", "width": 140 },
+    { "id": "payment", "title": "Payment", "width": 150 },
+    { "id": "fulfillment", "title": "Fulfillment", "width": 160 },
+    { "id": "delivery", "title": "Delivery", "width": 150 },
+    { "id": "post_sale", "title": "Post-Sale", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "order", "title": "Order Lifecycle" },
+    { "id": "logistics", "title": "Fulfillment & Logistics" },
+    { "id": "service", "title": "Returns & Service" }
+  ],
+  "states": {
+    "active": { "word": "ACTIVE", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "terminal": { "word": "TERMINAL", "tone": "muted", "border": "solid", "edge": "dash-short", "motion": "none", "bucket": "good" },
+    "error": { "word": "ERROR", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "breathe", "bucket": "gap" }
+  },
+  "nodes": [
+    { "id": "st_draft", "kind": "start", "lane": "order", "state": "active", "title": "Draft", "subtitle": "Cart checkout" },
+    { "id": "st_submitted", "kind": "card", "lane": "order", "state": "active", "title": "Submitted", "subtitle": "Awaiting payment" },
+    { "id": "gate_paid", "kind": "gateway", "lane": "order", "state": "active", "title": "Paid?", "subtitle": "Payment verification" },
+    { "id": "st_paid", "kind": "card", "lane": "order", "state": "active", "title": "Paid", "subtitle": "Payment settled" },
+    { "id": "st_packed", "kind": "card", "lane": "logistics", "state": "active", "title": "Packed", "subtitle": "Warehouse parcel" },
+    { "id": "st_shipped", "kind": "card", "lane": "logistics", "state": "active", "title": "Shipped", "subtitle": "In transit" },
+    { "id": "st_delivered", "kind": "card", "lane": "logistics", "state": "terminal", "title": "Delivered", "subtitle": "Handed to customer" },
+    { "id": "st_cancelled", "kind": "card", "lane": "order", "state": "error", "title": "Cancelled", "subtitle": "Order voided" },
+    { "id": "st_ret_req", "kind": "card", "lane": "service", "state": "active", "title": "Return requested", "subtitle": "RMA initiated" },
+    { "id": "st_returned", "kind": "card", "lane": "service", "state": "active", "title": "Returned", "subtitle": "Parcel received" },
+    { "id": "st_refunded", "kind": "card", "lane": "service", "state": "terminal", "title": "Refunded", "subtitle": "Funds credited", "sla": 30 },
+    { "id": "st_pay_fail", "kind": "end", "lane": "order", "state": "error", "title": "Payment failed", "subtitle": "Authorization error" },
+    { "id": "st_archived", "kind": "end", "lane": "logistics", "state": "terminal", "title": "Archived", "subtitle": "Order complete" }
+  ],
+  "links": [
+    { "id": "l_draft_sub", "from": "st_draft", "to": "st_submitted", "state": "active" },
+    { "id": "l_sub_gate", "from": "st_submitted", "to": "gate_paid", "state": "active" },
+    { "id": "l_gate_paid", "from": "gate_paid", "to": "st_paid", "state": "active", "label": "Authorized" },
+    { "id": "l_gate_fail", "from": "gate_paid", "to": "st_pay_fail", "state": "error", "label": "Declined" },
+    { "id": "l_paid_pack", "from": "st_paid", "to": "st_packed", "state": "active" },
+    { "id": "l_paid_canc", "from": "st_paid", "to": "st_cancelled", "state": "error", "label": "Customer cancel" },
+    { "id": "l_pack_ship", "from": "st_packed", "to": "st_shipped", "state": "active" },
+    { "id": "l_ship_deliv", "from": "st_shipped", "to": "st_delivered", "state": "active" },
+    { "id": "l_deliv_arch", "from": "st_delivered", "to": "st_archived", "state": "terminal" },
+    { "id": "l_deliv_ret", "from": "st_delivered", "to": "st_ret_req", "state": "active", "label": "Request return" },
+    { "id": "l_ret_deliv", "from": "st_ret_req", "to": "st_delivered", "state": "active", "kind": "loop-back", "label": "Return rejected" },
+    { "id": "l_ret_done", "from": "st_ret_req", "to": "st_returned", "state": "active", "label": "Return accepted" },
+    { "id": "l_ret_refund", "from": "st_returned", "to": "st_refunded", "state": "terminal" },
+    { "id": "l_canc_draft", "from": "st_cancelled", "to": "st_draft", "state": "active", "kind": "loop-back", "label": "Draft after cancel" },
+    { "id": "l_canc_ref", "from": "st_cancelled", "to": "st_refunded", "state": "terminal", "label": "Refund balance" }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "prior", "label": "Previous state", "dir": "up" },
+      { "id": "down", "label": "Next transition", "dir": "down" },
+      { "id": "terminal", "label": "Settled state", "dir": "down", "filter": { "kind": "end" } }
+    ],
+    "actions": [
+      {
+        "id": "sim_cancel",
+        "label": "Simulate: cancel order",
+        "dir": "down",
+        "staleText": "Order cancelled by customer. Refund process initiated."
+      }
+    ]
+  },
+  "notes": [
+    { "anchor": "#viewport", "title": "State transition model", "text": "This diagram defines legal state transitions from draft creation through post-sale settlement." },
+    { "anchor": "#n_gate_paid", "title": "Payment gateway", "text": "Orders branch to fulfillment on successful payment or terminate if payment authorization fails." },
+    { "anchor": "#n_st_ret_req", "title": "Return request evaluation", "text": "Return requests branch either to return acceptance and refund or route back to delivered status if rejected." },
+    { "anchor": "#playbar", "title": "Playback controls", "text": "Step through normal fulfillment or cancellation workflows to inspect transitions and SLA timing." }
+  ],
+  "scenarios": [
+    {
+      "id": "normal_order",
+      "label": "Normal order",
+      "steps": [
+        { "link": "l_draft_sub", "at": 0, "caption": "Customer submits order draft" },
+        { "link": "l_sub_gate", "at": 10, "caption": "Payment authorization requested" },
+        { "link": "l_gate_paid", "at": 20, "caption": "Payment confirmed successfully" },
+        { "link": "l_paid_pack", "at": 35, "caption": "Warehouse packs parcel" },
+        { "link": "l_pack_ship", "at": 50, "caption": "Courier picks up shipment" },
+        { "link": "l_ship_deliv", "at": 70, "caption": "Package delivered to customer" },
+        { "link": "l_deliv_arch", "at": 85, "caption": "Order archived after return period expires" }
+      ]
+    },
+    {
+      "id": "cancel_paid",
+      "label": "Cancel after payment",
+      "steps": [
+        { "link": "l_draft_sub", "at": 0, "caption": "Customer drafts order" },
+        { "link": "l_sub_gate", "at": 10, "caption": "Payment gateway contacted" },
+        { "link": "l_gate_paid", "at": 20, "caption": "Order paid" },
+        { "link": "l_paid_canc", "at": 30, "caption": "Customer cancels order before shipping" },
+        { "link": "l_canc_ref", "at": 45, "caption": "Refund issued after SLA target threshold" }
+      ]
+    }
+  ]
+}

@@ -69,6 +69,7 @@ export function install(ctx: Ctx): void {
 
   function placeHeaders(): void {
     const cols = els.cols;
+    cols.style.display = model.columns.length ? "" : "none";
     if (!cols.firstChild) {
       model.columns.forEach((c, i) => { const h = el("div", "hd"); h.textContent = (c.short ?? c.title).toUpperCase(); h.title = c.title; h.dataset.i = String(i); cols.appendChild(h); });
       let i = 0;
@@ -209,6 +210,13 @@ export function install(ctx: Ctx): void {
     else if (k === "n" || k === "N") ctx.fn.toggleNotes();
     else if (k === "v" || k === "V") setTool("select");
     else if (k === "h" || k === "H") setTool("hand");
+    else if (k === "e" || k === "E") {
+      const selected = ctx.selected && ctx.nodes.get(ctx.selected);
+      if (selected) {
+        const group = selected.kind === "group" ? selected : ctx.model.nodes.find(n => n.kind === "group" && n.contains?.includes(selected.id));
+        if (group) ctx.fn.toggleGroup(group.id);
+      }
+    }
     else if (k === "+" || k === "=") zoomBy(1.25);
     else if (k === "-" || k === "_") zoomBy(1 / 1.25);
     else if (k === "0") { ctx.userMoved = false; fit(true); }

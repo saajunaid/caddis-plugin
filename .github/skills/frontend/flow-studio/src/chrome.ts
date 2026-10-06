@@ -4,7 +4,7 @@
 import { el, on, type Ctx } from "./ctx.ts";
 import { esc } from "./model.ts";
 import { DASH, toneVar, cssId } from "./stateCss.ts";
-import { bucketOf, linkStateId, linkVisible, nodeStateId, nodeVisible } from "./rules.ts";
+import { bucketOf, columnTitle, effectiveLinks, nodeStateId, nodeVisible } from "./rules.ts";
 import { matches } from "./interact.ts";
 
 const DEFAULT_LABELS: Record<string, string> = {
@@ -19,7 +19,7 @@ const DEFAULT_LABELS: Record<string, string> = {
 export function install(ctx: Ctx): void {
   const { els, model } = ctx;
   const label = (k: string): string => model.meta.labels?.[k] ?? DEFAULT_LABELS[k] ?? k;
-  const visible = (id: string): boolean => { const n = ctx.nodes.get(id); return !!n && nodeVisible(model, ctx.mode, n); };
+  const visible = (id: string): boolean => { const n = ctx.nodes.get(id); return !!n && nodeVisible(model, ctx.mode, n, ctx.collapsed); };
 
   function countUp(node: HTMLElement, to: number, ms = 700): void {
     if (ctx.reduced) { node.textContent = String(to); return; }
@@ -34,6 +34,7 @@ export function install(ctx: Ctx): void {
 
   function buildStrip(): void {
     const box = els.strip;
+    box.style.display = model.columns.length ? "" : "none";
     box.style.gridTemplateColumns = `repeat(${Math.max(1, model.columns.length)}, minmax(0, 1fr))`;
     if (!box.firstChild) {
       box.innerHTML = model.columns.map(c => `<div class="lcell"><div class="ln">${esc(c.title)}</div><div class="lb"><i class="good"></i><i class="neutral"></i><i class="gap"></i></div><div class="lv"></div></div>`).join("");
@@ -43,9 +44,9 @@ export function install(ctx: Ctx): void {
       let tot = 0, good = 0, neutral = 0, gap = 0;
       for (const n of model.nodes) {
         if (n.col !== i || n.kind === "chip") continue;
+        if (!visible(n.id)) continue;
         const w = Math.max(1, n.weight ?? 1);
         tot += w;
-        if (!visible(n.id)) continue;
         const b = bucketOf(model, nodeStateId(model, ctx.mode, n));
         if (b === "good") good += w; else if (b === "neutral") neutral += w; else gap += w;
       }
@@ -64,9 +65,8 @@ export function install(ctx: Ctx): void {
   function buildTiles(): void {
     const k = els.tiles;
     let good = 0, neutral = 0;
-    for (const l of ctx.links) {
-      if (!linkVisible(model, ctx.mode, l, ctx.nodes)) continue;
-      const b = bucketOf(model, linkStateId(model, ctx.mode, l));
+    for (const l of effectiveLinks(model, ctx.mode, ctx.collapsed, ctx.nodes)) {
+      const b = bucketOf(model, l.state);
       if (b === "good") good++; else if (b === "neutral") neutral++;
     }
     let gaps = 0, upgrades = 0;
@@ -120,7 +120,7 @@ export function install(ctx: Ctx): void {
     const rows = model.nodes.filter(n => visible(n.id) && n.kind !== "chip").map(n => {
       const sid = nodeStateId(model, ctx.mode, n);
       const lane = model.lanes.find(l => l.id === n.lane)?.title ?? n.lane;
-      return `<tr><th scope="row">${esc(model.columns[n.col]?.title ?? "")}</th><td>${esc(lane)}</td><td>${esc(n.title)}</td><td>${esc(model.states[sid]?.word ?? sid)}</td><td>${Math.max(1, n.weight ?? 1)}</td><td>${esc(n.subtitle ?? "")}</td><td>${esc(n.upgrade ?? "")}</td></tr>`;
+      return `<tr><th scope="row">${esc(columnTitle(model, n))}</th><td>${esc(lane)}</td><td>${esc(n.title)}</td><td>${esc(model.states[sid]?.word ?? sid)}</td><td>${Math.max(1, n.weight ?? 1)}</td><td>${esc(n.subtitle ?? "")}</td><td>${esc(n.upgrade ?? "")}</td></tr>`;
     }).join("");
     els.table.innerHTML = `<thead><tr><th scope="col">Column</th><th scope="col">Lane</th><th scope="col">Group</th><th scope="col">State</th><th scope="col">Members</th><th scope="col">Detail</th><th scope="col">Can improve</th></tr></thead><tbody>${rows}</tbody>`;
   }
@@ -156,6 +156,10 @@ export function install(ctx: Ctx): void {
     const n = model.nodes.filter(x => visible(x.id) && matches(ctx, x)).length;
     els.matchinfo.textContent = ctx.query ? `${n} group${n === 1 ? "" : "s"} match` : "";
     if (!ctx.selected) { ctx.fn.trace(null); ctx.fn.renderInspector(); }
+  });
+  on(ctx, els.hops, "change", () => {
+    ctx.hops = Number(els.hops.value);
+    ctx.fn.trace(ctx.selected);
   });
   on(ctx, els.q, "keydown", (e: KeyboardEvent) => {
     if (e.key !== "Enter" || !ctx.query) return;

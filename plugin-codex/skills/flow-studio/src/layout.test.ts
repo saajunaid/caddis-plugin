@@ -67,3 +67,78 @@ test("a node whose column is out of range does not produce NaN", () => {
   const g = computeGeometry(mm);
   assert.ok(Object.values(g.nodes).every(n => [n.x, n.y, n.w, n.h].every(Number.isFinite)));
 });
+test("a gateway has a 64 px diamond box", () => {
+  const mm = m(); mm.nodes[0]!.kind = "gateway";
+  assert.equal(computeGeometry(mm).nodes.a!.h, 64);
+});
+test("loop-back channels stay below nodes, inside their lane, and separate from the next lane", () => {
+  const mm = m();
+  mm.links.push({ id: "return", from: "b", to: "a", state: "ok", kind: "loop-back" });
+  mm.links.push({ id: "again", from: "b", to: "a", state: "ok", kind: "loop-back" });
+  const g = computeGeometry(mm);
+  const y = g.loops.return!.channelY;
+  assert.ok(y >= g.nodes.a!.y + g.nodes.a!.h + 10);
+  assert.ok(y >= g.nodes.b!.y + g.nodes.b!.h + 10);
+  assert.equal(g.loops.again!.channelY, y + 8);
+  assert.ok(g.lanes.l1!.y + g.lanes.l1!.h > g.loops.again!.channelY);
+  assert.ok(g.lanes.l1!.y + g.lanes.l1!.h <= g.lanes.l2!.y);
+});
+
+test("a loop clears a lower node within its horizontal span", () => {
+  const mm = m();
+  mm.columns.push({ id: "c2", title: "C", width: 150 });
+  mm.nodes.find(n => n.id === "b")!.col = 2;
+  mm.nodes.push({ id: "middle", kind: "card", lane: "l1", col: 1, row: 1, state: "ok", title: "Middle" });
+  mm.links.push({ id: "return", from: "b", to: "a", state: "ok", kind: "loop-back" });
+  const g = computeGeometry(mm);
+  assert.equal(g.loops.return!.channelY, g.nodes.middle!.y + g.nodes.middle!.h + 10);
+  assert.ok(g.lanes.l1!.y + g.lanes.l1!.h <= g.lanes.l2!.y);
+});
+
+test("a lower node outside the loop span does not lower its channel", () => {
+  const mm = m();
+  mm.columns.push({ id: "c2", title: "C", width: 150 });
+  mm.nodes.push({ id: "outside", kind: "card", lane: "l1", col: 2, row: 1, state: "ok", title: "Outside" });
+  mm.links.push({ id: "return", from: "b", to: "a", state: "ok", kind: "loop-back" });
+  const g = computeGeometry(mm);
+  assert.equal(g.loops.return!.channelY, g.nodes.a!.y + g.nodes.a!.h + 10);
+});
+
+test("interleaved lanes calculate channels after all endpoint shifts", () => {
+  const mm = m();
+  mm.nodes = [
+    { id: "a", kind: "card", lane: "l1", col: 0, row: 0, state: "ok", title: "A" },
+    { id: "deep", kind: "card", lane: "l1", col: 1, row: 5, state: "ok", title: "Deep" },
+    { id: "b", kind: "card", lane: "l2", col: 0, row: 1, state: "ok", title: "B" },
+  ];
+  mm.links = [{ id: "return", from: "deep", to: "b", state: "ok", kind: "loop-back" }];
+  const g = computeGeometry(mm);
+  assert.ok(g.loops.return!.channelY >= g.nodes.b!.y + g.nodes.b!.h + 10);
+  assert.ok(g.lanes.l1!.y + g.lanes.l1!.h <= g.lanes.l2!.y);
+  assert.ok(Object.values(g.nodes).every(n => [n.x, n.y, n.w, n.h].every(Number.isFinite)));
+  assert.ok(Object.values(g.loops).every(l => Number.isFinite(l.channelY)));
+});
+
+test("free layout uses explicit world rectangles and works without columns", () => {
+  const mm = m();
+  mm.layout = "free"; mm.columns = [];
+  mm.nodes = [
+    { id: "a", kind: "card", lane: "l1", x: 18, y: 70, w: 121, h: 47, state: "ok", title: "A" },
+    { id: "b", kind: "card", lane: "l2", x: 250, y: 300, state: "ok", title: "B" },
+  ];
+  const g = computeGeometry(mm);
+  assert.deepEqual(g.xs, []);
+  assert.deepEqual(g.nodes.a, { id: "a", x: 18, y: 70, w: 121, h: 47 });
+  assert.equal(g.nodes.b?.w, 190);
+  assert.ok(g.world.w >= 440);
+  assert.ok(g.lanes.l1 && g.lanes.l2);
+});
+
+test("free layout preserves finite negative node coordinates", () => {
+  const mm = m(); mm.layout = "free"; mm.columns = [];
+  mm.nodes = [{ id: "a", kind: "card", lane: "l1", x: -80, y: -40, w: 60, h: 30, state: "ok", title: "A" }];
+  const g = computeGeometry(mm);
+  assert.equal(g.nodes.a!.x, -80);
+  assert.equal(g.nodes.a!.y, -40);
+  assert.ok([g.bounds.x, g.bounds.y, g.bounds.w, g.bounds.h, g.world.w, g.world.h].every(Number.isFinite));
+});

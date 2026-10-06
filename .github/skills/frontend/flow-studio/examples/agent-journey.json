@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "AUTONOMOUS AGENT JOURNEY",
+    "help": "Follow an AI agent handling a customer service request from intake through tool execution and human supervision.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail support telemetry. No real agent executions or customer records are used."
+  },
+  "layout": "columns-lanes",
+  "columns": [
+    { "id": "receive", "title": "Receive", "width": 150 },
+    { "id": "understand", "title": "Understand", "width": 160 },
+    { "id": "plan", "title": "Plan", "width": 150 },
+    { "id": "act", "title": "Act", "width": 160 },
+    { "id": "verify", "title": "Verify", "width": 160 },
+    { "id": "respond", "title": "Respond", "width": 150 }
+  ],
+  "lanes": [
+    { "id": "customer", "title": "Customer" },
+    { "id": "agent", "title": "Agent" },
+    { "id": "tools", "title": "Tools" },
+    { "id": "human", "title": "Human reviewer" }
+  ],
+  "states": {
+    "smooth": { "word": "SMOOTH", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "friction": { "word": "FRICTION", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "failure": { "word": "FAILURE", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "breathe", "bucket": "gap" },
+    "settled": { "word": "SETTLED", "tone": "muted", "border": "solid", "edge": "dash-short", "motion": "none", "bucket": "good" }
+  },
+  "nodes": [
+    { "id": "cust-req", "kind": "start", "lane": "customer", "col": 0, "row": 0, "state": "smooth", "title": "Submit prompt" },
+    { "id": "cust-ack", "kind": "end", "lane": "customer", "col": 5, "row": 0, "state": "settled", "title": "Receive response" },
+    { "id": "agent-parse", "kind": "card", "lane": "agent", "col": 1, "row": 2, "state": "smooth", "title": "Parse prompt", "metrics": { "label": "Intent match", "value": 94, "max": 100, "unit": "%" } },
+    { "id": "agent-gate", "kind": "gateway", "lane": "agent", "col": 2, "row": 2, "state": "smooth", "title": "Confident?" },
+    { "id": "agent-eval", "kind": "card", "lane": "agent", "col": 4, "row": 2, "state": "smooth", "title": "Validate response" },
+    { "id": "agent-synth", "kind": "card", "lane": "agent", "col": 4, "row": 3.2, "state": "smooth", "title": "Synthesize answer" },
+    { "id": "tool-search", "kind": "card", "lane": "tools", "col": 3, "row": 5.2, "state": "smooth", "title": "Search catalog", "metrics": { "label": "Search latency", "value": 140, "max": 500, "unit": "ms", "series": [95, 110, 130, 125, 140] } },
+    { "id": "tool-exec", "kind": "card", "lane": "tools", "col": 3, "row": 6.4, "state": "friction", "title": "Execute mutation", "metrics": { "label": "API latency", "value": 480, "max": 600, "unit": "ms", "series": [210, 260, 310, 390, 480] } },
+    { "id": "tool-db", "kind": "card", "lane": "tools", "col": 3, "row": 7.6, "state": "smooth", "title": "State verification" },
+    { "id": "human-alert", "kind": "card", "lane": "human", "col": 3, "row": 9.6, "state": "friction", "title": "Escalation queue" },
+    { "id": "human-review", "kind": "card", "lane": "human", "col": 4, "row": 9.6, "state": "failure", "title": "Reviewer verdict", "sla": 30, "metrics": { "label": "Hold time", "value": 42, "max": 60, "unit": "s" } },
+    { "id": "human-approve", "kind": "end", "lane": "human", "col": 5, "row": 9.6, "state": "settled", "title": "Human override" }
+  ],
+  "links": [
+    { "id": "l-cust-parse", "from": "cust-req", "to": "agent-parse", "state": "smooth" },
+    { "id": "l-parse-gate", "from": "agent-parse", "to": "agent-gate", "state": "smooth" },
+    { "id": "l-gate-alert", "from": "agent-gate", "to": "human-alert", "state": "friction", "label": "Uncertain intent" },
+    { "id": "l-gate-search", "from": "agent-gate", "to": "tool-search", "state": "smooth", "label": "Search query" },
+    { "id": "l-gate-exec", "from": "agent-gate", "to": "tool-exec", "state": "friction", "label": "Run action" },
+    { "id": "l-search-eval", "from": "tool-search", "to": "agent-eval", "state": "smooth" },
+    { "id": "l-exec-db", "from": "tool-exec", "to": "agent-eval", "state": "friction" },
+    { "id": "l-db-eval", "from": "tool-db", "to": "agent-eval", "state": "smooth" },
+    { "id": "l-alert-review", "from": "human-alert", "to": "human-review", "state": "friction" },
+    { "id": "l-review-gate", "from": "human-review", "to": "agent-gate", "state": "friction", "kind": "loop-back", "label": "Refined guidance" },
+    { "id": "l-eval-synth", "from": "agent-eval", "to": "cust-ack", "state": "smooth" },
+    { "id": "l-synth-ack", "from": "agent-synth", "to": "cust-ack", "state": "smooth" },
+    { "id": "l-exec-alert", "from": "tool-exec", "to": "human-review", "state": "failure", "label": "Tool failure" },
+    { "id": "l-review-approve", "from": "human-review", "to": "human-approve", "state": "settled", "label": "Direct approval" }
+  ],
+  "scenarios": [
+    {
+      "id": "normal",
+      "label": "Normal request",
+      "steps": [
+        { "link": "l-cust-parse", "at": 0, "caption": "User requests store operating hours" },
+        { "link": "l-parse-gate", "at": 10, "caption": "Agent parses intent with high confidence" },
+        { "link": "l-gate-search", "at": 25, "caption": "Knowledge base search tool dispatched" },
+        { "link": "l-search-eval", "at": 45, "caption": "Answer returned and verified" },
+        { "link": "l-eval-synth", "at": 60, "caption": "Verified response delivered to user" }
+      ]
+    },
+    {
+      "id": "escalated",
+      "label": "Tool fails, human steps in",
+      "steps": [
+        { "link": "l-cust-parse", "at": 0, "caption": "User requests order address update" },
+        { "link": "l-parse-gate", "at": 10, "caption": "Intent recognized with moderate ambiguity" },
+        { "link": "l-gate-exec", "at": 20, "caption": "Agent attempts address update mutation" },
+        { "link": "l-exec-alert", "at": 45, "caption": "Mutation times out and crosses SLA target" },
+        { "link": "l-review-gate", "at": 65, "caption": "Reviewer inputs valid account address" },
+        { "link": "l-gate-search", "at": 80, "caption": "Agent re-runs lookup under new guidance" },
+        { "link": "l-search-eval", "at": 95, "caption": "Lookup confirms corrected address" },
+        { "link": "l-eval-synth", "at": 110, "caption": "Confirmation sent to customer" }
+      ]
+    }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "up", "label": "Invoked from", "dir": "up" },
+      { "id": "down", "label": "Dispatches to", "dir": "down" },
+      { "id": "outcomes", "label": "Journey completion", "dir": "down", "filter": { "kind": "end" } }
+    ],
+    "actions": [
+      { "id": "sim-tool-fail", "label": "Simulate: Tool timeout", "dir": "down", "staleText": "Simulating tool timeout and reviewer handoff" }
+    ]
+  },
+  "notes": [
+    { "anchor": "#n_agent-gate", "title": "Confidence evaluation gateway", "text": "The agent checks model confidence before executing tools or escalating to human staff." },
+    { "anchor": "#n_tool-search", "title": "Tool latency tracking", "text": "Tool invocation latency is measured across executions to detect API slowdowns early." },
+    { "anchor": "#n_human-review", "title": "Supervisory intervention SLA", "text": "Escalated actions wait in the supervisor queue with a 30-second target SLA." },
+    { "anchor": "#playbar", "title": "Scenario reproduction", "text": "Replay normal requests or examine supervisory intervention when tool failures occur." }
+  ]
+}

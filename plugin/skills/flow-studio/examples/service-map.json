@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "MICROSERVICE ESTATE TOPOLOGY",
+    "help": "Explore microservice dependencies, traffic weights, and backing data stores across standard and peak operational conditions.",
+    "asOf": "2026-10-06",
+    "source": "Fictional Contoso Retail service mesh. No real endpoints or credentials are used."
+  },
+  "layout": "auto",
+  "columns": [
+    { "id": "edge", "title": "Edge", "width": 150 },
+    { "id": "auth", "title": "Auth", "width": 150 },
+    { "id": "core", "title": "Core Services", "width": 170 },
+    { "id": "support", "title": "Support Services", "width": 170 },
+    { "id": "data", "title": "Data Stores", "width": 170 }
+  ],
+  "lanes": [
+    { "id": "edge", "title": "Edge Layer" },
+    { "id": "services", "title": "Core Services" },
+    { "id": "support", "title": "Supporting Services" },
+    { "id": "data", "title": "Data Tier" }
+  ],
+  "states": {
+    "healthy": { "word": "HEALTHY", "tone": "ok", "border": "solid", "edge": "flow", "motion": "flow", "bucket": "good" },
+    "degraded": { "word": "DEGRADED", "tone": "warn", "border": "dashed", "edge": "dash", "motion": "flow-slow", "bucket": "neutral" },
+    "down": { "word": "DOWN", "tone": "crit", "border": "dotted", "edge": "dot", "motion": "none", "bucket": "gap" }
+  },
+  "views": [
+    { "id": "now", "label": "Now", "default": true },
+    { "id": "peak", "label": "Peak" }
+  ],
+  "nodes": [
+    { "id": "gw_web", "kind": "card", "lane": "edge", "state": "healthy", "title": "Web Gateway", "subtitle": "Public web ingress", "weight": 1.0, "metrics": { "label": "Traffic", "value": 3200, "max": 5000, "unit": "req/s", "series": [2400, 2800, 3100, 3200] } },
+    { "id": "gw_mobile", "kind": "card", "lane": "edge", "state": "healthy", "title": "Mobile Gateway", "subtitle": "App client ingress", "weight": 0.8, "metrics": { "label": "Traffic", "value": 1800, "max": 3000, "unit": "req/s", "series": [1200, 1500, 1700, 1800] } },
+    { "id": "cdn_edge", "kind": "card", "lane": "edge", "state": "healthy", "title": "CDN Edge", "subtitle": "Static asset cache", "weight": 0.9 },
+    { "id": "svc_auth", "kind": "card", "lane": "services", "state": "healthy", "title": "Auth Service", "subtitle": "OAuth and JWT tokens", "weight": 0.9 },
+    { "id": "svc_orders", "kind": "card", "lane": "services", "state": "healthy", "title": "Orders API", "subtitle": "Order management", "weight": 0.9, "sla": 100, "metrics": { "label": "Traffic", "value": 1200, "max": 2000, "unit": "req/s", "series": [800, 950, 1100, 1200] } },
+    { "id": "svc_payments", "kind": "card", "lane": "services", "state": "healthy", "title": "Payments API", "subtitle": "Payment processing", "weight": 0.85 },
+    { "id": "svc_inventory", "kind": "card", "lane": "services", "state": "healthy", "title": "Inventory API", "subtitle": "Stock levels", "weight": 0.75 },
+    { "id": "svc_catalog", "kind": "card", "lane": "services", "state": "healthy", "title": "Catalog API", "subtitle": "Product details", "weight": 0.8 },
+    { "id": "svc_search", "kind": "card", "lane": "services", "state": "healthy", "title": "Search API", "subtitle": "Product search", "weight": 0.85, "stateIn": { "peak": "degraded" } },
+    { "id": "svc_cart", "kind": "card", "lane": "services", "state": "healthy", "title": "Cart API", "subtitle": "Shopping baskets", "weight": 0.7 },
+    { "id": "svc_notif", "kind": "card", "lane": "support", "state": "healthy", "title": "Notification API", "subtitle": "Email and SMS alerts", "weight": 0.6 },
+    { "id": "svc_recom", "kind": "card", "lane": "support", "state": "healthy", "title": "Recommendation", "subtitle": "Personalized picks", "weight": 0.5 },
+    { "id": "svc_shipping", "kind": "card", "lane": "support", "state": "healthy", "title": "Shipping API", "subtitle": "Courier dispatch", "weight": 0.65 },
+    { "id": "svc_analytics", "kind": "card", "lane": "support", "state": "healthy", "title": "Analytics API", "subtitle": "Event ingestion", "weight": 0.7 },
+    { "id": "svc_pricing", "kind": "card", "lane": "support", "state": "healthy", "title": "Pricing Engine", "subtitle": "Dynamic discounts", "weight": 0.6 },
+    { "id": "audit_log", "kind": "card", "lane": "support", "state": "healthy", "title": "Audit Service", "subtitle": "Compliance trail", "weight": 0.5 },
+    { "id": "end_client", "kind": "end", "lane": "edge", "state": "healthy", "title": "Client Response", "subtitle": "Rendered payload" },
+    { "id": "end_receipt", "kind": "end", "lane": "services", "state": "healthy", "title": "Order Confirmed", "subtitle": "Receipt issued" },
+    { "id": "ds_group", "kind": "group", "lane": "data", "state": "healthy", "title": "Data stores", "subtitle": "Databases and queues", "contains": ["db_orders", "db_payments", "db_inventory", "redis_cache", "msg_queue"], "collapsed": true },
+    { "id": "db_orders", "kind": "card", "lane": "data", "state": "healthy", "title": "Orders DB", "subtitle": "PostgreSQL relational", "weight": 0.9 },
+    { "id": "db_payments", "kind": "card", "lane": "data", "state": "healthy", "title": "Payments DB", "subtitle": "Encrypted ledger", "weight": 0.85 },
+    { "id": "db_inventory", "kind": "card", "lane": "data", "state": "healthy", "title": "Inventory DB", "subtitle": "Replica cluster", "weight": 0.7 },
+    { "id": "redis_cache", "kind": "card", "lane": "data", "state": "healthy", "title": "Redis Cache", "subtitle": "In-memory cluster", "weight": 0.8, "stateIn": { "peak": "degraded" } },
+    { "id": "msg_queue", "kind": "card", "lane": "data", "state": "healthy", "title": "Kafka Queue", "subtitle": "Event streaming bus", "weight": 0.75, "sla": 100 }
+  ],
+  "links": [
+    { "id": "l_web_auth", "from": "gw_web", "to": "svc_auth", "state": "healthy" },
+    { "id": "l_mob_auth", "from": "gw_mobile", "to": "svc_auth", "state": "healthy" },
+    { "id": "l_web_cdn", "from": "gw_web", "to": "cdn_edge", "state": "healthy" },
+    { "id": "l_web_ord", "from": "gw_web", "to": "svc_orders", "state": "healthy" },
+    { "id": "l_mob_ord", "from": "gw_mobile", "to": "svc_orders", "state": "healthy" },
+    { "id": "l_web_srch", "from": "gw_web", "to": "svc_search", "state": "healthy" },
+    { "id": "l_web_cat", "from": "gw_web", "to": "svc_catalog", "state": "healthy" },
+    { "id": "l_web_cart", "from": "gw_web", "to": "svc_cart", "state": "healthy" },
+    { "id": "l_cat_price", "from": "svc_catalog", "to": "svc_pricing", "state": "healthy" },
+    { "id": "l_srch_recom", "from": "svc_search", "to": "svc_recom", "state": "healthy" },
+    { "id": "l_ord_pay", "from": "svc_orders", "to": "svc_payments", "state": "healthy" },
+    { "id": "l_ord_inv", "from": "svc_orders", "to": "svc_inventory", "state": "healthy" },
+    { "id": "l_ord_dbo", "from": "svc_orders", "to": "db_orders", "state": "healthy" },
+    { "id": "l_ord_ds", "from": "svc_orders", "to": "ds_group", "state": "healthy" },
+    { "id": "l_pay_dbp", "from": "svc_payments", "to": "db_payments", "state": "healthy" },
+    { "id": "l_inv_dbi", "from": "svc_inventory", "to": "db_inventory", "state": "healthy" },
+    { "id": "l_srch_red", "from": "svc_search", "to": "redis_cache", "state": "healthy" },
+    { "id": "l_cart_red", "from": "svc_cart", "to": "redis_cache", "state": "healthy" },
+    { "id": "l_ord_q", "from": "svc_orders", "to": "msg_queue", "state": "healthy" },
+    { "id": "l_q_notif", "from": "msg_queue", "to": "svc_notif", "state": "healthy" },
+    { "id": "l_q_ship", "from": "msg_queue", "to": "svc_shipping", "state": "healthy" },
+    { "id": "l_q_analy", "from": "msg_queue", "to": "svc_analytics", "state": "healthy" },
+    { "id": "l_pay_audit", "from": "svc_payments", "to": "audit_log", "state": "healthy" },
+    { "id": "l_ord_rcpt", "from": "svc_orders", "to": "end_receipt", "state": "healthy" },
+    { "id": "l_cdn_client", "from": "cdn_edge", "to": "end_client", "state": "healthy" }
+  ],
+  "inspector": {
+    "relations": [
+      { "id": "upstream", "label": "Called by", "dir": "up" },
+      { "id": "down", "label": "Calls service", "dir": "down" },
+      { "id": "datastores", "label": "Backing data store", "dir": "down" }
+    ],
+    "actions": [
+      {
+        "id": "sim_down",
+        "label": "Simulate: this is down",
+        "dir": "down",
+        "staleText": "Target service simulated down. Downstream dependencies entering degraded fallback."
+      }
+    ]
+  },
+  "notes": [
+    { "anchor": "#viewport", "title": "Estate topology", "text": "This map visualizes microservice dependencies and traffic weights across operational tiers." },
+    { "anchor": "#n_ds_group", "title": "Backing storage cluster", "text": "Click to expand databases and message buses supporting the core application layer." },
+    { "anchor": "#tools", "title": "Toolbar actions", "text": "Filter nodes by state or use the view switcher to compare nominal and peak loads." },
+    { "anchor": "#inspector", "title": "Dependency inspector", "text": "Select any microservice to trace inbound callers and backing database links." }
+  ],
+  "scenarios": [
+    {
+      "id": "asset_cache",
+      "label": "Static asset fetch",
+      "steps": [
+        { "link": "l_web_cdn", "at": 0, "caption": "Web gateway routes request to CDN edge" },
+        { "link": "l_cdn_client", "at": 10, "caption": "Edge cache serves rendered assets to client" }
+      ]
+    },
+    {
+      "id": "order_checkout",
+      "label": "Order checkout",
+      "steps": [
+        { "link": "l_web_ord", "at": 0, "caption": "Customer initiates order through web gateway" },
+        { "link": "l_ord_rcpt", "at": 30, "caption": "Orders API confirms order and issues receipt" }
+      ]
+    },
+    {
+      "id": "peak_surge",
+      "label": "Peak surge breach",
+      "steps": [
+        { "link": "l_mob_ord", "at": 0, "caption": "Mobile traffic spike reaches ingress gateway" },
+        { "link": "l_ord_q", "at": 110, "caption": "Orders queue depth breaches response SLA threshold" },
+        { "link": "l_q_notif", "at": 130, "caption": "Notification worker dispatches batch alerts" }
+      ]
+    }
+  ]
+}

@@ -3,8 +3,9 @@
 import type { Ctx } from "./ctx.ts";
 import type { NodeDef, RelationDef } from "./model.ts";
 import type { Rect } from "./viewport.ts";
-import { connected, relatives, type Edge } from "./trace.ts";
-import { bucketOf, canonOf, linkVisible, nodeStateId, nodeVisible } from "./rules.ts";
+import { connected, relatives, withinHops, type Edge } from "./trace.ts";
+import { bucketOf, canonOf, effectiveLinks, nodeStateId, nodeVisible, toggleGroupState } from "./rules.ts";
+import { notifySelection } from "./selection.ts";
 
 export function relationsOf(ctx: Ctx): RelationDef[] {
   const given = ctx.model.inspector?.relations;
@@ -18,7 +19,7 @@ export function relationsOf(ctx: Ctx): RelationDef[] {
 }
 
 export function visibleEdges(ctx: Ctx): Edge[] {
-  return ctx.links.filter(l => linkVisible(ctx.model, ctx.mode, l, ctx.nodes)).map(l => ({ from: l.from, to: l.to }));
+  return effectiveLinks(ctx.model, ctx.mode, ctx.collapsed, ctx.nodes).map(l => ({ from: l.from, to: l.to }));
 }
 
 export function relationSet(ctx: Ctx, rel: RelationDef, start: string): Set<string> {
@@ -42,7 +43,7 @@ export function matches(ctx: Ctx, n: NodeDef): boolean {
 export function install(ctx: Ctx): void {
   const { els, model } = ctx;
   const canon = (id: string) => canonOf(ctx.nodes, id);
-  const visibleNodes = () => model.nodes.filter(n => nodeVisible(model, ctx.mode, n));
+  const visibleNodes = () => model.nodes.filter(n => nodeVisible(model, ctx.mode, n, ctx.collapsed));
   const inspInset = () => (els.inspector.classList.contains("open") ? 340 : 0);
 
   function activeSet(id: string | null): Set<string> | null {
@@ -60,7 +61,7 @@ export function install(ctx: Ctx): void {
         return ctx.filter === "gap" ? b === "gap" : !!n.upgrade && b !== "good";
       }).map(n => canon(n.id)));
     }
-    if (ctx.query) return new Set(visibleNodes().filter(n => matches(ctx, n)).map(n => canon(n.id)));
+    if (ctx.query) return withinHops(edges, canon, visibleNodes().filter(n => matches(ctx, n)).map(n => n.id), ctx.hops);
     return null;
   }
 
@@ -84,6 +85,7 @@ export function install(ctx: Ctx): void {
 
   function select(id: string | null): void {
     clearSim();
+    const previous = ctx.selected;
     ctx.selected = id ? canon(id) : null;
     ctx.hl = null;
     ctx.dismissed = false;
@@ -92,6 +94,7 @@ export function install(ctx: Ctx): void {
     ctx.fn.renderInspector();
     drawTrail();
     if (ctx.selected) revealNode(ctx.selected);
+    notifySelection(previous, ctx.selected, ctx.onSelect);
   }
 
   /** An overlay is a copy of one link drawn on top. pathLength=1 makes the draw-in independent of zoom. */
@@ -180,7 +183,7 @@ export function install(ctx: Ctx): void {
   }
 
   function rectOf(ids: string[]): Rect | null {
-    const ps = ids.map(i => ctx.geom.nodes[i]).filter((p): p is NonNullable<typeof p> => !!p && !!ctx.nodes.get(p.id) && nodeVisible(model, ctx.mode, ctx.nodes.get(p.id) as NodeDef));
+    const ps = ids.map(i => ctx.geom.nodes[i]).filter((p): p is NonNullable<typeof p> => !!p && !!ctx.nodes.get(p.id) && nodeVisible(model, ctx.mode, ctx.nodes.get(p.id) as NodeDef, ctx.collapsed));
     if (!ps.length) return null;
     const x1 = Math.min(...ps.map(p => p.x)), y1 = Math.min(...ps.map(p => p.y));
     const x2 = Math.max(...ps.map(p => p.x + p.w)), y2 = Math.max(...ps.map(p => p.y + p.h));
@@ -218,11 +221,11 @@ export function install(ctx: Ctx): void {
     clearSim();
     ctx.mode = id;
     const sel = ctx.selected && ctx.nodes.get(ctx.selected);
-    if (sel && !nodeVisible(model, id, sel)) select(null);
+    if (sel && !nodeVisible(model, id, sel, ctx.collapsed)) select(null);
     ctx.fn.paint(true);
     ctx.userMoved = false;
     ctx.fn.fitWidth(true);
-    const added = model.nodes.filter(n => nodeVisible(model, id, n) && !nodeVisible(model, model.views?.[0]?.id ?? "all", n)).length;
+    const added = model.nodes.filter(n => nodeVisible(model, id, n, ctx.collapsed) && !nodeVisible(model, model.views?.[0]?.id ?? "all", n, ctx.collapsed)).length;
     ctx.fn.announce(added ? `${model.views?.find(v => v.id === id)?.label ?? id} view: ${added} groups added.` : `${model.views?.find(v => v.id === id)?.label ?? id} view.`);
   }
 
@@ -236,5 +239,15 @@ export function install(ctx: Ctx): void {
   ctx.fn.zoomToBand = zoomToBand;
   ctx.fn.escape = escape;
   ctx.fn.setMode = setMode;
+  ctx.fn.toggleGroup = (id: string) => {
+    const group = model.nodes.find(n => n.id === id && n.kind === "group" && n.contains?.length);
+    if (!group) return;
+    const change = toggleGroupState(model, ctx.mode, ctx.collapsed, id);
+    if (!change) return;
+    ctx.collapsed = change.collapsed;
+    ctx.fn.paint();
+    ctx.fn.select(change.selected);
+    ctx.fn.announce(change.expanding ? `Expanded ${group.title}.` : `Collapsed into ${group.title}.`);
+  };
   ctx.fn.announce = (t: string) => { els.live.textContent = t; };
 }
