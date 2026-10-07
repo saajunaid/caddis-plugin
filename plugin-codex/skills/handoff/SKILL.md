@@ -26,7 +26,7 @@ is to run it.
 git status --short
 git branch --show-current
 git log --oneline -5
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_inventory.py"          # what EXISTS — do not compose this from memory
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_inventory.py"          # what EXISTS — do not compose this from memory
 ```
 Then read the active plan in `.caddis/plans/` (falling back to legacy `.github/plans/` if present) and its tracker.
 
@@ -112,7 +112,7 @@ Nothing to say is the normal answer. Say nothing and move on — this must not b
 >
 > 1. **Name the workstream** (active plan's `feature`, else the branch; the script prints nothing
 >    on the default branch with no plan — then ask the user for a short name):
->    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
+>    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
 > 2. **Legacy repo:** if `.caddis/relay.md` exists and does not start with
 >    `<!-- caddis-workstream-index-v1 -->`, or an old `/digress` stack `.caddis/workstreams.json`
 >    exists, run `caddis_workstreams.py migrate-legacy` once first.
@@ -178,7 +178,7 @@ Flip any plan/prompt's frontmatter `status:` to `done` (or `superseded`) if this
 finished it — that is your judgment call; the script below never makes it and never auto-flips
 status. Then run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_tidy.py" --apply
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_tidy.py" --apply
 ```
 (falls back to `scripts/caddis_tidy.py` from a source checkout). **If the script is missing,
 skip this step** — it degrades open, same as the other machine gates; an older install must not
@@ -189,7 +189,7 @@ handoff over it.
 ## Step 5 — check the handover you just wrote
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_gate.py" handover-check --doc .caddis/relay/<name>.md --max-chars 4000
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_gate.py" handover-check --doc .caddis/relay/<name>.md --max-chars 4000
 ```
 (falls back to `scripts/caddis_gate.py` in a source checkout; degrades open when the script is
 missing.) **Run it in the repo the handover is about** — a handover describing another repo will
@@ -205,7 +205,7 @@ not blocking — but do not quote a report the note names without rebuilding it 
 ## Step 6 — reconcile task rows from session-state
 Run task reconciliation against the newest session-state file:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_todo.py" reconcile --session-state .caddis/session-state/<session-id>.md
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_todo.py" reconcile --session-state .caddis/session-state/<session-id>.md
 ```
 This marks ad-hoc to-do items done by metadata ID; it never edits the Tracker and ignores phase rows.
 
@@ -213,8 +213,8 @@ This marks ad-hoc to-do items done by metadata ID; it never edits the Tracker an
 The Stop hook only writes the session-state file. These two used to run on every turn; they run
 here, once:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/session_state.py" usage --session-id <session-id>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/session_state.py" prune
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/session_state.py" usage --session-id <session-id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/session_state.py" prune
 ```
 `usage` finds this session's transcript by its id and appends one token-and-skill record to
 `.caddis/usage-log.jsonl`, which `/usage-review` reads. Pass `--transcript <path>` if you know the
@@ -224,7 +224,7 @@ path and it is not under the Claude config folder. `prune` keeps the newest 8 fi
 
 Then list old local state (falls back to `scripts/caddis_tidy.py`; skip if missing):
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_tidy.py" --prune
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_tidy.py" --prune
 ```
 It only lists: session-state files older than 7 days, logs over 5 MB to rotate, and (report
 only, never deleted) orphan `.lock` files and lane worktrees older than 7 days. Include its report. **Never
@@ -235,7 +235,7 @@ If this is an interactive session, ask the user every time — never reuse an ea
 `Push this note for another machine? (y/N)`
 Only on an explicit `y` in this session, run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/caddis_relay_git.py" push <name> --user-said-yes
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_relay_git.py" push <name> --user-said-yes
 ```
 It publishes only `.caddis/relay/<name>.md` to `refs/caddis/relay/<name>` — never the branch, the
 index or staged files — after the secret filter passes. Report its one-line result. Anything but

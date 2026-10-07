@@ -23,7 +23,7 @@ export function install(ctx: Ctx): PlaybackController {
   // Only the elements marked in the last draw are cleared again, so a frame does not walk the whole graph.
   let markedEdges: SVGPathElement[] = [];
   let markedNodes: HTMLElement[] = [];
-  const token = sv("circle", { id: "token", class: "token", r: "6" }) as SVGCircleElement;
+  const token = sv("circle", { id: "token", class: "token", r: "4" }) as SVGCircleElement;
   e.layer.appendChild(token);
   const pathOf = (link: string): SVGPathElement | undefined => ctx.edgeEls[ctx.links.findIndex(l => l.id === link)];
   const nodeOf = (id: string) => ctx.nodeEls.get(id);

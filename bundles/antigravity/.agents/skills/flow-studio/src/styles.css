@@ -1,7 +1,7 @@
 :root {
     --bg:#f6f8fa; --panel:#ffffff; --panel2:#f6f8fa; --edge:#d0d7de; --rule:#d8dee4; --fg:#1f2328; --muted:#59636e;
     --accent:#0969da; --accent-solid:#0969da; --ok:#1a7f37; --warn:#9a6700; --crit:#cf222e; --glow:rgba(9,105,218,.22);
-    --up:#0a7ea4; --down:#8250df; --shadow:0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08); --grid:rgba(31,35,40,.035); --dot:rgba(31,35,40,.18); --dot-size:1.2px; --dot-gap:24px; --edge-w:1.1px; --edge-w-hot:1.5px; --edge-w-play:1.6px; --trail-w:1.8px; --ripple-w:2px;
+    --up:#0a7ea4; --down:#8250df; --shadow:0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08); --grid:rgba(31,35,40,.035); --dot:rgba(31,35,40,.18); --dot-size:1.2px; --dot-gap:24px; --edge-w:0.8px; --edge-w-hot:1px; --edge-w-play:1.2px; --trail-w:1.3px; --ripple-w:1.5px;
     --warn-bg:rgba(154,103,0,.10); --ok-bg:rgba(26,127,55,.10); --crit-bg:rgba(207,34,46,.08); --info-bg:rgba(9,105,218,.10);
     --mono:"IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
   }

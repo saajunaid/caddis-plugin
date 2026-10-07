@@ -15,7 +15,7 @@
 <style>:root {
     --bg:#f6f8fa; --panel:#ffffff; --panel2:#f6f8fa; --edge:#d0d7de; --rule:#d8dee4; --fg:#1f2328; --muted:#59636e;
     --accent:#0969da; --accent-solid:#0969da; --ok:#1a7f37; --warn:#9a6700; --crit:#cf222e; --glow:rgba(9,105,218,.22);
-    --up:#0a7ea4; --down:#8250df; --shadow:0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08); --grid:rgba(31,35,40,.035); --dot:rgba(31,35,40,.18); --dot-size:1.2px; --dot-gap:24px; --edge-w:1.1px; --edge-w-hot:1.5px; --edge-w-play:1.6px; --trail-w:1.8px; --ripple-w:2px;
+    --up:#0a7ea4; --down:#8250df; --shadow:0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08); --grid:rgba(31,35,40,.035); --dot:rgba(31,35,40,.18); --dot-size:1.2px; --dot-gap:24px; --edge-w:0.8px; --edge-w-hot:1px; --edge-w-play:1.2px; --trail-w:1.3px; --ripple-w:1.5px;
     --warn-bg:rgba(154,103,0,.10); --ok-bg:rgba(26,127,55,.10); --crit-bg:rgba(207,34,46,.08); --info-bg:rgba(9,105,218,.10);
     --mono:"IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
   }
@@ -229,7 +229,7 @@
   <div class="workspace" id="workspace">
     <section class="canvaswrap">
       <div id="viewport" tabindex="0" role="application" aria-label="Flow canvas. Scroll to zoom, drag to pan. Keys: V select, H hand, plus and minus zoom, 0 fit, 1 actual size, F zoom to selection, arrows pan.">
-        <div id="world"><svg id="edges" aria-hidden="true"><defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="context-stroke"/></marker></defs><g id="edgeLayer"></g></svg></div>
+        <div id="world"><svg id="edges" aria-hidden="true"><defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="context-stroke"/></marker></defs><g id="edgeLayer"></g></svg></div>
         <div id="cols" aria-hidden="true"></div>
         <div id="tools" role="toolbar" aria-label="Canvas controls" aria-orientation="vertical"></div>
         <div id="zoomLabel" aria-hidden="true">100%</div>
@@ -2183,7 +2183,7 @@
     let t = 0, idx = -1, playing = false, frame = 0, timer = 0, stamp = 0, choicesKey = "";
     let markedEdges = [];
     let markedNodes = [];
-    const token = sv("circle", { id: "token", class: "token", r: "6" });
+    const token = sv("circle", { id: "token", class: "token", r: "4" });
     e.layer.appendChild(token);
     const pathOf = (link) => ctx.edgeEls[ctx.links.findIndex((l) => l.id === link)];
     const nodeOf = (id) => ctx.nodeEls.get(id);

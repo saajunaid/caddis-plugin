@@ -28,11 +28,11 @@ Tokens are defined on `:root` and adapted for dark mode via `@media (prefers-col
 | `--dot` | `rgba(31,35,40,.18)` | `rgba(255,255,255,.16)` | Colour of the canvas background dots |
 | `--dot-size` | `1.2px` | Same | Radius of a background dot |
 | `--dot-gap` | `24px` | Same | Spacing of the background dots |
-| `--edge-w` | `1.1px` | Same | Width of a normal link (thin, like a hairline; motion carries the state) |
-| `--edge-w-hot` | `1.5px` | Same | Width of a traced or selected link |
-| `--edge-w-play` | `1.6px` | Same | Width of a link while playback runs along it |
-| `--trail-w` | `1.8px` | Same | Width of the draw-in trail on a selected path (divided by the zoom) |
-| `--ripple-w` | `2px` | Same | Width of the what-if ripple (divided by the zoom) |
+| `--edge-w` | `0.8px` | Same | Width of a normal link (thin, like a hairline; motion carries the state) |
+| `--edge-w-hot` | `1px` | Same | Width of a traced or selected link |
+| `--edge-w-play` | `1.2px` | Same | Width of a link while playback runs along it |
+| `--trail-w` | `1.3px` | Same | Width of the draw-in trail on a selected path (divided by the zoom) |
+| `--ripple-w` | `1.5px` | Same | Width of the what-if ripple (divided by the zoom) |
 | `--ok-bg` | `rgba(26,127,55,.10)` | `rgba(63,185,80,.12)` | Subtle tinted background for healthy states |
 | `--warn-bg` | `rgba(154,103,0,.10)` | `rgba(210,153,34,.14)` | Subtle tinted background for warning states |
 | `--crit-bg` | `rgba(207,34,46,.08)` | `rgba(248,81,73,.12)` | Subtle tinted background for critical states |

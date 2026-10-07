@@ -14,7 +14,7 @@ Context / args: **$ARGUMENTS**
 
 Load and follow the `setup-project-ai` skill. Do not hand-roll the steps — the deterministic parts
 must go through the bundled generator so they don't vary. Resolve its path per the skill's Step 1:
-- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134/scripts/setup_project_ai.py`
+- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/setup_project_ai.py`
 - harness (caddis) checkout: `scripts/setup_project_ai.py`
 
 ## After the deterministic step — install the claude-oss / claude-glm launchers (optional)
@@ -33,7 +33,7 @@ function claude-glm  { & "<path-to>\claude-harness\scripts\claude-oss.ps1" @args
 alias claude-oss="<path-to>/claude-harness/scripts/claude-oss.sh"
 alias claude-glm="<path-to>/claude-harness/scripts/claude-oss.sh"
 ```
-Resolve `<path-to>` per the same plugin-vs-source rule as the generator itself (`${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.134`
+Resolve `<path-to>` per the same plugin-vs-source rule as the generator itself (`${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135`
 for a plugin install, the harness checkout path for caddis). Also set `CADDIS_KEYS_FILE`
 (default `~/.caddis/keys.env`) with the provider keys — see `docs/guide/providers-and-keys.md` (in the caddis **source** repo — `docs/` is not shipped inside the installed plugin).
 
