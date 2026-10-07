@@ -71,7 +71,7 @@ export function install(ctx: Ctx): void {
     const cols = els.cols;
     cols.style.display = model.columns.length ? "" : "none";
     if (!cols.firstChild) {
-      model.columns.forEach((c, i) => { const h = el("div", "hd"); h.textContent = (c.short ?? c.title).toUpperCase(); h.title = c.title; h.dataset.i = String(i); cols.appendChild(h); });
+      model.columns.forEach((c, i) => { const h = el("div", "hd"); h.textContent = c.continues ? "" : (c.short ?? c.title).toUpperCase(); h.title = c.title; h.dataset.i = String(i); cols.appendChild(h); });
       let i = 0;
       while (i < model.columns.length) {
         const name = model.columns[i]?.phase;

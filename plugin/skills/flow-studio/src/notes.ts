@@ -70,7 +70,7 @@ export function install(ctx: Ctx): void {
   const markdown = (): string => {
     const out = [`# ${model.meta.title}`, "", model.meta.help, "", `As of ${model.meta.asOf}. Source: ${model.meta.source}`, "", "## States"];
     for (const [id, s] of Object.entries(model.states)) out.push(`- **${s.word}** (${id}): tone ${s.tone}, border ${s.border}, link ${s.edge}, motion ${s.motion}, bucket ${s.bucket}`);
-    out.push("", "## Columns", ...model.columns.map((c, i) => `${i + 1}. ${c.title}${c.phase ? ` (${c.phase})` : ""}`));
+    out.push("", "## Columns", ...model.columns.filter(c => !c.continues).map((c, i) => `${i + 1}. ${c.title}${c.phase ? ` (${c.phase})` : ""}`));
     out.push("", "## Lanes", ...model.lanes.map(l => `- ${l.title}${l.badge ? ` [${l.badge}]` : ""}${l.note ? `: ${l.note}` : ""}`));
     out.push("", `## Size`, `${model.nodes.length} nodes, ${model.links.length} links.`);
     if (notes.length) out.push("", "## Notes", ...notes.map(n => `${n.id}. **${n.title}**: ${n.text}`));

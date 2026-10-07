@@ -286,6 +286,7 @@
     if (!Array.isArray(m.lanes) || m.layout !== "auto" && m.lanes.length === 0) add("error", "lanes-missing", "lanes", "At least one lane is required.");
     if (!m.states || typeof m.states !== "object" || Object.keys(m.states).length === 0) add("error", "states-missing", "states", "At least one state is required.");
     const columns = Array.isArray(m.columns) ? m.columns : [];
+    if (columns[0]?.continues) add("error", "column-continues-first", "columns[0]", "The first column cannot continue a column before it.");
     const lanes = Array.isArray(m.lanes) ? m.lanes : [];
     const states = m.states && typeof m.states === "object" ? m.states : {};
     if (!m.meta || typeof m.meta !== "object" || typeof m.meta.title !== "string") add("error", "meta-missing", "meta", "meta with a title is required.");
@@ -591,6 +592,13 @@
   var baselineView = (m) => m.views?.[0]?.id ?? "all";
   var defaultView = (m) => (m.views?.find((v) => v.default) ?? m.views?.[0])?.id ?? "all";
   var initialCollapsed = (m) => new Set(m.nodes.filter((n) => n.kind === "group" && n.contains && n.collapsed !== false).map((n) => n.id));
+  var stripHeads = (m) => {
+    let head = 0;
+    return m.columns.map((c, i) => {
+      if (!c.continues || i === 0) head = i;
+      return head;
+    });
+  };
   var columnTitle = (m, n) => n.col === void 0 ? "" : m.columns[n.col]?.title ?? "";
   function groupFor(m, nodeId) {
     return m.nodes.find((n) => n.kind === "group" && n.contains?.includes(nodeId));
@@ -1415,7 +1423,7 @@
       if (!cols.firstChild) {
         model.columns.forEach((c, i2) => {
           const h = el("div", "hd");
-          h.textContent = (c.short ?? c.title).toUpperCase();
+          h.textContent = c.continues ? "" : (c.short ?? c.title).toUpperCase();
           h.title = c.title;
           h.dataset.i = String(i2);
           cols.appendChild(h);
@@ -1801,16 +1809,18 @@
     }
     function buildStrip() {
       const box = els.strip;
+      const heads = stripHeads(model), cells = model.columns.map((c, i) => ({ c, i })).filter(({ i }) => heads[i] === i);
       box.style.display = model.columns.length ? "" : "none";
-      box.style.gridTemplateColumns = `repeat(${Math.max(1, model.columns.length)}, minmax(0, 1fr))`;
+      box.style.gridTemplateColumns = `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))`;
       if (!box.firstChild) {
-        box.innerHTML = model.columns.map((c) => `<div class="lcell"><div class="ln">${esc(c.title)}</div><div class="lb"><i class="good"></i><i class="neutral"></i><i class="gap"></i></div><div class="lv"></div></div>`).join("");
+        box.innerHTML = cells.map(({ c }) => `<div class="lcell"><div class="ln">${esc(c.title)}</div><div class="lb"><i class="good"></i><i class="neutral"></i><i class="gap"></i></div><div class="lv"></div></div>`).join("");
       }
-      box.querySelectorAll(".lcell").forEach((cell, i) => {
-        cell.style.setProperty("--i", String(i));
+      box.querySelectorAll(".lcell").forEach((cell, cellIndex) => {
+        const i = cells[cellIndex]?.i ?? cellIndex;
+        cell.style.setProperty("--i", String(cellIndex));
         let tot = 0, good = 0, neutral = 0, gap = 0;
         for (const n of model.nodes) {
-          if (n.col !== i || n.kind === "chip") continue;
+          if (heads[n.col ?? -1] !== i || n.kind === "chip") continue;
           if (!visible(n.id)) continue;
           const w = Math.max(1, n.weight ?? 1);
           tot += w;
@@ -2029,7 +2039,7 @@
     const markdown = () => {
       const out = [`# ${model.meta.title}`, "", model.meta.help, "", `As of ${model.meta.asOf}. Source: ${model.meta.source}`, "", "## States"];
       for (const [id, s] of Object.entries(model.states)) out.push(`- **${s.word}** (${id}): tone ${s.tone}, border ${s.border}, link ${s.edge}, motion ${s.motion}, bucket ${s.bucket}`);
-      out.push("", "## Columns", ...model.columns.map((c, i) => `${i + 1}. ${c.title}${c.phase ? ` (${c.phase})` : ""}`));
+      out.push("", "## Columns", ...model.columns.filter((c) => !c.continues).map((c, i) => `${i + 1}. ${c.title}${c.phase ? ` (${c.phase})` : ""}`));
       out.push("", "## Lanes", ...model.lanes.map((l) => `- ${l.title}${l.badge ? ` [${l.badge}]` : ""}${l.note ? `: ${l.note}` : ""}`));
       out.push("", `## Size`, `${model.nodes.length} nodes, ${model.links.length} links.`);
       if (notes.length) out.push("", "## Notes", ...notes.map((n) => `${n.id}. **${n.title}**: ${n.text}`));

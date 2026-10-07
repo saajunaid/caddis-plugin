@@ -76,7 +76,7 @@ In either route, derive node and link IDs from immutable business keys. Preserve
 
 ```
 version 1, meta {title, help, asOf, source, labels?}, layout "columns-lanes" | "free" | "auto"
-columns [{id, title, short?, width, phase?}]              stages, left to right
+columns [{id, title, short?, width, phase?, continues?}]              stages, left to right
 lanes   [{id, title, badge?, badgeTone?, note?, gap?}]    rows; gap true = dashed amber lane
 states  {id: {word, tone, border, edge, motion, bucket}}  tone: ok|warn|crit|info|muted|accent; bucket: good|neutral|gap
 nodes   [{id, kind, lane?, col?, colSpan?, row?, x?, y?, w?, h?, state, title, subtitle?, members?, weight?,

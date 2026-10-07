@@ -16,7 +16,7 @@ export interface StateDef {
   motion: Motion;
   bucket: Bucket;
 }
-export interface ColumnDef { id: string; title: string; short?: string; width: number; phase?: string }
+export interface ColumnDef { id: string; title: string; short?: string; width: number; phase?: string; continues?: boolean }
 export interface LaneDef { id: string; title: string; badge?: string; badgeTone?: "ok" | "warn" | "muted"; note?: string; gap?: boolean }
 export interface NodeDef {
   id: string;
@@ -111,6 +111,7 @@ export function validateModel(input: unknown): Issue[] {
   if (!Array.isArray(m.lanes) || (m.layout !== "auto" && m.lanes.length === 0)) add("error", "lanes-missing", "lanes", "At least one lane is required.");
   if (!m.states || typeof m.states !== "object" || Object.keys(m.states).length === 0) add("error", "states-missing", "states", "At least one state is required.");
   const columns = Array.isArray(m.columns) ? m.columns : [];
+  if (columns[0]?.continues) add("error", "column-continues-first", "columns[0]", "The first column cannot continue a column before it.");
   const lanes = Array.isArray(m.lanes) ? m.lanes : [];
   const states = m.states && typeof m.states === "object" ? m.states : {};
   if (!m.meta || typeof m.meta !== "object" || typeof m.meta.title !== "string") add("error", "meta-missing", "meta", "meta with a title is required.");

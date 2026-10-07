@@ -10,6 +10,12 @@ export const defaultView = (m: Model): string => (m.views?.find(v => v.default) 
 /** A group that contains nodes starts folded unless it explicitly opts out. */
 export const initialCollapsed = (m: Model): Set<string> => new Set(m.nodes
   .filter(n => n.kind === "group" && n.contains && n.collapsed !== false).map(n => n.id));
+/** For each column, the index of the column whose header and strip cell it shares: itself, or (when it
+ *  `continues` another) the nearest earlier column that does not. */
+export const stripHeads = (m: Model): number[] => {
+  let head = 0;
+  return m.columns.map((c, i) => { if (!c.continues || i === 0) head = i; return head; });
+};
 export const columnTitle = (m: Model, n: NodeDef): string => n.col === undefined ? "" : m.columns[n.col]?.title ?? "";
 
 export function groupFor(m: Model, nodeId: string): NodeDef | undefined {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Model } from "./model.ts";
-import { baselineView, defaultView, nodeVisible, nodeStateId, linkVisible, linkStateId, isNew, isImproved, bucketOf, canonOf, effectiveLinks, initialCollapsed, columnTitle, toggleGroupState } from "./rules.ts";
+import { baselineView, defaultView, nodeVisible, nodeStateId, linkVisible, linkStateId, isNew, isImproved, bucketOf, canonOf, effectiveLinks, initialCollapsed, columnTitle, toggleGroupState, stripHeads } from "./rules.ts";
 
 const m = (): Model => ({
   version: 1,
@@ -132,4 +132,13 @@ test("toggleGroup selects a visible child on expansion and its group on collapse
   assert.equal(folded.selected, "group");
   assert.equal(folded.collapsed.has("group"), true);
   assert.equal(toggleGroupState(mm, "full", starting, "missing"), null);
+});
+
+test("stripHeads: a continuing column joins the one before it", () => {
+  const mm = m();
+  mm.columns = [{ id: "a", title: "A", width: 100 }, { id: "p", title: "P", width: 100 }, { id: "p2", title: "P", width: 100, continues: true }, { id: "p3", title: "P", width: 100, continues: true }, { id: "z", title: "Z", width: 100 }];
+  assert.deepEqual(stripHeads(mm), [0, 1, 1, 1, 4]);
+});
+test("stripHeads: with no continuing column every column is its own head", () => {
+  assert.deepEqual(stripHeads(m()), [0, 1]);
 });

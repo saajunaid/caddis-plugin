@@ -4,7 +4,7 @@
 import { el, on, type Ctx } from "./ctx.ts";
 import { esc } from "./model.ts";
 import { DASH, toneVar, cssId } from "./stateCss.ts";
-import { bucketOf, columnTitle, effectiveLinks, nodeStateId, nodeVisible } from "./rules.ts";
+import { bucketOf, columnTitle, effectiveLinks, nodeStateId, nodeVisible, stripHeads } from "./rules.ts";
 import { matches } from "./interact.ts";
 
 const DEFAULT_LABELS: Record<string, string> = {
@@ -34,16 +34,19 @@ export function install(ctx: Ctx): void {
 
   function buildStrip(): void {
     const box = els.strip;
+    // One cell per head column: a column that `continues` another counts into the cell before it.
+    const heads = stripHeads(model), cells = model.columns.map((c, i) => ({ c, i })).filter(({ i }) => heads[i] === i);
     box.style.display = model.columns.length ? "" : "none";
-    box.style.gridTemplateColumns = `repeat(${Math.max(1, model.columns.length)}, minmax(0, 1fr))`;
+    box.style.gridTemplateColumns = `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))`;
     if (!box.firstChild) {
-      box.innerHTML = model.columns.map(c => `<div class="lcell"><div class="ln">${esc(c.title)}</div><div class="lb"><i class="good"></i><i class="neutral"></i><i class="gap"></i></div><div class="lv"></div></div>`).join("");
+      box.innerHTML = cells.map(({ c }) => `<div class="lcell"><div class="ln">${esc(c.title)}</div><div class="lb"><i class="good"></i><i class="neutral"></i><i class="gap"></i></div><div class="lv"></div></div>`).join("");
     }
-    box.querySelectorAll<HTMLElement>(".lcell").forEach((cell, i) => {
-      cell.style.setProperty("--i", String(i));
+    box.querySelectorAll<HTMLElement>(".lcell").forEach((cell, cellIndex) => {
+      const i = cells[cellIndex]?.i ?? cellIndex;
+      cell.style.setProperty("--i", String(cellIndex));
       let tot = 0, good = 0, neutral = 0, gap = 0;
       for (const n of model.nodes) {
-        if (n.col !== i || n.kind === "chip") continue;
+        if (heads[n.col ?? -1] !== i || n.kind === "chip") continue;
         if (!visible(n.id)) continue;
         const w = Math.max(1, n.weight ?? 1);
         tot += w;

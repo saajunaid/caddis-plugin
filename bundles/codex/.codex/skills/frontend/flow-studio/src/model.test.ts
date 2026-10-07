@@ -165,3 +165,11 @@ test("group containment validates ids, ownership, self-reference, and skips grou
   assert.ok(found.includes("contains-undefined"));
   assert.ok(found.includes("contains-duplicate"));
 });
+test("a column may continue the one before it", () => {
+  const m = base(); m.columns.push({ id: "c2", title: "B", width: 150, continues: true });
+  assert.deepEqual(codes(m), []);
+});
+test("the first column cannot continue a column that does not exist", () => {
+  const m = base(); m.columns[0]!.continues = true;
+  assert.ok(codes(m).includes("column-continues-first"));
+});

@@ -48,6 +48,7 @@ Columns provide vertical partitioning for time, stages, or architecture tiers.
 | `short` | `string` | Optional | - | Compact abbreviated title for tight viewports. |
 | `width` | `number` | Required | - | Column width in pixels (minimum 60). |
 | `phase` | `string` | Optional | - | Super-category phase grouping shown in top banner. |
+| `continues` | `boolean` | Optional | `false` | This column is a wrapped continuation of the column before it (for example one long list laid out in three side-by-side columns). It shows no header label and no strip cell of its own: its nodes count into the cell of the column it continues. Not allowed on the first column. |
 
 ---
 
