@@ -58,7 +58,7 @@ are uncommitted.)
 **Run the trigger, do not eyeball the diff:**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.132/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.133/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
 ```
 
 Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
@@ -97,7 +97,7 @@ Watch the PR's checks job-by-job until completion:
 - GitHub lane: first record the head you are about to watch, then wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
   gh pr view <pr> --json headRefOid        # write down headRefOid as <watched-sha>
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.132/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.133/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell → stop and report, do not merge.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
@@ -127,7 +127,7 @@ If the default branch triggers an automated deployment pipeline:
 - Gitea: `lint_and_test` → `deploy_prod` → `release_metadata` (`deploy-local` skill).
 - GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.132/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.133/scripts/caddis_lanes.py" ci-watch --run <run-id>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 9).
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If CI-only, note that no deploy occurs.

@@ -1764,7 +1764,8 @@ function install6(ctx) {
       if (!a) continue;
       let r = a.getBoundingClientRect();
       if (!r.width && !r.height) {
-        const d = a.closest("details");
+        let d = a.closest("details");
+        while (d && d.open) d = d.parentElement?.closest("details") ?? null;
         if (d) r = d.getBoundingClientRect();
       }
       if (!r.width && !r.height) continue;

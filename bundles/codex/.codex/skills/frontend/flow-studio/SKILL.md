@@ -70,6 +70,7 @@ In either route, derive node and link IDs from immutable business keys. Preserve
 8. **Short titles**: titles fit one line at column width. Long descriptions belong in subtitles or member lists.
 9. **Fixed node dimensions**: node kinds use fixed box sizes so font rendering does not shift layout.
 10. **Reduced motion**: removes all animations while preserving static borders and status glows.
+11. **Thin links, dotted canvas**: links are hairlines (about 1.1 px) and the canvas background is faint dots, not a grid. Both come from tokens (`--edge-w`, `--dot`, ...), so an app can change them with one CSS line; see `references/design-language.md`.
 
 ## Model summary
 

@@ -51,7 +51,7 @@ Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope
 **Run the trigger, do not eyeball the diff:**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.132/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.133/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
 ```
 
 Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
@@ -85,7 +85,7 @@ the minimum fix (see `deploy-local` skill §6).
 **GitHub lane** — Find the run id for the pushed SHA, then wait outside the Claude session via `ci-watch`:
 ```bash
 gh run list --branch <branch> --limit 1                 # find the run id for the pushed SHA
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.132/scripts/caddis_lanes.py" ci-watch --run <run-id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.133/scripts/caddis_lanes.py" ci-watch --run <run-id>
 ```
 Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop and report.
 On failure, pull only the failing job logs:

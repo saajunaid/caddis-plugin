@@ -15,7 +15,7 @@
 <style>:root {
     --bg:#f6f8fa; --panel:#ffffff; --panel2:#f6f8fa; --edge:#d0d7de; --rule:#d8dee4; --fg:#1f2328; --muted:#59636e;
     --accent:#0969da; --accent-solid:#0969da; --ok:#1a7f37; --warn:#9a6700; --crit:#cf222e; --glow:rgba(9,105,218,.22);
-    --up:#0a7ea4; --down:#8250df; --shadow:0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08); --grid:rgba(31,35,40,.035);
+    --up:#0a7ea4; --down:#8250df; --shadow:0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08); --grid:rgba(31,35,40,.035); --dot:rgba(31,35,40,.18); --dot-size:1.2px; --dot-gap:24px; --edge-w:1.1px; --edge-w-hot:1.5px; --edge-w-play:1.6px; --trail-w:1.8px; --ripple-w:2px;
     --warn-bg:rgba(154,103,0,.10); --ok-bg:rgba(26,127,55,.10); --crit-bg:rgba(207,34,46,.08); --info-bg:rgba(9,105,218,.10);
     --mono:"IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
   }
@@ -23,14 +23,14 @@
     :root:not([data-theme="light"]) {
       --bg:#0d1117; --panel:#161b22; --panel2:#0d1117; --edge:#30363d; --rule:#2b323a; --fg:#e6edf3; --muted:#9198a1;
       --accent:#4493f8; --accent-solid:#1f6feb; --ok:#3fb950; --warn:#d29922; --crit:#f85149; --glow:rgba(68,147,248,.35);
-      --up:#6fcbe6; --down:#d0a0ee; --shadow:0 1px 0 rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45); --grid:rgba(255,255,255,.04);
+      --up:#6fcbe6; --down:#d0a0ee; --shadow:0 1px 0 rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45); --grid:rgba(255,255,255,.04); --dot:rgba(255,255,255,.16);
       --warn-bg:rgba(210,153,34,.14); --ok-bg:rgba(63,185,80,.12); --crit-bg:rgba(248,81,73,.12); --info-bg:rgba(68,147,248,.14);
     }
   }
   :root[data-theme="dark"] {
     --bg:#0d1117; --panel:#161b22; --panel2:#0d1117; --edge:#30363d; --rule:#2b323a; --fg:#e6edf3; --muted:#9198a1;
     --accent:#4493f8; --accent-solid:#1f6feb; --ok:#3fb950; --warn:#d29922; --crit:#f85149; --glow:rgba(68,147,248,.35);
-    --up:#6fcbe6; --down:#d0a0ee; --shadow:0 1px 0 rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45); --grid:rgba(255,255,255,.04);
+    --up:#6fcbe6; --down:#d0a0ee; --shadow:0 1px 0 rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45); --grid:rgba(255,255,255,.04); --dot:rgba(255,255,255,.16);
     --warn-bg:rgba(210,153,34,.14); --ok-bg:rgba(63,185,80,.12); --crit-bg:rgba(248,81,73,.12); --info-bg:rgba(68,147,248,.14);
   }
   * { box-sizing:border-box; }
@@ -72,7 +72,7 @@
   .workspace { display:block; height:max(540px, calc(100vh - 232px)); border:1px solid var(--edge); background:var(--panel); border-radius:12px; overflow:hidden; box-shadow:var(--shadow); }
   .canvaswrap { position:relative; display:flex; flex-direction:column; min-width:0; min-height:0; height:100%; }
   #viewport { position:relative; flex:1; min-height:0; overflow:hidden; cursor:grab; touch-action:none; user-select:none;
-    background:radial-gradient(760px 380px at 4% 0%, var(--glow), transparent 65%), radial-gradient(640px 320px at 98% 100%, color-mix(in srgb, var(--ok) 16%, transparent), transparent 70%), linear-gradient(var(--grid) 1px, transparent 1px) 0 0/28px 28px, linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/28px 28px, var(--bg); }
+    background:radial-gradient(760px 380px at 4% 0%, var(--glow), transparent 65%), radial-gradient(640px 320px at 98% 100%, color-mix(in srgb, var(--ok) 16%, transparent), transparent 70%), radial-gradient(circle, var(--dot) var(--dot-size), transparent calc(var(--dot-size) + .5px)) 0 0 / var(--dot-gap) var(--dot-gap), var(--bg); }
   #viewport.panning { cursor:grabbing; } #viewport.hand .node { cursor:grab; }
   #world { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
   #viewport.anim #world, #viewport.anim .hd, #viewport.anim .ph { transition:transform .28s cubic-bezier(.2,.8,.2,1), left .28s cubic-bezier(.2,.8,.2,1), width .28s cubic-bezier(.2,.8,.2,1); }
@@ -106,8 +106,8 @@
   .cor.up { right:6px; background:var(--info-bg); color:var(--accent); } .cor.meas { right:6px; background:var(--ok-bg); color:var(--ok); } .cor.up + .cor.meas { right:27px; }
   .node.hascor .t { padding-right:24px; } .node.hascor2 .t { padding-right:44px; }
   #viewport.lod1 .node .s, #viewport.lod1 .bandlabel .bn { display:none; } #viewport.lod2 .node .cor, #viewport.lod2 .node.ref .s { display:none; }
-  path.edge { fill:none; stroke-width:1.8; transition:opacity .35s; vector-effect:non-scaling-stroke; }
-  path.edge.hot { stroke:var(--accent); stroke-width:2.4; opacity:1; stroke-dasharray:6 8; animation:flowhot .9s linear infinite; filter:drop-shadow(0 0 5px var(--accent)); }
+  path.edge { fill:none; stroke-width:var(--edge-w); transition:opacity .35s; vector-effect:non-scaling-stroke; }
+  path.edge.hot { stroke:var(--accent); stroke-width:var(--edge-w-hot); opacity:1; stroke-dasharray:6 8; animation:flowhot .9s linear infinite; filter:drop-shadow(0 0 3px var(--accent)); }
   path.edge.dim { opacity:.07; filter:none; } path.edge.off { opacity:0; }
   .elabel { position:absolute; font-size:11px; padding:0 6px; border-radius:9px; background:var(--panel); border:1px solid var(--edge); color:var(--muted); white-space:nowrap; transform:translate(-50%,-50%); opacity:0; transition:opacity .35s; z-index:4; } .elabel.show { opacity:1; } .elabel.off { display:none; }
   #cols { position:absolute; left:0; right:0; top:0; height:44px; pointer-events:none; z-index:20; background:linear-gradient(var(--bg) 62%, transparent); }
@@ -160,8 +160,8 @@
   .node.lit { border-color:var(--accent); box-shadow:0 0 0 2px var(--glow), 0 0 18px var(--glow), var(--shadow); }
   .node.sel { animation:selpulse 2.4s ease-out infinite; }
   .node.fail { border-color:var(--crit); background:var(--crit-bg); box-shadow:0 0 0 2px var(--crit-bg), 0 0 20px color-mix(in srgb, var(--crit) 45%, transparent); animation:failflash .9s ease-out 1; } .node.fail .s { color:var(--crit); font-weight:600; }
-  path.trail { fill:none; stroke:var(--accent); vector-effect:none; stroke-width:calc(3.4px / var(--k, 1)); stroke-linecap:round; filter:drop-shadow(0 0 6px var(--accent)); opacity:.95; }
-  path.ripple { fill:none; stroke:var(--crit); vector-effect:none; stroke-width:calc(3.6px / var(--k, 1)); stroke-linecap:round; filter:drop-shadow(0 0 7px var(--crit)); }
+  path.trail { fill:none; stroke:var(--accent); vector-effect:none; stroke-width:calc(var(--trail-w) / var(--k, 1)); stroke-linecap:round; filter:drop-shadow(0 0 4px var(--accent)); opacity:.95; }
+  path.ripple { fill:none; stroke:var(--crit); vector-effect:none; stroke-width:calc(var(--ripple-w) / var(--k, 1)); stroke-linecap:round; filter:drop-shadow(0 0 4px var(--crit)); }
   .intro .band { animation:fadein .6s both; } .intro .node { animation:rise .55s both; animation-delay:calc(var(--c, 0) * 60ms + 150ms); } .intro #edges { animation:fadein 1s .5s both; }
   .intro .lcell, .intro .tile { animation:rise .5s both; animation-delay:calc(var(--i, 0) * 55ms); }
   #viewport:focus-visible { outline-offset:-2px; }
@@ -185,7 +185,7 @@
   #pbChoices { display:flex; gap:5px; flex-wrap:wrap; } #pbChoices:empty { display:none; }
   #pbChoices .suggested { border-color:var(--accent); box-shadow:inset 0 -2px 0 var(--accent); }
   circle.token { fill:var(--accent); stroke:var(--panel); stroke-width:2; filter:drop-shadow(0 0 5px var(--accent)); pointer-events:none; }
-  path.edge.playing { stroke:var(--accent); stroke-width:3; filter:drop-shadow(0 0 5px var(--accent)); opacity:1; }
+  path.edge.playing { stroke:var(--accent); stroke-width:var(--edge-w-play); filter:drop-shadow(0 0 4px var(--accent)); opacity:1; }
   path.edge.visited { stroke:var(--accent); opacity:.7; }
   .node.playing { outline:2px solid var(--accent); outline-offset:2px; }
   /* The pulse runs only while the player really plays; a paused step keeps the plain outline. */
@@ -202,6 +202,7 @@
   .node.gateway:has(.metric-badge) .gw-title, .node.gateway.has-metrics .gw-title { width:45%; margin-right:42px; }
   .node .spark polyline, .metrics polyline { fill:none; stroke:var(--accent); stroke-width:1.5; }
   .metrics svg { max-width:100%; margin-top:8px; } .metric-range { display:flex; justify-content:space-between; width:300px; max-width:100%; font:10px var(--mono); color:var(--muted); }
+  @media (forced-colors: active) { #viewport { background: Canvas; } }
 </style>
 </head>
 <body>

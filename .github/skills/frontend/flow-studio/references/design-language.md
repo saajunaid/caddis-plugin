@@ -24,7 +24,15 @@ Tokens are defined on `:root` and adapted for dark mode via `@media (prefers-col
 | `--down` | `#8250df` | `#d0a0ee` | Downstream relation count and notes marker |
 | `--glow` | `rgba(9,105,218,.22)` | `rgba(68,147,248,.35)` | Accent halo for selection, hover, and canvas focus |
 | `--shadow` | `0 1px 0 rgba(31,35,40,.04), 0 6px 18px rgba(31,35,40,.08)` | `0 1px 0 rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45)` | Elevated card and modal elevation shadow |
-| `--grid` | `rgba(31,35,40,.035)` | `rgba(255,255,255,.04)` | Viewport grid pattern dots and lines |
+| `--grid` | `rgba(31,35,40,.035)` | `rgba(255,255,255,.04)` | Legacy: no longer drawn. The canvas background is dots now (see `--dot`) |
+| `--dot` | `rgba(31,35,40,.18)` | `rgba(255,255,255,.16)` | Colour of the canvas background dots |
+| `--dot-size` | `1.2px` | Same | Radius of a background dot |
+| `--dot-gap` | `24px` | Same | Spacing of the background dots |
+| `--edge-w` | `1.1px` | Same | Width of a normal link (thin, like a hairline; motion carries the state) |
+| `--edge-w-hot` | `1.5px` | Same | Width of a traced or selected link |
+| `--edge-w-play` | `1.6px` | Same | Width of a link while playback runs along it |
+| `--trail-w` | `1.8px` | Same | Width of the draw-in trail on a selected path (divided by the zoom) |
+| `--ripple-w` | `2px` | Same | Width of the what-if ripple (divided by the zoom) |
 | `--ok-bg` | `rgba(26,127,55,.10)` | `rgba(63,185,80,.12)` | Subtle tinted background for healthy states |
 | `--warn-bg` | `rgba(154,103,0,.10)` | `rgba(210,153,34,.14)` | Subtle tinted background for warning states |
 | `--crit-bg` | `rgba(207,34,46,.08)` | `rgba(248,81,73,.12)` | Subtle tinted background for critical states |
@@ -65,7 +73,7 @@ Layout elements follow a strict 4px grid rhythm:
 | xs | 4px to 7px | Button vertical padding (`4px 11px`), card vertical padding (`5px 10px 7px`), playbar gaps (`7px`) |
 | sm | 8px to 10px | Card horizontal padding (`10px`), toolbar item gaps, summary grid gaps |
 | md | 12px to 16px | Page padding (`12px 14px 20px`), header gaps, inspector body padding |
-| lg | 20px to 28px | Section margins, top header padding, grid line pitch (28px canvas grid) |
+| lg | 20px to 28px | Section margins, top header padding, dot pitch (24px canvas dots) |
 | xl | 32px to 44px | Column header heights (44px), tool button dimensions (34px x 32px) |
 
 ---
