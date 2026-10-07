@@ -22,7 +22,7 @@ function FlowPage({ state, onRetry, onSelect }: { state: State; onRetry: () => v
 }
 ```
 
-`FlowStudioView` takes a required `model` and optional `notes`, `onSelect`, and `className`. `notes` is read once at mount; later changes to the prop are ignored. For notes that change with the data, put them on the model (`model.notes`) — `update` forwards them. `onSelect` receives a stable node id or `null` when selection clears. The component mounts the engine once, sends changed models to `update`, and destroys its listeners on unmount. React StrictMode's development mount cycle is supported. Several views may be mounted at once; the engine's global mount helper stays available until the last one unmounts.
+`FlowStudioView` takes a required `model` and optional `notes`, `onSelect`, `onHoverKey`, and `className`. `notes` is read once at mount; later changes to the prop are ignored. For notes that change with the data, put them on the model (`model.notes`) — `update` forwards them. `onSelect` receives a stable node id or `null` when selection clears. `onHoverKey` receives the key of the bar under the pointer (see `bars` on a node) or `null`; call `window.FlowStudio?.highlightKey(key)` to mark a key from outside. The component mounts the engine once, sends changed models to `update`, and destroys its listeners on unmount. React StrictMode's development mount cycle is supported. Several views may be mounted at once; the engine's global mount helper stays available until the last one unmounts.
 
 ## Live data contract
 

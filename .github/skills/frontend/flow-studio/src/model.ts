@@ -43,6 +43,7 @@ export interface NodeDef {
   collapsed?: boolean;
   sla?: number;
   metrics?: NodeMetric;
+  bars?: NodeBar[];
 }
 export interface NodeMetric {
   value: number;
@@ -51,6 +52,14 @@ export interface NodeMetric {
   unit?: string;
   label?: string;
   series?: number[];
+}
+/** One bar of a node's chart. `key` is opaque (a date, a step) and links the same key across charts;
+ *  a null `value` means no data for that key and is drawn as a short red tick, never as zero. */
+export interface NodeBar {
+  key: string;
+  value: number | null;
+  kind?: "low";
+  label?: string;
 }
 export interface LinkDef {
   id: string;
@@ -153,6 +162,8 @@ export function validateModel(input: unknown): Issue[] {
     const metric = n.metrics;
     const invalidSeries = metric?.series !== undefined && (!Array.isArray(metric.series) || metric.series.length > 60 || metric.series.some(v => !Number.isFinite(v)));
     if (metric !== undefined && (!metric || !Number.isFinite(metric.value) || (metric.max != null && !Number.isFinite(metric.max)) || invalidSeries)) add("error", "metric-invalid", w, "Metrics need finite values and at most 60 finite series points.");
+    const badBars = n.bars !== undefined && (!Array.isArray(n.bars) || n.bars.length > 120 || n.bars.some(b => !b || typeof b.key !== "string" || (b.value !== null && (typeof b.value !== "number" || !Number.isFinite(b.value) || b.value < 0))));
+    if (badBars) add("error", "bars-invalid", w, "Bars need a list of at most 120 items, each with a string key and a finite, non-negative value or null.");
     if (n.sla !== undefined && (!Number.isFinite(n.sla) || n.sla <= 0)) add("error", "sla-invalid", w, "SLA must be a positive finite number of seconds.");
   }
   for (const n of nodes) {

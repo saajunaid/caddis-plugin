@@ -112,6 +112,7 @@ Nodes represent processing units, cards, gateways, groups, and milestones.
 | `collapsed` | `boolean` | Optional | `true` | When true, group starts collapsed hiding child nodes. |
 | `sla` | `number` | Optional | - | Target service level agreement threshold in seconds. |
 | `metrics` | `object` | Optional | - | Telemetry payload (see metrics table). |
+| `bars` | `array` | Optional | - | A small bar chart on the node, one bar per `key` (see bars table). |
 
 ---
 
@@ -126,6 +127,21 @@ Provides numerical telemetry, health bars, and sparklines.
 | `unit` | `string` | Optional | - | Display unit (e.g. `"ms"`, `"rps"`, `"MB"`). |
 | `label` | `string` | Optional | - | Descriptive metric label. |
 | `series` | `array` | Optional | - | Historical series array (up to 60 numbers) rendered as sparkline. |
+
+---
+
+### `bars` items (under `nodes`)
+
+A bar chart drawn inside the node, for example rows per day. Hovering a bar marks the bars with the same `key` on
+every node, so a reader can ask "was this day bad everywhere?". The host page can follow the hover with the
+`onHoverKey` mount option and drive it with `highlightKey(key)`. At most 120 bars.
+
+| Property | Type | Required? | Default | Description |
+|---|---|---|---|---|
+| `key` | `string` | Required | - | Opaque id of the bar (a date or a step). Equal keys are linked across charts. |
+| `value` | `number` or `null` | Required | - | Bar size (finite, not negative). `null` means no data for that key: a short red tick, never a zero bar. |
+| `kind` | `string` | Optional | - | `"low"` draws the bar in the critical colour. The last bar with data is drawn in the accent colour, unless it is `low`. |
+| `label` | `string` | Optional | - | Tooltip text; defaults to `key: value`. |
 
 ---
 

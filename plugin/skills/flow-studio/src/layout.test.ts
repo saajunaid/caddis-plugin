@@ -142,3 +142,20 @@ test("free layout preserves finite negative node coordinates", () => {
   assert.equal(g.nodes.a!.y, -40);
   assert.ok([g.bounds.x, g.bounds.y, g.bounds.w, g.bounds.h, g.world.w, g.world.h].every(Number.isFinite));
 });
+
+test("a node with bars is taller by default, so the chart does not sit on its text; an explicit height wins", () => {
+  const model = m();
+  model.nodes[0]!.bars = [{ key: "a", value: 1 }];
+  const g = computeGeometry(model);
+  assert.equal(g.nodes.a!.h, 54 + 26);
+  assert.equal(g.nodes.b!.h, 54);
+  const free = m();
+  free.layout = "free";
+  free.nodes = [
+    { id: "x", kind: "card", lane: "l1", x: 0, y: 0, state: "ok", title: "X", bars: [{ key: "a", value: 1 }] },
+    { id: "y", kind: "card", lane: "l1", x: 0, y: 200, h: 100, state: "ok", title: "Y", bars: [{ key: "a", value: 1 }] },
+  ];
+  const gf = computeGeometry(free);
+  assert.equal(gf.nodes.x!.h, 54 + 26);
+  assert.equal(gf.nodes.y!.h, 100);
+});

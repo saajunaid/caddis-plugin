@@ -75,7 +75,10 @@
           "sla": { "type": "number", "exclusiveMinimum": 0, "description": "Target service level agreement in seconds" },
           "metrics": { "type": "object", "required": ["value"], "additionalProperties": false,
             "properties": { "value": { "type": "number" }, "max": { "type": ["number", "null"], "description": "Upper bound for the badge fill bar; null means there is no maximum" }, "unit": { "type": "string" }, "label": { "type": "string" },
-              "series": { "type": "array", "maxItems": 60, "items": { "type": "number" } } } }
+              "series": { "type": "array", "maxItems": 60, "items": { "type": "number" } } } },
+          "bars": { "type": "array", "maxItems": 120, "description": "A small bar chart on the node, one bar per key. A null value is a missing key (a red tick, never zero). Hovering a bar marks the same key on every chart.",
+            "items": { "type": "object", "required": ["key", "value"], "additionalProperties": false,
+              "properties": { "key": { "type": "string" }, "value": { "type": ["number", "null"], "minimum": 0 }, "kind": { "enum": ["low"] }, "label": { "type": "string" } } } }
         }
       }
     },

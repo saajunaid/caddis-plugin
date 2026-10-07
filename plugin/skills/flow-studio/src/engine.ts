@@ -17,6 +17,7 @@ import { install as installNotes } from "./notes.ts";
 import { install as installPlayback, type PlaybackController } from "./playbackui.ts";
 import { diffModels } from "./diff.ts";
 import { notifySelection } from "./selection.ts";
+import { installBars, markKey } from "./bars.ts";
 import type { Issue } from "./model.ts";
 
 export interface FlowStudio {
@@ -26,6 +27,8 @@ export interface FlowStudio {
   setView(v: View, animate?: boolean): void;
   fit(animate?: boolean): void;
   select(id: string | null): void;
+  /** Mark one bar key on every chart, as if the pointer were over it. Does not call onHoverKey. */
+  highlightKey(key: string | null): void;
   selected(): string | null;
   mode(): string;
   setMode(id: string): void;
@@ -65,7 +68,7 @@ function findEls(root: ParentNode): Els {
 }
 
 interface SavedState { view: View; mode: string; selected: string | null; inspectorOpen: boolean; query: string; hops: number; filter: Ctx["filter"]; collapsed: Set<string>; knownGroups: Set<string>; playback: ReturnType<PlaybackController["playback"]> }
-export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[]; onSelect?: (id: string | null) => void; restore?: SavedState } = {}): FlowStudio {
+export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[]; onSelect?: (id: string | null) => void; onHoverKey?: (key: string | null) => void; restore?: SavedState } = {}): FlowStudio {
   if (!model || !Array.isArray(model.columns) || !Array.isArray(model.lanes) || !Array.isArray(model.nodes) || !Array.isArray(model.links) || !model.states) {
     throw new Error("flow-studio: the model needs columns, lanes, states, nodes and links");
   }
@@ -78,7 +81,7 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
 
   const rm = matchMedia("(prefers-reduced-motion: reduce)");
   const ctx: Ctx = {
-    model, root, els, onSelect: opts.onSelect,
+    model, root, els, onSelect: opts.onSelect, onHoverKey: opts.onHoverKey, hoverKey: null,
     notes: opts.notes && opts.notes.length ? opts.notes : model.notes ?? [],
     nodes: new Map(model.nodes.map(n => [n.id, n])),
     links: model.links,
@@ -103,6 +106,7 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
 
   installInteract(ctx);
   installRender(ctx);
+  installBars(ctx);
   installControls(ctx);
   installInspector(ctx);
   installChrome(ctx);
@@ -145,6 +149,7 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
     setView: (v, animate) => ctx.fn.setView(v, animate),
     fit: animate => { ctx.userMoved = false; ctx.fn.fit(animate); },
     select: id => ctx.fn.select(id),
+    highlightKey: key => { ctx.hoverKey = key; markKey(ctx.els.world, key); },
     selected: () => ctx.selected,
     mode: () => ctx.mode,
     setMode: id => ctx.fn.setMode(id),
@@ -167,7 +172,7 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
       const changes = diffModels(ctx.model, prepared);
       const saved: SavedState = { view: { ...ctx.view }, mode: ctx.mode, selected: ctx.selected, inspectorOpen: els.inspector.classList.contains("open"), query: ctx.query, hops: ctx.hops, filter: ctx.filter, collapsed: new Set(ctx.collapsed), knownGroups: new Set(ctx.model.nodes.filter(n => n.kind === "group").map(n => n.id)), playback: playback.playback() };
       api.destroy();
-      const replacement = mount(root, prepared, { notes: opts.notes, onSelect: opts.onSelect, restore: saved });
+      const replacement = mount(root, prepared, { notes: opts.notes, onSelect: opts.onSelect, onHoverKey: opts.onHoverKey, restore: saved });
       notifySelection(saved.selected, replacement.selected(), opts.onSelect);
       // Refresh this api in place: callers keep their reference and window.FlowStudio stays this
       // instance, so an update can never overwrite a different mounted engine.

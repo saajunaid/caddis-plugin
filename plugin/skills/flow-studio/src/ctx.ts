@@ -92,6 +92,9 @@ export interface Ctx {
   collapsed: Set<string>;
   selected: string | null;
   hl: string | null;
+  /** The bar key under the pointer (see bars.ts), or null. */
+  hoverKey: string | null;
+  onHoverKey?: (key: string | null) => void;
   query: string;
   hops: number;
   filter: Filter;

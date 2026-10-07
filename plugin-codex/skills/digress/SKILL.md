@@ -29,7 +29,7 @@ The single next concrete action for the parked task — copy it from the plan's 
 
 ## Step 3 — write the workstream relay to `.caddis/relay/<name>.md`
 Write it through the locked script, never with a plain file edit (that would skip the conflict
-check another session relies on). Scripts are in `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/` (source
+check another session relies on). Scripts are in `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.136/scripts/` (source
 checkout: `scripts/`).
 
 Your session id is printed at session start as `[caddis] this session's id: <id>`; use it for

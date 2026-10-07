@@ -11,7 +11,7 @@ apply config changes in one step. Data stays on-machine — no telemetry, no ser
 ## Step 1 — run the analysis script
 
 Resolve the script path:
-- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/usage_review.py`
+- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.136/scripts/usage_review.py`
 - harness (caddis) checkout: `scripts/usage_review.py`
 
 Run it:

@@ -9,6 +9,7 @@ import { elbow, loopBack } from "./routing.ts";
 import { cssId } from "./stateCss.ts";
 import { baselineView, bucketOf, canonOf, effectiveLinks, isImproved, isNew, linkStateId, nodeStateId, nodeVisible } from "./rules.ts";
 import { metricBadge, sparkline } from "./metrics.ts";
+import { barsHtml, markKey } from "./bars.ts";
 
 function loopRoute(ctx: Ctx, fromId: string, toId: string, from: Placed, to: Placed, channel: number): string {
   const detourFor = (end: Placed, other: Placed) => {
@@ -45,7 +46,7 @@ function nodeHtml(ctx: Ctx, n: NodeDef): string {
   const lead = showWord ? `<b class="ev st-${cssId(sid)}">${esc(word)}</b> · ` : "";
   const fold = n.kind === "group" && n.contains?.length ? `<span class="fold">▸ ${n.contains.length}</span>` : "";
   return `<div class="t"><span class="newdot" title="Added in this view"></span><span class="name">${arrow}${esc(n.title)}</span>${fold}${badge}</div>`
-    + `<div class="s${spark ? " has-spark" : ""}" title="${esc(sub)}">${lead}${esc(sub)}</div>${spark}${bar}${improved}${upgrade}`;
+    + `<div class="s${spark ? " has-spark" : ""}" title="${esc(sub)}">${lead}${esc(sub)}</div>${spark}${barsHtml(n.bars)}${bar}${improved}${upgrade}`;
 }
 
 function build(ctx: Ctx): void {
@@ -75,7 +76,7 @@ function build(ctx: Ctx): void {
   for (const n of model.nodes) {
     const p = ctx.geom.nodes[n.id];
     if (!p) continue;
-    const d = el("div", "node" + (n.kind === "chip" ? " ref" : "") + ((n.colSpan ?? 1) > 1 ? " wide" : ""));
+    const d = el("div", "node" + (n.kind === "chip" ? " ref" : "") + ((n.colSpan ?? 1) > 1 ? " wide" : "") + (n.bars?.length ? " has-bars" : ""));
     d.id = "n_" + n.id;
     d.tabIndex = 0;
     d.setAttribute("role", "button");
@@ -190,6 +191,7 @@ function paint(ctx: Ctx, fromSwitch = false): void {
     if (r) { d.style.left = r.x + "px"; d.style.top = r.y + "px"; d.style.width = r.w + "px"; d.style.height = r.h + "px"; }
   }
 
+  markKey(ctx.els.world, ctx.hoverKey);
   ctx.fn.buildChrome();
   ctx.fn.trace(ctx.selected);
   ctx.fn.renderInspector();

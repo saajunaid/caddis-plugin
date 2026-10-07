@@ -7,15 +7,17 @@ const lifecycle = vi.hoisted(() => ({
   alive: 0, updates: [] as Model[], mounts: 0, listenerCount: 0,
   notes: [] as (NoteDef[] | undefined)[],
   onSelect: undefined as ((id: string | null) => void) | undefined,
+  onHoverKey: undefined as ((key: string | null) => void) | undefined,
 }));
 vi.mock('../templates/flow-studio.lib.mjs', () => ({
   SHELL_BODY_HTML: '<div id="viewport"></div>',
-  mount: (_root: ParentNode, _model: Model, options: { notes?: NoteDef[]; onSelect?: (id: string | null) => void }) => {
+  mount: (_root: ParentNode, _model: Model, options: { notes?: NoteDef[]; onSelect?: (id: string | null) => void; onHoverKey?: (key: string | null) => void }) => {
     lifecycle.mounts++;
     lifecycle.alive++;
     lifecycle.listenerCount++;
     lifecycle.notes.push(options.notes);
     lifecycle.onSelect = options.onSelect;
+    lifecycle.onHoverKey = options.onHoverKey;
     return {
       update: (model: Model) => { lifecycle.updates.push(model); return { ok: true, issues: [] }; },
       destroy: () => { lifecycle.alive--; lifecycle.listenerCount--; },
@@ -54,6 +56,21 @@ describe('FlowStudioView', () => {
     expect(lifecycle.alive).toBe(0);
     expect(lifecycle.listenerCount).toBe(0);
     expect(globals.flowStudioMount).toBe(previousMount);
+  });
+
+  it('forwards the hovered bar key to the latest onHoverKey, without remounting', () => {
+    lifecycle.mounts = 0;
+    const first = vi.fn();
+    const second = vi.fn();
+    const rendered = render(<FlowStudioView model={model} onHoverKey={first} />);
+    lifecycle.onHoverKey?.('2026-09-02');
+    expect(first).toHaveBeenCalledWith('2026-09-02');
+    rendered.rerender(<FlowStudioView model={model} onHoverKey={second} />);
+    expect(lifecycle.mounts).toBe(1);
+    lifecycle.onHoverKey?.(null);
+    expect(second).toHaveBeenCalledWith(null);
+    expect(first).toHaveBeenCalledTimes(1);
+    rendered.unmount();
   });
 
   it('passes notes at mount and ignores later notes-only changes', () => {

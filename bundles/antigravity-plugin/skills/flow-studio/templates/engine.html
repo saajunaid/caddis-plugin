@@ -198,6 +198,11 @@
   .node .metric-badge i { display:block; height:2px; position:absolute; bottom:0; left:0; background:var(--accent); }
   .node .s.has-spark { padding-right:60px; }
   .node .spark { position:absolute; right:6px; bottom:4px; overflow:visible; }
+  .node svg.bars { position:absolute; left:10px; right:10px; bottom:6px; width:calc(100% - 20px); height:22px; overflow:visible; }
+  .node svg.bars rect { fill:var(--muted); opacity:.6; }
+  .node svg.bars rect.last { fill:var(--accent); opacity:1; }
+  .node svg.bars rect.low, .node svg.bars rect.miss { fill:var(--crit); opacity:1; }
+  .node svg.bars rect[data-hl="true"] { stroke:var(--fg); stroke-width:1.5px; vector-effect:non-scaling-stroke; opacity:1; }
   .node.gateway .metric-badge { position:absolute; right:9px; top:18px; }
   .node.gateway:has(.metric-badge) .gw-title, .node.gateway.has-metrics .gw-title { width:45%; margin-right:42px; }
   .node .spark polyline, .metrics polyline { fill:none; stroke:var(--accent); stroke-width:1.5; }
@@ -326,6 +331,8 @@
       const metric = n.metrics;
       const invalidSeries = metric?.series !== void 0 && (!Array.isArray(metric.series) || metric.series.length > 60 || metric.series.some((v) => !Number.isFinite(v)));
       if (metric !== void 0 && (!metric || !Number.isFinite(metric.value) || metric.max != null && !Number.isFinite(metric.max) || invalidSeries)) add("error", "metric-invalid", w, "Metrics need finite values and at most 60 finite series points.");
+      const badBars = n.bars !== void 0 && (!Array.isArray(n.bars) || n.bars.length > 120 || n.bars.some((b) => !b || typeof b.key !== "string" || b.value !== null && (typeof b.value !== "number" || !Number.isFinite(b.value) || b.value < 0)));
+      if (badBars) add("error", "bars-invalid", w, "Bars need a list of at most 120 items, each with a string key and a finite, non-negative value or null.");
       if (n.sla !== void 0 && (!Number.isFinite(n.sla) || n.sla <= 0)) add("error", "sla-invalid", w, "SLA must be a positive finite number of seconds.");
     }
     for (const n of nodes) {
@@ -975,6 +982,7 @@
 
   // src/layout.ts
   var DEFAULTS = { pitch: 62, top: 64, gap: 34, padX: 24, visible: () => true };
+  var BARS_EXTRA = 26;
   var LANE_PAD_TOP = 38;
   var LANE_PAD_BOTTOM = 14;
   function computeGeometry(m, opt = {}) {
@@ -988,7 +996,7 @@
     const world = { w: Math.max(1, x - o.gap + o.padX), h: 1 };
     const nodes = {};
     for (const n of m.nodes) {
-      const h = NODE_HEIGHT[n.kind] ?? 54;
+      const h = (NODE_HEIGHT[n.kind] ?? 54) + (n.bars?.length ? BARS_EXTRA : 0);
       if (m.layout === "free") {
         nodes[n.id] = { id: n.id, x: n.x ?? 0, y: n.y ?? 0, w: n.w ?? 190, h: n.h ?? h };
         continue;
@@ -1105,6 +1113,47 @@
     return `<svg class="spark" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true"><polyline points="${points}"/></svg>`;
   }
 
+  // src/bars.ts
+  var BAR_UNIT = 4;
+  function barsHtml(bars, height = 22) {
+    if (!bars || bars.length === 0) return "";
+    const width = bars.length * BAR_UNIT;
+    const max = Math.max(1, ...bars.map((b) => b.value ?? 0));
+    const lastWithData = bars.map((b) => b.value !== null).lastIndexOf(true);
+    const rects = bars.map((b, i) => {
+      const x = i * BAR_UNIT;
+      const w = BAR_UNIT - 1;
+      const label = esc(b.label ?? (b.value === null ? `${b.key}: no data` : `${b.key}: ${b.value}`));
+      if (b.value === null) {
+        return `<rect class="miss" data-key="${esc(b.key)}" x="${x}" y="${height - 4}" width="${w}" height="4"><title>${label}</title></rect>`;
+      }
+      const h = Math.max(1, b.value / max * (height - 5));
+      const cls = b.kind === "low" ? "low" : i === lastWithData ? "last" : "";
+      return `<rect${cls ? ` class="${cls}"` : ""} data-key="${esc(b.key)}" x="${x}" y="${height - h}" width="${w}" height="${h}"><title>${label}</title></rect>`;
+    });
+    const first = esc(bars[0].key), last = esc(bars[bars.length - 1].key);
+    return `<svg class="bars" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Bars, ${first} to ${last}">${rects.join("")}</svg>`;
+  }
+  function markKey(root, key) {
+    for (const r of Array.from(root.querySelectorAll("rect[data-key]"))) {
+      if (key !== null && r.getAttribute("data-key") === key) r.setAttribute("data-hl", "true");
+      else r.removeAttribute("data-hl");
+    }
+  }
+  function installBars(ctx) {
+    const set = (key) => {
+      if (ctx.hoverKey === key) return;
+      ctx.hoverKey = key;
+      markKey(ctx.els.world, key);
+      ctx.onHoverKey?.(key);
+    };
+    on(ctx, ctx.els.world, "mouseover", (e) => {
+      const bar = e.target?.closest?.("rect[data-key]");
+      set(bar ? bar.getAttribute("data-key") : null);
+    });
+    on(ctx, ctx.els.world, "mouseleave", () => set(null));
+  }
+
   // src/render.ts
   function loopRoute(ctx, fromId, toId, from, to, channel) {
     const detourFor = (end, other) => {
@@ -1141,7 +1190,7 @@
     const arrow = n.kind === "chip" ? '<span aria-hidden="true">\u2191 </span>' : "";
     const lead = showWord ? `<b class="ev st-${cssId(sid)}">${esc(word)}</b> \xB7 ` : "";
     const fold = n.kind === "group" && n.contains?.length ? `<span class="fold">\u25B8 ${n.contains.length}</span>` : "";
-    return `<div class="t"><span class="newdot" title="Added in this view"></span><span class="name">${arrow}${esc(n.title)}</span>${fold}${badge}</div><div class="s${spark ? " has-spark" : ""}" title="${esc(sub)}">${lead}${esc(sub)}</div>${spark}${bar}${improved}${upgrade}`;
+    return `<div class="t"><span class="newdot" title="Added in this view"></span><span class="name">${arrow}${esc(n.title)}</span>${fold}${badge}</div><div class="s${spark ? " has-spark" : ""}" title="${esc(sub)}">${lead}${esc(sub)}</div>${spark}${barsHtml(n.bars)}${bar}${improved}${upgrade}`;
   }
   function build(ctx) {
     const { model, els } = ctx;
@@ -1176,7 +1225,7 @@
     for (const n of model.nodes) {
       const p = ctx.geom.nodes[n.id];
       if (!p) continue;
-      const d = el("div", "node" + (n.kind === "chip" ? " ref" : "") + ((n.colSpan ?? 1) > 1 ? " wide" : ""));
+      const d = el("div", "node" + (n.kind === "chip" ? " ref" : "") + ((n.colSpan ?? 1) > 1 ? " wide" : "") + (n.bars?.length ? " has-bars" : ""));
       d.id = "n_" + n.id;
       d.tabIndex = 0;
       d.setAttribute("role", "button");
@@ -1311,6 +1360,7 @@
         d.style.height = r.h + "px";
       }
     }
+    markKey(ctx.els.world, ctx.hoverKey);
     ctx.fn.buildChrome();
     ctx.fn.trace(ctx.selected);
     ctx.fn.renderInspector();
@@ -2506,6 +2556,8 @@
       root,
       els,
       onSelect: opts.onSelect,
+      onHoverKey: opts.onHoverKey,
+      hoverKey: null,
       notes: opts.notes && opts.notes.length ? opts.notes : model.notes ?? [],
       nodes: new Map(model.nodes.map((n) => [n.id, n])),
       links: model.links,
@@ -2548,6 +2600,7 @@
     style.textContent = stateCss(model.states);
     install(ctx);
     install2(ctx);
+    installBars(ctx);
     install3(ctx);
     install4(ctx);
     install5(ctx);
@@ -2594,6 +2647,10 @@
         ctx.fn.fit(animate);
       },
       select: (id) => ctx.fn.select(id),
+      highlightKey: (key) => {
+        ctx.hoverKey = key;
+        markKey(ctx.els.world, key);
+      },
       selected: () => ctx.selected,
       mode: () => ctx.mode,
       setMode: (id) => ctx.fn.setMode(id),
@@ -2619,7 +2676,7 @@
         const changes = diffModels(ctx.model, prepared);
         const saved = { view: { ...ctx.view }, mode: ctx.mode, selected: ctx.selected, inspectorOpen: els.inspector.classList.contains("open"), query: ctx.query, hops: ctx.hops, filter: ctx.filter, collapsed: new Set(ctx.collapsed), knownGroups: new Set(ctx.model.nodes.filter((n) => n.kind === "group").map((n) => n.id)), playback: playback.playback() };
         api.destroy();
-        const replacement = mount(root, prepared, { notes: opts.notes, onSelect: opts.onSelect, restore: saved });
+        const replacement = mount(root, prepared, { notes: opts.notes, onSelect: opts.onSelect, onHoverKey: opts.onHoverKey, restore: saved });
         notifySelection(saved.selected, replacement.selected(), opts.onSelect);
         Object.assign(api, replacement);
         window.FlowStudio = api;

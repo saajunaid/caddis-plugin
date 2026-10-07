@@ -17,6 +17,7 @@ export interface LayoutOptions { pitch: number; top: number; gap: number; padX: 
 
 export const DEFAULTS: LayoutOptions = { pitch: 62, top: 64, gap: 34, padX: 24, visible: () => true };
 
+const BARS_EXTRA = 26; // room for the bar chart under a node's text
 const LANE_PAD_TOP = 38; // room for the lane title
 const LANE_PAD_BOTTOM = 14;
 
@@ -29,7 +30,7 @@ export function computeGeometry(m: Model, opt: Partial<LayoutOptions> = {}): Geo
 
   const nodes: Record<string, Placed> = {};
   for (const n of m.nodes) {
-    const h = NODE_HEIGHT[n.kind] ?? 54;
+    const h = (NODE_HEIGHT[n.kind] ?? 54) + (n.bars?.length ? BARS_EXTRA : 0);
     if (m.layout === "free") {
       nodes[n.id] = { id: n.id, x: n.x ?? 0, y: n.y ?? 0, w: n.w ?? 190, h: n.h ?? h };
       continue;

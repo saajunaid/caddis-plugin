@@ -80,7 +80,7 @@ columns [{id, title, short?, width, phase?, continues?}]              stages, le
 lanes   [{id, title, badge?, badgeTone?, note?, gap?}]    rows; gap true = dashed amber lane
 states  {id: {word, tone, border, edge, motion, bucket}}  tone: ok|warn|crit|info|muted|accent; bucket: good|neutral|gap
 nodes   [{id, kind, lane?, col?, colSpan?, row?, x?, y?, w?, h?, state, title, subtitle?, members?, weight?,
-          ref?, upgrade?, contains?, collapsed?, stateIn?, visibleIn?, sla?, metrics?}]
+          ref?, upgrade?, contains?, collapsed?, stateIn?, visibleIn?, sla?, metrics?, bars?}]
 links   [{id, from, to, state, kind?, label?, stateIn?, visibleIn?}]   kind: forward | loop-back
 views   [{id, label, default?}]                           first view serves as baseline
 inspector {relations [up to 3], actions [{id, label, dir, staleText}]}

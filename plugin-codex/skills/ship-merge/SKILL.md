@@ -77,7 +77,7 @@ The merge lands on the default branch and triggers the pipeline. Watch it via th
   → `notify` (`deploy-local` skill §monitoring; classify + minimum-fix on failure).
 - GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.135/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.136/scripts/caddis_lanes.py" ci-watch --run <run-id>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 6).
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If the workflow has a deploy job, watch it through; if CI-only, note that no deploy occurs.
