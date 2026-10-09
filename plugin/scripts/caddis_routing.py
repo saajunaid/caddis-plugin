@@ -14,6 +14,10 @@ from typing import Callable, Mapping
 import oss_model
 
 
+# agy is Flash-only on some machines and is good only at small, exact, mechanical cards (112 of 114 passed
+# in the 2026-10-08 UI-upgrade run) and CI watching. Give design-fidelity, cross-file refactor and judgment
+# work to codex or claude. See .caddis/kb/agy-headless-implementer-limits.md. A separate `design` role is an
+# owner decision: it changes the routing line every session prints.
 DEFAULT_ROUTING: dict[str, list[str]] = {
     "critical": ["opus"],
     "light": ["sonnet"],

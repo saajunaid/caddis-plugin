@@ -70,7 +70,9 @@ In either route, derive node and link IDs from immutable business keys. Preserve
 8. **Short titles**: titles fit one line at column width. Long descriptions belong in subtitles or member lists.
 9. **Fixed node dimensions**: node kinds use fixed box sizes so font rendering does not shift layout.
 10. **Reduced motion**: removes all animations while preserving static borders and status glows.
-11. **Thin links, dotted canvas**: links are hairlines (about 0.8 px, with a 6 px arrowhead) and the canvas background is faint dots, not a grid. Both come from tokens (`--edge-w`, `--dot`, ...), so an app can change them with one CSS line; see `references/design-language.md`.
+11. **The lane is the owner**: a lane is the app, team or system that owns its row. Never add a column that repeats the owner (an "Apps" or "Owner" column); it adds a block between the real stages and the pages and says nothing new.
+12. **Draw a shared node once**: when several rows use the same database, job or table, draw one node, centre it on the rows it serves, and link it to each node downstream. A chip (`kind: "chip"` with `ref`) is only for a node that lives in another lane, never a copy inside the same lane.
+13. **Thin links, dotted canvas**: links are hairlines (about 0.8 px, with a 6 px arrowhead) and the canvas background is faint dots, not a grid. Both come from tokens (`--edge-w`, `--dot`, ...), so an app can change them with one CSS line; see `references/design-language.md`.
 
 ## Model summary
 

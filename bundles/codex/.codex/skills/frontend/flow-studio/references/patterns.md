@@ -21,7 +21,7 @@ You can start from these base states and adjust words to match your domain:
 
 - **Example file:** `examples/lineage.json`
 - **Scenario:** Trace data assets from ingestion sources through storage, pipelines, transformations, to consuming dashboards and applications.
-- **Typical columns:** Source, Host, Database, Pipeline, Tables, Refresher, Views, App, Dashboard.
+- **Typical columns:** Source, Host, Database, Pipeline, Tables, Refresher, Views, Dashboard. Do not add an App or Owner column: the lane is the app (ux-rules 11).
 - **Typical lanes:** Customer Portal, Order Service, Data Warehouse, Reporting Platform. A lane without documentation uses `gap: true`.
 - **Node count guideline:** 15 to 30 nodes.
 - **Recommended inspector relations:**

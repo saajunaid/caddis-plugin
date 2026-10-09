@@ -19,6 +19,7 @@ import path from 'node:path';
 import type { AgentAdapter, AgentStatus, Detection, DriveOptions, DriveResult, DriveAction, ExtrasStatus, StepResult } from './types.js';
 import { run, formatCommand } from '../util/exec.js';
 import { findBin } from '../util/which.js';
+import { listAgyPids } from '../util/agyProcs.js';
 import { bundlePath } from '../util/pkg.js';
 
 const BIN = 'agy';
@@ -28,6 +29,61 @@ const PLUGIN = 'caddis';
 /** The optional long-tail plugin. Separate plugin, separate version line. */
 const EXTRAS_BUNDLE = 'antigravity-plugin-extras';
 const EXTRAS_PLUGIN = 'caddis-extras';
+
+/** The files an install must leave in the caddis plugin folder. agy refuses every edit without them. */
+export const REQUIRED_PLUGIN_FILES = ['plugin.json', 'hooks.json', 'guard_agy.py'] as const;
+
+/** Set to `1` to install while agy runs. Only for a person who knows no agy holds the plugin folder. */
+const ALLOW_RUNNING_ENV = 'CADDIS_AGY_ALLOW_RUNNING';
+
+/** The folder agy keeps the imported caddis plugin in. */
+export function pluginDirFor(home = os.homedir(), plugin: string = PLUGIN): string {
+  return path.join(home, '.gemini', 'config', 'plugins', plugin);
+}
+
+/** Which of the required files are missing from the caddis plugin folder. */
+export function missingPluginFiles(home = os.homedir()): string[] {
+  const dir = pluginDirFor(home);
+  return REQUIRED_PLUGIN_FILES.filter((file) => !existsSync(path.join(dir, file)));
+}
+
+/**
+ * Copy the installed plugin aside before an install, so a failed copy never leaves the user with an
+ * empty plugin. Returns null when there is nothing to keep (a first install).
+ */
+function backupInstalledPlugin(
+  home: string,
+): { restore: () => string | null; cleanup: () => void; location: string } | null {
+  const dir = pluginDirFor(home);
+  if (!existsSync(dir)) return null;
+  const holder = mkdtempSync(path.join(os.tmpdir(), 'caddis-agy-backup-'));
+  const copy = path.join(holder, PLUGIN);
+  cpSync(dir, copy, { recursive: true });
+  // A failed restore must keep the backup: it is then the only whole copy of the plugin.
+  let keep = false;
+  return {
+    location: copy,
+    // Returns null when the old plugin is back, else the reason it could not be put back.
+    restore: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        cpSync(copy, dir, { recursive: true });
+        return null;
+      } catch (error) {
+        keep = true;
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+    cleanup: () => {
+      if (keep) return;
+      try {
+        rmSync(holder, { recursive: true, force: true });
+      } catch {
+        /* a stray temp folder is clutter, not a failure */
+      }
+    },
+  };
+}
 
 /** Where agy records an imported plugin's manifest. Overridable for tests. */
 export function pluginManifestPath(home = os.homedir(), plugin: string = PLUGIN): string {
@@ -192,7 +248,26 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
     };
   }
 
+  // A running agy holds the plugin folder open. `agy plugin install` deletes it and then copies, so
+  // the delete can succeed and the copy fail, leaving the plugin empty (v1.3.136, 2026-10-08).
+  if (process.env[ALLOW_RUNNING_ENV] !== '1') {
+    const running = await listAgyPids();
+    if (running.length > 0) {
+      return {
+        ok: false,
+        skipped: false,
+        steps: [],
+        message:
+          `agy is running (PID ${running.join(', ')}). Installing now can empty the caddis plugin under it, and agy then refuses every edit. ` +
+          `Stop agy and run this again, or set ${ALLOW_RUNNING_ENV}=1 if you know no agy holds the plugin folder.`,
+      };
+    }
+  }
+
+  const home = options.home ?? os.homedir();
+  const backup = backupInstalledPlugin(home);
   const cleanups: Array<() => void> = [];
+  if (backup) cleanups.push(backup.cleanup);
   try {
     const steps: StepResult[] = [];
     for (const step of planned) {
@@ -204,6 +279,29 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
       const execArgs = [...step.args.slice(0, -1), staged.installPath];
 
       const result = await run(step.cmd, execArgs);
+      // The core plugin must come out whole. If it did not, put the old one back (or say there was none).
+      if (step.bundleDir === bundle) {
+        const missing = missingPluginFiles(home);
+        if (missing.length > 0) {
+          let outcome = 'there was nothing to restore';
+          if (backup) {
+            const failure = backup.restore();
+            outcome =
+              failure === null
+                ? 'the previous plugin was restored'
+                : `the restore FAILED (${failure}); the old plugin is kept at ${backup.location}`;
+          }
+          steps.push({ command, ok: false, code: result.code, output: `missing after the install: ${missing.join(', ')}` });
+          return {
+            ok: false,
+            skipped: false,
+            steps,
+            message:
+              `the caddis plugin is incomplete after the install (missing ${missing.join(', ')}); ` +
+              outcome,
+          };
+        }
+      }
       steps.push({
         command,
         ok: result.ok,

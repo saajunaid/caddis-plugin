@@ -1745,11 +1745,41 @@ function caddis-push {
     if (-not $SkipAgySync -and $pushResult.MirrorChanged) {
         $agyCmd = Get-Command agy -ErrorAction SilentlyContinue
         $agyBundle = Join-Path $ProjectRoot "vscode-extensions\caddis-plugin\bundles\antigravity-plugin"
-        if ($agyCmd -and (Test-Path $agyBundle)) {
+        # A running agy holds the plugin folder open. `agy plugin install` deletes it and then copies, so the
+        # delete can succeed and the copy fail, leaving the plugin EMPTY (v1.3.136, 2026-10-08: eight headless
+        # agy lanes lost about 25 minutes). So: skip while agy runs, keep a backup, check the plugin is whole.
+        $agyRunning = @(Get-Process -Name agy -ErrorAction SilentlyContinue)
+        if ($agyCmd -and (Test-Path $agyBundle) -and $agyRunning.Count -gt 0 -and $env:CADDIS_AGY_ALLOW_RUNNING -ne '1') {
+            $agyPids = ($agyRunning | ForEach-Object { $_.Id }) -join ', '
+            Write-Host "  [WARN] agy is running (PID $agyPids): refresh SKIPPED, an install can empty the plugin under it. Stop agy, then run 'caddis update'. (CADDIS_AGY_ALLOW_RUNNING=1 overrides.)" -ForegroundColor Yellow
+        } elseif ($agyCmd -and (Test-Path $agyBundle)) {
             Write-Host "  [..]  agy: refreshing local install from the new bundle (agy has no auto-update)..." -ForegroundColor DarkGray
+            $agyPluginDir = Join-Path $HOME ".gemini\config\plugins\caddis"
+            $agyBackup = $null
+            if (Test-Path $agyPluginDir) {
+                $agyBackup = Join-Path ([System.IO.Path]::GetTempPath()) ("caddis-agy-backup-" + [guid]::NewGuid().ToString("N"))
+                Copy-Item -LiteralPath $agyPluginDir -Destination $agyBackup -Recurse -Force
+            }
             & $agyCmd.Source plugin install $agyBundle 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) { Write-Host "  [OK]  agy plugin refreshed to the new bundle." -ForegroundColor Green }
+            $agyExit = $LASTEXITCODE
+            $agyMissing = @("plugin.json", "hooks.json", "guard_agy.py") | Where-Object { -not (Test-Path (Join-Path $agyPluginDir $_)) }
+            if ($agyMissing.Count -gt 0) {
+                if ($agyBackup) {
+                    # Restore the previous plugin: an empty one makes agy refuse every edit.
+                    try {
+                        Remove-Item -LiteralPath $agyPluginDir -Recurse -Force -ErrorAction Stop
+                        Copy-Item -LiteralPath $agyBackup -Destination $agyPluginDir -Recurse -Force -ErrorAction Stop
+                        Write-Host "  [WARN] agy plugin was incomplete after the install (missing: $($agyMissing -join ', ')); the previous plugin was restored." -ForegroundColor Yellow
+                    } catch {
+                        Write-Host "  [WARN] agy plugin was incomplete after the install and the restore FAILED ($($_.Exception.Message)); the old plugin is kept at $agyBackup" -ForegroundColor Yellow
+                        $agyBackup = $null
+                    }
+                } else {
+                    Write-Host "  [WARN] agy plugin is incomplete after the install (missing: $($agyMissing -join ', ')) and there was no earlier plugin to restore." -ForegroundColor Yellow
+                }
+            } elseif ($agyExit -eq 0) { Write-Host "  [OK]  agy plugin refreshed to the new bundle." -ForegroundColor Green }
             else { Write-Host "  [WARN] agy re-import returned non-zero (non-fatal) - run 'agy plugin install' by hand if needed." -ForegroundColor Yellow }
+            if ($agyBackup) { Remove-Item -LiteralPath $agyBackup -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
 

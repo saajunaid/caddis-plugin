@@ -73,6 +73,8 @@ export interface DriveOptions {
    * is kept current regardless of this flag — adapters decide that.
    */
   extras?: boolean;
+  /** The home folder to read and write agent state under. Tests only; default is the user's home. */
+  home?: string;
 }
 
 export interface AgentAdapter {

@@ -649,3 +649,41 @@ The methodology in this document was extracted from a real multi-agent UI-polish
 | Debug | 7 issues catalogued (A–G) | Fix-up plan created |
 
 This end-to-end cycle took **~10 sessions** with full artefact trail and zero rework of fundamental design decisions.
+
+
+---
+
+## agy as an implementer: what was measured (2026-10-08)
+
+A 17-hour run with 14 lanes used agy (Antigravity) as the main implementer. Details: `.caddis/kb/agy-headless-implementer-limits.md` in the caddis source repo. Read the rule first, then the evidence.
+
+**Rule:** send agy only small, exact, mechanical cards, test fixes and CI watching. Send design-fidelity work, cross-file refactors and judgment to Codex or Claude. Give Opus only short contract-sized tasks.
+
+**Why (measured):**
+- On that machine only the Flash models worked. `gemini-3.1-pro-high` failed with "not supported in the selected location".
+- Small exact cards: 112 of 114 passed. A card to port an app shell from screenshots ran 40 minutes and changed one icon file.
+- In `--print` mode agy started the full test suite as a background task and waited for a notification that never came (35 to 40 minutes lost, twice).
+- On narrow gates it invented statuses, counts and names. 11 of 14 lanes needed up to 3 review rounds.
+
+### The agy card template
+
+Every card that goes to agy has these sections. A card without them is not ready.
+
+1. `## Goal`: one sentence, one component or one page.
+2. `## Files`: a bullet list of every file the card may touch. The gate rejects any change outside it.
+3. `## Tests first`: the failing tests to write before the code, and the one targeted command that runs them.
+4. `## Rules for agy` (copy this block as it is):
+   - Edit first. Run foreground commands only.
+   - Never start a background task. Never wait for a notification.
+   - Never run the full test suite. The orchestrator gate runs it.
+   - No invented data: no made-up statuses, counts, names or sign-offs. If a fact is missing, say so in the card result.
+   - No fake controls. Do not remove a feature to make a test pass.
+   - Codes go through the shared formatter.
+5. `## Done when`: the exact observable result, and "report what you changed and what you could not do".
+
+### Orchestrator rules from the same run
+
+- The gate runs the full suite, requires that a NEW commit exists, and stages only source folders.
+- Restore known-noisy files (CRLF snapshot rewrites, screenshots) before checking for changes.
+- Do not let Codex `-s workspace-write` run builds. Files it creates are owned by a sandbox user and can block worktree removal.
+- Do not run `caddis-push` or `caddis update` while any `agy.exe` runs. The release now refuses or skips in that case.

@@ -10,7 +10,7 @@ Report the caddis toolchain version to the user as **caddis &lt;version&gt;**.
 Get the version by reading the `version` field of the `plugin.json` manifest that ships in THIS install —
 do NOT guess or infer it from anything else. Read whichever path exists:
 
-- **Claude Code:** `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.136/.claude-plugin/plugin.json`
+- **Claude Code:** `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/.claude-plugin/plugin.json`
 - **agy (Antigravity):** the caddis plugin install dir — `~/.gemini/config/plugins/caddis/plugin.json`
 - **Otherwise:** the nearest `plugin.json` at/above this skill whose `name` is `caddis`.
 

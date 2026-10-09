@@ -44,8 +44,8 @@ Resolve the tool path deterministically — check only these two exact locations
 ```bash
 # THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
 # of whatever caddis shipped the day someone copied it, and it never updates again.
-if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.136/scripts/oss_review.py" ]; then
-  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.136/scripts/oss_review.py"
+if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/oss_review.py" ]; then
+  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/oss_review.py"
   # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
   if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
     echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"

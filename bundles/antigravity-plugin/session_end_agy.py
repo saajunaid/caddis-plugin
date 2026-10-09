@@ -19,12 +19,37 @@ agy Stop stdin (camelCase protojson):
 """
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 
 
 def _artifact_root(root: str) -> str:
     return os.path.join(str(root), ".caddis")
+
+
+def _repo_root(path: str):
+    """The git top-level folder that holds `path`, or None when `path` is not inside a repository.
+
+    agy can run with its working folder in a SUB-folder of the repo (a monorepo app). The artifact
+    folder belongs at the repo root, where the project's ignore rule (`/.caddis/`) covers it. Creating
+    it in the sub-folder left untracked files that every lane had to delete before staging
+    (UI-upgrade run, 2026-10-08).
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+        top = done.stdout.strip()
+        return os.path.normpath(top) if done.returncode == 0 and top else None
+    except Exception:
+        return None
+
+
+def _user_artifact_root() -> str:
+    """Where usage goes when the workspace is in no repository: the user's own folder, never the cwd."""
+    return _artifact_root(os.path.expanduser("~"))
 
 
 
@@ -82,13 +107,22 @@ def main() -> None:
         return
     try:
         roots = _workspace_roots(data) or [os.getcwd()]
+        # A workspace folder may sit inside a repo: the artifact dir is the REPO ROOT's, not the sub-folder's.
+        resolved = [(_repo_root(r) or str(r)) for r in roots]
         # Write the record to every root that ALREADY has a .caddis dir, rather than to
         # whichever root happened to be first. A multi-root session's usage belongs to each
         # repo that participates in it, and creating .caddis in a repo that never opted in
         # would be caddis littering someone else's tree.
-        targets = [_artifact_root(r) for r in roots if os.path.isdir(_artifact_root(r))]
+        targets = []
+        for root in resolved:
+            art = _artifact_root(root)
+            if os.path.isdir(art) and art not in targets:
+                targets.append(art)
         if not targets:
-            targets = [_artifact_root(roots[0])]  # single-root default: unchanged behaviour
+            # Nothing has opted in. In a repo, the first root's repo root is the default. Outside any
+            # repo there is no project to attach usage to, so it goes to the user's folder, not the cwd.
+            first_repo = _repo_root(roots[0])
+            targets = [_artifact_root(first_repo) if first_repo else _user_artifact_root()]
         record = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "event": "session_end",

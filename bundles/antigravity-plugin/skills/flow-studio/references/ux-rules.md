@@ -1,8 +1,8 @@
 # UX and design rules
 
-The 10 rules ensure flow-studio pages remain readable, informative, accessible, and fast.
+The 12 rules ensure flow-studio pages remain readable, informative, accessible, and fast.
 
-## The 10 rules
+## The 12 rules
 
 ### 1. One screen
 - **Rule statement:** The full flow fits on one screen without requiring panning in the initial default view.
@@ -66,6 +66,20 @@ The 10 rules ensure flow-studio pages remain readable, informative, accessible, 
 
 ---
 
+### 11. The lane is the owner
+- **Rule statement:** A lane names the app, team or system that owns its row. No column repeats the owner.
+- **Rationale:** An "Apps" column between the real stages and the pages adds a block that says nothing new. In the estate lineage it sat between the reporting tables and the pages, and the owner asked why it was there (2026-10-09).
+- **Pre-flight checklist question:** Does any column hold one node per lane that only repeats the lane title?
+- **Common mistake & fix:** Adding an "App" column because the pattern list showed one. *Fix:* Remove the column. Link the stage that feeds a page straight to the page; a page that reads no table stands alone.
+
+### 12. Draw a shared node once
+- **Rule statement:** A database, job or table that several rows share is one node, centred on the rows it serves, with a link to each node downstream. A chip is only for a node that lives in another lane.
+- **Rationale:** Copying a shared node into every row hides that it is shared and makes the reader compare copies. In the app lineage page, a database repeated in every source row looked like several databases (2026-10-09).
+- **Pre-flight checklist question:** Does any node id appear as a chip inside the lane that already holds the real node?
+- **Common mistake & fix:** One row per source, each with its own copy of the host, database and job. *Fix:* Draw each distinct node once, place it at the mean position of its rows, move it down if it would touch its neighbour, and de-duplicate links by their two ends.
+
+---
+
 ## Pre-flight checklist for agents
 
 Before presenting a generated flow page, verify:
@@ -77,6 +91,8 @@ Before presenting a generated flow page, verify:
 6. **Accessible names:** Does every button, input, tab, and control have an `aria-label` or visible text?
 7. **Keyboard navigation:** Can a user Tab through controls and press Escape to close the inspector?
 8. **Responsive breakdown:** Does the layout degrade cleanly down to 820x900?
+9. **No owner column:** Does any column only repeat the lane's owner? Remove it (rule 11).
+10. **Shared nodes once:** Is every shared database, job or table drawn once, not copied per row (rule 12)?
 
 ---
 
@@ -88,4 +104,6 @@ Before presenting a generated flow page, verify:
 - **Text spill:** Node labels exceed card width. *Fix:* Use short titles (under 24 characters) and set `subtitle` for auxiliary metadata.
 - **Permanent side panel:** The inspector remains open on load. *Fix:* The inspector must start closed and open only on selection.
 - **Flat visual hierarchy:** Every card looks identical. *Fix:* Vary card kinds (`card`, `group`, `gateway`, `chip`) and state tones (`ok`, `warn`, `crit`, `accent`).
+- **Owner column:** A column of one node per lane that repeats the lane title. *Fix:* Remove it; the lane is the owner.
+- **Copies of a shared node:** The same database or job drawn in every row. *Fix:* Draw it once and link it to each node downstream.
 - **Unlabelled controls:** Icon buttons without text lack screen reader descriptions. *Fix:* Provide descriptive `aria-label` attributes on all buttons.

@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/util/which.js', () => ({ findBin: vi.fn() }));
+vi.mock('../src/util/agyProcs.js', () => ({ listAgyPids: vi.fn(async () => [] as number[]) }));
 vi.mock('../src/util/exec.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/util/exec.js')>();
   return { ...actual, run: vi.fn() };
@@ -16,12 +17,14 @@ vi.mock('../src/util/pkg.js', async (importOriginal) => {
 import { agyAdapter, extrasStatusFromHome, pluginManifestPath, readInstalledVersion, statusFromHome } from '../src/agents/agy.js';
 import { run } from '../src/util/exec.js';
 import { findBin } from '../src/util/which.js';
+import { listAgyPids } from '../src/util/agyProcs.js';
 import { bundlePath } from '../src/util/pkg.js';
 import type { RunResult } from '../src/util/exec.js';
 
 const mockRun = vi.mocked(run);
 const mockWhich = vi.mocked(findBin);
 const mockBundlePath = vi.mocked(bundlePath);
+const mockAgyPids = vi.mocked(listAgyPids);
 
 const ok = (stdout = ''): RunResult => ({ ok: true, code: 0, stdout, stderr: '' });
 const fail = (stderr = 'boom'): RunResult => ({ ok: false, code: 1, stdout: '', stderr });
@@ -33,6 +36,9 @@ beforeEach(() => {
   mockRun.mockReset();
   mockWhich.mockReset();
   mockBundlePath.mockReset();
+  mockAgyPids.mockReset();
+  mockAgyPids.mockResolvedValue([]);
+  delete process.env.CADDIS_AGY_ALLOW_RUNNING;
   mockBundlePath.mockImplementation((name: string) => `/pkg/bundles/${name}`);
 });
 
@@ -45,6 +51,18 @@ function agyHome(label: string, plugins: Record<string, string | null>): string 
   }
   return home;
 }
+
+const PLUGIN_FILES = ['plugin.json', 'hooks.json', 'guard_agy.py'];
+
+/** A fake agy home whose caddis plugin holds the three files an install must leave behind. */
+function completeHome(label: string): string {
+  const home = path.join(scratch, label);
+  const dir = path.join(home, '.gemini', 'config', 'plugins', 'caddis');
+  mkdirSync(dir, { recursive: true });
+  for (const file of PLUGIN_FILES) writeFileSync(path.join(dir, file), `old ${file}`);
+  return home;
+}
+const pluginDir = (home: string) => path.join(home, '.gemini', 'config', 'plugins', 'caddis');
 
 describe('pluginManifestPath', () => {
   it('points at agy\'s own plugin manifest under the home dir', () => {
@@ -93,7 +111,7 @@ describe('agy adapter drive', () => {
   it('installs from the bundle shipped in the package', async () => {
     mockWhich.mockResolvedValue('/bin/agy');
     mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
-    const result = await agyAdapter.drive('update', { dryRun: false });
+    const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('h1') });
     expect(result.ok).toBe(true);
     expect(result.steps[0]?.command).toBe('agy plugin install /pkg/bundles/antigravity-plugin');
   });
@@ -109,7 +127,7 @@ describe('agy adapter drive', () => {
     mockWhich.mockResolvedValue('/bin/agy');
     mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
 
-    const result = await agyAdapter.drive('update', { dryRun: false });
+    const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('h2') });
 
     expect(result.ok).toBe(true);
     const installCall = mockRun.mock.calls[1];
@@ -124,7 +142,7 @@ describe('agy adapter drive', () => {
   it('does not stage (no-op) when the bundle path has no "@" -- the common npm-link/dev case', async () => {
     mockWhich.mockResolvedValue('/bin/agy');
     mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
-    const result = await agyAdapter.drive('update', { dryRun: false });
+    const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('h3') });
     const installCall = mockRun.mock.calls[1];
     expect(installCall?.[1]?.[2]).toBe('/pkg/bundles/antigravity-plugin');
     expect(result.ok).toBe(true);
@@ -163,7 +181,7 @@ describe('agy adapter drive', () => {
   it('surfaces an install failure without throwing', async () => {
     mockWhich.mockResolvedValue('/bin/agy');
     mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(fail('plugin validation failed'));
-    const result = await agyAdapter.drive('update', { dryRun: false });
+    const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('h4') });
     expect(result.ok).toBe(false);
     expect(result.steps[0]?.output).toContain('plugin validation failed');
   });
@@ -258,7 +276,7 @@ describe('agy extras (caddis-extras)', () => {
     mockRun
       .mockResolvedValueOnce(ok('1.1.7')) // detect
       .mockResolvedValueOnce(fail('core exploded'));
-    const result = await agyAdapter.drive('update', { dryRun: false, extras: true });
+    const result = await agyAdapter.drive('update', { dryRun: false, extras: true, home: completeHome('h5') });
     expect(result.ok).toBe(false);
     expect(result.steps).toHaveLength(1);
   });
@@ -272,5 +290,97 @@ describe('agy extras (caddis-extras)', () => {
     const result = await agyAdapter.drive('update', { dryRun: false, extras: true });
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/--extras requested but the antigravity-plugin-extras bundle is missing/);
+  });
+});
+
+
+describe('agy adapter drive: the release must not empty the plugin under a running agy', () => {
+  const agyUp = () => {
+    mockWhich.mockResolvedValue('/bin/agy');
+  };
+
+  it('refuses to install while agy.exe runs, names the PIDs, and runs no install', async () => {
+    agyUp();
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockAgyPids.mockResolvedValue([31160, 3572]);
+    const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('r1') });
+    expect(result.ok).toBe(false);
+    expect(result.steps).toEqual([]);
+    expect(result.message).toMatch(/agy is running/);
+    expect(result.message).toContain('31160');
+    expect(result.message).toContain('3572');
+    expect(mockRun).toHaveBeenCalled(); // the version probe ran, so "every call" is not vacuous
+    expect(mockRun.mock.calls.every(([, args]) => args[0] === '--version')).toBe(true);
+  });
+
+  it('lets a --dry-run through while agy runs, because it changes nothing', async () => {
+    agyUp();
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockAgyPids.mockResolvedValue([31160]);
+    const result = await agyAdapter.drive('update', { dryRun: true, home: completeHome('r2') });
+    expect(result.ok).toBe(true);
+    expect(result.skipped).toBe(true);
+  });
+
+  it('installs while agy runs only when CADDIS_AGY_ALLOW_RUNNING=1 is set', async () => {
+    agyUp();
+    mockAgyPids.mockResolvedValue([31160]);
+    process.env.CADDIS_AGY_ALLOW_RUNNING = '1';
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
+    const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('r3') });
+    expect(result.ok).toBe(true);
+  });
+
+  it('restores the old plugin when the install leaves it empty, and says so', async () => {
+    agyUp();
+    const home = completeHome('r4');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockImplementationOnce(async () => {
+      // What the 2026-10-08 release did: the delete went through and the copy did not.
+      rmSync(pluginDir(home), { recursive: true, force: true });
+      mkdirSync(pluginDir(home), { recursive: true });
+      return ok();
+    });
+    const result = await agyAdapter.drive('update', { dryRun: false, home });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/incomplete after the install/);
+    expect(result.message).toMatch(/restored/);
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`old ${file}`);
+    }
+  });
+
+  it('restores the old plugin when the install command fails and leaves it broken', async () => {
+    agyUp();
+    const home = completeHome('r5');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockImplementationOnce(async () => {
+      rmSync(path.join(pluginDir(home), 'guard_agy.py'));
+      return fail('copy failed');
+    });
+    const result = await agyAdapter.drive('update', { dryRun: false, home });
+    expect(result.ok).toBe(false);
+    expect(existsSync(path.join(pluginDir(home), 'guard_agy.py'))).toBe(true);
+    expect(result.message).toMatch(/restored/);
+  });
+
+  it('accepts a fresh machine whose install creates the three files', async () => {
+    agyUp();
+    const home = path.join(scratch, 'r6');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockImplementationOnce(async () => {
+      mkdirSync(pluginDir(home), { recursive: true });
+      for (const file of PLUGIN_FILES) writeFileSync(path.join(pluginDir(home), file), 'new');
+      return ok();
+    });
+    const result = await agyAdapter.drive('install', { dryRun: false, home });
+    expect(result.ok).toBe(true);
+  });
+
+  it('fails clearly on a fresh machine when the install leaves nothing to restore', async () => {
+    agyUp();
+    const home = path.join(scratch, 'r7');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
+    const result = await agyAdapter.drive('install', { dryRun: false, home });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/incomplete after the install/);
+    expect(result.message).toMatch(/nothing to restore/);
   });
 });
