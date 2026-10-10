@@ -689,7 +689,49 @@ if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
     echo "[gate] interpreter: $PY"
     py_gate ruff check .
     if py_sources_exist; then py_gate mypy .; else echo "[skip] mypy: no Python sources"; fi
-    py_gate pytest -q
+    # pytest is OPT-IN here (CADDIS_GATE_PYTEST=1). Found 2026-10-10: the full suite took 25-31 min in this
+    # hook on a box whose system disk was slow, while CI ran the same suite in 5 min - and a merge needs green
+    # CI anyway. A local gate five times slower than the check it stands in for trains people to --no-verify it.
+    # When it does run: CADDIS_GATE_TMP moves TMPDIR/TEMP/TMP (tests write to tmp_path; Python reads TMPDIR
+    # first, so set all three), CADDIS_GATE_PYTEST_ARGS adds arguments (for example "-n 4" with pytest-xdist;
+    # use a number, not "auto"), and a machine-wide lock (CADDIS_GATE_LOCK, mkdir-based, waits up to
+    # CADDIS_GATE_LOCK_WAIT seconds, a stale one is taken over after 60 min) lets only ONE pytest gate run at a time, so several repos pushing together cannot
+    # pile their suites on the same disk and CI runners.
+    if [ "${CADDIS_GATE_PYTEST:-0}" = "1" ]; then
+      if [ -n "${CADDIS_GATE_TMP:-}" ]; then
+        mkdir -p "$CADDIS_GATE_TMP" 2>/dev/null || true
+        export TMPDIR="$CADDIS_GATE_TMP" TEMP="$CADDIS_GATE_TMP" TMP="$CADDIS_GATE_TMP"
+      fi
+      LOCK="${CADDIS_GATE_LOCK:-${TMPDIR:-${TEMP:-/tmp}}/caddis-pytest-gate.lock}"
+      mkdir -p "$(dirname "$LOCK")" 2>/dev/null || true
+      lock_wait="${CADDIS_GATE_LOCK_WAIT:-1800}"
+      waited=0
+      got_lock=0
+      while :; do
+        if mkdir "$LOCK" 2>/dev/null; then got_lock=1; break; fi
+        # A stale lock is removed, then this round still sleeps and counts: if the removal fails (a lock owned
+        # by another user), the loop ends at lock_wait instead of spinning forever.
+        if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then
+          rmdir "$LOCK" 2>/dev/null || true
+        fi
+        if [ "$waited" -ge "$lock_wait" ]; then break; fi
+        if [ "$waited" -eq 0 ]; then echo "[gate] pytest: waiting for another repo's pytest gate ($LOCK)"; fi
+        sleep 1
+        waited=$((waited + 1))
+      done
+      if [ "$got_lock" -eq 1 ]; then
+        trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT INT TERM
+        # shellcheck disable=SC2086  # CADDIS_GATE_PYTEST_ARGS is meant to word-split
+        py_gate pytest -q ${CADDIS_GATE_PYTEST_ARGS:-}
+        rmdir "$LOCK" 2>/dev/null || true
+        trap - EXIT INT TERM
+      else
+        echo "[gate] pytest: another pytest gate holds $LOCK for over ${lock_wait}s - cannot run, so the gate fails" >&2
+        fail=1
+      fi
+    else
+      echo "[skip] pytest: runs in CI (set CADDIS_GATE_PYTEST=1 to run it here)"
+    fi
   fi
 fi
 if [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then

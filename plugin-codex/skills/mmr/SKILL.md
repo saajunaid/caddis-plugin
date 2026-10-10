@@ -43,9 +43,9 @@ You can trigger MMR naturally without typing the full slash command:
 
 ### 1. Run an Ad-Hoc Task
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" run "<task description>" [--type backend|tests|docs|ui|hard]
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" run "<task description>" [--type backend|tests|docs|ui|hard]
 # Shorthand:
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" "<task description>"
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" "<task description>"
 ```
 - **Sandbox Isolation:** Creates an ephemeral 1-phase plan at `.caddis/orchestrator/adhoc/<slug>.md`.
 - **Pre-flight Checks:** Verifies dirty tree and API keys. Warns if local edits exist.
@@ -58,7 +58,7 @@ python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_
 
 ### 2. Keep the Result
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" keep
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" keep
 ```
 - Keeps the output branch `lane/adhoc-<slug>`.
 - **Main Branch Protection:** If you are on `main` or `master`, direct merge is disabled to protect trunk. Recommends running `/ship-pr`.
@@ -66,7 +66,7 @@ python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_
 
 ### 3. Drop the Result
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" drop
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" drop
 ```
 - Removes a kept worktree, prunes its registration, and deletes the task branch.
 - Deletes the ephemeral plan file and run logs.
@@ -74,7 +74,7 @@ python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_
 
 ### 4. Check Status
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" status
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" status
 ```
 - Displays API key readiness for all lanes (`Anthropic`, `DeepSeek`, `GLM`, `OpenAI`).
 - Shows the latest task status, model used, and gates/review verdicts.
@@ -82,9 +82,9 @@ python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_
 
 ### 5. Review Diff Only
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" review [--range <range>]
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" review [--range <range>]
 # Shorthand (no args):
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py"
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py"
 ```
 - Fast cross-model review of working tree or git range (e.g., `origin/main..HEAD`). A range can also be passed directly as the first argument.
 
@@ -93,8 +93,8 @@ python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_
 ## Tool Resolution
 Resolve `caddis_adhoc.py` deterministically:
 ```bash
-if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py" ]; then
-  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.137/scripts/caddis_adhoc.py"
+if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py" ]; then
+  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_adhoc.py"
 elif [ -f "scripts/caddis_adhoc.py" ]; then
   TOOL="scripts/caddis_adhoc.py"
 else
