@@ -6,7 +6,7 @@
 > **Original Branch**: `fix/juno-ux-polish-v2`
 > **Created**: 2026-02-18
 > **Plan Completed**: 2026-02-19
-> **Last Updated**: 2026-02-20 (Advisory Hub session updates)
+> **Last Updated**: 2026-02-20 (orchestration session updates)
 > **Goal**: Make the entire `.github/` AI resources pool portable, generic, and properly wired for automated multi-agent workflows with intent preservation and artifact lifecycle management.
 
 ---
@@ -610,9 +610,9 @@ Phase 7 (Verification) ──► depends on all above
 
 ---
 
-## Post-Completion: Advisory Hub Session Updates (2026-02-20)
+## Post-Completion: Orchestration Session Updates (2026-02-20)
 
-After the 7-phase pool overhaul was completed, a follow-up Advisory Hub session extended the workflow infrastructure with the additions below. These are recorded here because this document is the canonical design reference for the entire agent workflow system.
+After the 7-phase pool overhaul was completed, a follow-up orchestration session extended the workflow infrastructure with the additions below. These are recorded here because this document is the canonical design reference for the entire agent workflow system.
 
 ### Update 1 — Agent Orchestration Blueprint (SKILL.md)
 
@@ -620,26 +620,14 @@ After the 7-phase pool overhaul was completed, a follow-up Advisory Hub session 
 **Registered in**: `.github/skills/_registry.md` (Workflow category)
 **Wired into**: Plan, Architect, Implement, Debug agents (skill reference added to each)
 
-Captures the **Advisory Hub methodology** — a reusable orchestration pattern for multi-agent feature development:
+Captures the **orchestration methodology** — a reusable orchestration pattern for multi-agent feature development:
 
 - **6-Stage Pipeline**: Triage → Spec/ADR → Plan → Absorb → Execute (Track phases) → Review/Debug
-- **Decision Framework**: When to use Advisory Hub vs. Project Chat (single-agent)
+- **Decision Framework**: When to use a multi-agent pipeline vs. Project Chat (single-agent)
 - **Anti-Patterns**: Context fragmentation, premature implementation, skipping gates
 - **Session Templates**: Fresh start, continuation, directed tasks
 - **Commit Discipline**: Feature commits at each milestone, conventional commit format
 - **Real-World Reference**: Juno UX Polish v2 (Track B phases 1-5, fix-up, Track A ADR)
-
-### Update 2 — `/advisoryhub` Slash Command (Prompt)
-
-**Created**: `.github/prompts/advisory-hub.prompt.md`
-**Registered in**: `.github/prompts/README.md`
-
-Entry point for Advisory Hub mode — auto-detects session type:
-- **Fresh Start** → intake questions (what are we building? constraints? existing artifacts?)
-- **Continuation** → scans `plans/`, `handoffs/`, git log → presents status dashboard
-- **Directed** → routes to appropriate pipeline stage (e.g., "plan Track A" → Planner agent)
-
-Includes: status dashboard format, pipeline stage routing table, session rules.
 
 ### Update 3 — `agent-docs/` Sub-Folder Scaffolding
 
@@ -719,8 +707,7 @@ All documents that together form the complete agent workflow reference:
 ### Tier 3 — Operational (Skills & Prompts)
 | Document | Location | Purpose |
 |----------|----------|---------|
-| **Agent Orchestration SKILL** | `skills/workflow/agent-orchestration/SKILL.md` | Reusable Advisory Hub methodology — agents load this for multi-agent coordination |
-| **Advisory Hub Prompt** | `prompts/advisory-hub.prompt.md` | `/advisoryhub` entry point — auto-detect, status dashboard, pipeline routing |
+| **Agent Orchestration SKILL** | `skills/workflow/agent-orchestration/SKILL.md` | Reusable orchestration methodology — agents load this for multi-agent coordination |
 | **Skills Registry** | `skills/_registry.md` | Master index of all 88 skills with categories and paths |
 
 ### Tier 4 — Artefact Tracking
@@ -739,7 +726,7 @@ If context window runs out mid-session:
 
 1. Open this reference: `.github/diagrams/agent-workflow-design-reference.md`
 2. Read the **Context & Decisions** section — all design decisions, protocol definitions, pipeline architecture
-3. Read the **Advisory Hub Session Updates** section — post-completion enhancements
+3. Read the **Orchestration Session Updates** section — post-completion enhancements
 4. Read the **Agent Workflow Knowledge Base Map** — understand which docs exist and what they cover
 5. Check `agent-docs/ARTIFACTS.md` for current artefact statuses
 6. Read `project-config.md` for project-specific values

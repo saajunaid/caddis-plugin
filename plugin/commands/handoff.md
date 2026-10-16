@@ -10,6 +10,42 @@ daily: true
 You are ending a work session. Produce/refresh this workstream's resume doc (`.caddis/relay/<name>.md`) so the next session
 (you, a future you, or another agent on any tool) can resume immediately. This is the anti-context-rot checkpoint.
 
+## Step 0 — is this a shared checkout?
+Another session may have uncommitted edits in this checkout. A handoff that commits here can carry
+them into its commit, so check first, before Step 1.
+
+1. Write this session's own files to a temp file: copy the list under `## Files changed this session`
+   in `.caddis/session-state/<session-id>.md` (the `` - `path` `` lines can be copied as they are).
+   No state file or no list means an empty file.
+2. Run:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_checkout_guard.py" shared --root . --own-files <temp-file>
+   ```
+   It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the root `AGENTS.md`
+   has a line `Shared checkout: yes`, or when `git status` lists a path this session did not change.
+3. **On `SHARED: no`,** do the steps below as written.
+4. **On `SHARED: yes`,** write NO tracked file in this checkout. Run:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_docs_pr.py" start --repo .
+   ```
+   It makes a new worktree from `origin/<default>` on a `docs/handoff-<utc>` branch and prints
+   `WORKTREE: <path>`. That worktree is this session's only; no other session's edits can enter it.
+   Then, in the steps below:
+   - Step 1: tell the `knowledge-transfer` subagent to edit files ONLY under the `WORKTREE:` path.
+   - Step 3, point 4: run `caddis_rows.py set --file <worktree>/.caddis/open-work.md ...`, and make the
+     plan's Tracker edit in `<worktree>/.caddis/plans/<feature>.md`, not in this checkout.
+   - Step 4: skip `caddis_tidy.py --apply` (report `skipped: shared checkout`).
+   - Step 6b: skip `session_state.py prune` (report `skipped: shared checkout`).
+   - The relay stays in this checkout: `.caddis/relay/` is local and gitignored.
+   After Step 6b, run:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_docs_pr.py" finish --worktree <path> --title "docs(handoff): <name> session notes" --body "Handoff doc edits from a shared checkout."
+   ```
+   It commits only the worktree's changed files, pushes, opens a PR, and prints `PR: <url>` and one
+   `FILE: <path>` line per file (or `PR: none` when nothing changed). It always removes the worktree, and
+   it never merges. On a failure it prints `PATCH: <path>` with the edits; report that path. Put the
+   `PR:` line and the file list in your final report, under `Docs PR needed:`.
+
 ## Step 1 — capture learnings FIRST (knowledge-transfer)
 **Before** gathering git signals or writing relay.md, decide on `knowledge-transfer` — and the default
 is to run it.
@@ -38,7 +74,7 @@ committed before its generator last changed. Paste the parts a next session need
 them from memory.
 
 **Why this step is mechanical.** A handover used to be composed from what the outgoing session
-remembered, so it was only ever as complete as that memory. Bringing one Hub to a usable state took
+remembered, so it was only ever as complete as that memory. Bringing one successor session to a usable state took
 nine corrective round trips and the user caught six of them — including *"the handover listed no
 reports, documents, KB notes or scripts"*. None of those are judgement calls; every one is a
 directory listing. An agent recalls **what it did**; a generator enumerates **what exists**, and
@@ -55,39 +91,7 @@ clean phase boundary and lose or double-do the work.
 tracker shows plan A in progress, but the work moved to plan B), suggest the user run `/digress` to park
 plan A on the workstream stack — so its exact resume point survives and `/catchup [name]` can pop it back later.
 
-## Step 2b — Advisory-Hub handoff audit (conditional — skip silently if not applicable)
-
-**Trigger:** the active plan found in Step 2 has a sibling `<slug>-advisory-context.md`. **No such file
-→ skip this step entirely and silently** — no extra work on an ordinary handoff.
-
-> **First, say which command the user actually wants.** A context doc means a Hub is running, and
-> handing over a Hub is `/caddis:spawn-hub`, not this command. The two look interchangeable from
-> outside and are not: `/handoff` writes a resume doc for the same workstream, while `spawn-hub`
-> ends the Hub's tenure, runs the mechanical audit, conserves the carried-open ledger, and files
-> `hub-NN.spawn.md` in `.caddis/advisory-hub-reports/`. Tell the user plainly, then continue only if
-> they still want a plain handoff.
-
-**Why it is a distinct step:** a context doc is written *before* the work happens, so it is **always
-stale by the time it is needed**. The outgoing Hub's instinct is always "yes, this doc is designed for
-exactly this" — **that instinct has been measured and found wrong**: a real audit found seven gaps in a
-context file the outgoing Hub believed was current, including the single highest-value technique the Hub
-had developed by then.
-
-**Do not ask "are there gaps?" Assume there are, and find them mechanically** (full detail: the
-`advisory-hub` skill's §G):
-1. **List every technique, decision, and correction you actually used this session** — from your own
-   actions in this transcript, not by re-reading the context doc.
-2. **For each, check whether the context doc's instruction itself already covers it** — not whether the
-   word appears. Would a fresh Hub, reading only that file, be told to do the same thing?
-3. **The caveat that will burn you:** a literal-string grep over prose produces **false MISSINGs**. A
-   `0 matches` result means "this exact string isn't here," not "this isn't covered." **Read the section
-   before believing a 0-match grep.**
-4. **Land every real gap as a durable rule** in the right section of the advisory-context, carrying the
-   specific failure that earned it — a note left for later is not a fix.
-
-Record the outcome in relay.md's `## Learnings captured` line (below).
-
-## Step 2c — was any of it the harness?
+## Step 2b — was any of it the harness?
 
 <!-- shared:harness-friction-question — keep byte-identical across commands; a test pins it -->
 **One question, asked here because here is where you are already reflecting.** The observations
@@ -113,7 +117,7 @@ Nothing to say is the normal answer. Say nothing and move on — this must not b
 > `session_id` and `--session-id`. Never guess one: a wrong id disables session matching.
 >
 > 1. **Name the workstream** (active plan's `feature`, else the branch; the script prints nothing
->    on the default branch with no plan — then ask the user for a short name):
+>    on the default branch with no plan — run `caddis_workstreams.py list` (`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" list`) to show existing workstreams, then ask the user which one to use or for a short name):
 >    `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
 > 2. **Legacy repo:** if `.caddis/relay.md` exists and does not start with
 >    `<!-- caddis-workstream-index-v1 -->`, or an old `/digress` stack `.caddis/workstreams.json`
@@ -122,11 +126,21 @@ Nothing to say is the normal answer. Say nothing and move on — this must not b
 >    to the user and stop.
 > 3. **Read the stored version's hash** before you compose: `caddis_workstreams.py hash <name>`
 >    (prints `none` for a new workstream).
-> 4. **Write** the relay below to a temp file, then
->    `caddis_workstreams.py write <name> <temp-file> --expected-hash <hash>`. Exit 1 means another
->    session changed the relay since step 3: it prints the diff and writes nothing. Show the diff,
->    merge by hand, and retry with the new hash. Never force it.
-> 5. **Refresh the index:** `caddis_workstreams.py render-index --session-id <id> --branch <branch>`.
+> 4. **Open-work rows** (only when `.caddis/open-work.md` exists and its frontmatter says
+>    `type: open-work`): first set each row this session
+>    finished, by id and column name, never by hand:
+>    `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_rows.py" set --file .caddis/open-work.md --id <row id> --col Status=done --col Evidence=<evidence>`.
+>    In a shared checkout (Step 0), use `--file <worktree>/.caddis/open-work.md` instead.
+>    **Order of work:** when the repo has a roadmap (`caddis_roadmap.py list` prints a slug), the
+>    roadmap on origin is the order of work. Write the relay's "Next step (exact)" as
+>    `next: top open item of roadmap <slug> (caddis_roadmap.py status --roadmap <slug>)`. Never copy a
+>    list of open items into the relay.
+> 5. **Write** the relay below to a temp file, then
+>    `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" put <name> <temp-file> --require-status --expected-hash <hash>`.
+>    It refuses a relay whose last line is not a valid status line (see "Programme triggers" below).
+>    Exit 1 also means another session changed the relay since step 3: it prints the diff and writes
+>    nothing. Show the diff, merge by hand, and retry with the new hash. Never force it.
+> 6. **Refresh the index:** `caddis_workstreams.py render-index --session-id <id> --branch <branch>`.
 >
 > (Source checkout: `scripts/caddis_workstreams.py`.) A repo still on the pre-rename `.claudster/`
 > won't see this relay until it's converted — `/caddis:migrate-dir` does that.
@@ -156,6 +170,7 @@ generated:
 <The single next action. Include the command/phase. Add a fallback if blocked.>
 
 ## Read first on resume
+Paths are relative to the repo root.
 - `<path>` — why it matters
 - `.caddis/plans/<feature>.md` — the plan + tracker
 
@@ -167,18 +182,26 @@ generated:
 
 ## Learnings captured
 knowledge-transfer: <✓ ran → files written | ✗ skipped → reason>
-advisory-context audit: <N candidates → M gaps → landed in <path>> | n/a (no advisory-context for this plan)
 
 ## Resume prompt
 \`\`\`
 Read .caddis/relay/<name>.md, then the plan it points to. Continue from <phase/step>. Next action: <exact>.
 \`\`\`
+
+STATUS: <CONTINUE | OWNER-GATE <P>-OG<n> | BLOCKED <owner> | FAILED <reason>>
 ```
+
+## Programme triggers
+
+Small work that does not meet a trigger skips its block.
+
+**Trigger: Always.** The relay ends with a status line, the last non-empty line, and it is exactly one of `STATUS: CONTINUE`, `STATUS: OWNER-GATE <P>-OG<n>`, `STATUS: BLOCKED <owner>` or `STATUS: FAILED <reason>`. In Step 3, point 5, write the relay with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" put <name> <temp-file> --require-status --expected-hash <hash>` instead of `write` (in short: put --require-status), with the same hash Step 3 read, so a peer's newer relay is never overwritten. It rejects a relay with no valid status line, and renders the index. When the repo has `.caddis/open-work.md` with `type: open-work` in its frontmatter, also set each open-work row's status with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_rows.py" set --file <open-work.md> --id <row id> --col Status=<status>` (in a shared checkout, the copy in the Step 0 worktree). When the status is `done`, also pass `--col Evidence=<commit, PR or test>`: caddis_rows.py refuses `done` with no Evidence.
 
 ## Step 4 — tidy finished artifacts
 Flip any plan/prompt's frontmatter `status:` to `done` (or `superseded`) if this session actually
 finished it — that is your judgment call; the script below never makes it and never auto-flips
-status. Then run:
+status. In a shared checkout (Step 0), make the `status:` flip in the Step 0 worktree copy of the plan,
+never in this checkout. Then run (skip it in a shared checkout, Step 0: it moves tracked files):
 ```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply
 ```
@@ -186,7 +209,13 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply
 skip this step** — it degrades open, same as the other machine gates; an older install must not
 be blocked by a script it does not have. Include its report in your output. A **collision**
 (`done/<name>` already exists) is reported by the script, not fatal — surface it, do not fail the
-handoff over it.
+handoff over it. Exit 2 means a plan is held because its Tracker still has open rows (`held (open Tracker rows): ...` lines, from Phase 3): show those lines; finish, park (`.caddis/parking-lot/<file>.md` in the row) or mark the rows `dropped: <reason>`, or set the plan status back. Do not fail the handoff over it.
+
+After step 4, for each item this session closed (a phase `<plan>#<n>`, a plan slug, or an open-work row id), run `mentions` to check whether another relay's Next step still names it:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" mentions --item "<item>" --except <name>
+```
+Print a `WARNING:` line per hit (`WARNING: relay <other> still names closed item <item> in its Next step`). Never edit another workstream's relay (`caddis_workstreams.py mentions` only reads).
 
 ## Step 5 — check the handover you just wrote
 
@@ -199,7 +228,7 @@ report that repo's paths as missing, which is the tool being right about the wro
 
 It fails when the handover names a file that does not exist. The incoming session has **no other
 source** for those paths, so it cannot tell a typo from a real file: one live handover sent an
-incoming Hub looking for a prompt that was never written. Fix what it lists, then re-run.
+incoming session looking for a prompt that was never written. Fix what it lists, then re-run.
 
 It also notes any generated artefact committed before its generator last changed. That is advisory,
 not blocking — but do not quote a report the note names without rebuilding it first.
@@ -221,7 +250,8 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/session_state.py" prune
 `usage` finds this session's transcript by its id and appends one token-and-skill record to
 `.caddis/usage-log.jsonl`, which `/usage-review` reads. Pass `--transcript <path>` if you know the
 path and it is not under the Claude config folder. `prune` keeps the newest 8 files in
-`.caddis/session-state/`; run it after Step 6, which reads this session's file. Include the
+`.caddis/session-state/`; run it after Step 6, which reads this session's file. Skip `prune` in a
+shared checkout (Step 0). Include the
 `[USAGE]` line in your output. Both always exit 0; if the script is missing, skip this step.
 
 Then list old local state (falls back to `scripts/caddis_tidy.py`; skip if missing):
@@ -249,10 +279,9 @@ On the other machine, `/catchup <name>` fetches it.
   order: (1) interrupted mid-phase work → finish + commit it; else (2) the active plan's next not-started
   phase; else (3) the top open question/decision. Everything else is context, not the next step.
 - Only verified facts and real paths. Mark anything unconfirmed as `Unknown`.
-- Update the plan's tracker rows too (status + last commit) — relay and tracker must agree.
+- Update the plan's tracker rows too (status + last commit) — relay and tracker must agree. In a shared
+  checkout, edit the Tracker in the Step 0 worktree, never in this checkout.
 - Don't commit unless asked. Report which `.caddis/relay/<name>.md` was written and the one next action.
-- **Never hand off a Hub session on the strength of "the context doc is designed for this."** That is the
-  one instinct that has been measured and found wrong. Run Step 2b's audit instead.
 - **Prune the Done section — two rules, both apply:**
   1. **Merge-based:** Phases already merged to `main` (confirmed by a tag or commit) must be compressed
      to a single line: `- **RW-N**: merged to main as vYYYY.MM.DD.N (<commit>) ✅`. Only the current

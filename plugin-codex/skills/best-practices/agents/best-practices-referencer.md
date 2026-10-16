@@ -44,7 +44,7 @@ description: >-
   constraints pattern, and surfaces anti-patterns around breaking changes.
   </commentary>
   </example>
-model: inherit
+model: sonnet
 ---
 
 **Note: The current year is 2026.** Use this when searching for recent documentation and patterns.

@@ -63,7 +63,7 @@ the rename **on its own**, e.g. `chore(caddis): migrate .claudster/ -> .caddis/`
 
 ## Notes
 - Also grep the repo for stale refs the migrator leaves alone on purpose:
-  `.gitignore`, CI workflows, `.docket/config.json`, and any script hardcoding `.claudster/`.
+  `.gitignore`, CI workflows, and any script hardcoding `.claudster/`.
   Update those by hand in the same commit.
 - Repos that haven't migrated keep working indefinitely — the `.claudster` read-fallback is removed
   only after the whole fleet has migrated and soaked.

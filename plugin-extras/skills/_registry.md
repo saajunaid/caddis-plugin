@@ -53,6 +53,7 @@
 | Changelog Generator | `changelog-generator/` | Create user-facing changelogs and release notes from git commit history, grouping changes and rewriting technical commits in plain language. |
 | Deploy Local | `deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
 | Monorepo | `monorepo/` | Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting. |
+| Runner Move | `runner-move/` | >- |
 | Safe Cleanup | `safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
 | Update Readme | `update-readme/` | Detect feature commits and update README sections (Features, API, Usage) to match, then stage only the README. Use when features, routes or components were added. |
 
@@ -61,7 +62,6 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Architecture Document | `architecture-document/` | Generate enterprise HLD and LLD documents from the living Architecture.md, as DOCX (editable) or PPTX (executive summary). |
-| Data Lineage | `data-lineage/` | Generates End-to-End Data Lineage and Telemetry Specifications linking UI pages, API routes, database datasets, and ETL/SP producers for watch-sight observability. |
 | Doc Coauthoring | `doc-coauthoring/` | Structured workflow for co-authoring documentation: transfer context, refine by iteration, test it on readers. Use when the user is writing docs, proposals, technical specs or decision docs. |
 | Documentation Analyzer | `documentation-analyzer/` | Analyze a codebase, explain what the code does, and generate documentation such as README files. |
 | Hld | `hld/` | Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
@@ -135,7 +135,6 @@
 | File Organizer | `file-organizer/` | Organize files and folders by context: find duplicates, suggest better structures, automate cleanup. |
 | Game Changing Features | `game-changing-features/` | Find 10x product opportunities and high-leverage features. Use when the user mentions '10x', says 'what would make this 10x better', 'product strategy', or 'what should we build next'. |
 | Golden Nuggets | `golden-nuggets/` | Extract durable tribal knowledge ('gold nuggets') from a codebase or changed files and route each to an instruction file, runbook, hub or CI review inbox. Use after a feature, fix, sprint, incident or release. |
-| Golden Plan | `golden-plan/` | Use when the user asks for a comprehensive multi-phase plan (full-stack, UI + backend), says 'create a plan for building X', 'plan this project', 'I need a detailed plan', 'build plan', 'implementation plan', or attaches a mockup and asks how to build it. Produces an evidence-gated plan with self-contained phase prompts and validation gates. |
 | Intent Writer | `intent-writer/` | Structure freetext ideas, backlog items, or vague requirements into a formal Intent Document that preserves user intent across the entire agent pipeline chain. |
 | Receiving Code Review | `receiving-code-review/` | Use when receiving code review feedback, before implementing it, especially if it seems unclear or wrong: verify with technical rigor, no performative agreement or blind implementation. |
 | Setup Project Ai | `setup-project-ai/` | Install or refresh the agent-agnostic harness in a project: AGENTS.md rules with CLAUDE.md shims, subagents, commands and settings. Use when setting up AI resources on a project, or the user says 'set up the harness', 'setup-project-ai', 'generate CLAUDE.md', 'onboard this project to Claude Code / Codex / agy', or runs /setup-project-ai. |

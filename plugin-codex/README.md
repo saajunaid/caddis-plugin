@@ -17,7 +17,7 @@ Nothing to set: the skills find their scripts in the installed plugin folder.
 
 | | |
 |---|---|
-| `skills/` | the caddis skill pool, plus all 41 commands reshaped into skills |
+| `skills/` | the caddis skill pool, plus all 38 commands reshaped into skills |
 | `scripts/` | the scripts those skills call |
 | `agents/` | agent definitions |
 

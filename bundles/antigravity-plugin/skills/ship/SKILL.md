@@ -48,20 +48,8 @@ Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope
 **2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-**Run the trigger, do not eyeball the diff:**
-
-```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
-```
-
-Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
-Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
-picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
-gets switched off inside a week.
-
-It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
-over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
-what failed.
+Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
 **3. PUSH** — to the repo's default branch (confirm the branch first; don't assume `main`):
@@ -116,6 +104,18 @@ Prod/Target SHA: matches ✓ | n/a
 Health:          green ✓ | n/a
 Release tag:     <tag> → <sha> | n/a
 ```
+
+## Programme triggers
+
+Small work that does not meet a trigger skips its block.
+
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_merge_chain.py"` does this check.
+
+**Trigger: A peer session is known.** A relay or a SessionStart warning names another session on this repo. Before the merge, send each named peer session a message (SendMessage or the peer channel). It is a notice, never a request for permission.
+
+**Trigger: Always, when the repo deploys on push.** After the merge, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_prod_check.py" <sha>` with the repo's profile, `.caddis/prod-check.toml`. The script resolves a short SHA to the full SHA first, or refuses with exit 4. A repo with no profile gets items 1 and 2 only, and the script says so.
+
+**Trigger: Two or more reviewed green PRs wait to merge.** Combine them into one release PR (the global rule of 2026-10-10): merge their branches into one release branch, run the gates once, open one release PR that links the components, then close the components with a link.
 
 ## Rules
 - Never push before preflight gates are green.

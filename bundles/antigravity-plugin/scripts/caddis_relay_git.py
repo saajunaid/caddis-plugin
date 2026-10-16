@@ -124,8 +124,8 @@ def fetch_relay(repo: Path, workstream: str, *, replace: bool = False) -> str:
 
 
 def _headless() -> bool:
-    """No human is watching: the caddis launchers and the docket runner set these."""
-    return any(os.environ.get(name) for name in ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH"))
+    """No human is watching: the caddis launchers set CADDIS_HEADLESS."""
+    return bool(os.environ.get("CADDIS_HEADLESS"))
 
 
 def main(argv: list[str] | None = None) -> int:

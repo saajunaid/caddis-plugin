@@ -127,7 +127,6 @@ Auto-load these skills when the condition matches — do not skip.
 
 | Task | Load This Skill |
 |------|----------------|
-| Large comprehensive implementation plans (8+ phases, full-stack, complex data binding) | `.github/skills/workflow/golden-plan/SKILL.md` ⬅️ USE FOR LARGE BUILDS |
 | Writing implementation plans (small–medium, TDD micro-tasks, < 8 phases) | `.github/skills/docs/writing-plans/SKILL.md` |
 | Agent orchestration methodology | `.github/skills/workflow/agent-orchestration/SKILL.md` |
 | Analyzing existing codebase | `.github/skills/docs/documentation-analyzer/SKILL.md` |

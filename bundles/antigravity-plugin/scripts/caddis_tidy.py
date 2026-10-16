@@ -32,13 +32,25 @@ DESIGN (locked, see the plan doc — do not re-litigate here)
   whose document is gone are only counted, never deleted. Only a file git both ignores and does not track qualifies. Relays,
   to-dos, symlinks and anything outside `.caddis/` are never touched; lane worktrees older than
   7 days are only reported. It lists by default; `--prune --apply` deletes.
+- Tidy is part of finishing (caddis-next Phase 13): `--check` also fails on a plan whose Tracker
+  is all done but whose status is still active, because the finishing PR should have closed it.
+  `--check --commit-range` checks only the files `git diff` says the range changed, so problems
+  already in a repo never block an unrelated PR. It first refuses when any of those files has an
+  uncommitted change (the check would read a file that is not what the PR ships), and a range git
+  cannot read prints only that error, never an unfiltered list.
+- `--only <plan> [<plan> ...]` limits a run to those top-level plans: nothing else is moved or
+  stamped. `/implement` closes the plan it finished with it, so another session's finished work
+  is never swept into this PR.
 
 Usage:
   python scripts/caddis_tidy.py                 # report only (default = dry-run)
   python scripts/caddis_tidy.py --apply          # actually move terminal-status artifacts
+  python scripts/caddis_tidy.py --apply --only .caddis/plans/<plan>.md   # close this plan only
   python scripts/caddis_tidy.py --check          # conformance check; exit 1 on a violation
   python scripts/caddis_tidy.py --repo-root <p>  # scan a different repo (default: cwd)
   python scripts/caddis_tidy.py --commit-range origin/main..HEAD   # also read parking trailers
+  python scripts/caddis_tidy.py --check --commit-range origin/main..HEAD  # check only the files
+                                                 # this range changed (what /ship-pr runs)
   python scripts/caddis_tidy.py --prune          # list old local state that could be deleted
   python scripts/caddis_tidy.py --prune --apply  # delete it (the user's choice, never automatic)
 """
@@ -83,17 +95,14 @@ TERMINAL_STATUSES = {"done", "superseded", "shipped", "implemented"}
 LEGACY_FRONTMATTER_EXEMPT = {
     "prompts/caddis-rename-and-publish.md",
     "prompts/db-diagram-fix-er-arrows-theme-formatting.md",
-    "prompts/docket-phase-2c-ux-correctness.md",
-    "prompts/docket-phase-3-f12-worktree.md",
-    "prompts/docket-reaudit-f12-and-pipeline-runner.md",
     "prompts/driver-remaining-toolchain-work.md",
     "prompts/fable-inspect-claudster.md",
-    "prompts/fable-inspect-docket.md",
-    "prompts/fable-verify-docket-reaudit.md",
 }
 
 # A Markdown table rule such as `|---|:---:|`.
 _TABLE_RULE_RE = re.compile(r"^\|(\s*:?-+:?\s*\|)+\s*$")
+# A plan's phase heading, `### Phase 3 ...` or `### Phase 3b ...`; group 1 is the phase id.
+_PHASE_HEADING_RE = re.compile(r"^###\s+Phase\s+(\d+[A-Za-z]?)(?![A-Za-z0-9])", re.M)
 # Commit trailers that close or annotate a parking-lot item. Keys compare case-insensitively,
 # as git's own trailer keys do.
 _PARKED_TRAILERS = {"resolves-parked": "resolves", "partly-resolves-parked": "partly"}
@@ -105,7 +114,7 @@ _KINDS = ("plans", "prompts", "parking-lot")
 # ── parking-lot: the ONE register of future work ────────────────────────────────────────────
 # Before this landed, future work lived in nine places at once (measured 2026-08-14 in this repo):
 # individual parking-lot files, a 90 KB `future-work-register.md`, parked plans, relay.md's
-# "things owed", KB notes, `.caddis/plans/backlog/`, the comms register, docket, and the Hub's
+# "things owed", KB notes, `.caddis/plans/backlog/`, the comms register, an external task board, and the Hub's
 # carried-open lists. Nothing was wrong with any single one; the DEFECT was that a reader had to
 # know all nine to answer "what is left to do?". Nobody did, so items were re-raised and dropped.
 #
@@ -165,7 +174,73 @@ def tracker_complete(text: str) -> bool:
         seen.add(number)
         if not caddis_todo._is_done(cells[status_at]):
             return False
+    # A `### Phase N` heading with no row for N is a phase the Tracker forgot, not a finished one.
+    # Ids compare as written: a `3b` heading needs a `3b` row, and a row is a whole number, so a
+    # plan with a lettered phase is never closed by tidy (a look costs less than a hidden plan).
+    rows = {str(n) for n in seen}
+    if any(m.group(1).lower() not in rows for m in _PHASE_HEADING_RE.finditer(text)):
+        return False
     return bool(seen)
+
+
+# A cell that STARTS with `dropped:` and a reason excuses an open row. `not dropped: x` does not.
+_DROPPED_CELL_RE = re.compile(r"^dropped:\s*\S", re.IGNORECASE)
+_PARKING_REF_RE = re.compile(r"\.caddis/parking-lot/(?:done/)?([A-Za-z0-9][A-Za-z0-9._-]*\.md)")
+# Same phase-id rule as caddis_roadmap: `2`, `2a`, `Phase 2`, `P2`.
+_ROW_PHASE_RE = re.compile(r"^\|\s*(?:phase\s+|p)?(\d+[a-z]?)\b", re.IGNORECASE)
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+
+
+def _row_cells(line: str) -> list[str]:
+    """Stripped cells of one table line, split on unescaped pipes only (as caddis_rows.split_cells)."""
+    parts = _UNESCAPED_PIPE_RE.split(line.strip())
+    if parts and parts[0] == "":
+        parts.pop(0)
+    if parts and parts[-1] == "":
+        parts.pop(-1)
+    return [part.strip() for part in parts]
+
+
+def open_tracker_rows(path: Path) -> list[tuple[str, str]]:
+    """Return `(phase_id, row_line)` for every open phase row in `path`'s `## Tracker` table.
+
+    No Tracker, or a Tracker with no Status column, gives [].
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    table = caddis_todo.tracker_table(text)
+    if table is None:
+        return []
+    columns, lines = table
+    if "status" not in columns:
+        return []
+    status_at = columns.index("status")
+    out: list[tuple[str, str]] = []
+    for line in lines:
+        match = _ROW_PHASE_RE.match(line.strip())
+        if match is None or _TABLE_RULE_RE.match(line.strip()):
+            continue
+        cells = _row_cells(line)
+        if len(cells) <= status_at:
+            continue
+        if not caddis_todo._is_done(cells[status_at]):
+            out.append((match.group(1), line))
+    return out
+
+
+def _row_excused(repo_root: Path, row_line: str) -> bool:
+    """True when one cell starts with `dropped: <reason>`, or a cell names a parking-lot file that
+    exists (open, or already moved to `.caddis/parking-lot/done/`)."""
+    lot = repo_root / ".caddis" / PARKING_LOT_DIR
+    for cell in _row_cells(row_line):
+        if _DROPPED_CELL_RE.match(cell):
+            return True
+        for name in _PARKING_REF_RE.findall(cell):
+            if (lot / name).is_file() or (lot / "done" / name).is_file():
+                return True
+    return False
 
 
 def _set_header(text: str, fields: dict[str, str]) -> str | None:
@@ -276,11 +351,34 @@ class Report:
     # useless to the agent that has to fix it - it needs to know WHICH rule and WHAT the legal
     # values are, in the failure text, without opening another document.
     violations: list[tuple[Path, str]] = field(default_factory=list)
+    # --check only: plans whose Tracker is all done while `status:` is still active, with that
+    # status. The finishing PR should have run --apply; these fail --check.
+    tracker_done_open: list[tuple[Path, str]] = field(default_factory=list)
+    # --commit-range only: repo-relative posix paths the range changed.
+    in_range: set[str] | None = None
+    # --only only: named plans that did not move, with the reason.
+    not_moved: list[tuple[Path, str]] = field(default_factory=list)
+    # --apply only: files left alone because git shows uncommitted changes in them (another
+    # session's edit in a shared checkout). Neither moved nor rewritten; not an error.
+    dirty_skipped: list[Path] = field(default_factory=list)
+    # --apply only: git status could not be read in a git repo, so nothing was moved or rewritten.
+    dirty_check_failed: str | None = None
+    # Terminal plans (`done`/`shipped`/`implemented`) held at the top level because `## Tracker`
+    # still has unexcused open rows: (plan_path, [phase_ids]).
+    open_rows_held: list[tuple[Path, list[str]]] = field(default_factory=list)
+    # True when the run stopped before reading any artifact (an unreadable range, dirty files in
+    # the range, a bad --only path). Only `errors` means anything then.
+    refused: bool = False
 
     @property
     def blocked(self) -> bool:
         """True when --apply must not (or did not) finish: a collision or an error."""
         return bool(self.collisions or self.errors)
+
+    def refuse(self, message: str) -> "Report":
+        self.errors.append(message)
+        self.refused = True
+        return self
 
     def check_violations(self) -> int:
         return len(self.check_flagged)
@@ -315,6 +413,29 @@ def _collides(src: Path) -> bool:
     done_dir = src.parent / "done"
     dst = _destination(src)
     return (done_dir.exists() and not done_dir.is_dir()) or dst.exists() or dst.is_symlink()
+
+
+def _dirty_paths(repo_root: Path) -> set[str] | None:
+    """Repo-relative posix paths with uncommitted changes to tracked files (modified, staged, renamed,
+    deleted), from `git status --porcelain -z`. Untracked files are not listed: tidy moves them with a
+    plain rename that stages nothing. None when git status cannot be read."""
+    result = _git_run(repo_root, "status", "--porcelain", "-z", "--untracked-files=no")
+    if result is None or result.returncode != 0:
+        return None
+    dirty: set[str] = set()
+    entries = result.stdout.decode("utf-8", "replace").split("\0")
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        dirty.add(entry[3:])
+        if entry[0] in "RC" or entry[1] in "RC":  # a rename or copy names its source in the next field
+            if i < len(entries) and entries[i]:
+                dirty.add(entries[i])
+            i += 1
+    return dirty
 
 
 def _move_one(repo_root: Path, src: Path, report: Report) -> None:
@@ -382,10 +503,7 @@ def parked_resolutions(root: Path, commit_range: str) -> list[Resolution]:
     """Every `Resolves-Parked:` / `Partly-Resolves-Parked:` trailer in `commit_range`, oldest
     commit first. Reads git only; changes nothing. Raises ValueError when git cannot read the
     range, so the caller can refuse the whole run instead of acting on half an answer."""
-    # `A..B` only: a bare ref would read the whole history, and `A...B` adds the base's own
-    # commits, neither of which is the change being tidied.
-    if commit_range.startswith("-") or commit_range.count("..") != 1 or "..." in commit_range:
-        raise ValueError(f"not a commit range (use BASE..HEAD): {commit_range!r}")
+    _check_range_ok(commit_range)
     try:
         done = subprocess.run(
             ["git", "log", "--reverse", "--date=short", f"--abbrev={_SHA_ABBREV}",
@@ -468,6 +586,101 @@ def _plan_parked(root: Path, commit_range: str, report: Report,
             report.noted.append(res.path)
 
 
+def _check_range_ok(commit_range: str) -> None:
+    """`A..B` only: a bare ref would read the whole history, and `A...B` adds the base's own
+    commits, neither of which is the change being tidied. Raises ValueError otherwise."""
+    if commit_range.startswith("-") or commit_range.count("..") != 1 or "..." in commit_range:
+        raise ValueError(f"not a commit range (use BASE..HEAD): {commit_range!r}")
+    base, head = commit_range.split("..")
+    if not base.strip() or not head.strip():
+        # git reads an empty side as HEAD, so `..HEAD` is an empty range that passes every check.
+        raise ValueError("commit range has an empty side (name both, e.g. origin/main..HEAD): "
+                         f"{commit_range!r}")
+
+
+def changed_paths(root: Path, commit_range: str) -> set[str]:
+    """Repo-root-relative posix paths the branch `B` changed since it left `A`, for `A..B`.
+
+    Read as `git diff A...B` (from the merge base), so a branch that is behind its base does not
+    count the base's newer files as its own. Raises ValueError when git cannot read the range."""
+    _check_range_ok(commit_range)
+    base, head = commit_range.split("..")
+    try:
+        done = subprocess.run(
+            ["git", "diff", "--name-only", "--no-renames", "--relative", "-z",
+             f"{base}...{head}", "--"],
+            cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError(f"cannot read commit range {commit_range}: {exc}") from exc
+    if done.returncode != 0:
+        why = next((ln.strip() for ln in done.stderr.splitlines() if ln.strip()), "git diff failed")
+        raise ValueError(f"cannot read commit range {commit_range}: {why}")
+    return {name for name in done.stdout.split("\0") if name}
+
+
+def _rev(root: Path, ref: str) -> str | None:
+    """The commit `ref` names, or None when git cannot resolve it."""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                              cwd=str(root), capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() or None if done.returncode == 0 else None
+
+
+def dirty_paths(root: Path, paths: set[str]) -> list[str]:
+    """The subset of `paths` with an uncommitted change (staged, unstaged or untracked), as
+    `git status --porcelain -- <paths>` reports them. Raises ValueError when git cannot say."""
+    names = sorted(paths)
+    dirty: set[str] = set()
+    for at in range(0, len(names), 200):  # chunks keep the command line short on Windows
+        try:
+            done = subprocess.run(
+                ["git", "--literal-pathspecs", "status", "--porcelain", "-z", "--no-renames",
+                 "--untracked-files=all", "--", *names[at:at + 200]],
+                cwd=str(root), capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError(f"cannot read git status: {exc}") from exc
+        if done.returncode != 0:
+            raise ValueError(f"cannot read git status: {done.stderr.strip()}")
+        dirty.update(entry[3:] for entry in done.stdout.split("\0") if len(entry) > 3)
+    return sorted(dirty)
+
+
+def _only_targets(root: Path, only: list[str]) -> tuple[set[Path], list[str]]:
+    """The resolved `--only` plans, and a message for each name that is not a top-level plan."""
+    plans = (root / ".caddis" / "plans").resolve()
+    targets: set[Path] = set()
+    problems: list[str] = []
+    for name in only:
+        path = Path(name)
+        path = (path if path.is_absolute() else root / path).resolve()
+        if (path.parent != plans or path.suffix != ".md" or path.name.lower() == "readme.md"
+                or not path.is_file()):
+            problems.append(f"--only {name}: not a top-level plan file in .caddis/plans/")
+        else:
+            targets.add(path)
+    return targets, problems
+
+
+def _limit_check_to(root: Path, report: Report, touched: set[str]) -> None:
+    """Drop every --check finding whose file the commit range did not change."""
+    def keep(path: Path) -> bool:
+        try:
+            return path.relative_to(root).as_posix() in touched
+        except ValueError:
+            return False
+
+    report.check_flagged = [p for p in report.check_flagged if keep(p)]
+    report.violations = [(p, m) for p, m in report.violations if keep(p)]
+    report.tracker_done_open = [(p, s) for p, s in report.tracker_done_open if keep(p)]
+    report.open_rows_held = [(p, ids) for p, ids in report.open_rows_held if keep(p)]
+
+
 def _is_legacy_exempt(repo_root: Path, path: Path) -> bool:
     try:
         rel = path.relative_to(repo_root / ".caddis").as_posix()
@@ -517,18 +730,47 @@ def _check_parking_lot_item(item: Item, report: Report) -> None:
 
 
 def tidy(repo_root: Path, apply: bool = False, check: bool = False,
-          kinds: tuple[str, ...] = _KINDS, commit_range: str | None = None) -> Report:
+          kinds: tuple[str, ...] = _KINDS, commit_range: str | None = None,
+          only: list[str] | None = None) -> Report:
     """Plan every change first, then make all of them or none.
 
     Nothing is written until the whole set is known and every destination is free. One existing
-    `done/<name>` (or an unreadable commit range) leaves every file exactly as it was.
+    `done/<name>` (or an unreadable commit range) leaves every file exactly as it was. `only`
+    names the plans this run may touch; nothing else is moved or stamped.
     """
     report = Report()
+    if commit_range is not None:
+        try:
+            report.in_range = changed_paths(repo_root, commit_range)
+        except ValueError as exc:
+            return report.refuse(str(exc))
+        if check:
+            head = commit_range.split("..")[1]
+            if _rev(repo_root, head) != _rev(repo_root, "HEAD"):
+                return report.refuse(f"--check reads the working tree, so {commit_range} must "
+                                     "end at HEAD; check out that branch first")
+            try:
+                dirty = dirty_paths(repo_root, report.in_range) if report.in_range else []
+            except ValueError as exc:
+                return report.refuse(str(exc))
+            if dirty:
+                return report.refuse("uncommitted changes in files this range touched: "
+                                     f"{', '.join(dirty)}; commit them first")
+    only_set: set[Path] | None = None
+    if only is not None:
+        only_set, problems = _only_targets(repo_root, only)
+        if problems or not only_set:
+            report.errors.extend(problems or ["--only names no plan"])
+            report.refused = True
+            return report
+        kinds = ("plans",)  # --only names plans: prompts and parking-lot items stay put
     moves: list[Path] = []
     rewrites: dict[Path, str] = {}  # applied before the moves, so a failed move leaves a
     # finished status at the top level, where the next run moves it by status alone
     for kind in kinds:
         items = scan(repo_root / ".caddis" / kind)
+        if only_set is not None:
+            items = [item for item in items if item.path.resolve() in only_set]
         for item in items:
             if kind == PARKING_LOT_DIR:
                 _check_parking_lot_item(item, report)
@@ -539,6 +781,20 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
                 continue
             cls = classify_status(item.status)
             if cls == "terminal":
+                if (kind == "plans"
+                        and (item.status or "").strip().lower() in {"done", "shipped", "implemented"}):
+                    open_ids = [
+                        pid for pid, row_line in open_tracker_rows(item.path)
+                        if not _row_excused(repo_root, row_line)
+                    ]
+                    if open_ids:
+                        report.open_rows_held.append((item.path, open_ids))
+                        if check:
+                            report._flag(
+                                item.path,
+                                f"held (open Tracker rows): rows {', '.join(open_ids)}",
+                            )
+                        continue
                 moves.append(item.path)
                 continue
             if cls == "none":
@@ -551,6 +807,10 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
                     report.stale_suspects.append(item.path)
                 continue
             # active status
+            if item.phases_all_done and kind == "plans" and check:
+                report.tracker_done_open.append((item.path, str(item.status).strip()))
+                if item.path not in report.check_flagged:
+                    report.check_flagged.append(item.path)
             if item.phases_all_done and kind == "plans":
                 text = _read_exact(item.path)
                 new = None if text is None else _set_header(text, {"status": "done"})
@@ -563,6 +823,20 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
                 report.stale_suspects.append(item.path)
     if commit_range is not None and PARKING_LOT_DIR in kinds:
         _plan_parked(repo_root, commit_range, report, moves, rewrites)
+    if check and report.in_range is not None:
+        _limit_check_to(repo_root, report, report.in_range)
+    if only_set is not None:
+        planned = {src.resolve() for src in moves}
+        # A plan held for open Tracker rows is already reported (exit 2); it is not a failed request.
+        held = {p.resolve() for p, _ in report.open_rows_held}
+        for item in items:  # kinds is ("plans",) here, so `items` is the named plans
+            if item.path.resolve() not in planned and item.path.resolve() not in held:
+                why = ("no frontmatter status" if classify_status(item.status) == "none" else
+                       f"status {item.status} and the Tracker is not all done")
+                report.not_moved.append((item.path, why))
+        seen = {item.path.resolve() for item in items}
+        for path in sorted(only_set - seen):
+            report.not_moved.append((path, "not a plan this run reads"))
 
     report.collisions.extend(src for src in moves if _collides(src))
     if not apply:
@@ -573,6 +847,28 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
     # Past this point only an I/O failure can stop the run. Every step is safe to repeat: a
     # written status or stamp that did not move yet is moved by status on the next run, and a
     # note already present is not appended again.
+    # Never move, stage or rewrite a file with uncommitted changes to tracked content: in a shared checkout
+    # that is another session's edit, and a `git mv` stages it for whoever commits next (2026-10-15,
+    # serve-sight). A status that tidy itself wrote is such a change too, so that plan moves on a later run,
+    # after the status write is committed.
+    if _is_git_repo(repo_root):
+        dirty = _dirty_paths(repo_root)
+        if dirty is None:
+            report.dirty_check_failed = "git status could not be read"
+            return report
+
+        def _is_dirty(path: Path) -> bool:
+            try:
+                rel_path = path.relative_to(repo_root).as_posix()
+            except ValueError:
+                return True  # cannot place it in the repo: fail closed, leave it alone
+            return rel_path in dirty
+
+        for path in sorted({*moves, *rewrites}, key=str):
+            if _is_dirty(path) and path not in report.dirty_skipped:
+                report.dirty_skipped.append(path)
+        moves = [src for src in moves if src not in report.dirty_skipped]
+        rewrites = {path: text for path, text in rewrites.items() if path not in report.dirty_skipped}
     try:
         for path, text in rewrites.items():
             atomic_write(path, text)
@@ -834,20 +1130,39 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo-root", default=".", help="repo root containing .caddis/ (default: cwd)")
     ap.add_argument("--apply", action="store_true", help="actually move files (default: dry-run report)")
     ap.add_argument("--check", action="store_true",
-                     help="conformance check - exit 1 if any top-level artifact lacks a known status")
+                     help="conformance check - exit 1 if any top-level artifact lacks a known "
+                          "status, or a plan's Tracker is all done while its status is active")
     ap.add_argument("--commit-range", default=None,
                      help="also read Resolves-Parked / Partly-Resolves-Parked trailers in these "
-                          "commits only, e.g. origin/main..HEAD (default: read no trailers)")
+                          "commits only, e.g. origin/main..HEAD (default: read no trailers); "
+                          "with --check, check only the files this range changed")
+    ap.add_argument("--only", nargs="+", default=None, metavar="PLAN",
+                    help="touch only these top-level plans (.caddis/plans/<name>.md); nothing "
+                         "else is moved or stamped")
     ap.add_argument("--prune", action="store_true",
                     help="list old local state under .caddis/ (with --apply: delete it)")
     args = ap.parse_args(argv)
+    # A status or path the console cannot encode prints as `?`, never a crash (a cp1252 pipe).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
 
     repo_root = Path(args.repo_root).resolve()
     if args.prune:
-        if args.check or args.commit_range:
-            ap.error("--prune runs alone: not with --check or --commit-range")
+        if args.check or args.commit_range or args.only:
+            ap.error("--prune runs alone: not with --check, --commit-range or --only")
         return _print_prune(repo_root, prune(repo_root, apply=args.apply), args.apply)
-    report = tidy(repo_root, apply=args.apply, check=args.check, commit_range=args.commit_range)
+    if args.only and args.check:
+        ap.error("--only is for --apply (or its dry run), not --check")
+    report = tidy(repo_root, apply=args.apply, check=args.check, commit_range=args.commit_range,
+                  only=args.only)
+    if report.refused:
+        # Nothing was read, so nothing else is true enough to print: no unfiltered list.
+        for msg in report.errors:
+            print(f"ERROR: {msg}")
+        return 1
 
     def rel(p: Path) -> str:
         return p.relative_to(repo_root).as_posix()
@@ -867,10 +1182,18 @@ def main(argv: list[str] | None = None) -> int:
     label = "moved" if args.apply else "would move"
     for p in moved_or_would:
         print(f"  {label}: {rel(p)}")
+    for p, rows in report.open_rows_held:
+        print(f"  held (open Tracker rows): {rel(p)}: rows {', '.join(rows)}")
+    for p in report.dirty_skipped:
+        print(f"  skipped (uncommitted changes): {rel(p)}")
+    if report.dirty_check_failed:
+        print(f"  skipped all moves: {report.dirty_check_failed}")
     for name, why in report.parked_refused:
         print(f"  REFUSED trailer `{name}`: {why}")
     for p in report.collisions:
         print(f"  COLLISION (done/ already has this name): {rel(p)}")
+    for p, why in report.not_moved:
+        print(f"  NOT MOVED (--only): {rel(p)}: {why}")
     if report.blocked:
         print("  BLOCKED: " + ("nothing was changed." if args.apply else
                                "--apply would change nothing.")
@@ -878,8 +1201,19 @@ def main(argv: list[str] | None = None) -> int:
     for p in report.stale_suspects:
         print(f"  stale-suspect (all phases done, status still active): {rel(p)}")
     if args.check:
-        exempt = [p for p in report.frontmatter_less if p not in report.check_flagged]
-        detailed = {p for p, _ in report.violations}
+        # By the list itself: after a --commit-range filter, "not flagged" no longer means legacy.
+        exempt = [p for p in report.frontmatter_less if _is_legacy_exempt(repo_root, p)]
+        detailed = {p for p, _ in report.violations} | {p for p, _ in report.tracker_done_open}
+        if report.in_range is not None:
+            # Out of range is not legacy: list only the grandfathered files this range touched.
+            exempt = [p for p in exempt if rel(p) in report.in_range]
+        for p, status in report.tracker_done_open:
+            if _collides(p):
+                print(f"  CHECK VIOLATION: plan {rel(p)}: tracker done, but done/{p.name} "
+                      "already exists (rename one of them)")
+            else:
+                print(f"  CHECK VIOLATION: plan {rel(p)}: tracker done, status {status}"
+                      f" (run caddis_tidy.py --apply --only {rel(p)} and commit the move)")
         for p, msg in report.violations:
             print(f"  CHECK VIOLATION: {rel(p)}: {msg}")
         for p in report.check_flagged:
@@ -889,10 +1223,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  (legacy, grandfathered): {rel(p)}")
 
     # A collision is reported, not fatal: /handoff and /implement surface it and carry on.
-    if report.errors:
+    # A named plan that did not move is a failed request, and with --only a collision is one too.
+    if report.errors or report.not_moved or (args.only and report.collisions):
         return 1
     if args.check:
         return 1 if report.check_violations() else 0
+    if report.open_rows_held:
+        return 2
     return 0
 
 

@@ -34,6 +34,8 @@ except ModuleNotFoundError as exc:
     from caddis_heavy_slot import HeavySlotBusy, heavy_slot
 
 import caddis_routing
+import caddis_redact
+import caddis_spend
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -63,8 +65,11 @@ DEFAULT_MODELS = {
     "glm": "glm-5.3[1m]",
     "codex-sol": "gpt-5.6-sol",
     "codex-astra": "gpt-6-astra",
-    "agy": "gemini-3.8-flash",
+    "agy": "gemini-4-argon",
 }
+AGY_FALLBACK_MODEL = "gemini-3.8-flash"  # used when `agy models` does not offer the default (other teams)
+AGY_PROBE_TIMEOUT_S = 30
+_AGY_MODELS_CACHE: str | None = None
 DEFAULT_EFFORT = {
     "claude": "high",
     "glm": "medium",
@@ -110,7 +115,9 @@ BUDGET_PATTERNS: dict[str, tuple[str, ...]] = {
         r"Quota exceeded\. Check your plan",
         r"workspace is out of credits",
     ),
-    "agy": (r"RESOURCE_EXHAUSTED.*quota", r"Individual quota reached"),
+    # caddis_spend refusing over the global EUR cap: the chain moves on, like a provider quota.
+    "agy": (r"RESOURCE_EXHAUSTED.*quota", r"Individual quota reached", r"(?m)^caddis_spend: over cap",
+            r"(?m)^caddis_spend: could not lock"),
 }
 CONFIG_PATTERNS: dict[str, tuple[str, ...]] = {
     "claude": (),
@@ -127,7 +134,9 @@ CONFIG_PATTERNS: dict[str, tuple[str, ...]] = {
         r"model is not supported when using Codex",
         r"Model metadata for .* not found",
     ),
-    "agy": (r"invalid model selection", r"is not recognized as a known model"),
+    "agy": (r"invalid model selection", r"is not recognized as a known model",
+            r"(?m)^caddis_spend: spend cap not configured",
+            r"(?m)^caddis_spend: could not check the spend cap"),
 }
 LOAD_WORDING = (
     r"(?i)\bcpu\s+burner",
@@ -559,6 +568,12 @@ def _windows_process_names(pids: list[int]) -> dict[int, str]:
     return names
 
 
+def _refused_run(returncode: int, message: str) -> LaneRun:
+    """A lane that never started: the spend cap refused it. pid 0, no time spent."""
+    return LaneRun(returncode=returncode, output=message + "\n", timed_out=False, duration_s=0.0,
+                   pid=0, started=time.time())
+
+
 def run_lane(
     argv: list[str],
     cwd: Path,
@@ -570,7 +585,25 @@ def run_lane(
     clock=time.monotonic,
     sleep=time.sleep,
     probe=default_probe,
+    spend_caller: str = "lane",
 ) -> LaneRun:
+    # Every agy launch is booked against the global spend cap first (caddis_spend). ci_watch reaches
+    # agy through here too, so each call is booked exactly once. Any spend problem refuses the lane
+    # (fail closed) and never crashes the unattended chain.
+    spend_id = None
+    if Path(argv[0]).stem.lower() == "agy":
+        spend_home = Path.home()
+        try:
+            spend_id = caddis_spend.reserve(spend_home, spend_caller, datetime.now(timezone.utc))
+        except caddis_spend.NotConfigured:
+            return _refused_run(3, caddis_spend.NOT_CONFIGURED_MESSAGE)
+        except TimeoutError as exc:
+            return _refused_run(3, str(exc))
+        except Exception as exc:  # an unreadable log or file error: refuse, never crash
+            return _refused_run(3, f"caddis_spend: could not check the spend cap: {exc!r}")
+        if spend_id is None:
+            return _refused_run(1, "caddis_spend: over cap: agy refused ("
+                                + caddis_spend.status_line(spend_home, datetime.now(timezone.utc)) + ")")
     job_name = f"Local\\caddis-governor-{os.getpid()}-{secrets.token_hex(8)}" if sys.platform == "win32" else None
     full = governed_argv(argv, job_name)
     if not stdin_prompt:
@@ -582,15 +615,23 @@ def run_lane(
     popen_options = {}
     if sys.platform != "win32":
         popen_options["start_new_session"] = True
-    proc = subprocess.Popen(
-        full,
-        cwd=cwd,
-        stdin=subprocess.PIPE if stdin_prompt else subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=env,
-        **popen_options,
-    )
+    try:
+        proc = subprocess.Popen(
+            full,
+            cwd=cwd,
+            stdin=subprocess.PIPE if stdin_prompt else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            **popen_options,
+        )
+    except OSError:
+        if spend_id is not None:  # nothing started, nothing was spent
+            try:
+                caddis_spend.settle(spend_home, spend_id, (0, 0), datetime.now(timezone.utc))
+            except Exception:
+                pass
+        raise
     timed_out = stalled = False
     idle_seconds = 0
     processes = None
@@ -682,9 +723,24 @@ def run_lane(
         kill_governed(proc)
         raise
 
+    # Mask key values before any caller sees the lane's output (printed tails, ci-watch reports); packets are
+    # masked again in write_packet, which also covers the gate and review tails.
+    output = caddis_redact.redact(b"".join(chunks).decode("utf-8", errors="replace"),
+                                  caddis_redact.load_secrets(Path.home()))
+    if spend_id is not None:
+        # Tokens only from JSON mode: in text mode the model's own lines could pose as a usage document.
+        if proc.returncode == 127:
+            counts = (0, 0)  # the governor found no agy binary: nothing ran, nothing was spent
+        else:
+            counts = caddis_spend.tokens_from_output(output) if caddis_spend.json_mode(argv) else None
+        try:
+            caddis_spend.settle(spend_home, spend_id, counts, datetime.now(timezone.utc),
+                                duration_s=clock() - monotonic_started)
+        except Exception as exc:  # the pending reserve keeps counting; never lose the lane's result
+            output += f"\ncaddis_spend: could not settle {spend_id}: {exc!r}\n"
     return LaneRun(
         returncode=proc.returncode,
-        output=b"".join(chunks).decode("utf-8", errors="replace"),
+        output=output,
         timed_out=timed_out,
         duration_s=clock() - monotonic_started,
         pid=proc.pid,
@@ -966,8 +1022,11 @@ def run_dir(repo_root: Path, plan_stem: str) -> Path:
 def write_packet(path: Path, packet: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
+    # Every string in the packet (gate and review tails come from model-written code) is masked here,
+    # the one place all packets pass through.
+    safe = caddis_redact.redact_obj(packet, caddis_redact.load_secrets(Path.home()))
     temporary.write_text(
-        json.dumps(packet, indent=2, sort_keys=True) + "\n",
+        json.dumps(safe, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     os.replace(temporary, path)
@@ -1003,14 +1062,64 @@ def idle_timeout(cfg: dict, override: int | None = None) -> int:
     return value
 
 
-def resolve_models(cfg: dict) -> dict[str, str]:
+def _probe_agy_models() -> str:
+    """The text of `agy models` (one model id per line), or "" when agy is missing, fails or prints nothing. Only a
+    non-empty listing is cached for the process: a failed probe is not cached, so a later call asks agy again."""
+    global _AGY_MODELS_CACHE
+    if _AGY_MODELS_CACHE:
+        return _AGY_MODELS_CACHE
+    agy = shutil.which("agy")
+    if not agy:
+        return ""
+    try:
+        proc = subprocess.run(
+            [agy, "models"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=AGY_PROBE_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    listing = (proc.stdout or "") if proc.returncode == 0 else ""
+    if listing.strip():
+        _AGY_MODELS_CACHE = listing
+    return listing
+
+
+# The agy default is used at three effort levels: ci-watch uses -low, lanes -medium, review -high. Keep it only
+# when `agy models` offers all three exact ids.
+AGY_DEFAULT_EFFORT_IDS = ("low", "medium", "high")
+_AGY_FALLBACK_NOTED = False
+
+
+def _agy_default_model(probe=None) -> str:
+    """The configured default agy model when `agy models` lists every `<default>-low`, `-medium` and `-high` id
+    exactly, else AGY_FALLBACK_MODEL. The fallback note goes to stderr once per process."""
+    global _AGY_FALLBACK_NOTED
+    probe = probe or _probe_agy_models
+    default = DEFAULT_MODELS["agy"]
+    try:
+        listing = probe()
+    except (OSError, subprocess.SubprocessError):
+        listing = ""
+    offered = {line.split()[0] for line in (listing or "").splitlines() if line.split()}  # id, then a name
+    if all(f"{default}-{level}" in offered for level in AGY_DEFAULT_EFFORT_IDS):
+        return default
+    if not _AGY_FALLBACK_NOTED:
+        _AGY_FALLBACK_NOTED = True
+        print(f"[caddis-lanes] agy: {default} not offered here; using {AGY_FALLBACK_MODEL}", file=sys.stderr)
+    return AGY_FALLBACK_MODEL
+
+
+def resolve_models(cfg: dict, *, probe=None) -> dict[str, str]:
     models = DEFAULT_MODELS.copy()
-    for key, value in cfg.get("models", {}).items():
+    configured = cfg.get("models", {})
+    for key, value in configured.items():
         if key not in LANE_IDS:
             raise LaneConfigError(f"unknown lane in [lanes.models]: {key}")
         if not isinstance(value, str) or not value:
             raise LaneConfigError(f"empty model id for lane {key}")
         models[key] = value
+    if "agy" not in configured:  # a config pin wins and is never probed
+        models["agy"] = _agy_default_model(probe)
     return models
 
 
@@ -1206,48 +1315,125 @@ def next_lane(
     return candidates[0] if candidates else None
 
 
-def _ci_watch_block(output: str) -> dict[str, str] | None:
-    """Read the last complete watch report, ignoring an echoed prompt template.
-
-    The block must hold exactly RESULT, CHECKS, MERGE_STATE and FAILING, RESULT first. A reordered
-    or extended block returns None, and the caller then falls back to `gh` without saying why:
-    that is safe (the watch prompt pins the order) but invisible, so keep the prompt and this
-    reader in step.
-    """
-    fields: dict[str, str] = {}
-    reports: list[dict[str, str]] = []
-    for line in output.splitlines():
-        match = re.match(
-            r"^\s*(?:[`*]+\s*)?(RESULT|CHECKS|MERGE_STATE|FAILING)[`*]*\s*:\s*[`*]*\s*(.*?)\s*[`*]*\s*$",
-            line, re.I,
-        )
-        if not match:
-            continue
-        key, value = match.group(1).upper(), match.group(2).strip().strip("`* ")
-        if key == "RESULT":
-            if fields:
-                reports.append(fields)
-            fields = {}
-        if fields or key == "RESULT":
-            fields[key] = value
-    if fields:
-        reports.append(fields)
-    if not reports:
-        return None
-    last = reports[-1]
-    if set(last) != {"RESULT", "CHECKS", "MERGE_STATE", "FAILING"}:
-        return None
-    if last["RESULT"].lower() not in {"pass", "fail", "timeout"}:
-        return None
-    return last
+# Why gh waits and agy only summarises (measured 2026-10-15): agy `--print` moves a long command
+# (`gh pr checks --watch`) into its own background task, reports "root agent idle", then ends that task
+# on exit and returns no report. agy also does not read stdin in text mode, so any data it needs must
+# sit inside the prompt. So `gh` always does the waiting, and agy gets one short, tool-free job after a
+# failure: read the failed log (placed in the prompt) and name the failing job and first error.
+_CI_SUMMARY_MAX_CHARS = 300
+_CI_LOG_TAIL_LINES = 80
+_CI_LOG_TAIL_CHARS = 8000
+_CI_AGY_TIMEOUT_S = 300
+_CI_GH_SHORT_TIMEOUT_S = 60
+_RUN_ID_IN_URL = re.compile(r"/actions/runs/(\d+)")
 
 
-def _print_ci_watch(result: str, checks: str, merge_state: str, failing: str, watcher: str) -> None:
+def _print_ci_watch(result: str, checks: str, merge_state: str, failing: str, watcher: str,
+                    summary: str | None = None) -> None:
     print(f"RESULT: {result}")
     print(f"CHECKS: {checks}")
     print(f"MERGE_STATE: {merge_state}")
     print(f"FAILING: {failing}")
     print(f"WATCHER: {watcher}")
+    print(f"SUMMARY: {summary or 'none'}")
+
+
+def _parse_pr_checks(output: str) -> list[tuple[str, str, str]]:
+    """Read `gh pr checks` rows (tab-separated: name, state, elapsed, url) as (name, state, url).
+
+    `--watch` may print the table more than once; a later row for the same name replaces an earlier one.
+    """
+    rows: dict[str, tuple[str, str]] = {}
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2 or not parts[0].strip():
+            continue
+        url = parts[3].strip() if len(parts) > 3 else ""
+        rows[parts[0].strip()] = (parts[1].strip().lower(), url)
+    return [(name, state, url) for name, (state, url) in rows.items()]
+
+
+def _ci_gh_run(run_gh, argv: list[str], repo: Path, timeout_s: float):
+    """One short gh call. Returns the CompletedProcess, or None on any start or time-out problem."""
+    try:
+        return run_gh(argv, cwd=repo, capture_output=True, text=True,
+                      encoding="utf-8", errors="replace", timeout=timeout_s)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _ci_failure_summary(
+    log_tail: str, *, agy_path: str, repo: Path, remaining_s: float, run_agy,
+) -> str | None:
+    """Ask agy for a one-line failure summary. The log is inside the prompt. None on any problem."""
+    masked_values = caddis_redact.load_secrets(Path.home())
+    prompt = (
+        "Do not run any tools. Read this CI failure log and reply with one line: the failing job "
+        "and the first failing test or error line. LOG:\n" + caddis_redact.redact(log_tail, masked_values)
+    )
+    try:
+        model = resolve_models(load_lanes_config(repo))["agy"]
+        effort = "low"  # a one-line summary needs no deep thinking
+        argv = [
+            # The log is untrusted (a PR can write anything into it), so this call can use no tools:
+            # plan mode and the sandbox, and never --dangerously-skip-permissions. Checked 2026-10-15:
+            # with these flags agy wrote a plan and did not run the command a prompt asked for.
+            agy_path, "--model", f"{model}-{effort}", "--mode", "plan", "--sandbox",
+            "--output-format", "json", "--print",
+        ]
+        # The idle watchdog is off for ci-watch (as before); the wall-clock limit still applies.
+        runner = ((lambda *a: run_lane(*a, idle_timeout_s=0, spend_caller="ci-watch"))
+                  if run_agy is _LANE_RUNNER else run_agy)
+        run = runner(argv, repo, prompt, False, min(_CI_AGY_TIMEOUT_S, remaining_s),
+                     child_env(os.environ, "agy", model))
+    except LaneConfigError as exc:
+        print(f"[caddis-lanes] ci-watch: agy summary skipped ({exc})", file=sys.stderr)
+        return None
+    except OSError as exc:
+        print(f"[caddis-lanes] ci-watch: agy could not start ({exc}); no summary", file=sys.stderr)
+        return None
+    if run.timed_out:
+        print("[caddis-lanes] ci-watch: agy summary timed out; no summary", file=sys.stderr)
+        return None
+    if run.returncode != 0:
+        print(f"[caddis-lanes] ci-watch: agy exited {run.returncode}; no summary", file=sys.stderr)
+        return None
+    reply = caddis_redact.redact(caddis_spend.result_text(run.output), masked_values)
+    for line in reply.splitlines():
+        line = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", line).strip()
+        if line:
+            return line[:_CI_SUMMARY_MAX_CHARS]
+    print("[caddis-lanes] ci-watch: agy gave an empty reply; no summary", file=sys.stderr)
+    return None
+
+
+def _ci_summary_from_log(gh_path, run_id, repo_args, repo, run_gh, remaining, agy_path, run_agy) -> str | None:
+    """Fetch the failed log, then ask agy for one line. None (with a stderr note) on any problem."""
+    if run_id is None:
+        print("[caddis-lanes] ci-watch: no run id for the failed check; no summary", file=sys.stderr)
+        return None
+    left = remaining()
+    if left <= 0:
+        print("[caddis-lanes] ci-watch: time budget used up; no summary", file=sys.stderr)
+        return None
+    log = _ci_gh_run(
+        run_gh, [gh_path, "run", "view", run_id, "--log-failed", *repo_args],
+        repo, min(_CI_GH_SHORT_TIMEOUT_S, left),
+    )
+    text = (log.stdout or "") if log is not None and log.returncode == 0 else ""
+    tail = "\n".join(text.splitlines()[-_CI_LOG_TAIL_LINES:]).strip()[-_CI_LOG_TAIL_CHARS:]
+    if not tail:
+        print("[caddis-lanes] ci-watch: no failed log available; no summary", file=sys.stderr)
+        return None
+    left = remaining()
+    if left <= 0:
+        print("[caddis-lanes] ci-watch: time budget used up; no summary", file=sys.stderr)
+        return None
+    try:
+        return _ci_failure_summary(tail, agy_path=agy_path, repo=repo, remaining_s=left, run_agy=run_agy)
+    except Exception as exc:  # agy must never change the result or the exit code
+        print(f"[caddis-lanes] ci-watch: agy summary failed ({exc!r}); no summary", file=sys.stderr)
+        return None
 
 
 def ci_watch(
@@ -1263,7 +1449,13 @@ def ci_watch(
     run_gh=subprocess.run,
     clock=time.monotonic,
 ) -> int:
-    """Wait for CI with the resolved watcher, using one shared time budget."""
+    """Wait for CI with `gh`, using one shared time budget. agy only summarises a failure.
+
+    `gh pr checks --watch` (or `gh run watch`) does the waiting. On a PR the check table gives
+    CHECKS and FAILING, and one short `gh pr view` gives MERGE_STATE. When the result is `fail` and the
+    `ci-watch` routing chain holds agy, agy reads the last lines of the failed log (inside its prompt)
+    and returns one line for SUMMARY. agy never changes the result or the exit code.
+    """
     if target_kind not in {"pr", "run"} or target_id <= 0 or timeout_s <= 0:
         print("[caddis-lanes] ci-watch: target and timeout must be positive", file=sys.stderr)
         _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
@@ -1281,73 +1473,10 @@ def ci_watch(
         _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
         return EXIT_CONFIG
 
-    repo_opt = f" --repo {repo_slug}" if repo_slug else ""
-    if target_kind == "pr":
-        poll = f"gh pr checks {target_id}{repo_opt}"
-        state = f"gh pr view {target_id} --json mergeStateStatus,headRefOid{repo_opt}"
-    else:
-        poll = f"gh run view {target_id}{repo_opt}"
-        state = "n/a"
-    prompt = (
-        "Read-only CI watch. Poll with " + poll + " until every check has finished or the time runs out. "
-        + (f"For the PR, also poll {state}. " if target_kind == "pr" else "")
-        + "Never merge, push, comment, re-run, approve, close or edit anything. "
-        + "Then print exactly this block as the last thing you output, with actual values:\n"
-        "RESULT: pass|fail|timeout\n"
-        "CHECKS: <n passed>/<n total>\n"
-        "MERGE_STATE: <mergeStateStatus or n/a>\n"
-        "FAILING: <comma-separated failing check names, or none>"
-    )
+    def remaining() -> float:
+        return timeout_s - (clock() - started)
 
-    for watcher in watchers:
-        if watcher == "claude":
-            break
-        if watcher != "agy":
-            print(f"[caddis-lanes] ci-watch: unsupported watcher {watcher}; skipping", file=sys.stderr)
-            continue
-        agy_path = which("agy")
-        if agy_path is None:
-            break
-        remaining = timeout_s - (clock() - started)
-        if remaining <= 0:
-            _print_ci_watch("timeout", "n/a", "n/a", "none", "agy")
-            return EXIT_CONFIG
-        try:
-            model = resolve_models(load_lanes_config(repo))["agy"]
-            effort = DEFAULT_EFFORT["agy"]
-        except LaneConfigError as exc:
-            print(f"[caddis-lanes] {exc}", file=sys.stderr)
-            _print_ci_watch("timeout", "n/a", "n/a", "none", "agy")
-            return EXIT_CONFIG
-        agy_argv = [
-            agy_path, "--model", f"{model}-{effort}",
-            "--dangerously-skip-permissions", "--output-format", "text", "--print",
-        ]
-        try:
-            # A CI watcher legitimately sits idle while CI runs, so the idle watchdog is off for it;
-            # the wall-clock limit (`remaining`) still applies.
-            watcher = (lambda *a: run_lane(*a, idle_timeout_s=0)) if run_agy is _LANE_RUNNER else run_agy
-            run = watcher(agy_argv, repo, prompt, False, remaining, child_env(os.environ, "agy", model))
-        except OSError as exc:
-            print(f"[caddis-lanes] ci-watch: agy could not start ({exc}); watching with gh", file=sys.stderr)
-            break
-        outcome = classify_exit("agy", run.returncode, run.output, run.timed_out)
-        if run.timed_out:
-            _print_ci_watch("timeout", "n/a", "n/a", "none", "agy")
-            return EXIT_CONFIG
-        if outcome in {RESULT_OUT_OF_BUDGET, RESULT_CONFIG_ERROR}:
-            reason = "out of budget" if outcome == RESULT_OUT_OF_BUDGET else "configuration error"
-            print(f"[caddis-lanes] ci-watch: agy {reason}; watching with gh", file=sys.stderr)
-            break
-        report = _ci_watch_block(run.output)
-        if report is not None:
-            result = report["RESULT"].lower()
-            _print_ci_watch(result, report["CHECKS"], report["MERGE_STATE"], report["FAILING"], "agy")
-            return {"pass": EXIT_OK, "fail": EXIT_FAIL, "timeout": EXIT_CONFIG}[result]
-        break
-
-    remaining = timeout_s - (clock() - started)
-    if remaining <= 0:
+    if remaining() <= 0:
         print("[caddis-lanes] ci-watch: time budget expired before gh", file=sys.stderr)
         _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
         return EXIT_CONFIG
@@ -1356,16 +1485,15 @@ def ci_watch(
         print("[caddis-lanes] ci-watch: gh not found on PATH", file=sys.stderr)
         _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
         return EXIT_CONFIG
-    command = (
-        [gh_path, "pr", "checks", str(target_id), "--watch"]
-        if target_kind == "pr" else [gh_path, "run", "watch", str(target_id), "--exit-status"]
-    )
-    if repo_slug:
-        command.extend(["--repo", repo_slug])
+    repo_args = ["--repo", repo_slug] if repo_slug else []
+    if target_kind == "pr":
+        command = [gh_path, "pr", "checks", str(target_id), "--watch", "--interval", "30", *repo_args]
+    else:
+        command = [gh_path, "run", "watch", str(target_id), "--exit-status", "--interval", "30", *repo_args]
     try:
         completed = run_gh(
             command, cwd=repo, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=remaining,
+            encoding="utf-8", errors="replace", timeout=remaining(),
         )
     except subprocess.TimeoutExpired:
         print("[caddis-lanes] ci-watch: gh timed out", file=sys.stderr)
@@ -1382,10 +1510,48 @@ def ci_watch(
     code = EXIT_OK if completed.returncode == 0 else (
         EXIT_FAIL if completed.returncode == 1 and not no_checks else EXIT_CONFIG
     )
-    _print_ci_watch(
-        "pass" if code == EXIT_OK else "fail" if code == EXIT_FAIL else "timeout",
-        "n/a", "n/a", "see gh output" if code == EXIT_FAIL else "none", "gh",
-    )
+    result = "pass" if code == EXIT_OK else "fail" if code == EXIT_FAIL else "timeout"
+
+    checks, merge_state = "n/a", "n/a"
+    failing = "see gh output" if code == EXIT_FAIL else "none"
+    run_id: str | None = str(target_id) if target_kind == "run" else None
+    if target_kind == "pr" and code != EXIT_CONFIG:
+        rows = _parse_pr_checks(completed.stdout or "")
+        if rows:
+            # `skipping` is not a failure: count it as passed.
+            passed = sum(1 for _, state, _ in rows if state in {"pass", "skipping"})
+            checks = f"{passed}/{len(rows)}"
+            # Failed checks first; cancelled ones only when nothing failed (they name the wrong run).
+            bad = ([(name, url) for name, state, url in rows if state == "fail"]
+                   or [(name, url) for name, state, url in rows if state == "cancel"])
+            if code == EXIT_FAIL and bad:
+                failing = ", ".join(name for name, _ in bad)
+            for _, url in bad:
+                found = _RUN_ID_IN_URL.search(url)
+                if found:
+                    run_id = found.group(1)
+                    break
+        left = remaining()
+        if left > 0:
+            view = _ci_gh_run(
+                run_gh,
+                [gh_path, "pr", "view", str(target_id), "--json", "mergeStateStatus",
+                 "-q", ".mergeStateStatus", *repo_args],
+                repo, min(_CI_GH_SHORT_TIMEOUT_S, left),
+            )
+            value = (view.stdout or "").strip() if view is not None and view.returncode == 0 else ""
+            merge_state = value or "n/a"
+
+    summary: str | None = None
+    # Walk the chain in order: agy summarises only when it comes before claude (claude = no helper).
+    helper = next((w for w in watchers if w in {"agy", "claude"}), None)
+    if code == EXIT_FAIL and helper == "agy":
+        agy_path = which("agy")
+        if agy_path is not None:
+            summary = _ci_summary_from_log(
+                gh_path, run_id, repo_args, repo, run_gh, remaining, agy_path, run_agy,
+            )
+    _print_ci_watch(result, checks, merge_state, failing, "gh+agy" if summary else "gh", summary)
     return code
 
 
@@ -1744,6 +1910,7 @@ def _run_command(
             args.timeout,
             child_env(dict(os.environ), lane, model),
             idle_timeout_s=idle_timeout_s,
+            spend_caller=f"lane:{lane}:{plan.stem}:p{args.phase}",
         )
         killed = guard_killed_since(lane_run.started, {lane_run.pid})
         result = classify_exit(

@@ -416,7 +416,7 @@ def current_branch(cwd: str) -> str:
 
 def build_review_prompt(diff_text: str, branch: str, rng: str | None,
                         all_paths: list[str] | None = None) -> str:
-    """Adversarial review prompt — ported from docket runner._review_prompt (kept in sync).
+    """Adversarial review prompt.
 
     Self-contained: the criteria are inline so a real review always happens, and it ends with
     a single machine-parseable verdict line the caller maps to an exit code.
@@ -570,7 +570,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     args = parser.parse_args(argv)
 
     # --check-config is deliberately NON-INTERACTIVE. This script runs headless — from CI, from a
-    # docket runner, from a `claude -p` session — where a prompt on stdin does not ask a question,
+    # runner, from a `claude -p` session — where a prompt on stdin does not ask a question,
     # it hangs forever. The ASKING belongs in `/caddis:cross-review`, which is driven by an agent
     # that can actually talk to a human. This half just answers "is it configured?" cheaply enough
     # to call before you need it, instead of finding out mid-commit.

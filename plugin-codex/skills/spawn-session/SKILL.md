@@ -9,9 +9,7 @@ Use this when a session is long enough that its own recall has become the risk. 
 `/caddis:handoff` for that case: `/handoff` writes down what you remember, and **what you remember
 is the failure mode.**
 
-**Sibling, not duplicate, of `/caddis:spawn-hub`.** `spawn-hub` hands over a validation ROLE;
-this hands over the WORK. Both run on `scripts/caddis_spawn.py`, so a fix to the machinery lands in
-both.
+It runs on `scripts/caddis_spawn.py`.
 
 ## The failure this exists to catch
 
@@ -93,7 +91,7 @@ any one session. A handover is a snapshot.
 Check the order before you issue anything:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" capture-check --id <id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" capture-check --id <id>
 ```
 
 It compares write times, which is the one property here that is mechanically knowable. It cannot
@@ -114,8 +112,8 @@ about: in the manual run, a child caught a stale hash the parent could have caug
 relay trip, and the relay trip is the expensive part.
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" preflight
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" fingerprint --with-tests
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" preflight
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" fingerprint --with-tests
 ```
 (falls back to `scripts/caddis_spawn.py` in a source checkout.)
 
@@ -139,7 +137,7 @@ line and to nothing else, so the caddis status line caches it per repo and `pref
 back. **No status line on this machine?** Pass your own reading:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" preflight --context-pct 72
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" preflight --context-pct 72
 ```
 
 **A self-reported figure may only tighten the gate, never loosen it** — the higher of the two
@@ -152,7 +150,7 @@ is not a gate — and the refusal names both ways out rather than leaving you st
 ### Capture from the repo, never from recall
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_inventory.py" --with-tests
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_inventory.py" --with-tests
 ```
 
 Then add the four things the inventory cannot derive:
@@ -170,7 +168,7 @@ or from a file quoted by path.
 ### Then check what you wrote
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" check --doc .caddis/spawn-session/<id>-prompt.md
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" check --doc .caddis/spawn-session/<id>-prompt.md
 ```
 
 It **blocks** on a commit hash or test count given as current state, and on a path that does not
@@ -210,7 +208,7 @@ most recent replacement had not read the history.
 **Every question must be answerable from a committed file. Prove it:**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" verify-question \
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" verify-question \
   --answer-in .caddis/kb/some-note.md --needle "the phrase that answers it"
 ```
 
@@ -257,7 +255,7 @@ human becomes an approver rather than a transport — **where a transport exists
 handshake when you issue the prompt, not when the child replies:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" handshake open --id <id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" handshake open --id <id>
 ```
 
 It reports which route you are on. **`SendMessage` is Claude Code only** — the harness ships an
@@ -278,7 +276,7 @@ that skips the gate and starts working produces silence — and silence is indis
 "still reading". Check it:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" handshake status --id <id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" handshake status --id <id>
 ```
 
 **A chase carries two FRESH questions, not just a reminder.** A reminder invites a hurried reply.
@@ -333,9 +331,9 @@ Use a read-only agent that can open files and run commands (`caddis:anchor` fits
 verdict, record it, and fix any handover document it proves wrong. On a runtime with no subagents,
 grade in a fresh session and say so. Never grade from a nearly-full context.
 
-**ALIVE until `handshake close`; not WRITING, with two named exceptions.** `/caddis:spawn-hub`
-carries a single-writer rule, because two sessions committed to one repo concurrently and one's work
-landed inside the other's commit. Here it has exactly two exceptions: your own handover artefacts,
+**ALIVE until `handshake close`; not WRITING, with two named exceptions.** The single-writer rule
+exists because two sessions committed to one repo concurrently and one's work landed inside the
+other's commit. It has exactly two exceptions: your own handover artefacts,
 and a document a verdict proves wrong. **Commit and push each one before you reply.** Never hold an
 uncommitted change while the child is live, because a checkout on its side can take it with no copy
 anywhere.
@@ -404,15 +402,13 @@ immediately.
 **REJECT exists because a confidently wrong successor is more dangerous than a confused one.** In
 this project the failure has never been *"I don't know"* — it has been a fluent wrong answer.
 
-The vocabulary matches `/caddis:validate-phase` on purpose: same discipline, different object.
-
 **Two REJECTs on one spawn means the HANDOVER is at fault, not the successor. Regenerate it** rather
 than coaching the child through it.
 
 **Record the verdict — the machine enforces both of those rules only if you tell it which one:**
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_spawn.py" handshake record --id <id> --event verdict --verdict REJECT
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spawn.py" handshake record --id <id> --event verdict --verdict REJECT
 ```
 
 A REJECT returns the handshake to `awaiting-answers`, so `record --event answers` is legal again

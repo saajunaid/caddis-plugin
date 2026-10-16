@@ -46,7 +46,7 @@ description: >-
   finds slow query examples, and identifies existing performance tests.
   </commentary>
   </example>
-model: inherit
+model: sonnet
 ---
 
 **Note: The current year is 2026.** Use this when referencing recent patterns or documentation.

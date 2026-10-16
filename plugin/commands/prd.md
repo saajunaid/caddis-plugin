@@ -22,9 +22,8 @@ Interview the user to fill gaps. Ask only what you can't infer from the codebase
 Ask in small batches; stop interviewing once the spec is testable.
 
 ## Headless mode
-When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` /
-`DOCKET_PLAN` / `DOCKET_BRANCH` is set in the environment** (the caddis OSS launchers export
-`CADDIS_HEADLESS` on claude's `-p`/`--print`; the docket runner sets the others) — a non-interactive
+When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` is set in
+the environment** (the caddis OSS launchers export it on claude's `-p`/`--print`) — a non-interactive
 caller spawned this session and no human is present, so the Discovery interview above is **suspended and
 forbidden**. This mode exists for one-line ideas: the card may be nothing more than a short title with
 **no description**, and there may be **no codebase or `STACK.md`** to draw on. That is expected and still
@@ -51,13 +50,6 @@ Absolute rules in this mode (they override everything above):
 - **Honor the caller's output path and slug.** Write to the `artifact_dir`/`feature` slug the caller
   specifies (falling back to `.caddis/prd/<feature-slug>.md`); set `feature: <slug>` in the
   frontmatter to that same slug. The frontmatter shape is unchanged from the interactive flow.
-- **Also emit a visual companion** — a self-contained, scannable HTML page at `<artifact_dir>/<slug>.html`
-  presenting the PRD visually (a goal/success card, an FR/NFR table, edge cases, and open questions as
-  distinct sections). **Use inline `<style>` ONLY** — the visual is rendered in a *sandboxed* iframe with
-  no script execution, so a `<script>`/CDN (e.g. the Tailwind browser CDN) would NOT run and the page
-  would appear unstyled. Keep it fully portable — no external `<script>`/`<link>`, no local asset files,
-  no `/`-rooted paths. This is the visual the human reviews in docket alongside the markdown. Write it
-  after the `.md`; the runner finds it by the matching `<slug>.html` name.
 - **Always write the artifact file, then end with exactly one fenced `json` highlights block** as the
   final output — nothing after it. Keep `summary` ≤ 280 chars; `open_questions` = the count of bullets
   under `## Open questions`:

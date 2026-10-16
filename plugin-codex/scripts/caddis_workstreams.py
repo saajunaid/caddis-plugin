@@ -225,6 +225,43 @@ def _age(when: datetime, now: datetime) -> str:
     return f"{seconds // 86400}d"
 
 
+def _relays(directory: Path) -> list[tuple[str, dict, str]]:
+    out: list[tuple[str, dict, str]] = []
+    for path in sorted(directory.glob("*.md")) if directory.is_dir() else ():
+        if path.is_symlink():
+            continue
+        try:
+            name = _name(path.stem)
+            if not path.resolve().is_relative_to(directory.resolve()):
+                continue
+            content = path.read_bytes().decode("utf-8")
+            meta = parse(content)
+            if meta.get("type") != "relay" or meta.get("workstream") != name:
+                continue
+            generated = meta.get("generated")
+            datetime.fromisoformat(generated["at"].replace("Z", "+00:00"))
+            out.append((name, meta, content))
+        except (ValueError, KeyError, TypeError, AttributeError, OSError, UnicodeError):
+            continue
+    return out
+
+
+def _item_matches(item: str, next_text: str) -> bool:
+    needle = item.strip()
+    if not needle:
+        return False
+    lower_next = next_text.lower()
+    if needle.lower() in lower_next:
+        return True
+    m = re.fullmatch(r"(.+)#(\d+)", needle)
+    if m:
+        plan_slug = m.group(1).strip().lower()
+        phase_num = m.group(2)
+        if plan_slug and plan_slug in lower_next and re.search(rf"\bphase\s+{re.escape(phase_num)}\b", next_text, re.IGNORECASE):
+            return True
+    return False
+
+
 def render_index(root: Path, session_id: str | None, branch: str | None) -> str:
     """Write and return the bounded startup index from current local files."""
     artifact = _artifact(root)
@@ -240,25 +277,15 @@ def render_index(root: Path, session_id: str | None, branch: str | None) -> str:
         directory = artifact / "relay"
         if directory.exists() and not directory.resolve().is_relative_to(artifact.resolve()):
             raise ValueError("relay directory escapes artifact root")
-        for path in directory.glob("*.md") if directory.is_dir() else ():
-            if path.is_symlink():
-                continue
-            try:
-                name = _name(path.stem)
-                content, _ = read_relay(root, name)
-                meta = parse(content)
-                if meta.get("type") != "relay" or meta.get("workstream") != name:
-                    continue
-                generated = meta.get("generated")
-                at = datetime.fromisoformat(generated["at"].replace("Z", "+00:00"))
-                if at.tzinfo is None:
-                    at = at.replace(tzinfo=timezone.utc)
-                claimed_sessions.add(str(meta.get("session_id", "")))
-                label = _single_line(name, 80)
-                branch_label = _single_line(str(meta.get("branch", "?")), 50)
-                rows.append((at.timestamp(), f"- {label} ({branch_label}, {_age(at, now)}): {_next_step(content)}"))
-            except (ValueError, KeyError, TypeError, AttributeError, OSError, UnicodeError):
-                continue
+        for name, meta, content in _relays(directory):
+            generated = meta["generated"]
+            at = datetime.fromisoformat(generated["at"].replace("Z", "+00:00"))
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+            claimed_sessions.add(str(meta.get("session_id", "")))
+            label = _single_line(name, 80)
+            branch_label = _single_line(str(meta.get("branch", "?")), 50)
+            rows.append((at.timestamp(), f"- {label} ({branch_label}, {_age(at, now)}): {_next_step(content)}"))
         unnamed: list[tuple[datetime, str, str, str]] = []
         states = artifact / "session-state"
         if states.exists() and not states.resolve().is_relative_to(artifact.resolve()):
@@ -313,6 +340,36 @@ def render_index(root: Path, session_id: str | None, branch: str | None) -> str:
         result = heading + "\n" + body + suffix + prompt
         atomic_write(index, result, root=artifact)
         return result
+
+
+def parse_status(text: str) -> tuple[str, str]:
+    """Parse the terminal status line from a relay body."""
+    body = split_document(text)[1]
+    status_lines = [
+        line.strip()
+        for line in body.splitlines()
+        if line.strip().lower().startswith("status:")
+    ]
+    if len(status_lines) > 1:
+        raise ValueError("two or more status lines")
+
+    non_empty = [line.strip() for line in body.splitlines() if line.strip()]
+    if not non_empty:
+        raise ValueError("missing status line")
+
+    last = non_empty[-1]
+    if last == "STATUS: CONTINUE":
+        return "CONTINUE", ""
+    m = re.fullmatch(r"STATUS: OWNER-GATE ([A-Z]{2,4}-OG\d+)", last)
+    if m:
+        return "OWNER-GATE", m.group(1)
+    m = re.fullmatch(r"STATUS: BLOCKED (.+)", last)
+    if m and m.group(1).strip():
+        return "BLOCKED", m.group(1).strip()
+    m = re.fullmatch(r"STATUS: FAILED (.+)", last)
+    if m and m.group(1).strip():
+        return "FAILED", m.group(1).strip()
+    raise ValueError(f"invalid or missing status line: {last!r}")
 
 
 class MigrationReport(dict):
@@ -596,6 +653,20 @@ def main(argv: list[str] | None = None) -> int:
     write_p.add_argument("--expected-hash", help="hash from `hash`; 'none' when the relay must not exist yet")
     write_p.add_argument("--root", type=Path, default=Path("."))
 
+    status_p = sub.add_parser("status")
+    status_p.add_argument("name")
+    status_p.add_argument("--root", type=Path, default=Path("."))
+    status_p.add_argument("--json", action="store_true")
+
+    put_p = sub.add_parser("put")
+    put_p.add_argument("name")
+    put_p.add_argument("file", type=Path)
+    put_p.add_argument("--expected-hash")
+    put_p.add_argument("--require-status", action="store_true")
+    put_p.add_argument("--session-id")
+    put_p.add_argument("--branch")
+    put_p.add_argument("--root", type=Path, default=Path("."))
+
     render_p = sub.add_parser("render-index")
     render_p.add_argument("--session-id")
     render_p.add_argument("--branch")
@@ -603,6 +674,14 @@ def main(argv: list[str] | None = None) -> int:
 
     mig_p = sub.add_parser("migrate-legacy")
     mig_p.add_argument("--root", type=Path, default=Path("."))
+
+    list_p = sub.add_parser("list", help="list each relay's name, branch and next step")
+    list_p.add_argument("--root", type=Path, default=Path("."))
+
+    mentions_p = sub.add_parser("mentions", help="list other relays whose Next step mentions an item")
+    mentions_p.add_argument("--item", required=True)
+    mentions_p.add_argument("--except", dest="except_name")
+    mentions_p.add_argument("--root", type=Path, default=Path("."))
 
     args = parser.parse_args(argv)
     if args.command == "resolve":
@@ -628,6 +707,64 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(res.content_hash)
         return 0
+    elif args.command == "status":
+        try:
+            text, digest = read_relay(args.root, args.name)
+        except ValueError as exc:
+            sys.stderr.write(f"cannot read relay: {exc}\n")
+            return 1
+        if digest is None:
+            sys.stderr.write(f"relay {args.name!r} not found\n")
+            return 1
+        try:
+            kind, arg = parse_status(text)
+        except ValueError as exc:
+            sys.stderr.write(f"invalid relay status: {exc}\n")
+            return 1
+        if args.json:
+            print(json.dumps({"status": kind, "arg": arg}))
+        else:
+            if arg:
+                print(f"STATUS: {kind} {arg}")
+            else:
+                print(f"STATUS: {kind}")
+        return 0
+    elif args.command == "put":
+        try:
+            content = args.file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            sys.stderr.write(f"cannot read file: {exc}\n")
+            return 1
+        if args.require_status:
+            try:
+                parse_status(content)
+            except ValueError as exc:
+                sys.stderr.write(f"relay rejected: {exc}\n")
+                return 1
+        if args.expected_hash is not None:
+            expected = None if args.expected_hash == "none" else args.expected_hash
+        else:
+            try:
+                _, expected = read_relay(args.root, args.name)
+            except ValueError as exc:
+                sys.stderr.write(f"cannot read existing relay: {exc}\n")
+                return 1
+        try:
+            res = write_relay(args.root, args.name, content, expected)
+        except ValueError as exc:
+            sys.stderr.write(f"invalid relay: {exc}\n")
+            return 1
+        if res.status != "written":
+            sys.stdout.write(res.diff + ("\n" if not res.diff.endswith("\n") else ""))
+            sys.stderr.write("relay not written: the stored relay changed since you read it (diff above)\n")
+            return 1
+        try:
+            render_index(args.root, args.session_id, args.branch)
+        except (OSError, ValueError) as exc:
+            # The relay is written; only the startup index is stale. Say so, but do not report a failed put.
+            sys.stderr.write(f"relay written, but the index was not rendered: {exc}\n")
+        print(res.content_hash)
+        return 0
     elif args.command == "render-index":
         render_index(args.root, args.session_id, args.branch)
         return 0
@@ -637,6 +774,28 @@ def main(argv: list[str] | None = None) -> int:
         for conflict in report.conflicts:
             print(f"  conflict: {conflict}")
         return 0 if report.status in ("clean", "migrated") else 1
+    elif args.command == "list":
+        artifact = _artifact(args.root)
+        directory = artifact / "relay"
+        if directory.exists() and not directory.resolve().is_relative_to(artifact.resolve()):
+            raise ValueError("relay directory escapes artifact root")
+        for name, meta, content in _relays(directory):
+            branch_label = _single_line(str(meta.get("branch", "?")), 50)
+            print(f"{name}\t{branch_label}\t{_next_step(content)}")
+        return 0
+    elif args.command == "mentions":
+        artifact = _artifact(args.root)
+        directory = artifact / "relay"
+        if directory.exists() and not directory.resolve().is_relative_to(artifact.resolve()):
+            raise ValueError("relay directory escapes artifact root")
+        skip = args.except_name.lower() if args.except_name else None
+        for name, _meta, content in _relays(directory):
+            if skip and name.lower() == skip:  # names compare case-insensitively
+                continue
+            match = _NEXT.search(content)
+            if match and _item_matches(args.item, match.group(1)):
+                print(name)
+        return 0
     parser.print_help()
     return 2
 

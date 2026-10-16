@@ -3,8 +3,7 @@ validate_pool.py  —  Companion pool validator for the caddis resource pool.
 
 Complements validate_agents.py (which checks agent-file structure). This validator
 checks the broader pool: registry consistency, gate consistency, public-resource
-privacy scan, generated-artifact scan, prompt frontmatter, skill registry drift,
-and golden-plan quality.
+privacy scan, generated-artifact scan, prompt frontmatter and skill registry drift.
 
 Exit codes:
   0  all checks passed
@@ -41,7 +40,6 @@ SKILLS_REGISTRY = SKILLS_DIR / "_registry.md"
 RUNTIME_TARGETS = GITHUB_DIR / "runtime-targets.json"
 DIST_RUNTIME_ROOT = REPO_ROOT / "dist" / "runtime-resources"
 POOL_SYNC_DIR = GITHUB_DIR / "tools" / "pool-sync"
-GOLDEN_PLAN_SKILL = SKILLS_DIR / "workflow" / "golden-plan" / "SKILL.md"
 DENYLIST_EXCEPTIONS = GITHUB_DIR / "tools" / "pool-validator" / "denylist-exceptions.txt"
 DOC_FRONTMATTER_INSTRUCTION = GITHUB_DIR / "instructions" / "document-frontmatter.instructions.md"
 DOC_FRONTMATTER_REQUIRED_FIELDS = [
@@ -64,7 +62,6 @@ DOC_FRONTMATTER_REFERENCERS = [
     GITHUB_DIR / "skills" / "docs" / "architecture-document" / "SKILL.md",
     GITHUB_DIR / "skills" / "docs" / "doc-coauthoring" / "SKILL.md",
     GITHUB_DIR / "skills" / "workflow" / "brainstorming" / "SKILL.md",
-    GITHUB_DIR / "skills" / "workflow" / "golden-plan" / "SKILL.md",
     GITHUB_DIR / "skills" / "workflow" / "intent-writer" / "SKILL.md",
     GITHUB_DIR / "skills" / "workflow" / "preflight" / "SKILL.md",
     GITHUB_DIR / "prompts" / "plan.prompt.md",
@@ -349,7 +346,7 @@ def check_agy_plugin_target() -> CheckResult:
 
 # ---------------------------------------------------------------------------
 # (Checks 2–3 — pipeline-runner registry + gate-consistency — removed 2026-07-20
-#  when the Copilot-era pipeline-runner was retired; superseded by docket.)
+#  when the Copilot-era pipeline-runner was retired.)
 # ---------------------------------------------------------------------------
 
 
@@ -461,7 +458,7 @@ def check_privacy_scan_tracked() -> CheckResult:
     # Mirrors are generated from source; fix the source and they follow.
     #
     # `.caddis/` and `docs/` are the WORKING RECORD and are excluded deliberately. This repo
-    # (saajunaid/caddis) is PRIVATE as of 2026-08-05; the thing the public sees is the generated
+    # (the private source repo) is PRIVATE as of 2026-08-05; the thing the public sees is the generated
     # mirror saajunaid/caddis-plugin, which carries `.github/`, the bundles, and a handful of root
     # scripts — and zero `.caddis/` or `docs/` files (verified against the mirror's index). So an
     # internal hostname in a plan or a parking-lot note cannot reach anyone, while the same string
@@ -775,7 +772,7 @@ def check_skill_description_budget(
 
     Which skills count: every SKILL.md under ``.github/skills/``. The copilot target in
     runtime-targets.json ships that whole tree, the largest set of pool skills any runtime
-    offers (claude, codex and agy core + extras ship the same tree minus docs/document-skills).
+    offers (claude, codex and agy core + extras ship the same tree minus docs/document-skills and the private docs/data-lineage).
     A skill whose frontmatter sets ``disable-model-invocation: true`` is user-invocable only: the
     runtime keeps its description out of the model's context, so it does not count.
     ``user-invocable: false`` only hides a skill from the slash menu; the model still sees it, so
@@ -1093,39 +1090,6 @@ def run_claude_profile_checks(profile: str, plugin_root: Path, roots: list[Path]
     return results
 
 
-# ---------------------------------------------------------------------------
-# Check 8 — Golden-plan quality
-# ---------------------------------------------------------------------------
-
-def check_golden_plan() -> CheckResult:
-    r = CheckResult(name="Golden-plan SKILL.md — fence contract & self-sweep")
-    if not GOLDEN_PLAN_SKILL.exists():
-        r.passed = False
-        r.failures.append(f"Missing: {GOLDEN_PLAN_SKILL.relative_to(REPO_ROOT)}")
-        return r
-
-    text = GOLDEN_PLAN_SKILL.read_text(encoding="utf-8")
-
-    # Fence contract — Phase Prompt structure must reference loaded skills + instructions inside a fenced block
-    if "### Phase Prompt" not in text:
-        r.failures.append("Missing '### Phase Prompt' heading (fence contract section)")
-    if "SKILLS TO READ FIRST" not in text:
-        r.failures.append("Phase Prompt fence contract missing 'SKILLS TO READ FIRST' marker")
-    if "INSTRUCTIONS TO FOLLOW" not in text:
-        r.failures.append("Phase Prompt fence contract missing 'INSTRUCTIONS TO FOLLOW' marker")
-
-    # Self-sweep — Phase 3 heading + decay-signal regex examples
-    if "## Phase 3 — Self-Sweep" not in text and "Self-Sweep" not in text:
-        r.failures.append("Missing self-sweep section")
-    decay_signals = ["same pattern", "as above", "similar to", "etc"]
-    missing_signals = [s for s in decay_signals if s not in text]
-    if missing_signals:
-        r.failures.append(f"Self-sweep missing decay-signal examples: {missing_signals}")
-
-    r.passed = not r.failures
-    return r
-
-
 def check_document_frontmatter_contract() -> CheckResult:
     r = CheckResult(name="Document frontmatter contract — instruction + doc generators")
 
@@ -1252,7 +1216,7 @@ def _resolve_scan_roots(args: argparse.Namespace) -> list[Path]:
 
 
 
-# Internal project names must not reach the PUBLIC mirror. saajunaid/caddis is private;
+# Internal project names must not reach the PUBLIC mirror. The private source repo is private;
 # saajunaid/caddis-plugin is public and receives every exported bundle, including the shipped
 # hook tests. On 2026-09-09 six tracked files there named five internal projects — one added the
 # previous day, in a commit that never flagged it.
@@ -1270,8 +1234,11 @@ INTERNAL_NAMES = (
 
 # Files allowed to name an internal project, each by an explicit owner decision. Keep this
 # list SHORT and dated; the matching line in denylist-exceptions.txt must be removed with it.
-#   2026-09-19  data-lineage ships as-is (written for one internal observability app); owner
-#               will make it private later. Remove the entry when that happens.
+#   2026-09-19  data-lineage was written for one internal observability app and names it.
+#   2026-10-15  Owner made data-lineage PRIVATE: sync.ps1 purges it from the mirror and
+#               claude-extras' excluded_skills keeps it out of every bundle. The file stays in
+#               the pool for local use, and this scan reads the pool, so the entry STAYS.
+#               scripts/tests/test_mirror_privacy.py guards that it ships nowhere.
 INTERNAL_NAMES_EXEMPT = (
     ".github/skills/docs/data-lineage/SKILL.md",
 )
@@ -1801,7 +1768,6 @@ def main(argv: list[str] | None = None) -> int:
             check_skill_registry(),
             check_skill_description_budget(),
             check_document_frontmatter_contract(),
-            check_golden_plan(),
         ]
 
     for result in results:

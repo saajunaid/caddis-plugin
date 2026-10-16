@@ -20,7 +20,7 @@ stop-list below is the load-bearing part, and it is deliberately generous: a fal
 costs a human three seconds to ignore, while a false negative leaves a coined word undefined
 forever, which is the failure being fixed.
 
-ACCURACY, MEASURED. On a normal application repo it is good: run against `docket` it proposed
+ACCURACY, MEASURED. On a normal application repo it is good: run against a task-board app it proposed
 `board`, `lane`, `card`, `gate` — that project's actual coined vocabulary, top of the list. On a
 HARNESS repo full of documentation ABOUT agents it is noisier, because words like `protocol` and
 `intent` are both ordinary English and genuinely overloaded here. It is a suggester, not an
@@ -107,8 +107,8 @@ MAX_SUGGESTIONS = 25
 # A coined term is specific, so in a LARGE corpus it shows up in a minority of files. Measured:
 # `description` appeared in 2112 of ~2500 caddis docs and outranked every real term.
 #
-# But this rule INVERTS on a small repo. Applied unconditionally it deleted docket's four best
-# candidates — `board`, `lane`, `card`, `docket` — because in a 50-file repo the core vocabulary
+# But this rule INVERTS on a small repo. Applied unconditionally it deleted a task-board app's four best
+# candidates — `board`, `lane`, `card` and the app's own name — because in a 50-file repo the core vocabulary
 # genuinely is in most files. So it only engages once there are enough files for "share" to
 # mean anything.
 MAX_FILE_SHARE = 0.25

@@ -44,8 +44,8 @@ Resolve the tool path deterministically — check only these two exact locations
 ```bash
 # THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
 # of whatever caddis shipped the day someone copied it, and it never updates again.
-if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/oss_review.py" ]; then
-  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/oss_review.py"
+if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/oss_review.py" ]; then
+  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/oss_review.py"
   # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
   if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
     echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"
@@ -96,14 +96,17 @@ as a diff that silently is not read. Name a provider explicitly only when you ha
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
 - **1 — REVIEW: BLOCKING** → read the printed findings, then **FIX each blocking item** (or explicitly
-  justify why one is a false positive). Re-run once. A second BLOCKING goes to the owner (rule 3).
+  justify why one is a false positive). Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, or a git/endpoint failure. Read stderr; do NOT treat as clean.
 - **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisite) and re-run.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+   Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
+   the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
+   park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
 A diff over the batch ceiling is split into batches. Each batch prompt lists every file in the
 change, so a batch does not report the others as missing.

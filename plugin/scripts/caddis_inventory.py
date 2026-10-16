@@ -44,6 +44,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -105,6 +106,7 @@ class Inventory:
     comms_open: list[dict] = field(default_factory=list)
     scripts: list[dict] = field(default_factory=list)
     stale_artifacts: list[dict] = field(default_factory=list)
+    stale_plans: list[dict] = field(default_factory=list)
     environment_map: str = "missing"
     tests: str = "not measured — run the suite, never quote a remembered number"
 
@@ -275,6 +277,37 @@ def stale_artifacts(root: Path) -> list[dict]:
     return out
 
 
+def stale_plans(root: Path, days: int = 14) -> list[dict]:
+    """Top-level plans in `status: doing` or `status: current` whose last git commit is older
+    than `days` days."""
+    d = root / ART / "plans"
+    if not d.is_dir() or not (root / ".git").exists():
+        return []
+    now = time.time()
+    cutoff = days * 86400
+    out: list[dict] = []
+    for f in sorted(d.glob("*.md")):
+        if f.name.lower() == "readme.md":
+            continue
+        fm = frontmatter(f)
+        status = (fm.get("status") or "").strip()
+        if status.lower() not in ("doing", "current"):
+            continue
+        rel = f"{ART}/plans/{f.name}"
+        ts = _run(["git", "log", "-1", "--format=%ct", "--", rel], root)
+        if not ts.isdigit():
+            continue
+        age_seconds = now - int(ts)
+        if age_seconds > cutoff:
+            out.append({
+                "file": rel,
+                "title": title_of(f),
+                "status": status,
+                "days": int(age_seconds // 86400),
+            })
+    return out
+
+
 def collect(root: Path, with_tests: bool = False) -> Inventory:
     inv = Inventory(repo=root.name)
     inv.branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
@@ -288,6 +321,7 @@ def collect(root: Path, with_tests: bool = False) -> Inventory:
     inv.comms_open = scan_comms(root)
     inv.scripts = scan_scripts(root)
     inv.stale_artifacts = stale_artifacts(root)
+    inv.stale_plans = stale_plans(root)
     inv.environment_map = environment_map_state(root)
     if with_tests:
         # Run it. A handover once claimed 20 tests when there were 19, and the incoming Hub found
@@ -402,6 +436,10 @@ def render_md(inv: Inventory) -> str:
               "Each of these was committed BEFORE the script that builds it last changed, so it may",
               "describe a state that no longer exists. Rebuild before quoting any of them.", ""]
         L += _table(inv.stale_artifacts, [("Artefact", "artifact"), ("Built by", "generator")])
+    if inv.stale_plans:
+        L += ["## Stale plans (status doing/current, no commit in 14 days)", ""]
+        L += _table(inv.stale_plans, [("File", "file"), ("Title", "title"),
+                                      ("Status", "status"), ("Days", "days")])
     for kind, rows in inv.artifacts.items():
         if not rows:
             continue

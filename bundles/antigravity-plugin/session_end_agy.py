@@ -9,7 +9,7 @@ stdout as a `{"decision":…}` object — a stray string trips its "unsupported 
 does a pure side effect and prints NOTHING: empty stdout is agy's "no decision", while
 `{"decision": "continue"}` would stop the session from ending.
 
-Headless runs (CADDIS_HEADLESS, DOCKET_PLAN or DOCKET_BRANCH set and non-empty) are skipped, as in
+Headless runs (CADDIS_HEADLESS set and non-empty) are skipped, as in
 the Claude Stop hook, so review and lane runs leave no files. The record is one append with no
 transcript read, so it stays here rather than moving to /handoff (Phase 13).
 
@@ -90,11 +90,11 @@ def _workspace_roots(data):
         return []
     return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
 
-_HEADLESS_MARKERS = ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH")
+_HEADLESS_MARKERS = ("CADDIS_HEADLESS",)
 
 
 def _headless() -> bool:
-    """True when any marker is set to a non-empty value. `CADDIS_HEADLESS=` is not headless."""
+    """True when CADDIS_HEADLESS is set to a non-empty value. `CADDIS_HEADLESS=` is not headless."""
     return any(str(os.environ.get(name, "")).strip() for name in _HEADLESS_MARKERS)
 
 

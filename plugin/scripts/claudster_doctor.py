@@ -51,6 +51,7 @@ ENV_PREFIX = "CADDIS"
 
 # Known top-level document and working artifact folders under .caddis/
 KNOWN_CADDIS_DIRS: set[str] = {
+    "advisory-hub-reports",  # retired 2026-10 (caddis-next Phase 12): kept as history, never a warning
     "plans",
     "prd",
     "kb",
@@ -64,7 +65,6 @@ KNOWN_CADDIS_DIRS: set[str] = {
     "prompts",
     "relay",
     "session-state",
-    "advisory-hub-reports",
     "orchestrator",
     "spawn-session",
     "metrics",

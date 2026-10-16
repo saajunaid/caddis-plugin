@@ -49,12 +49,10 @@ Prompts are reusable templates for common AI interactions. They provide structur
 
 | Prompt | Purpose |
 |--------|---------|
-| [advisory-hub.prompt.md](advisory-hub.prompt.md) | **Start an Advisory Hub session** — orchestrate multi-agent pipeline end-to-end |
 | [plan.prompt.md](plan.prompt.md) | **Create phased execution plans** for multi-session work |
 | [relay.prompt.md](relay.prompt.md) | Create or update root `relay.md` for session continuation |
 
 > 💡 **Workflow Guidance**:
-> - **For orchestrating large features end-to-end**: Use Advisory Hub (in Cursor: `/advisoryhub`; in other IDEs: paste [advisory-hub.prompt.md](advisory-hub.prompt.md)). It auto-detects fresh start vs continuation and guides you through the pipeline stages.
 > - **For planned large work**: Create a phased plan at `plans/<feature>.md` (in Cursor: `/plan`; in other IDEs: paste the template from [plan.prompt.md](plan.prompt.md)).
 > - **For session continuation**: Use Relay (in Cursor: `/relay`; in other IDEs: paste [relay.prompt.md](relay.prompt.md) and follow the skill). Relay writes `relay.md` at the repository root by default.
 > - **For planned multi-session work**: use a plan document as the execution source of truth, then use Relay to capture the latest resume context when needed.

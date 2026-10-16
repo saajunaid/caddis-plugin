@@ -61,7 +61,7 @@ these files are the truth.
   runbook, analysis, handoff) must open with a YAML frontmatter block:
   ```yaml
   ---
-  type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot|rca|todo|relay|comms|reference|note|phase-report|implement-review|phase-verdict|hub-spawn|advisory-context|phase-prompt
+  type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot|rca|todo|relay|comms|reference|note|phase-report|implement-review|phase-verdict|hub-spawn|advisory-context|phase-prompt|open-work
   status: draft|current|done|superseded
   feature: <feature-slug>
   creation-agent: caddis
@@ -114,9 +114,10 @@ future: yes              # OPTIONAL. yes = committed. Absent or `no` = a candida
 `status` and `future` answer different questions and must stay separate: where the item is in its
 life, and whether we have agreed to do it. `python scripts/caddis_tidy.py --check` and the
 `caddis_gate.py parking-lot` gate both fail on a non-conforming item, so this is enforced, not
-advised. Two neighbours that are NOT the backlog: `/caddis:digress` parks an interrupted task on a
-stack (`/caddis:catchup` pops it), and `.caddis/backlog/` is written by **docket** as a projection of
-its board — never hand-edit that one.
+advised. `--check` also fails on a plan whose Tracker is all done while its `status:` is still
+active, and with `--commit-range BASE..HEAD` it reports violations only in the files that range
+changed. One neighbour that is NOT the backlog: `/caddis:digress` parks an interrupted task on a
+stack (`/caddis:catchup` pops it).
 
 ### Write environment facts down in the same turn
 **If you learn a fact about the environment, write it to `.caddis/kb/environment-map.md` before you

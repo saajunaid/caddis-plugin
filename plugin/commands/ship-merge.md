@@ -50,6 +50,12 @@ State plainly, then wait for confirmation:
 This is the one irreversible, outward-facing step. Approval here **does not carry over** to any
 future run — ask every time, even for the same PR five minutes later.
 
+## Programme triggers
+
+Small work that does not meet a trigger skips its block.
+
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_merge_chain.py"` does this check.
+
 ## Step 3 — Merge
 
 Re-read PR head and merge state before merging (GitHub lane):

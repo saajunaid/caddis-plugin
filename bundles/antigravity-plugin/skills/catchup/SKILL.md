@@ -68,6 +68,13 @@ on is worse than one sentence admitting there is nothing to recap.
 
 **No argument:** this is the last step of the catchup procedure above, not a separate one.
 After the list, add the workstream index and the open work:
+0. The roadmap on origin is the order of work. List the roadmaps, then show each one's status line:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" list
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" status --roadmap <slug>
+   ```
+   Run `caddis_roadmap.py list`, then `caddis_roadmap.py status --roadmap <slug>` for each slug it prints, and
+   show the `line`. If `list` prints nothing (exit 1), the repo has no roadmap: go on to step 1.
 1. Refresh and show the index: `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" render-index`,
    then display `.caddis/relay.md`. If it refuses a legacy `.caddis/relay.md`, display that file
    as it is and suggest `/handoff`, which migrates it.

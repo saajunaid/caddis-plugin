@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """caddis_spawn — shared machinery for handing work to a fresh session.
 
-WHY THIS IS ONE MODULE AND NOT TWO
-----------------------------------
-`/caddis:spawn-hub` and `/caddis:spawn-session` transfer different things — a validation ROLE and
-the WORK itself — but they fail the same way and defend against it with the same four mechanisms:
+WHAT IT DEFENDS AGAINST
+-----------------------
+`/caddis:spawn-session` hands the WORK to a fresh session. A handover fails in a known way, and
+this module defends against it with four mechanisms:
 
   1. capture from the repo, never from recall
   2. a self-check whose naive answer is WRONG, so a successor that skimmed fails visibly
   3. no stored answer key: re-derive at validation time, which checks the DOCUMENT as well
   4. refuse to write anything that goes stale (a commit hash, a test count) as a fact
 
-Built as one module so a fix lands in both. The alternative was already visible in the codebase:
-`succession.md` §J had the trap idea and `spawn-session` was about to grow a second copy of it.
+Built as one shared module so the mechanisms have one home and cannot drift into copies.
 
 THE FAILURE MODE, PRECISELY
 ---------------------------
@@ -729,7 +728,7 @@ def handshake_record(repo_root: Path, spawn_id: str, event: str,
     # successor's tracker starts empty — measured 2026-09-10: a parent board of 59 tasks, and the
     # child's `TaskList` said "No tasks found". So the read-back must say how many items the child
     # rebuilt from the file. Required on `readback` (spawn-session's parent-first flow). Optional
-    # on child-first `answers`, because spawn-hub shares that flow and hands over a role, not a list.
+    # on child-first `answers`, which a successor can use before any task list exists.
     if event == "readback" and revived is None:
         return state, (f"a read-back must say how many open tasks the successor rebuilt from "
                        f"{ART}/{PARENT_STATE} into its own tracker. Ask for the number, then record "
@@ -794,8 +793,8 @@ def handshake_close(repo_root: Path, spawn_id: str) -> tuple[bool, str]:
     parent's own handover. `/clear` in the parent's terminal destroys the only thing that can do
     that, so the parent must outlive the handshake.
 
-    NOTE the distinction this makes explicit, because two documents look like they disagree:
-    `spawn-hub` says the outgoing session STOPS WRITING the moment the prompt is issued (two
+    NOTE the distinction this makes explicit, because two rules look like they disagree:
+    the single-writer rule says the outgoing session STOPS WRITING once the prompt is issued (two
     sessions committed to one repo concurrently and one's work landed inside the other's commit).
     008 says the parent is not CLOSED until the child passes. Alive is not writing. Both hold.
     """

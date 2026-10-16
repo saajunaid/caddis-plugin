@@ -67,7 +67,6 @@ Park it only if it is work **we** will do later. Redirect these instead, and say
 | Being worked on right now | `.caddis/plans/<feature>.md` |
 | An interrupted task you will come back to this session | `/caddis:digress` |
 | Blocked on a person outside this repo | `.caddis/comms/` + its `register.md` |
-| A card on the docket board | the board. **Never hand-edit `.caddis/backlog/`** — docket writes it |
 | A fact about the environment, not a task | the KB (`/caddis:kb`) |
 
 ### Step 2 — do not duplicate

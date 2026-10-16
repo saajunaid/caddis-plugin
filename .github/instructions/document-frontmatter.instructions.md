@@ -8,7 +8,7 @@ priority: 120
 
 Apply this rule whenever you create or update a **descriptive Markdown deliverable**. The YAML frontmatter block must be the first content in the file, before the title, blockquotes, comments, or generated status headers.
 
-This applies to outputs produced by planning, intent, preflight, relay, ADR, README, handoff, documentation, and report workflows, including outputs from `writing-plans`, `golden-plan`, `intent-writer`, `preflight`, `relay`, `plan.prompt.md`, `adr.prompt.md`, and `create-readme.prompt.md`.
+This applies to outputs produced by planning, intent, preflight, relay, ADR, README, handoff, documentation, and report workflows, including outputs from `writing-plans`, `intent-writer`, `preflight`, `relay`, `plan.prompt.md`, `adr.prompt.md`, and `create-readme.prompt.md`.
 
 Include frontmatter for:
 - planning documents
@@ -41,7 +41,7 @@ schema is layered, and only the first tier is required:
 When creating a **new** document, add YAML frontmatter at the top and include:
 
 ```yaml
-type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot|rca|todo|relay|comms|reference|note|phase-report|implement-review|phase-verdict|hub-spawn|advisory-context|phase-prompt
+type: plan|prd|adr|design|runbook|handoff|analysis|review|prompt|parking-lot|rca|todo|relay|comms|reference|note|phase-report|implement-review|phase-verdict|hub-spawn|advisory-context|phase-prompt|open-work
 status: draft|current|done|superseded          # or OKF: draft|stable|deprecated — see the mapping below
 feature: <feature-slug or chain_id that owns this document>
 creation-agent: caddis
@@ -94,6 +94,10 @@ items are open?" has no answer when one state has several spellings. Items also 
 `type: parking-lot` and an optional `future: yes|no`, a **separate axis** from `status` recording
 whether the work is committed rather than a candidate. `python scripts/caddis_tidy.py --check` and
 `python scripts/caddis_gate.py parking-lot` enforce all of this; see `.caddis/parking-lot/README.md`.
+`--check` also fails on a plan whose `## Tracker` is all done while its `status:` is still active
+(the finishing PR should have closed it). With `--commit-range BASE..HEAD` it reports violations
+only in the files that range changed, and it refuses a range it cannot read or one whose files
+have uncommitted changes.
 - **When `status` is absent, read it as `stable`.** This is OKF's default and it is what makes the
   field safe to add: every existing document without a `status` line keeps its current meaning.
 
@@ -135,7 +139,7 @@ stale_after: 2026-12-31
 ### `verified: [ { by: <actor>, at: <ISO-datetime> } ]`
 
 A list of independent confirmations. This formalises caddis's existing **"hub-validated"** pattern:
-when a human or the Advisory Hub reviews a plan/review and confirms it, that confirmation is recorded
+when a human or an independent reviewer checks a plan/review and confirms it, that confirmation is recorded
 here rather than in prose.
 
 ```yaml

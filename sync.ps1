@@ -39,14 +39,25 @@ $POOL_FOLDERS = @("agents", "skills", "prompts", "instructions", "hooks", "diagr
 $POOL_FILES = @("runtime-targets.json", "pool.manifest.yml")
 $ROOT_PUSH_FILES = @("export_runtime_resources.py", "validate_agents.py", "validate_pool.py", "sync.ps1", ".env.example")
 $ROOT_SYNC_FILES = @("LICENSE", "NOTICE.md")
-# PRIVACY IS NOW STRUCTURAL. This repo (caddis) holds ONLY public, publishable source -
+# PRIVACY IS MOSTLY STRUCTURAL. This repo (caddis) holds ONLY public, publishable source -
 # there is no private vmie/ root and no vmie skill category to purge (they live in the separate,
-# private caddis repo and never came across in the extraction). These arrays are therefore
-# EMPTY: the post-copy purge loops below iterate over nothing. Keeping the machinery (empty) rather
-# than ripping it out means a future accidental re-introduction of a private category can be
-# re-gated by simply naming it here - but the intent is that nothing private ever lives in this repo.
+# private caddis repo and never came across in the extraction). $PRIVATE_ROOT_FOLDERS is therefore
+# EMPTY on purpose.
+#
+# $PRIVATE_SKILL_CATEGORIES is NOT empty (owner decisions, 2026-10-15). Each entry is a path under
+# .github/skills/ that stays in the source pool (local use) but is purged from the public mirror's
+# .github/ copy after the pool copy:
+#   docs\document-skills  Anthropic-proprietary Office skills (docx/pdf/pptx/xlsx). Removed from the
+#                         mirror HEAD only; the mirror's git history is NOT rewritten. Projects get
+#                         them from Anthropic's own document-skills plugin; the public
+#                         office-documents-official skill tells the user how to install it.
+#   docs\data-lineage     describes one internal observability estate. PRIVATE: it is also denied in
+#                         every bundle through claude-extras' excluded_skills in
+#                         .github/runtime-targets.json (codex-extras, antigravity-extras and
+#                         antigravity-plugin-extras reuse that list). Both places must name it.
+# scripts/tests/test_mirror_privacy.py fails if either place drifts.
 $PRIVATE_ROOT_FOLDERS = @()
-$PRIVATE_SKILL_CATEGORIES = @()
+$PRIVATE_SKILL_CATEGORIES = @("docs\document-skills", "docs\data-lineage")
 # Fully-managed folders: wiped before copy so renamed/moved/deleted files don't persist
 $CLEAN_FOLDERS = @("agents", "skills", "prompts", "instructions", "hooks", "tools", "recipes")
 
@@ -1065,7 +1076,7 @@ function caddis-push {
 
     # Privacy gate: the public mirror must NEVER carry private skill categories or private root
     # folders. The POOL_FOLDERS copy above mirrors skills/ wholesale, so strip private categories
-    # (vmie = vm-ppt + golden-workflow, proprietary) here, plus any private root folder that slipped
+    # (entries are paths under skills/, e.g. docs\data-lineage) here, plus any private root folder that slipped
     # in. This makes $PRIVATE_ROOT_FOLDERS actually enforced (it was declared but never applied).
     foreach ($cat in $PRIVATE_SKILL_CATEGORIES) {
         $privCat = Join-Path $CADDIS_GITHUB "skills\$cat"
@@ -1134,11 +1145,17 @@ function caddis-push {
     # same commit: marketplace.json at the repo root (.claude-plugin/), the plugin
     # under plugin/. Repo is PUBLIC - vmie/ and any private skill categories are
     # purged from the plugin bundle after copy.
-    # Private skills purged from BOTH public plugin bundles. After skill flattening these
-    # are flat dirs (skills/<name>/), not a skills/vmie/ category - so purge by skill name.
-    # Empty: golden-workflow + windows-deployment were promoted to public categories
-    # (devops/, docs/) and now ship in the public bundles. Add a name here only to hold a
-    # skill back from publish while keeping it in the pool.
+    # Private skills purged from the three public PLUGIN bundles only: plugin/, plugin-extras/ and
+    # plugin-codex/ (NOT the portable bundles/ copy below, and NOT the mirror's .github/ copy, which
+    # $PRIVATE_SKILL_CATEGORIES handles). After skill flattening these are flat dirs
+    # (skills/<name>/), not a category - so purge by skill name.
+    # Empty on purpose: golden-workflow + windows-deployment were promoted to public categories
+    # (devops/, docs/) and ship in the public bundles. data-lineage (private since 2026-10-15) is
+    # kept out of the extras tiers by claude-extras' excluded_skills in runtime-targets.json, not
+    # here: the data-lineage entries that remain in plugin/ and plugin-codex/ are the generic
+    # /data-lineage COMMAND (and its command-as-skill form), not the estate-specific SKILL.md, so
+    # they must not be purged by name. Add a name here only to hold a skill back from publish
+    # while keeping it in the pool.
     $PLUGIN_PRIVATE_SKILLS = @()
     $claudePython = Get-CaddisPythonCommand
     if ($claudePython) {

@@ -308,12 +308,67 @@ def _plan_rows(plan: Path | None) -> list[dict]:
     return rows
 
 
+def _split_cells(line: str) -> list[str]:
+    r"""Stripped cells of one table line, split on unescaped pipes only (`a \| b` is one cell)."""
+    parts = re.split(r"(?<!\\)\|", line.strip())
+    if parts and parts[0] == "":
+        parts.pop(0)
+    if parts and parts[-1] == "":
+        parts.pop(-1)
+    return [part.strip() for part in parts]
+
+
+def _open_work_rows(root: Path) -> list[dict]:
+    path = _artifact(root) / "open-work.md"
+    if path.is_symlink() or not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    header, body = split_document(text)
+    if header.get("type") != "open-work":
+        return []
+    rows: list[dict] = []
+    columns: list[str] | None = None
+    id_idx = status_idx = title_idx = 0
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            columns = None
+            continue
+        cells = _split_cells(line)  # unescaped pipes only, as caddis_rows.split_cells
+        if not cells or all(c and set(c) <= set("-: ") and "-" in c for c in cells):
+            continue
+        if columns is None:
+            lowered = [c.lower() for c in cells]
+            if "id" in lowered and "status" in lowered:
+                columns = lowered
+                id_idx = columns.index("id")
+                status_idx = columns.index("status")
+                title_idx = next(
+                    (i for i, col in enumerate(columns) if col in {"task", "title", "item"}),
+                    id_idx + 1,
+                )
+            continue
+        if len(cells) != len(columns):
+            continue
+        status = cells[status_idx].strip().lower()
+        first = status.split(" ", 1)[0] if status else ""
+        if _is_done(status) or first in {"not-needed", "✓", "✔"}:
+            continue
+        row_id = cells[id_idx].replace("**", "").replace("__", "").replace("`", "").strip()
+        if not row_id:
+            continue
+        title = cells[title_idx] if title_idx < len(cells) else ""
+        rows.append({"id": row_id, "kind": "open-work", "title": title})
+    return rows
+
+
 def open_work(root: Path, workstream: str | None = None) -> list[dict]:
     rows = _plan_rows(_active_plan(root, workstream))
     for name in (None, workstream) if workstream and workstream != "inbox" else (None,):
         rows.extend({"id": item["id"], "kind": "todo", "title": item["title"],
                      **{key: item[key] for key in ("resolves", "partial") if key in item}}
                     for item in list_items(root, name))
+    rows.extend(_open_work_rows(root))
     return rows
 
 

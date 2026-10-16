@@ -126,6 +126,7 @@ plain word gets them wrong. Usage counts were measured across 444 markdown files
 | model lane | A named provider route reached by its own binary — `claude-oss`, `claude-glm`, `claude-deepseek` — all speaking the Anthropic protocol. A lane is a route, not a model. | provider, backend, endpoint |
 | core / extras | The two shipping tiers. Core is an EXPLICIT allowlist in `.github/runtime-targets.json`; anything not named there lands in extras. A skill defaults to extras, so placement is a decision, never an accident. | tier 1 / tier 2, full / lite |
 | harness | The agent runtime that loads caddis — Claude Code, agy, Codex, Copilot. caddis is agent-agnostic; "the harness" without a name means whichever one is running. *(135 uses)* | client, IDE, platform |
+| card | One full unit of work handed to a lane or a reviewer: scope, files and pass criteria, kept in a roadmap's cards/ folder. | task file, ticket |
 
 ## Flagged ambiguities
 

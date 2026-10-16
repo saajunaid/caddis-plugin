@@ -341,6 +341,61 @@
           "destination": "scripts/caddis_todo.py"
         },
         {
+          "root": "scriptsrc",
+          "source": "caddis_rows.py",
+          "destination": "scripts/caddis_rows.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_roadmap.py",
+          "destination": "scripts/caddis_roadmap.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_merge_chain.py",
+          "destination": "scripts/caddis_merge_chain.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_prod_check.py",
+          "destination": "scripts/caddis_prod_check.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_review.py",
+          "destination": "scripts/caddis_review.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_roadmap_run.py",
+          "destination": "scripts/caddis_roadmap_run.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_notify.py",
+          "destination": "scripts/caddis_notify.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_checkout_guard.py",
+          "destination": "scripts/caddis_checkout_guard.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_docs_pr.py",
+          "destination": "scripts/caddis_docs_pr.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_worktree_close.py",
+          "destination": "scripts/caddis_worktree_close.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_lineage_publish.py",
+          "destination": "scripts/caddis_lineage_publish.py"
+        },
+        {
           "root": "harness",
           "source": "scripts/caddis_glossary.py",
           "destination": "scripts/caddis_glossary.py"
@@ -359,6 +414,16 @@
           "root": "harness",
           "source": "scripts/caddis-run.ps1",
           "destination": "scripts/caddis-run.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/roadmap-run.ps1",
+          "destination": "scripts/roadmap-run.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/roadmap-recheck.ps1",
+          "destination": "scripts/roadmap-recheck.ps1"
         },
         {
           "root": "harness",
@@ -384,6 +449,16 @@
           "root": "scriptsrc",
           "source": "caddis_lanes.py",
           "destination": "scripts/caddis_lanes.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_spend.py",
+          "destination": "scripts/caddis_spend.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_redact.py",
+          "destination": "scripts/caddis_redact.py"
         },
         {
           "root": "scriptsrc",
@@ -613,6 +688,61 @@
           "destination": "scripts/caddis_todo.py"
         },
         {
+          "root": "scriptsrc",
+          "source": "caddis_rows.py",
+          "destination": "scripts/caddis_rows.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_roadmap.py",
+          "destination": "scripts/caddis_roadmap.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_merge_chain.py",
+          "destination": "scripts/caddis_merge_chain.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_prod_check.py",
+          "destination": "scripts/caddis_prod_check.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_review.py",
+          "destination": "scripts/caddis_review.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_roadmap_run.py",
+          "destination": "scripts/caddis_roadmap_run.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_notify.py",
+          "destination": "scripts/caddis_notify.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_checkout_guard.py",
+          "destination": "scripts/caddis_checkout_guard.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_docs_pr.py",
+          "destination": "scripts/caddis_docs_pr.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_worktree_close.py",
+          "destination": "scripts/caddis_worktree_close.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_lineage_publish.py",
+          "destination": "scripts/caddis_lineage_publish.py"
+        },
+        {
           "root": "harness",
           "source": "scripts/caddis_glossary.py",
           "destination": "scripts/caddis_glossary.py"
@@ -631,6 +761,16 @@
           "root": "harness",
           "source": "scripts/caddis-run.ps1",
           "destination": "scripts/caddis-run.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/roadmap-run.ps1",
+          "destination": "scripts/roadmap-run.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/roadmap-recheck.ps1",
+          "destination": "scripts/roadmap-recheck.ps1"
         },
         {
           "root": "harness",
@@ -656,6 +796,16 @@
           "root": "scriptsrc",
           "source": "caddis_lanes.py",
           "destination": "scripts/caddis_lanes.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_spend.py",
+          "destination": "scripts/caddis_spend.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_redact.py",
+          "destination": "scripts/caddis_redact.py"
         },
         {
           "root": "scriptsrc",
@@ -793,7 +943,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.138",
+        "version": "1.3.139",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -976,6 +1126,61 @@
           "destination": "scripts/caddis_todo.py"
         },
         {
+          "root": "scriptsrc",
+          "source": "caddis_rows.py",
+          "destination": "scripts/caddis_rows.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_roadmap.py",
+          "destination": "scripts/caddis_roadmap.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_merge_chain.py",
+          "destination": "scripts/caddis_merge_chain.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_prod_check.py",
+          "destination": "scripts/caddis_prod_check.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_review.py",
+          "destination": "scripts/caddis_review.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_roadmap_run.py",
+          "destination": "scripts/caddis_roadmap_run.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_notify.py",
+          "destination": "scripts/caddis_notify.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_checkout_guard.py",
+          "destination": "scripts/caddis_checkout_guard.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_docs_pr.py",
+          "destination": "scripts/caddis_docs_pr.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_worktree_close.py",
+          "destination": "scripts/caddis_worktree_close.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_lineage_publish.py",
+          "destination": "scripts/caddis_lineage_publish.py"
+        },
+        {
           "root": "harness",
           "source": "scripts/caddis_glossary.py",
           "destination": "scripts/caddis_glossary.py"
@@ -1002,6 +1207,16 @@
         },
         {
           "root": "harness",
+          "source": "scripts/roadmap-run.ps1",
+          "destination": "scripts/roadmap-run.ps1"
+        },
+        {
+          "root": "harness",
+          "source": "scripts/roadmap-recheck.ps1",
+          "destination": "scripts/roadmap-recheck.ps1"
+        },
+        {
+          "root": "harness",
           "source": "scripts/caddis-run.sh",
           "destination": "scripts/caddis-run.sh"
         },
@@ -1024,6 +1239,16 @@
           "root": "scriptsrc",
           "source": "caddis_lanes.py",
           "destination": "scripts/caddis_lanes.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_spend.py",
+          "destination": "scripts/caddis_spend.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_redact.py",
+          "destination": "scripts/caddis_redact.py"
         },
         {
           "root": "scriptsrc",
@@ -1118,7 +1343,7 @@
           ]
         },
         {
-          "_comment": "CORE tier — ~38 high-frequency dev skills, flattened to skills/<name>/ so Claude Code's plugin loader (flat discovery) actually registers them. The long tail lives in the claude-extras target. Office skills (pdf/docx/pptx/xlsx) are Anthropic-proprietary and ship via Anthropic's own document-skills, not here.",
+          "_comment": "CORE tier — ~38 high-frequency dev skills, flattened to skills/<name>/ so Claude Code's plugin loader (flat discovery) actually registers them. The long tail lives in the claude-extras target. Office skills (pdf/docx/pptx/xlsx) are Anthropic-proprietary and ship via Anthropic's own document-skills, not here; the core office-documents-official skill only tells the user how to install them.",
           "source": "skills",
           "destination": "skills",
           "flatten_skills": true,
@@ -1144,10 +1369,10 @@
               "webapp-testing"
             ],
             "workflow": [
-              "advisory-hub",
               "best-practices",
               "brainstorming",
               "context-curator",
+              "roadmap",
               "preflight",
               "skill-creator"
             ],
@@ -1155,6 +1380,7 @@
               "code-documentation",
               "confluence-hla",
               "explainer-doc",
+              "office-documents-official",
               "tech-explainer",
               "technical-writing",
               "writing-plans"
@@ -1199,7 +1425,7 @@
       "workspace_root": "plugin-extras",
       "plugin": {
         "name": "caddis-extras",
-        "version": "1.3.42",
+        "version": "1.3.43",
         "description": "caddis-extras — the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
         "author": {
           "name": "junaid",
@@ -1217,12 +1443,14 @@
       },
       "copies": [
         {
-          "_comment": "Everything except the core 38 and the proprietary document-skills bundle. document-skills is excluded because it is a 3-level nested bundle (docs/document-skills/<pdf|docx|pptx|xlsx>) of Anthropic-proprietary skills that neither flatten nor belong in a public bundle.",
+          "_comment": "Everything except the core skills and the proprietary document-skills bundle. document-skills is excluded because it is a 3-level nested bundle (docs/document-skills/<pdf|docx|pptx|xlsx>) of Anthropic-proprietary skills that neither flatten nor belong in a public bundle. data-lineage is PRIVATE (owner decision 2026-10-15): it names an internal estate, so it stays in the pool but ships in no bundle; because codex-extras, antigravity-extras and antigravity-plugin-extras reuse this list through excluded_skills_from, one entry here keeps it out of all four extras tiers. office-documents-official is a core skill (claude included_skills, docs), so extras must not ship it again.",
           "source": "skills",
           "destination": "skills",
           "flatten_skills": true,
           "excluded_skills": [
             "document-skills",
+            "data-lineage",
+            "office-documents-official",
             "api-design",
             "backend-development",
             "code-review",
@@ -1239,10 +1467,10 @@
             "tdd-workflow",
             "test-strategy",
             "webapp-testing",
-            "advisory-hub",
             "best-practices",
             "brainstorming",
             "context-curator",
+            "roadmap",
             "preflight",
             "skill-creator",
             "code-documentation",

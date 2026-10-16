@@ -9,9 +9,7 @@ Use this when a session is long enough that its own recall has become the risk. 
 `/caddis:handoff` for that case: `/handoff` writes down what you remember, and **what you remember
 is the failure mode.**
 
-**Sibling, not duplicate, of `/caddis:spawn-hub`.** `spawn-hub` hands over a validation ROLE;
-this hands over the WORK. Both run on `scripts/caddis_spawn.py`, so a fix to the machinery lands in
-both.
+It runs on `scripts/caddis_spawn.py`.
 
 ## The failure this exists to catch
 
@@ -333,9 +331,9 @@ Use a read-only agent that can open files and run commands (`caddis:anchor` fits
 verdict, record it, and fix any handover document it proves wrong. On a runtime with no subagents,
 grade in a fresh session and say so. Never grade from a nearly-full context.
 
-**ALIVE until `handshake close`; not WRITING, with two named exceptions.** `/caddis:spawn-hub`
-carries a single-writer rule, because two sessions committed to one repo concurrently and one's work
-landed inside the other's commit. Here it has exactly two exceptions: your own handover artefacts,
+**ALIVE until `handshake close`; not WRITING, with two named exceptions.** The single-writer rule
+exists because two sessions committed to one repo concurrently and one's work landed inside the
+other's commit. It has exactly two exceptions: your own handover artefacts,
 and a document a verdict proves wrong. **Commit and push each one before you reply.** Never hold an
 uncommitted change while the child is live, because a checkout on its side can take it with no copy
 anywhere.
@@ -403,8 +401,6 @@ immediately.
 
 **REJECT exists because a confidently wrong successor is more dangerous than a confused one.** In
 this project the failure has never been *"I don't know"* — it has been a fluent wrong answer.
-
-The vocabulary matches `/caddis:validate-phase` on purpose: same discipline, different object.
 
 **Two REJECTs on one spawn means the HANDOVER is at fault, not the successor. Regenerate it** rather
 than coaching the child through it.

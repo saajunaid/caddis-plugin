@@ -40,6 +40,37 @@ are uncommitted.)
 - Fix failures first. **Never open a PR over red preflight** — a PR that arrives red wastes the
   reviewer it exists to serve.
 
+## Step 2b — Tidy check on this PR's files (before the PR exists)
+
+Finished plans close in the PR that finishes them (`/caddis:implement` step 4b). Check that this
+PR did, on the files it touches only:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
+```
+
+(`<default>` is the default branch from Step 0. Falls back to `scripts/caddis_tidy.py` from a
+source checkout; skip this step if the script is missing or the repo has no `.caddis/`.)
+
+- Exit **0** — carry on.
+- Exit **1** — **stop; do not open the PR.** Show each `CHECK VIOLATION` or `ERROR` line.
+  - `plan <path>: tracker done, status <s>` — run
+    `caddis_tidy.py --repo-root . --apply --only <path>`, `git add` the moved plan by name,
+    commit, and run this step again.
+  - `plan <path>: tracker done, but done/<name> already exists (rename one of them)` — `--apply`
+    cannot fix this; it changes nothing while the name is taken. Rename the plan or the old
+    `done/` copy with `git mv`, commit, and run this step again.
+  - Any other violation — fix that file's frontmatter, commit, and run this step again.
+  - `ERROR: uncommitted changes in files this range touched: <paths>; commit them first` — the
+    check reads the committed files the PR ships, so commit (or discard) those changes first.
+  - `ERROR: cannot read commit range <range>: <git error>`, or `commit range has an empty side`
+    — the range is wrong, not the files. Fix the range: name both sides, and use the remote and
+    default branch this repo really has (for example `upstream/master..HEAD`; check with
+    `git remote` and Step 0). No violation list is printed with an `ERROR`, so nothing was
+    checked yet.
+- Only files this branch changed are checked, so problems already on the default branch never
+  block an unrelated PR. The owner's fleet report (`caddis-fleet-tidy.ps1`) lists those.
+
 ## Step 3 — Scope-guard pre-check (before the PR exists)
 
 - If the repo has a **named scope-guard workflow** (e.g. a Gitea `pr-scope-guard` that blocks PRs
@@ -53,20 +84,8 @@ are uncommitted.)
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-**Run the trigger, do not eyeball the diff:**
-
-```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
-```
-
-Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
-Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
-picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
-gets switched off inside a week.
-
-It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
-over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
-what failed.
+Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
 > **Why this is mechanical and not "consider a review here".** a fleet app shipped four

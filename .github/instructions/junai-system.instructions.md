@@ -136,7 +136,7 @@ For fully hands-free runs: enable VS Code Chat → permissions picker → **Auto
 ## The MCP Tools
 
 > **⚠ Retired 2026-07-20.** The Copilot-era agent-pipeline runtime — the deterministic pipeline
-> runner and its companion MCP server — was retired (Copilot rarely used; superseded by docket). The
+> runner and its companion MCP server — was retired (Copilot rarely used). The
 > tools below are documented for historical reference only; the server they were served from no
 > longer ships in the pool. Agents now run in standalone mode. A dedicated pass to fully retire
 > the dormant orchestration layer (the `notify_orchestrator` protocol still referenced across the

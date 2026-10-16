@@ -88,7 +88,7 @@ smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
 - **1 — REVIEW: BLOCKING** → the reviewer found blocking issues. **Read the printed findings, then FIX
   each blocking item** (or, if you judge one a false positive, state explicitly why it's safe to ignore).
-  Re-run once. A second BLOCKING goes to the owner (rule 3).
+  Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, a git failure, or an endpoint/parse failure. Read stderr; do not
   treat this as CLEAN — investigate.
 - **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisites) and re-run.
@@ -96,7 +96,10 @@ smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+   Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
+   the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
+   park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
 A diff over the batch ceiling is split into batches. Each batch prompt lists every file in the
 change, so a batch does not report the others as missing.

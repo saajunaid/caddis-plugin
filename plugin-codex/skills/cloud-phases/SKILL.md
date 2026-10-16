@@ -20,7 +20,7 @@ Two modes:
 - `/caddis:cloud-phases [plan] [phases]` — **dispatch**: Steps 1–6.
 - `/caddis:cloud-phases intake` — **intake**: Step 7, after the owner has run the sessions.
 
-With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_todo.py" active-plan`,
+With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_todo.py" active-plan`,
 or the one `status: current` plan in `.caddis/plans/`). If there is none, or more than one, ask.
 
 ## Step 1 — check the preconditions (stop on any failure)
@@ -152,7 +152,7 @@ For each PR from a `<prefix>/phase-<NN>` branch, one at a time:
 1. Read the whole diff (`gh pr diff <N>`). Check it against the phase's Design and Touches. A file
    outside Touches is a finding.
 2. Wait for CI: `gh pr checks <N> --watch` (or the ci-watch lane, if this caddis has it).
-3. Review under the three rules: one review, stop at the first CLEAN; after two blocking reviews,
+3. Review under the three rules (rule 3, review by tier): stop at the first CLEAN; after 3 rounds,
    ask the owner. A fix goes back to the same cloud session or is made locally on the PR branch.
 4. Just before merging, re-read `gh pr view <N> --json headRefOid,mergeStateStatus`. Merge only if
    the head SHA is the one you reviewed and CI passed on it:

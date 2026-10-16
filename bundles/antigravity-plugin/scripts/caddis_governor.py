@@ -426,12 +426,45 @@ def close_job(job: int) -> None:
 
 # ── other platforms ─────────────────────────────────────────────────────────
 
-def posix_argv(argv: list[str], limits: JobLimits, which=shutil.which, cpu_count=os.cpu_count) -> list[str] | None:
+_SYSTEMD_USER_OK: bool | None = None
+
+
+def systemd_user_usable(run=subprocess.run) -> bool:
+    """True when `systemd-run --user --scope` can actually start a scope here.
+
+    The binary can exist with no user D-Bus session behind it: a claude.ai cloud container on
+    2026-10-11 had systemd-run on PATH and every call exited 1 with "Failed to connect to bus: No
+    medium found". Treating "on PATH" as "works" then made every governed lane fail without
+    running. Probe once with a harmless `true`, using the same property kinds as the real call (an
+    old systemd can reject `MemoryMax`); any failure means the cap does not exist."""
+    try:
+        done = run(["systemd-run", "--user", "--scope", "--quiet",
+                    "-p", "CPUQuota=50%", "-p", "MemoryMax=512M", "-p", "TasksMax=64", "--", "true"],
+                   capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def _systemd_user_usable_cached() -> bool:
+    global _SYSTEMD_USER_OK
+    if _SYSTEMD_USER_OK is None:
+        _SYSTEMD_USER_OK = systemd_user_usable()
+    return _SYSTEMD_USER_OK
+
+
+def posix_argv(argv: list[str], limits: JobLimits, which=shutil.which, cpu_count=os.cpu_count,
+               usable=None) -> list[str] | None:
     """systemd user scope limits. Weaker than a Job Object: user scopes do not nest (a lane scope is
     a sibling of its session scope), an agent can call `systemd-run --user` itself, and CPUQuota is
     silently ignored when the cpu controller is not delegated to the user manager. TasksMax counts
-    THREADS, not processes, so on Linux `max_processes` is a thread limit."""
+    THREADS, not processes, so on Linux `max_processes` is a thread limit.
+
+    None when systemd-run is missing OR present but unusable (`usable`, default: one cached probe);
+    the caller then refuses unless --allow-uncapped, exactly as for a missing binary."""
     if not which("systemd-run"):
+        return None
+    if not (usable or _systemd_user_usable_cached)():
         return None
     return ["systemd-run", "--user", "--scope", "--quiet",
             "-p", f"CPUQuota={limits.cpu_percent * (cpu_count() or 1)}%",
@@ -454,6 +487,17 @@ def _run_child(argv: list[str], env: dict) -> int:
         return 127
     except KeyboardInterrupt:
         return 130
+
+
+def cap_available() -> bool:
+    """True when this host can cap a governed child: a Job Object on native Windows, a usable
+    systemd user scope on posix. Tests that launch a real governed lane skip when this is False."""
+    kind = _host_kind()
+    if kind == "windows":
+        return True
+    if kind == "non-native-windows":
+        return False
+    return posix_argv(["true"], JobLimits(100, 1024, 64)) is not None
 
 
 def _host_kind() -> str:
@@ -502,7 +546,7 @@ def exec_governed(argv: list[str], scope: str, budget: Path | None = None,
         wrapped = posix_argv(argv, limits)
         if wrapped is None:
             if not allow_uncapped:
-                raise GovernorError("no systemd-run on this platform, so no cap can be applied; "
+                raise GovernorError("no usable systemd-run on this platform (missing, or `systemd-run --user` cannot reach a user D-Bus session, as in many containers), so no cap can be applied; "
                                     "pass --allow-uncapped to run at lower priority only")
             try:
                 os.nice(10)
@@ -534,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
     p_exec.add_argument("--machine-budget", type=Path, help=argparse.SUPPRESS)  # additional ceiling only
     p_exec.add_argument("--job-name", help=argparse.SUPPRESS)
     p_exec.add_argument("--allow-uncapped", action="store_true",
-                        help="where no cap can be applied (no systemd-run, macOS), run at lower priority anyway")
+                        help="where no cap can be applied (systemd-run missing or unusable, macOS), run at lower priority anyway")
     p_show = sub.add_parser("show", help="print the effective limits")
     p_show.add_argument("--budget", type=Path)
     p_show.add_argument("--machine-budget", type=Path, help=argparse.SUPPRESS)

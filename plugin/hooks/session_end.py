@@ -15,7 +15,7 @@ Moved to `/handoff`, which runs once per session instead of once per turn:
   - the relay / knowledge-transfer reminder, which /handoff's own Step 1 already states.
 
 Rules this file keeps:
-  - Headless runs (CADDIS_HEADLESS, DOCKET_PLAN or DOCKET_BRANCH set and non-empty) are
+  - Headless runs (CADDIS_HEADLESS set and non-empty) are
     skipped entirely, so review and lane runs leave no state files.
   - No subprocess: the repo root is found by walking up to the nearest `.git`.
   - Fail-open: nothing here may raise or exit non-zero, and it prints nothing.
@@ -48,11 +48,11 @@ try:
 except Exception:  # pragma: no cover — defensive
     extract_state = None
 
-_HEADLESS_MARKERS = ("CADDIS_HEADLESS", "DOCKET_PLAN", "DOCKET_BRANCH")
+_HEADLESS_MARKERS = ("CADDIS_HEADLESS",)
 
 
 def _headless() -> bool:
-    """True when any marker is set to a non-empty value. `CADDIS_HEADLESS=` is not headless."""
+    """True when CADDIS_HEADLESS is set to a non-empty value. `CADDIS_HEADLESS=` is not headless."""
     return any(str(os.environ.get(name, "")).strip() for name in _HEADLESS_MARKERS)
 
 

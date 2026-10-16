@@ -15,9 +15,8 @@ The plan file is the **durable spine of the harness** — it must let any future
 agent, on any tool) resume with zero re-discovery. Optimize for that.
 
 ## Headless mode
-When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` /
-`DOCKET_PLAN` / `DOCKET_BRANCH` is set in the environment** (the caddis OSS launchers export
-`CADDIS_HEADLESS` on claude's `-p`/`--print`; the docket runner sets the others) — a non-interactive
+When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` is set in
+the environment** (the caddis OSS launchers export it on claude's `-p`/`--print`) — a non-interactive
 caller spawned this session and no human is present, so the scope-check questions and any interview are
 **suspended and forbidden**. This mode exists for one-line ideas: the card may be a short title with **no
 description**, and there may be **no codebase, PROJECT-FACTS, or prior PRD** to read. That is expected —
@@ -41,13 +40,6 @@ Absolute rules in this mode (they override everything below):
   a bullet under `## Constraints & decisions` — never a question to the user.
 - **Honor the caller's output path and slug** (falling back to `.caddis/plans/<feature-slug>.md`);
   set `feature: <slug>` in the frontmatter to that slug.
-- **Also emit a visual companion** — a self-contained, scannable HTML page at `<artifact_dir>/<slug>.html`
-  presenting the plan visually (a goal card, phases as cards with their steps, an affected-files table,
-  and a risks/decisions section). **Use inline `<style>` ONLY** — the visual is rendered in a *sandboxed*
-  iframe with no script execution, so a `<script>`/CDN (e.g. the Tailwind browser CDN) would NOT run and
-  the page would appear unstyled. Keep it fully portable — no external `<script>`/`<link>`, no local
-  asset files, no `/`-rooted paths. This is the visual the human reviews in docket alongside the markdown.
-  Write it after the `.md`; the runner finds it by the matching `<slug>.html` name.
 - **Always write the plan file, then end with exactly one fenced `json` highlights block** — nothing
   after it:
   ```json
@@ -65,7 +57,7 @@ exists instead of assumed. If the work fits comfortably in one session, say so a
 instead of planning. Only produce a plan for genuinely multi-phase work.
 
 ### Evidence gate — do not write plan content while a BLOCKER is unresolved
-Absorbed from `golden-plan`, whose strongest idea this is, and the direct counter to the failure
+This is the direct counter to the failure
 mode that makes a plan dangerous: **you write the spec, so you cannot see its gaps.** A phase built
 on guessed field names or an imagined API is confidently wrong, passes every completeness check,
 and only fails at the exit gate — or worse, doesn't.
@@ -166,9 +158,11 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format text -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
-Replace `<plan path>` and `N` with this plan's path and phase number. If the routing command fails
+Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
+always starts with `caddis_spend.py run`: it books the call against the global EUR spend cap, and
+`caddis_gate.py lane-check` refuses a bare `agy` Lane line. If the routing command fails
 or exits 3, use `claude — this session` and state the reason in that phase.
 
 #### A phase may take a no-escalation lane only if its exit gate would fail on a spec error
@@ -188,14 +182,9 @@ internal repo path into stakeholder-facing copy, and set a `live` status flag th
 framework's own "Soon" badge). `tsc` clean, 632/632 tests green, cross-review CLEAN, exit gate
 satisfied. A headless run following it literally would have committed both, entirely green.
 
-In an Advisory-Hub plan, treat your lane as **provisional**: the Hub writes each `phase-NN.prompt.md`
-before the phase runs, and that is the first time anyone but the spec's author reads it. Let that
-read confirm or downgrade the lane. It costs nothing — the prompt is being written anyway.
-
 ### Group phases into MILESTONES — only when the plan is big enough
 **Add milestones when the plan has ~8+ phases OR spans multiple sessions.** Below that, phases and a
-Tracker are enough; a three-phase feature gains nothing from ceremony. (Same sizing instinct as the
-Advisory-Hub test, deliberately — one threshold to remember, not two.)
+Tracker are enough; a three-phase feature gains nothing from ceremony.
 
 A milestone is **a group of phases that ship together**. It answers "what lands when this is done?",
 which is the question a long plan otherwise leaves the executor guessing at.
@@ -213,9 +202,10 @@ resuming session can see at a glance which group it is in and what remains befor
 ### Flag high-risk phases (`risk:` — a marker, not a mechanism)
 Each phase may carry **`risk: normal|high`** (default `normal` — omit the line unless the phase is
 `high`), meaning only "this is a phase where a wrong answer is expensive" — security/authz, a
-correctness-critical algorithm, an ambiguous spec, or an irreversible change. It is **inert**: it
-selects no model, spawns no agents, and implies no fan-out — it exists so the executor can decide **at
-runtime** whether an extra cross-check is worth it. Do not emit orchestration, lane fan-out, or
+correctness-critical algorithm, an ambiguous spec, or an irreversible change. It selects no model and
+implies no fan-out. It has one effect: the roadmap/plan runner reviews a finished `risk: high` phase
+twice (`caddis_review.py --plan --phase --runs 2`), gives it one fix session on blocking
+findings, and stops `BLOCKED review` when findings remain. Roadmap mode reviews before it publishes the PR. Do not emit orchestration, lane fan-out, or
 `Workflow` scripts from this command; the runtime decision rules and the intent→model map live in one
 place, the `agent-orchestration` skill's *Multi-model fan-out* section.
 
@@ -277,7 +267,10 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 Three rules: one attempt, one review.
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+   Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
+   the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
+   park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
 - One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
   COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
@@ -295,6 +288,10 @@ Three rules: one attempt, one review.
      normally; the halt stops anything being **built on top of it** before a human has looked. Blast
      radius stays one reviewable, revertable commit. Halting *beforehand* buys nothing: the phase has
      to be executed either way, and a well-specced high-risk phase is as executable as any other.
+     One exception: when the session prompt says the runner reviews `risk: high` phases (the
+     runner's `plan-resume-prompt.md` says so), the runner's review gate replaces this halt: the
+     session ends `STATUS: CONTINUE`, and the runner reviews the phase twice before anything builds
+     on it. A headless marker (`CADDIS_HEADLESS=1`) alone does not lift the halt.
   4. **A failed or blocked phase** — tests red, exit gate unmet, or the plan turned out wrong. Stop;
      do not build on it.
 - **A lane change is NOT a halt.** `/caddis:implement` spawns the assigned lane itself and verifies
@@ -368,66 +365,15 @@ done:
 
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
 
-## Step 3b — Does this plan need an Advisory Hub? (ask once, here)
+A `risk: high` phase gets two independent review runs: run by the roadmap/plan runner automatically (from caddis-next Phase 11), and by hand in an interactive `/caddis:implement` run (`caddis_review.py --plan <plan> --phase <n> --runs 2`, from Phase 10). Only a `blocking` finding fails that review (exit 1); `should-fix` and `nit` findings go on a follow-up list and do not stop the merge. A phase gets 3 completed review rounds (a run that did not complete uses none); the 4th ends with exit 5, "stop, the owner decides". The advisory hub is retired; do not plan a separate validation session.
 
-The Advisory Hub is **opt-in per plan**, gated on a single file: `<plan-stem>-advisory-context.md`
-beside the plan. `/caddis:implement`, `/caddis:handoff` and `/caddis:validate-phase` all check for it;
-**no file → no behaviour change, ever.** But nothing has ever *asked* whether to create it, so the
-pattern only ever gets used by someone who already knows it exists. This step closes that gap.
+## Programme triggers
 
-**Ask it here** — at the end of planning is the only moment the phase count, risk levels and session
-boundaries are all known.
+Small work that does not meet a trigger skips its block.
 
-> **You MUST call `Skill(advisory-hub)` and read *"When it earns its keep"* before deciding.**
-> Do not decide from memory, and do not decide from any summary — including one in this file.
-> The test is stated in exactly one place on purpose: two copies of a rule drift on the first edit,
-> and the copy that used to live here had already drifted. It compressed the REQUIRED leg to the
-> phrase *"expensive-to-reverse"* and dropped the enumeration that defines it — which reads as
-> *"can I `git revert` this?"*, and under that reading a plan that publishes € figures to business
-> stakeholders scores "no stakes". That is the one leg that fires on reporting, analytics and
-> dashboard work, i.e. most of what this fleet builds. Load the skill.
+**Trigger: Always.** Add one open-work row for the plan in `.caddis/open-work.md`. Set its cells with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_rows.py" set --file <open-work.md> --id <row id> --col Status=todo`, never with a regex edit.
 
-If the test passes, tell the user plainly what it costs and what it buys, and offer to scaffold the
-context doc from the `advisory-hub` skill's template. **Do not create it silently** — an opt-in
-pattern that switches itself on is no longer opt-in.
-
-**In headless mode, never offer and never create.** Headless forbids asking anything, so an "offer"
-is impossible there. Instead record the result as a line under `## Constraints & decisions` —
-*"Advisory Hub: test passed (N phases, <criteria>) — not scaffolded, headless run; create
-`<plan-stem>-advisory-context.md` to enable"* — so the decision reaches a human rather than being
-silently dropped or silently taken.
-
-If it does not pass, say nothing **to the user** — a three-phase feature should never hear about
-this. But **always record the determination in the plan, pass or fail**: one line under
-`## Constraints & decisions`, naming which REQUIRED trigger was or was not hit.
-
-> `Advisory Hub: not applicable — no REQUIRED trigger (not a migration / security change /
-> production data correctness / numbers published to stakeholders).`
-
-### If the test FAILS but this repo already runs a Hub for another plan
-
-Check for an existing `*-advisory-context.md` in `.caddis/plans/` belonging to a **different** plan.
-If one exists, add a second line under `## Constraints & decisions`:
-
-> `Hub conventions: this repo runs Advisory Hub for <other-plan>. This plan does NOT — if it borrows
-> the phase-NN.prompt.md / .report.md / CONTINUE GATE conventions, the lightweight rule applies: the
-> session that files a report must not write the next prompt without an independent re-check.`
-
-**Why this line exists.** A repo with one Hub plan has its artefacts sitting there as the most recent
-example of "how we structure a multi-session plan here", and the next plan copies them by analogy.
-It inherits the file names and none of the safety, because the safety was never in the names.
-Measured once already: an implementing session filed its own batch report and then wrote the next
-batch's prompt in the same session, with nobody having looked in between. Nothing was wrong that
-time — and nothing checked either.
-
-This is the cheapest possible place to catch it: when the second plan is created, before any
-artefact-mimicry has happened. See *"Failing this test correctly does not mean no discipline"* in the
-`advisory-hub` skill for the rule itself. Do not restate the rule here — one home, or the copies
-drift.
-
-Silent to the human, auditable in the artifact. "Say nothing" once meant *leave no trace anywhere*,
-and a wrong negative was then invisible — no line in the plan, no line in the chat, nothing for
-anyone to challenge. A rule whose failures leave no artifact cannot be reviewed.
+**Trigger: The plan records a decision.** Record it with `/caddis:decide`.
 
 ## Step 4 — Report
 Output the plan path (`.caddis/plans/<feature-slug>.md`), the phase list (one line each, with each

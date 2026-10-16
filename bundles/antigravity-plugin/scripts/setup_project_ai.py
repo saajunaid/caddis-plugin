@@ -1096,7 +1096,6 @@ items?" has no answer when one state has three spellings.
 | Work in flight right now | `.caddis/plans/<feature>.md` | A plan is being executed. A parking-lot item is not. |
 | A task interrupted mid-session | `/caddis:digress` stack | That is a pause, not a backlog item. `/caddis:catchup` pops it. |
 | An ask only an outsider can resolve | `.caddis/comms/register.md` | Blocked on a human, not on us. |
-| Board cards | `.caddis/backlog/` | **docket writes that directory.** It is a projection of the board, not a hand-written register. Never edit it by hand. |
 
 ## Commands
 
@@ -1474,6 +1473,48 @@ def ensure_user_env(dry: bool, home: Path | None = None) -> list[str]:
             + ("" if not raw else " (previous version saved as settings.json.caddis-bak)")]
 
 
+CLEANUP_PERIOD_KEY = "cleanupPeriodDays"
+CLEANUP_PERIOD_DAYS = 120
+
+
+def ensure_cleanup_period(dry: bool, home: Path | None = None, days: int = CLEANUP_PERIOD_DAYS) -> str:
+    """Keep Claude Code transcripts `days` days (Claude Code's own default is 30) by adding `cleanupPeriodDays`.
+
+    WHY: caddis measures which skills and commands are used from those transcripts; on 11 Oct 2026 only
+    35 days were left, too few to decide what to cut (caddis-next checks, section 4.6). Same rules as
+    ensure_user_env: an existing value is ALWAYS left alone, a file that does not parse is never rewritten,
+    a backup is kept and the write is atomic. `CADDIS_NO_SETTINGS_ENV` skips it. Its backup has its own name
+    (`settings.json.caddis-retention-bak`): main() runs ensure_user_env first, and sharing `.caddis-bak` would
+    overwrite the user's original file with that function's output. Known limit, as for ensure_user_env: a
+    write by Claude Code between this read and the replace is lost."""
+    if os.environ.get("CADDIS_NO_SETTINGS_ENV"):
+        return "transcript retention: skipped (CADDIS_NO_SETTINGS_ENV set)"
+    path = _user_settings_path(home)
+    if path.is_file():
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return (f"transcript retention: {path} is NOT VALID JSON ({exc.msg}, line {exc.lineno}) — "
+                    "left untouched; fix it by hand.")
+        if not isinstance(data, dict):
+            return f"transcript retention: {path} is not a JSON object — left untouched"
+    else:
+        raw, data = "", {}
+    if CLEANUP_PERIOD_KEY in data:
+        return f"transcript retention: {CLEANUP_PERIOD_KEY} already set to {data[CLEANUP_PERIOD_KEY]!r} — left alone"
+    data[CLEANUP_PERIOD_KEY] = days
+    if not dry:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if raw:
+            path.with_suffix(".json.caddis-retention-bak").write_text(raw, encoding="utf-8")
+        tmp = path.with_suffix(".json.caddis-tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    verb = "would set" if dry else "set"
+    return f"transcript retention: {verb} {CLEANUP_PERIOD_KEY}={days} in {path}"
+
+
 def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
@@ -1775,6 +1816,7 @@ def main() -> int:
     print("-- user settings (additive only, never overwrites a value you set)")
     for line in ensure_user_env(args.dry_run):
         print(f"   {line}")
+    print(f"   {ensure_cleanup_period(args.dry_run)}")
 
     print("-- doc-coverage discipline (DOC-MAP + page guide + checker)")
     for line in emit_doc_discipline(target, ident, args.force, args.dry_run):

@@ -25,8 +25,9 @@ DEFAULT_ROUTING: dict[str, list[str]] = {
     "review": ["glm", "deepseek"],
     "consult": ["agy", "glm", "codex"],
     "ci-watch": ["agy"],
+    "mechanical": ["haiku"],
 }
-KNOWN_MODELS = frozenset({"opus", "sonnet", "agy", "codex", "glm", "deepseek", "claude"})
+KNOWN_MODELS = frozenset({"opus", "sonnet", "haiku", "agy", "codex", "glm", "deepseek", "claude"})
 
 
 class RoutingConfigError(Exception):
@@ -69,7 +70,7 @@ def resolve(
     configured.update(_routing_from(Path(repo) / ".caddis" / "config.toml"))
 
     providers = set(oss_model.configured_providers(dict(env)))
-    available = {"opus", "sonnet", "claude"} | (providers & {"glm", "deepseek"})
+    available = {"opus", "sonnet", "haiku", "claude"} | (providers & {"glm", "deepseek"})
     for tool in ("agy", "codex"):
         if which(tool):
             available.add(tool)

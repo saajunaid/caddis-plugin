@@ -24,9 +24,21 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+
+try:
+    _cfg_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _cfg_scripts not in sys.path:
+        sys.path.insert(0, _cfg_scripts)
+    from claudster_config import ARTIFACT_DIRS, artifact_root  # noqa: E402
+except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
+    ARTIFACT_DIRS = (".caddis",)
+
+    def artifact_root(root):
+        return os.path.join(str(root), ARTIFACT_DIRS[0])
 
 # A narrow Windows console (cp1252) must not raise on a branch name with any Unicode in it.
 _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -38,6 +50,7 @@ if _reconfig:
 
 FETCH_TIMEOUT_S = 15        # ceiling: a slow or unreachable remote must not stall a session
 FETCH_MAX_AGE_S = 600       # a restart within 10 minutes reuses the last fetch
+PEER_FRESH_S = 1800         # live peer session-state threshold (30 minutes, matches inject_relay)
 STAMP_NAME = "caddis-freshness-stamp"
 
 
@@ -83,7 +96,112 @@ def _count(cwd: str, rev_range: str) -> int:
     return int(out) if code == 0 and out.isdigit() else 0
 
 
-def report(cwd: str) -> list[str]:
+def _norm_path(raw: str) -> str:
+    """One path for comparison: no backticks, forward slashes, no leading `./`."""
+    norm = raw.strip().replace("`", "").strip().replace("\\", "/")
+    while norm.startswith("./"):
+        norm = norm[2:]
+    return norm
+
+
+def _status_entries(top: str) -> list[list[str]]:
+    """`git status --porcelain -z` at the repo top: one list of paths per entry (a rename gives two).
+    NUL-separated, so a path is never quoted. [] when git fails."""
+    try:
+        r = subprocess.run(["git", "status", "--porcelain", "-z"], cwd=top, capture_output=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    parts = (r.stdout or b"").decode("utf-8", errors="replace").split("\0")
+    entries: list[list[str]] = []
+    i = 0
+    while i < len(parts):
+        entry = parts[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        paths = [entry[3:]]
+        if ("R" in entry[:2] or "C" in entry[:2]) and i < len(parts):
+            paths.append(parts[i])
+            i += 1
+        entries.append(paths)
+    return entries
+
+
+def _parse_session_state(text: str) -> tuple[str, list[str]]:
+    m = re.search(r"\*\*Branch:\*\*\s*`?([^\s`·]+)`?", text)
+    branch = m.group(1).strip() if m else "unknown"
+    files: list[str] = []
+    in_files = False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("## "):
+            in_files = (s == "## Files changed this session")
+            continue
+        if in_files and s.startswith("- "):
+            item = s[2:].strip()
+            if item and not item.startswith("_("):
+                item = _norm_path(item)
+                if item:
+                    files.append(item)
+    return branch, files
+
+
+def _dirty_owners(top: str, dirty_paths: set[str], own_session_id: str = "") -> list[str]:
+    """Live peer sessions whose recorded files are dirty here. `top` is the repo top level: the
+    session-state folder and every path are read from there, whatever the session's cwd is."""
+    try:
+        if not dirty_paths:
+            return []
+        base = os.path.join(artifact_root(top), "session-state")
+        if not os.path.isdir(base):
+            legacy = os.path.join(top, ".claudster", "session-state")
+            if os.path.isdir(legacy):
+                base = legacy
+            else:
+                return []
+        now = time.time()
+        owners: list[str] = []
+        for name in sorted(os.listdir(base)):
+            try:
+                if not name.endswith(".md"):
+                    continue
+                sid = name[:-3]
+                if own_session_id and sid == own_session_id:
+                    continue
+                path = os.path.join(base, name)
+                mtime = os.path.getmtime(path)
+                if now - mtime > PEER_FRESH_S:
+                    continue
+                ended = os.path.join(base, sid + ".ended")
+                try:
+                    if os.path.getmtime(ended) >= mtime:
+                        continue
+                except OSError:
+                    pass
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+                peer_branch, peer_files = _parse_session_state(text)
+                matched = False
+                for pf in peer_files:
+                    if pf in dirty_paths or any(
+                        dp.endswith("/") and pf.startswith(dp) for dp in dirty_paths
+                    ):
+                        matched = True
+                        break
+                if matched:
+                    label = f"owned by session {sid[:8]} (branch {peer_branch})"
+                    if label not in owners:
+                        owners.append(label)
+            except Exception:
+                continue
+        return owners
+    except Exception:
+        return []
+
+
+def report(cwd: str, own_session_id: str = "") -> list[str]:
     """The lines to print. Empty when there is nothing worth saying."""
     if _git(cwd, "rev-parse", "--is-inside-work-tree")[0] != 0:
         return []                                   # not a git repository
@@ -102,7 +220,11 @@ def report(cwd: str) -> list[str]:
             lines.append("[HARNESS] could not fetch origin - the figures below may be stale.")
 
     ref = _default_ref(cwd) if has_origin else ""
-    dirty = len([ln for ln in _git(cwd, "status", "--porcelain")[1].splitlines() if ln.strip()])
+    # The repo top level, so a session started in a subfolder still finds `.caddis/session-state`.
+    top = _git(cwd, "rev-parse", "--show-toplevel")[1] or cwd
+    entries = _status_entries(top)
+    dirty = len(entries)
+    dirty_paths = {_norm_path(p) for paths in entries for p in paths if _norm_path(p)}
     behind = _count(cwd, f"HEAD..{ref}") if ref else 0
     ahead = _count(cwd, f"{ref}..HEAD") if ref else 0
     default_branch = ref.split("/", 1)[-1] if ref else ""
@@ -112,8 +234,12 @@ def report(cwd: str) -> list[str]:
         lines.append(f"[HARNESS] branch '{branch}' | {behind} behind {ref} | {ahead} ahead "
                      f"| {dirty} uncommitted")
     if dirty:
-        lines.append("[HARNESS] There are uncommitted changes here. They may not be yours - these "
-                     "checkouts are shared. Look before you touch: git status")
+        msg = ("[HARNESS] There are uncommitted changes here. They may not be yours - these "
+               "checkouts are shared. Look before you touch: git status")
+        owners = _dirty_owners(top, dirty_paths, own_session_id=own_session_id)
+        if owners:
+            msg = f"{msg} ({'; '.join(owners)})"
+        lines.append(msg)
     # The recommendation, only when following it can lose nothing: behind, clean, and with
     # nothing of your own unpushed. Suggesting a branch switch to someone holding uncommitted
     # work in a shared checkout is how the branch-switch hazard gets triggered.
@@ -134,8 +260,9 @@ def main() -> int:
     except Exception:
         payload = {}
     cwd = (payload.get("cwd") if isinstance(payload, dict) else None) or os.getcwd()
+    session_id = (payload.get("session_id") if isinstance(payload, dict) else None) or ""
     try:
-        for line in report(cwd):
+        for line in report(cwd, own_session_id=str(session_id)):
             print(line)
     except Exception:
         pass          # fail open: a freshness report must never break a session start

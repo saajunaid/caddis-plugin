@@ -97,14 +97,14 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   gloss always wins — it's already in context and reads as sufficient, so the "go load the skill"
   instruction next to it gets skipped — and a gloss that compresses an enumeration into an abstract
   phrase is strictly worse than no gloss, because it silently drops the item doing the real work (found
-  2026-08-04: `feature-plan.md` Step 3b forbade restating the advisory-hub gating test, then restated it
+  2026-08-04: `feature-plan.md` forbade restating a skill's plan-gating test, then restated it
   two lines later, dropping the enumerated *"numbers published to stakeholders"* leg — the one that
   fires on nearly every dashboard/reporting plan this fleet builds). Before adding an `In short:` /
   `TL;DR:` / `Summary:` gloss of a skill-owned rule to any command, either delete it or make it
   lossless (enumerate, never abstract). A grep for those three phrases across `commands/` is the sweep.
-- **Hook/content-lint tests must scrub `CADDIS_HEADLESS`/`DOCKET_PLAN`/`DOCKET_BRANCH` from a
+- **Hook/content-lint tests must scrub `CADDIS_HEADLESS` from a
   subprocess's child env**, or the whole file spuriously passes/fails depending on whether the suite
-  happens to run from inside a headless or docket-spawned session — exactly the session type these
+  happens to run from inside a headless session — exactly the session type these
   markers exist to detect (see `_HEADLESS_MARKERS` in `claude-harness/hooks/tests/test_hook_paths.py`
   and `test_warm_start_agy.py`). And a content lint that asserts a sentence appears verbatim in a
   prose doc must assert against a whitespace-flattened copy (`" ".join(text.split())`), or an
@@ -148,9 +148,9 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   coordination when it turned out Claude Code already provides `ListAgents` + `SendMessage` +
   `notify_when_idle` — peer discovery, direct addressing, and one-shot idle subscription, with the
   cross-session permission boundary already handled. Sessions are auto-named `<repo-dir>-<hash>`, so a
-  same-repo peer is findable by name prefix with no registry to build. The wiring now lives in
-  `commands/implement.md` and `commands/validate-phase.md`, gated behind `if ListAgents is available`
-  so it degrades to the portable file-based flow on agy/Codex, which have no cross-session messaging at
+  same-repo peer is findable by name prefix with no registry to build. The wiring lived in
+  `commands/implement.md` (since removed with the feature that used it), gated behind
+  `if ListAgents is available` so it degraded to the portable file-based flow on agy/Codex, which have no cross-session messaging at
   all. Check the harness's own primitives before adding a caddis-side mechanism that duplicates one.
 - **Before deleting an apparent duplicate command/skill, check what non-Claude export targets depend
   on it.** `/caddis:gate-review` and the `code-review`/`security-review` skills looked like pure
@@ -172,6 +172,7 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   | 2 | **advisory note** — proceed, worth saying | `EXIT_NOTE` | *not emitted* |
   | 3 | cannot proceed as asked | `EXIT_WRONG_LANE` | `EXIT_CONFIG` |
   | 4 | ran, produced nothing usable | `EXIT_MALFORMED` | `EXIT_ERROR` |
+  | 5 | round limit reached: stop, the owner decides (`caddis_review.py --plan` only; `caddis_exit.ROUND_LIMIT`) | *not emitted* | *not emitted* |
 
   **`EXIT_ERROR` moved 2 → 4.** It sat on 2, where `caddis_gate` means "proceed, this is worth
   saying" — the opposite, in the dangerous direction: a caller reading 2 as advisory silently
@@ -186,11 +187,11 @@ backends reject (400). Keep the seam **optional, default-off**, same posture as 
   | Is this change safe? | `CLEAN` / `BLOCKING` | `gate-review`, `code-reviewer` |
   | Does the plan match reality? | `PASS` / `FAIL` | `preflight` |
   | Did the claim hold? | `VERIFIED` / `REGRESSED` / `INCOMPLETE` | `anchor` |
-  | Should the next phase proceed? | `ACCEPT` / `ACCEPT-WITH-CORRECTION` / `REJECT` | `validate-phase`, `spawn-session` |
+  | Is the successor ready to start? | `ACCEPT` / `ACCEPT-WITH-CORRECTION` / `REJECT` | `spawn-session` |
 
   Two contradictions were removed, not two styles merged. `code-reviewer` carried BOTH
-  `approved | changes-requested` and `REVIEW: CLEAN | BLOCKING` for one job. `spawn-session` said
-  it "matches validate-phase on purpose" and then used `PASS` where validate-phase uses `ACCEPT`.
+  `approved | changes-requested` and `REVIEW: CLEAN | BLOCKING` for one job. `spawn-session` claimed
+  to share the `ACCEPT` vocabulary and then used `PASS`.
   A vocabulary that a doc claims to share and does not is worse than two openly different ones.
 
 - **An empty output directory is not a failed step — check whether something downstream moved

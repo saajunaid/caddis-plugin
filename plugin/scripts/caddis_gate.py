@@ -5,11 +5,9 @@ WHY
 ---
 Most of caddis's guarantees are sentences in markdown that a model may or may not honour
 (measured: 7.0% machine-enforced at the time this landed — `scripts/enforcement_inventory.py`).
-The three gates below are the ones that have actually bitten, so they become exit codes:
+The two gates below are the ones that have actually bitten, so they become exit codes:
 
   lane-check      the assigned execution lane was never read, so a "cheap" lane ran nothing
-  verdict-gate    an Advisory-Hub verdict from a DIFFERENT plan could unlock the next phase,
-                  and a batched verdict (`phase-10-11`) falsely blocked the phase after it
   tracker-vs-git  a stray staged edit reverted four completed Tracker rows to "not started"
                   and it was caught two milestones later
 
@@ -62,9 +60,7 @@ def _degrade(msg: str) -> int:
 
 def is_headless(env=None) -> bool:
     e = env if env is not None else os.environ
-    if str(e.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY:
-        return True
-    return bool(e.get("DOCKET_PLAN") or e.get("DOCKET_BRANCH"))
+    return str(e.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY
 
 
 # ── plan parsing ────────────────────────────────────────────────────────────
@@ -93,10 +89,11 @@ def phase_lane(block: str) -> str:
 def launch_command(block: str) -> str:
     """The literal command for a non-claude lane, if the phase names one.
 
-    Also matches a caddis_lanes.py run command or a direct codex/agy command.
+    Also matches a caddis_lanes.py run command, a direct codex/agy command, and an agy command
+    wrapped in the spend cap (`python .../caddis_spend.py run --caller X -- agy ...`).
     """
     m = re.search(
-        r'`((?:claude-(?:glm|oss|deepseek)\b|' + _LANES_RUN
+        r'`((?:claude-(?:glm|oss|deepseek)\b|' + _LANES_RUN + r'\b|' + _SPEND_RUN
         + r'\b|codex\s+exec\b|agy\b)[^`]*)`',
         block,
     )
@@ -104,6 +101,22 @@ def launch_command(block: str) -> str:
 
 
 _LANES_RUN = r'python\s+"?\$\{CLAUDE_PLUGIN_ROOT\}/scripts/caddis_lanes\.py"?\s+run'
+# Every agy lane goes through the global spend cap (caddis-next Phase 4). Any path that ends in
+# scripts/caddis_spend.py: `${CLAUDE_PLUGIN_ROOT}/...`, an expanded plugin-cache path (the codex bundle
+# rewrites the variable), or the bare repo-relative `scripts/caddis_spend.py` - which gate_lane accepts
+# only in the caddis source repo, because in an app repo that path is a file the agent can write.
+_SPEND_RUN = r'python3?\s+"?[^"\s`]*scripts/caddis_spend\.py"?\s+run'
+_SPEND_PATH = re.compile(r'python3?\s+"?([^"\s`]*scripts/caddis_spend\.py)"?\s+run')
+# Shell control characters outside the quoted prompt would chain a second, uncapped command.
+_SHELL_CHAIN = re.compile(r"[;&|`\n]|\$\(")
+
+
+def _caddis_source_root(plan: Path) -> bool:
+    """True when the plan lives in the caddis source repo (the only place a repo-relative wrapper is trusted)."""
+    for parent in plan.resolve().parents:
+        if (parent / ".git").exists():
+            return (parent / "claude-harness" / "scripts" / "caddis_governor.py").is_file()
+    return False
 
 
 # ── gate: lane-check ────────────────────────────────────────────────────────
@@ -140,6 +153,46 @@ def gate_lane(plan: Path, phase: int) -> int:
     if not cmd:
         sys.stderr.write(f"[caddis-gate] phase {phase} is lane '{lane}' but names no launch command\n")
         return EXIT_MALFORMED
+    if re.match(r"agy\b", cmd):
+        sys.stderr.write(
+            f"[caddis-gate] phase {phase}'s agy command is not wrapped in the spend cap: {cmd}\n"
+            "  agy lanes must go through caddis_spend.py run --caller <name> -- agy ... Refusing to run it.\n")
+        return EXIT_MALFORMED
+    inner = cmd
+    if re.match(_SPEND_RUN, cmd):
+        wrapped = re.match(_SPEND_RUN + r'\s+--caller\s+\S+\s+--\s+(agy\b.*)$', cmd, re.S)
+        if not wrapped:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s spend-cap command is malformed: {cmd}\n"
+                "  Expected: caddis_spend.py run --caller <name> -- agy ... Refusing to run it.\n")
+            return EXIT_MALFORMED
+        inner = wrapped.group(1)
+        # Command substitution runs even inside double quotes (bash and PowerShell), so `$(` and
+        # backticks are refused anywhere; `${` is refused after the `--` (the wrapper path may use it).
+        if (_SHELL_CHAIN.search(_QUOTED.sub('""', cmd)) or "$(" in cmd or "`" in cmd
+                or "${" in inner):
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s agy command chains another command: {cmd}\n"
+                "  A second command after the wrapped agy would run outside the spend cap. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        formats = re.findall(r"--output-format(?:\s+|=)(\S+)", _QUOTED.sub('""', inner))
+        if formats != ["json"]:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s agy command must have exactly one --output-format json: {cmd}\n"
+                "  Without JSON output the spend cap cannot read the token counts. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        path = _SPEND_PATH.match(cmd).group(1)
+        norm = path.replace("\\", "/")
+        trusted = (norm == "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py"
+                   or ("/plugins/cache/" in norm and (norm.startswith("/") or re.match(r"[A-Za-z]:/", norm)
+                                                      or norm.startswith("${HOME}/")))
+                   or (norm == "scripts/caddis_spend.py" and _caddis_source_root(plan)))
+        if not trusted:
+            sys.stderr.write(
+                f"[caddis-gate] phase {phase}'s agy command uses an untrusted caddis_spend.py path: {cmd}\n"
+                "  Use \"${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py\" (or the installed plugin-cache path;\n"
+                "  the bare scripts/caddis_spend.py only in the caddis source repo). Refusing to run it.\n")
+            return EXIT_MALFORMED
     if re.match(_LANES_RUN, cmd):
         named = re.search(r"--phase[\s=]+(\d+)", cmd)
         if not named:
@@ -152,13 +205,13 @@ def gate_lane(plan: Path, phase: int) -> int:
                 f"[caddis-gate] phase {phase}'s caddis_lanes command names --phase {named.group(1)}: {cmd}\n"
                 "  The lane would run another phase's work. Refusing to run it.\n")
             return EXIT_MALFORMED
-    elif re.match(r"(?:codex\s+exec|agy)\b", cmd):
-        if "HEADLESS RUN RULES" not in cmd:
+    elif re.match(r"(?:codex\s+exec|agy)\b", inner):
+        if "HEADLESS RUN RULES" not in inner:
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s direct command has no HEADLESS RUN RULES: {cmd}\n"
                 "  The child has no headless run rules. Refusing to run it.\n")
             return EXIT_MALFORMED
-        named = re.search(r"Implement Phase (\d+) only", cmd)
+        named = re.search(r"Implement Phase (\d+) only", inner)
         if not named:
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s direct command has no phase restriction: {cmd}\n"
@@ -169,7 +222,7 @@ def gate_lane(plan: Path, phase: int) -> int:
                 f"[caddis-gate] phase {phase}'s direct command names Phase {named.group(1)}: {cmd}\n"
                 "  The lane would run another phase's work. Refusing to run it.\n")
             return EXIT_MALFORMED
-        if cmd.startswith("agy") and not _has_print_flag(cmd):
+        if inner.startswith("agy") and not _has_print_flag(inner):
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s direct agy command has no -p/--print: {cmd}\n"
                 "  The child would not run headless. Refusing to run it.\n")
@@ -183,83 +236,6 @@ def gate_lane(plan: Path, phase: int) -> int:
     print(cmd)
     sys.stderr.write(f"[caddis-gate] phase {phase} belongs to lane '{lane}' — spawn the command above\n")
     return EXIT_WRONG_LANE
-
-
-# ── gate: verdict-gate ──────────────────────────────────────────────────────
-
-def _frontmatter(p: Path) -> dict:
-    return caddis_frontmatter.parse(p.read_text(encoding="utf-8", errors="ignore"))
-
-
-def _covers(phase_field: str, n: int) -> bool:
-    s = str(phase_field).strip()
-    m = re.fullmatch(r"(\d+)\s*-\s*(\d+)", s)
-    if m:
-        return int(m.group(1)) <= n <= int(m.group(2))
-    return s.isdigit() and int(s) == n
-
-
-def _hub_context_for(plan: Path) -> Path | None:
-    """The advisory-context doc guarding this plan, or None if Hub mode is off.
-
-    Primary: the documented `<plan-stem>-advisory-context.md`.
-
-    Fallback by IDENTITY, and it is load-bearing: a real plan was renamed
-    `genesys-rebuild.md` -> `genesys-rebuild-ui-revamp.md` and its context doc kept the old stem.
-    The filename convention therefore stopped matching, Advisory-Hub mode silently switched OFF
-    for every subsequent run, and nobody noticed because the Hub kept being driven by hand — 31
-    artifacts were written while the gate meant to enforce them was dark. Both files still carry
-    `feature: genesys-rebuild-ui-revamp`, so identity survives a rename where a filename does not.
-
-    Requires an explicit matching `feature:` on BOTH sides, so it cannot switch Hub mode on for a
-    plan that never opted in — "no file -> zero behaviour change" still holds.
-    """
-    exact = plan.with_name(plan.stem + "-advisory-context.md")
-    if exact.is_file():
-        return exact
-    mine = _frontmatter(plan).get("feature", "").strip()
-    if not mine:
-        return None
-    for cand in sorted(plan.parent.glob("*-advisory-context.md")):
-        if _frontmatter(cand).get("feature", "").strip() == mine:
-            sys.stderr.write(
-                "[caddis-gate] Hub context matched by feature slug, not filename: "
-                f"{cand.name} (expected {exact.name} - a rename left the convention broken)\n")
-            return cand
-    return None
-
-
-def gate_verdict(plan: Path, phase: int, reports: Path | None = None) -> int:
-    if phase <= 1:
-        return EXIT_OK  # no predecessor
-    if not _hub_context_for(plan):
-        return EXIT_OK  # Advisory-Hub mode is OFF — the normal case, zero behaviour change
-    d = reports or (plan.parent.parent / "advisory-hub-reports")
-    if not d.is_dir():
-        sys.stderr.write(f"[caddis-gate] hub mode ON but no {d} — phase {phase-1} unvalidated\n")
-        return EXIT_BLOCKED
-
-    want = phase - 1
-    slug, path_s = plan.stem, str(plan).replace("\\", "/")
-    for f in sorted(d.glob("*.verdict.md")):
-        fm = _frontmatter(f)
-        if not _covers(fm.get("phase", ""), want):
-            continue
-        ident = fm.get("plan") or fm.get("feature") or ""
-        # Accept either spelling: both are in live fleet use and neither is wrong.
-        if ident and not (slug in ident or ident.replace("\\", "/") in path_s or ident == slug):
-            continue
-        v = fm.get("verdict", "")
-        if v in ("accept", "accept-with-correction"):
-            return EXIT_OK
-        if v == "accept-degraded":
-            sys.stderr.write(f"[caddis-gate] {f.name} is accept-degraded — validated WITHOUT an "
-                             "advisory context; record that you proceeded on it\n")
-            return EXIT_NOTE
-        sys.stderr.write(f"[caddis-gate] {f.name} is '{v}' — phase {want} must be redone\n")
-        return EXIT_BLOCKED
-    sys.stderr.write(f"[caddis-gate] no verdict covering phase {want} for plan '{slug}'\n")
-    return EXIT_BLOCKED
 
 
 # ── gate: tracker-vs-git ────────────────────────────────────────────────────
@@ -292,102 +268,6 @@ def gate_tracker(plan: Path, cwd: Path | None = None) -> int:
     sys.stderr.write("  A done row with no commit means the Tracker and the repo disagree. Four rows\n"
                      "  were once reverted by a stray staged edit and caught two milestones later.\n")
     return EXIT_NOTE
-
-
-
-# ── gate: hub-artifacts ─────────────────────────────────────────────────────
-
-def gate_hub_artifacts(reports: Path, extra_refs: list[Path] | None = None) -> int:
-    """An artifact that exists on disk but is referenced nowhere the next Hub will look.
-
-    `/spawn-hub` already conserves LEDGER IDS mechanically and fails the spawn when one vanishes.
-    There was no equivalent for the artifacts the Hub itself writes, so the failure mode was exactly
-    inverted: the ledger check catches an id that DISAPPEARED; nothing caught a file that EXISTS and
-    is invisible.
-
-    Observed 2026-08-05: a Hub wrote `phase-15-16.prompt.md` and `phase-17.prompt.md`, and its spawn
-    prompt named only the first. The spawn passed cleanly - ids conserved, every context question
-    answered, plan drift caught. Nothing failed because nothing was looking. The successor would have
-    found no prompt for Phase 17, written a fresh one, and silently lost the single load-bearing
-    paragraph explaining why that phase must run from a cold process - the whole reason it was split
-    out of its batch. A regenerated prompt would have looked complete.
-
-    Degrades open like every gate here: no directory, no artifacts, nothing readable -> exit 0.
-    """
-    if not reports.is_dir():
-        return _degrade(f"no reports dir at {reports}")
-    # PROMPTS ONLY, and deliberately so. A successor Hub regenerates a phase PROMPT it does not
-    # know about - that is the documented near-miss. It does not regenerate reports (the
-    # implementer writes those) or verdicts (it writes those after the fact, per phase). Checking
-    # all three flagged 11 of 37 artifacts in one live repo and 25 of 37 in another, which is a
-    # gate nobody keeps switched on. Narrow to the file class that can actually be clobbered.
-    artifacts = sorted(reports.glob("phase-*.prompt.md"))
-    if not artifacts:
-        return _degrade(f"no phase artifacts in {reports}")
-
-    # Everywhere a successor Hub is told to look: the dir's own index/rules, the most recent
-    # spawn docs, and any relay handed over. Read them all as one corpus.
-    # This gate is about HANDOVER conservation. With no spawn doc, no handover has happened,
-    # so there is no successor and nothing can be orphaned from one. Flagging every prompt in a
-    # single-Hub repo would be pure noise: one live repo with 8 prompts and zero handovers was
-    # reporting all 8 until this check was added.
-    if not any(reports.glob("hub-*.spawn.md")):
-        return _degrade(f"no handover has occurred in {reports.name} (no spawn doc)")
-
-    ref_files: list[Path] = []
-    for pat in ("README.md", "AGENTS.md", "hub-*.spawn.md"):
-        ref_files += sorted(reports.glob(pat))
-    for extra in (extra_refs or []):
-        if extra.is_file():
-            ref_files.append(extra)
-    corpus = ""
-    for f in ref_files:
-        try:
-            corpus += f.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            continue
-    if not corpus:
-        return _degrade(f"nothing references artifacts in {reports} (no index, no spawn doc)")
-
-    # A spawn prompt that never names the resume doc produces a Hub that keeps no tracker.
-    #
-    # Measured: a spawned Hub read relay.md, passed a thirteen-question context check, found four
-    # real defects in its handover — and created no tracker, because nothing asked it to. The work
-    # survived only because the OUTGOING Hub had written one into relay.md an hour earlier, unasked.
-    #
-    # The parking-lot note suggested checking that relay.md was "modified in the same commit range".
-    # That cannot work: relay.md is GITIGNORED by design, so git never sees it. What is checkable is
-    # the instruction — does the spawn prompt tell its successor to keep the tracker at all?
-    # ONLY the newest spawn doc, by hub number. Older ones are immutable history: a spawn prompt
-    # that was already used cannot be fixed, only falsified, and a gate that stays red on a record
-    # nobody may edit is the "always red, therefore ignored" failure this file keeps warning about.
-    spawns = sorted(reports.glob("hub-*.spawn.md"),
-                    key=lambda p: (int(m.group(1)) if (m := re.search(r"hub-(\d+)", p.name)) else 0,
-                                   p.name))
-    newest = spawns[-1] if spawns else None
-    if newest and "relay" not in newest.read_text(encoding="utf-8", errors="ignore").lower():
-        sys.stderr.write(
-            f"[caddis-gate] the newest spawn prompt never mentions the resume doc:\n"
-            f"    {newest.name}\n")
-        sys.stderr.write(
-            "  The succession table records WHO HELD THE ROLE; .caddis/relay.md records WHERE THE\n"
-            "  WORK IS. The table is only written when a Hub ends, so nothing covers the hours a\n"
-            "  Hub spends working — the exact period this mechanism exists to protect. Tell the\n"
-            "  incoming Hub to mirror its task list into relay.md as it goes.\n")
-        return EXIT_BLOCKED
-
-    orphans = [f.name for f in artifacts if f.name not in corpus and f.stem not in corpus]
-    if not orphans:
-        return EXIT_OK
-    sys.stderr.write(
-        f"[caddis-gate] {len(orphans)} Hub artifact(s) exist on disk but are referenced nowhere "
-        "the next Hub will look:\n")
-    for o in orphans:
-        sys.stderr.write(f"    {o}\n")
-    sys.stderr.write(
-        "  A successor will not know these exist, will regenerate them, and will lose whatever\n"
-        "  reasoning they carried. Reference them in the spawn doc or the index before handing over.\n")
-    return EXIT_BLOCKED
 
 
 def gate_parking_lot(repo_root: Path) -> int:
@@ -491,8 +371,8 @@ def gate_handover_check(doc: Path, repo_root: Path, max_chars: int | None = None
 
     Degrades open on a missing/unreadable doc. Blocks on a path the doc claims and the repo does
     not have, and -- only when the caller passes ``max_chars`` -- on a doc longer than that. The
-    cap is opt-in: /handoff caps a workstream relay at 4,000 characters, but a /spawn-hub prompt
-    must embed the full inventory verbatim and would never fit.
+    cap is opt-in: /handoff caps a workstream relay at 4,000 characters, but a /spawn-session
+    handover may embed a full inventory verbatim and would not fit.
     """
     if not doc.is_file():
         return _degrade(f"no handover doc at {doc}")
@@ -667,6 +547,151 @@ def gate_review_trigger(repo_root: Path, rev_range: str | None = None) -> int:
     return EXIT_NOTE
 
 
+TIER_REVIEWERS = {
+    "0": 0,
+    "1-small": 0,
+    "1": 1,
+    "2": 2,
+}
+
+
+def is_test_file(path: str) -> bool:
+    norm = path.replace("\\", "/").lower()
+    if norm.startswith("./"):
+        norm = norm[2:]
+    segs = norm.split("/")
+    filename = segs[-1]
+    if any(s in ("tests", "test") for s in segs[:-1]):
+        return True
+    if filename.startswith("test_") and filename.endswith(".py"):
+        return True
+    if filename.endswith("_test.py"):
+        return True
+    for ext in (".test.ts", ".test.tsx", ".test.js", ".test.jsx"):
+        if filename.endswith(ext):
+            return True
+    return False
+
+
+def is_tier0_file(path: str) -> bool:
+    norm = path.replace("\\", "/").lower()
+    if norm.startswith("./"):
+        norm = norm[2:]
+    if norm.startswith("docs/") or norm.startswith(".caddis/"):
+        return True
+    if "/" not in norm:
+        stem = norm.rsplit(".", 1)[0]
+        ext = norm.rsplit(".", 1)[1] if "." in norm else ""
+        if ext == "md" and (stem.startswith("readme") or stem.startswith("changelog")):
+            return True
+    if is_test_file(norm):
+        return True
+    return False
+
+
+BINARY_LINES = 41  # a binary change has no line count: count it above the 40-line small limit, never "1-small"
+
+
+def _rename_paths(path: str) -> list[str]:
+    """Both sides of a `--numstat` rename path (`old => new` or `pre/{old => new}/post`); [path] when not a rename."""
+    if " => " not in path:
+        return [path]
+    if "{" in path and "}" in path:
+        prefix, rest = path.split("{", 1)
+        inner, suffix = rest.split("}", 1)
+        old, new = inner.split(" => ", 1)
+        return [f"{prefix}{side}{suffix}".replace("//", "/").lstrip("/") for side in (old, new)]
+    old, new = path.split(" => ", 1)
+    return [old, new]
+
+
+def _numstat(rng: str | None = None, repo_root: Path = Path(".")) -> list[tuple[str, int]]:
+    """(path, changed-lines) per file for an explicit range or the working tree.
+
+    A rename lists BOTH the old and the new path, so moving code into `docs/` or `tests/` is not tier 0. A binary
+    change counts `BINARY_LINES`. A failed `git diff` raises RuntimeError: the caller must not read it as an empty
+    diff (tier 0)."""
+    args = ["git", "-C", str(repo_root), "diff", "--numstat"]
+    if rng:
+        args.append(rng)
+    res = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    if res.returncode != 0:
+        reason = (res.stderr or "").strip().splitlines()
+        raise RuntimeError(f"git diff --numstat exited {res.returncode}: {reason[0] if reason else 'no message'}")
+    files: list[tuple[str, int]] = []
+    for row in res.stdout.splitlines():
+        parts = row.split("\t")
+        if len(parts) != 3:
+            continue
+        add, dele, path = parts
+        if add == "-" or dele == "-":
+            line_count = BINARY_LINES
+        else:
+            line_count = (int(add) if add.isdigit() else 0) + (int(dele) if dele.isdigit() else 0)
+        paths = _rename_paths(path.strip())
+        if len(paths) == 2:
+            # A rename moves code out of its old path; a pure rename has 0 changed lines, so without this a move
+            # into tests/ would read as a small, covered change (tier 1-small, no review). The old path counts as large.
+            files.append((paths[0], max(line_count, BINARY_LINES)))
+            files.append((paths[1], max(line_count, BINARY_LINES)))  # tests/x.py -> x.py moves test code into production
+        else:
+            for p in paths:
+                files.append((p, line_count))
+    return files
+
+
+def review_tier(files: list[tuple[str, int]], plan_risk: str = "normal") -> str:
+    """Return '0', '1-small', '1' or '2' by the model routing review budget."""
+    non_tier0 = [(p, lines) for p, lines in files if not is_tier0_file(p)]
+    if not non_tier0:
+        return "0"
+    if str(plan_risk).strip().lower() == "high":
+        return "2"
+    non_tier0_paths = [p for p, _ in non_tier0]
+    non_tier0_lines = sum(lines for _, lines in non_tier0)
+    if review_triggers(non_tier0_paths, non_tier0_lines):
+        return "2"
+    has_test = any(is_test_file(p) for p, _ in files)
+    if non_tier0_lines <= 40 and has_test:
+        return "1-small"
+    return "1"
+
+
+def gate_review_tier(
+    repo_root: Path,
+    rev_range: str | None = None,
+    plan: Path | str | None = None,
+    phase: int | str | None = None,
+) -> int:
+    """Print the tier and reviewer count for the diff and plan phase."""
+    risk = "normal"
+    if plan and phase is None:
+        risk = "high"  # fail closed: a plan without a phase cannot give a risk
+    elif plan and phase is not None:
+        try:
+            try:
+                import caddis_review
+            except ModuleNotFoundError:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                import caddis_review
+            risk = caddis_review.phase_risk(Path(plan), phase)
+        except Exception:
+            # Fail closed: a plan risk we cannot read counts as high (tier 2).
+            risk = "high"
+    try:
+        files = _numstat(rev_range, repo_root)
+    except Exception as exc:  # noqa: BLE001 - a diff we cannot read is reviewed in full, never skipped
+        sys.stderr.write(f"caddis-gate: review-tier could not read the diff ({exc}); counting it as tier 2\n")
+        print("TIER: 2")
+        print("REVIEWERS: 2")
+        return EXIT_OK
+    tier = review_tier(files, plan_risk=risk)
+    reviewers = TIER_REVIEWERS.get(tier, 2)
+    print(f"TIER: {tier}")
+    print(f"REVIEWERS: {reviewers}")
+    return EXIT_OK
+
+
 def gate_docs_check(root: Path) -> int:
     """Report every typed .caddis Markdown document with an invalid header."""
     failures = 0
@@ -686,21 +711,24 @@ def gate_docs_check(root: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="caddis machine gates")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("lane-check", "verdict-gate"):
+    for name in ("lane-check",):
         s = sub.add_parser(name)
         s.add_argument("--plan", required=True)
         s.add_argument("--phase", type=int, required=True)
     t = sub.add_parser("tracker-vs-git")
     t.add_argument("--plan", required=True)
-    h = sub.add_parser("hub-artifacts")
-    h.add_argument("--reports", required=True)
-    h.add_argument("--refs", nargs="*", default=[])
     pl = sub.add_parser("parking-lot")
     pl.add_argument("--repo-root", default=".")
     rt = sub.add_parser("review-trigger")
     rt.add_argument("--repo-root", default=".")
     rt.add_argument("--range", dest="rev_range", default=None,
                     help="revision range, e.g. origin/main...HEAD (default: the working tree)")
+    rw = sub.add_parser("review-tier")
+    rw.add_argument("--repo-root", default=".")
+    rw.add_argument("--range", dest="rev_range", default=None,
+                    help="revision range, e.g. origin/main...HEAD (default: the working tree)")
+    rw.add_argument("--plan", default=None, help="path to plan markdown")
+    rw.add_argument("--phase", default=None, help="phase number or heading")
     vd = sub.add_parser("vendor-drift")
     vd.add_argument("--repo-root", default=".")
     hc = sub.add_parser("handover-check")
@@ -722,14 +750,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.cmd == "lane-check":
             return gate_lane(plan, a.phase)
-        if a.cmd == "verdict-gate":
-            return gate_verdict(plan, a.phase)
-        if a.cmd == "hub-artifacts":
-            return gate_hub_artifacts(Path(a.reports), [Path(r) for r in a.refs])
         if a.cmd == "parking-lot":
             return gate_parking_lot(Path(a.repo_root).resolve())
         if a.cmd == "review-trigger":
             return gate_review_trigger(Path(a.repo_root).resolve(), a.rev_range)
+        if a.cmd == "review-tier":
+            return gate_review_tier(
+                Path(a.repo_root).resolve(),
+                a.rev_range,
+                getattr(a, "plan", None),
+                getattr(a, "phase", None),
+            )
         if a.cmd == "vendor-drift":
             return gate_vendor_drift(Path(a.repo_root).resolve())
         if a.cmd == "handover-check":

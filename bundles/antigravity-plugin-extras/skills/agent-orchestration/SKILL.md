@@ -7,7 +7,7 @@ description: "Blueprint for orchestrating the agent pipeline from spec to planni
 
 ## Purpose
 
-Codify the **Advisory Hub** methodology: a repeatable workflow where the human operator drives a multi-agent pipeline from raw specification to production-ready code. This skill captures the exact sequence, decision points, and artefacts that emerged from real feature delivery so any future session can follow the same playbook.
+Codify the **operator-led orchestration** methodology: a repeatable workflow where the human operator drives a multi-agent pipeline from raw specification to production-ready code. This skill captures the exact sequence, decision points, and artefacts that emerged from real feature delivery so any future session can follow the same playbook.
 
 ---
 
@@ -22,7 +22,7 @@ Codify the **Advisory Hub** methodology: a repeatable workflow where the human o
 
 ## Core Concepts
 
-### Advisory Hub Mode
+### Operator-Led Mode
 
 The operator (human) acts as **orchestrator**. Agents act as an **advisory board** — each specialised, none acting unilaterally. The operator:
 
@@ -33,7 +33,7 @@ The operator (human) acts as **orchestrator**. Agents act as an **advisory board
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   ADVISORY HUB                          │
+│                 OPERATOR-LED PIPELINE                   │
 │                                                         │
 │   Operator ◄──► PRD Agent        (requirements)        │
 │   Operator ◄──► Architect Agent  (design decisions)     │
@@ -226,7 +226,7 @@ Score each identified risk:
 
 ### Stage 3: Mid-Flight Absorption (When Needed)
 
-**Agent:** Planner agent (or operator + Advisory Hub)
+**Agent:** Planner agent (or the operator)
 
 **Purpose:** Handle changes that arrive after the plan is created but before or during implementation. This is inevitable in real projects.
 
@@ -548,7 +548,7 @@ Full command/billing decision table: `docs/guide/multi-model-workflow.md`.
 ```
 Operator opens new chat:
 
-"I have a feature spec in <file>. Let's use the Advisory Hub approach:
+"I have a feature spec in <file>. Let's use the operator-led pipeline:
 1. Read the spec
 2. Triage quick wins (H1–H3)
 3. Implement quick wins and commit

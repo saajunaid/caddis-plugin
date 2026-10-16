@@ -153,7 +153,7 @@ For each PR from a `<prefix>/phase-<NN>` branch, one at a time:
 1. Read the whole diff (`gh pr diff <N>`). Check it against the phase's Design and Touches. A file
    outside Touches is a finding.
 2. Wait for CI: `gh pr checks <N> --watch` (or the ci-watch lane, if this caddis has it).
-3. Review under the three rules: one review, stop at the first CLEAN; after two blocking reviews,
+3. Review under the three rules (rule 3, review by tier): stop at the first CLEAN; after 3 rounds,
    ask the owner. A fix goes back to the same cloud session or is made locally on the PR branch.
 4. Just before merging, re-read `gh pr view <N> --json headRefOid,mergeStateStatus`. Merge only if
    the head SHA is the one you reviewed and CI passed on it:

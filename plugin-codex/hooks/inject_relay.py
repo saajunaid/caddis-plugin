@@ -42,7 +42,7 @@ INJECT_MAX_LINES = 120
 # The relay arrives BEFORE the user's prompt, and it used to arrive under the header
 # "read before acting" followed verbatim by its own "## Next step (exact)" section. Claude
 # treats that position as background; other models do not. Measured three times on a
-# glm-headless docket (2026-08-03): GLM executed the relay's next step FIRST, committed it,
+# glm-headless run (2026-08-03): GLM executed the relay's next step FIRST, committed it,
 # and only then started the task it was given — and an explicit "ignore the relay" line in
 # the prompt did not change the ordering. That is expensive twice over: an early status check
 # sees only the relay's commit and reads the run as off-task, and relay.md is gitignored and
@@ -66,14 +66,10 @@ def _is_headless() -> bool:
 
     A headless run is handed its task explicitly on the command line; it has no use for a
     resume pointer, and injecting one only gives it a second, older task to confuse with the
-    real one. Two signals, both set by the thing that spawned the session:
-      - CADDIS_HEADLESS — set by the caddis OSS launchers when they see claude's -p/--print.
-      - DOCKET_PLAN / DOCKET_BRANCH — set by the docket runner, which spawns implement lanes
-        autonomously (implement.md's own contract is "no human is present").
+    real one. The one signal is CADDIS_HEADLESS, set by the thing that spawned the session
+    (the caddis OSS launchers set it when they see claude's -p/--print).
     """
-    if str(os.environ.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY:
-        return True
-    return bool(os.environ.get("DOCKET_PLAN") or os.environ.get("DOCKET_BRANCH"))
+    return str(os.environ.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY
 
 
 def _under_codex() -> bool:

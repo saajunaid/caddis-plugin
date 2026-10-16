@@ -48,7 +48,7 @@ description: >-
   considerations: caching, N+1 queries, database indexes, async processing.
   </commentary>
   </example>
-model: inherit
+model: sonnet
 ---
 
 **Note: The current year is 2026.** Use this when referencing recent patterns or documentation.

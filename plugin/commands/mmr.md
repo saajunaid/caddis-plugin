@@ -19,12 +19,15 @@ anything else is the task for `run`. Pass supported run flags such as `--type` w
 An unknown flag returns a usage error.
 
 The exit codes follow `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
-4 error or bad usage. In particular, `caddis_adhoc.py` returns 4 for bad usage.
+4 error or bad usage, 5 round limit (`caddis_review.py --plan` only: stop, the owner decides). In particular, `caddis_adhoc.py` returns 4 for bad usage.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review once.** Use whatever reviewer is available. Stop at the first CLEAN. After two blocking reviews, ask the owner.
+3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+   Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
+   the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
+   park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
 `/mmr` is for handing a task to another model, not for normal reviews. For a normal review, use
 `/cross-review`.

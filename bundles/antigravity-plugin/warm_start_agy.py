@@ -76,9 +76,7 @@ def freshness_lines(root: str) -> list[str]:
 
 def is_headless() -> bool:
     """True when no human is watching — a run given its task explicitly needs no resume pointer."""
-    if str(os.environ.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY:
-        return True
-    return bool(os.environ.get("DOCKET_PLAN") or os.environ.get("DOCKET_BRANCH"))
+    return str(os.environ.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY
 
 
 def _first_existing(paths: list[str]) -> str:

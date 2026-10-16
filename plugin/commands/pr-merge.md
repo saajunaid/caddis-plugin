@@ -57,20 +57,8 @@ are uncommitted.)
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-**Run the trigger, do not eyeball the diff:**
-
-```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
-```
-
-Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
-Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
-picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
-gets switched off inside a week.
-
-It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
-over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
-what failed.
+Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
 ## Step 4 — Rebase-safe currency
@@ -105,6 +93,12 @@ Watch the PR's checks job-by-job until completion:
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 - If any check fails (red check): report the failure, classify the cause, and **stop before merging**.
   Do not merge a failing PR. Apply the minimum source fix and re-push.
+
+## Programme triggers
+
+Small work that does not meet a trigger skips its block.
+
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_merge_chain.py"` does this check.
 
 ## Step 7 — Merge to default branch
 

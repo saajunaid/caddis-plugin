@@ -139,7 +139,6 @@ def _enforcer_for(rel_path: str, text: str) -> str | None:
 GATE_SCRIPT = REPO / "scripts" / "caddis_gate.py"
 GATE_CONCERNS = {
     "lane-check": ("lane", "spawn", "launch command", "--print", "-p"),
-    "verdict-gate": ("verdict", "advisory-hub", "blocked-pending-hub", "accept-degraded"),
     "tracker-vs-git": ("tracker",),
 }
 

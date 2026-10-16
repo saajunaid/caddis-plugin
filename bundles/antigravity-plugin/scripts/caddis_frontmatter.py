@@ -36,6 +36,7 @@ ALLOWED_TYPES: set[str] = {
     "hub-spawn",
     "advisory-context",
     "phase-prompt",
+    "open-work",
 }
 
 

@@ -55,20 +55,8 @@ are uncommitted.)
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-**Run the trigger, do not eyeball the diff:**
-
-```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_gate.py" review-trigger --range <base>...HEAD
-```
-
-Exit **0** — say nothing, carry on. Exit **2** — it prints which rule fired and on which files.
-Run `/caddis:cross-review`, show the findings, and let the user decide. It **never blocks**: this
-picks when to ask for a second opinion, it is not a verdict, and a review gate that blocks a ship
-gets switched off inside a week.
-
-It fires on SQL and repositories, `services/`, caches and refresh jobs, auth and RBAC, or a diff
-over 400 changed lines. No judgement in any of those — deliberately, because judgement is exactly
-what failed.
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
 ## Step 4 — Rebase-safe currency
@@ -97,12 +85,18 @@ Watch the PR's checks job-by-job until completion:
 - GitHub lane: first record the head you are about to watch, then wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
   gh pr view <pr> --json headRefOid        # write down headRefOid as <watched-sha>
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell → stop and report, do not merge.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 - If any check fails (red check): report the failure, classify the cause, and **stop before merging**.
   Do not merge a failing PR. Apply the minimum source fix and re-push.
+
+## Programme triggers
+
+Small work that does not meet a trigger skips its block.
+
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_merge_chain.py"` does this check.
 
 ## Step 7 — Merge to default branch
 
@@ -127,7 +121,7 @@ If the default branch triggers an automated deployment pipeline:
 - Gitea: `lint_and_test` → `deploy_prod` → `release_metadata` (`deploy-local` skill).
 - GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.138/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_lanes.py" ci-watch --run <run-id>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 9).
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If CI-only, note that no deploy occurs.
