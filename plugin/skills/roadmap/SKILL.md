@@ -70,6 +70,7 @@ process tree on timeout.
 
 ```bash
 python scripts/caddis_roadmap.py status  --roadmap <slug> [--json]   # "<done> of <total> done; next <id>; ..."
+python scripts/caddis_roadmap.py render  --roadmap <slug> | --all [--out <html>]   # page: ~/.caddis/roadmap-pages/<repo>/<slug>.html; hub of every repo: ~/.caddis/roadmap-pages/index.html
 python scripts/caddis_roadmap.py next    --roadmap <slug> [--json]   # exit 0 found, 1 nothing ready (reasons)
 python scripts/caddis_roadmap.py check   --roadmap <slug>            # parse errors, unknown refs or types
 python scripts/caddis_roadmap.py set     --roadmap <slug> --id S1 --col Status|Owner|Target --value <v> [--by-owner] [--reason "<r>"]

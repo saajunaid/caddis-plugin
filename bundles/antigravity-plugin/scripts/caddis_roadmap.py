@@ -100,6 +100,7 @@ EXIT_CHECK_TIMEOUT = 300
 RECHECK_TIMEOUT = 120
 LOCK_TIMEOUT = 30
 LOCK_MALFORMED_STALE_S = 60  # an empty or non-JSON lock file older than this is stale
+_WINDOWS = os.name == "nt"  # a create can fail with PermissionError while a deleted lock's delete is pending
 OUTPUT_TAIL_BYTES = 64 * 1024
 OUTPUT_FILE_CAP = 1024 * 1024  # a check's on-disk output never grows past this
 GIT_NET_TIMEOUT = 120
@@ -1273,11 +1274,18 @@ class _Lock:
     def __init__(self, path: Path, timeout: float | None = None):
         self.path, self.fd = path, None
         self.timeout = LOCK_TIMEOUT if timeout is None else timeout
+        self.denied: PermissionError | None = None  # the last Windows "busy" refusal, reported on timeout
 
     def _try(self) -> bool:
         try:
             self.fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
+            return False
+        except PermissionError as exc:
+            # Windows refuses a create while the last holder's delete is still pending: busy, not an error.
+            if not _WINDOWS:
+                raise
+            self.denied = exc
             return False
         os.write(self.fd, json.dumps({"pid": os.getpid(), "host": socket.gethostname(),
                                       "started_utc": _utc()}).encode())
@@ -1337,7 +1345,8 @@ class _Lock:
                 if self._take_over():
                     print(f"took over a stale lock {self.path}", file=sys.stderr)
                     return self
-                raise RoadmapError(f"{self.path} is held by another write after {self.timeout:.0f} s",
+                why = f" (last refusal: {self.denied})" if self.denied else ""
+                raise RoadmapError(f"{self.path} is held by another write after {self.timeout:.0f} s{why}",
                                    caddis_exit.NOT_RUN)
             time.sleep(0.2)
         return self
@@ -1943,14 +1952,25 @@ def _repo_root(raw: str) -> Path:
 
 def list_roadmaps(root: Path) -> list[str]:
     """Slugs of the roadmaps on origin's default branch: a folder under .caddis/roadmaps/ that holds roadmap.md."""
+    return list_roadmaps_checked(root)[0]
+
+
+def list_roadmaps_checked(root: Path) -> tuple[list[str], set[str] | None]:
+    """(slugs, every folder name under .caddis/roadmaps/ on origin). The folder set is None when git could not list
+    the tree: a caller that deletes by "not on origin" (the page prune) must then delete nothing."""
     branch = fetch(root)
     tree = _git(root, "ls-tree", "--name-only", f"origin/{branch}", ".caddis/roadmaps/", check=False)
+    folders: set[str] | None = set() if tree.returncode == 0 else None
     slugs: list[str] = []
     for folder in tree.stdout.splitlines():
         folder = folder.strip().rstrip("/")
-        if folder and _git(root, "cat-file", "-e", f"origin/{branch}:{folder}/roadmap.md", check=False).returncode == 0:
+        if not folder:
+            continue
+        if folders is not None:
+            folders.add(folder.rsplit("/", 1)[-1])
+        if _git(root, "cat-file", "-e", f"origin/{branch}:{folder}/roadmap.md", check=False).returncode == 0:
             slugs.append(folder.rsplit("/", 1)[-1])
-    return sorted(slugs)
+    return sorted(slugs), folders
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1992,6 +2012,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("rollup", write=True)
     p.add_argument("--id", required=True)
     add("recheck", write=True)
+    p = sub.add_parser("render")
+    which = p.add_mutually_exclusive_group(required=True)
+    which.add_argument("--roadmap")
+    which.add_argument("--all", action="store_true", help="every roadmap on origin (used by hooks and commands)")
+    p.add_argument("--root", default=".")
+    p.add_argument("--out", default=None, help="the HTML file (default ~/.caddis/roadmap-pages/<repo>/<slug>.html)")
     return parser
 
 
@@ -2036,6 +2062,33 @@ def _dispatch(args: argparse.Namespace) -> int:
         return rollup(root, args.roadmap, args.id, args.dry_run)
     if args.cmd == "recheck":
         return recheck(root, args.roadmap, args.dry_run)
+    if args.cmd == "render":
+        import caddis_roadmap_page  # the page is separate; only `render` needs it
+        if args.all and args.out:
+            raise RoadmapError("--out works with one --roadmap, not with --all", caddis_exit.ERROR)
+        slugs, on_origin = list_roadmaps_checked(root) if args.all else ([args.roadmap], None)
+        failed = written = pruned = 0
+        for slug in slugs:  # --all: one bad roadmap must not stop the others
+            try:
+                path = caddis_roadmap_page.write_page(root, slug, Path(args.out) if args.out else None,
+                                                      sys.modules[__name__])
+                written += 1
+                print(f"[ROADMAP] page written: {path.resolve()}")
+            except Exception as exc:  # --all: one roadmap must never stop the others
+                if not args.all:
+                    raise
+                failed += 1
+                print(f"[ROADMAP] {slug}: page not written: {exc}", file=sys.stderr)
+        try:  # the hub is a convenience: nothing below ever fails a render or changes its exit code
+            if args.all and on_origin is not None:  # a roadmap removed from origin leaves the hub too; a listing
+                # that failed removes nothing, and a folder still on origin keeps its page even if its render failed
+                pruned = caddis_roadmap_page.prune_folder(
+                    caddis_roadmap_page.default_page_path(root, "_").parent, on_origin | set(slugs))
+            if not args.out and (written or pruned):
+                print(f"[ROADMAP] hub written: {caddis_roadmap_page.write_hub().resolve()}")
+        except Exception as exc:
+            print(f"[ROADMAP] hub not written: {exc}", file=sys.stderr)
+        return caddis_exit.BLOCKED if failed else caddis_exit.CLEAN
     return caddis_exit.ERROR
 
 

@@ -59,7 +59,11 @@ def get_porcelain_lines(repo: Path) -> tuple[int, list[str]]:
     return 0, entries
 
 
-SHARED_RE = re.compile(r"^Shared checkout:\s*yes\b", re.IGNORECASE | re.MULTILINE)
+# A plain line, or a list item and/or bold: `- **Shared checkout: yes** (...)` (watch-sight's form until 16 Oct).
+# After `yes` only the line end or a reason may follow: `(`, a dash, `.`, `:`, `,`, `;` or a `#` comment. A word
+# after `yes` is prose ("Shared checkout: yes means ..."), not a declaration.
+SHARED_RE = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?Shared checkout:[ \t]*yes(?:\*\*)?[ \t]*(?:$|[(\-–—.:,;#])",
+                       re.IGNORECASE | re.MULTILINE)
 
 
 def entry_paths(entry: str) -> list[str]:

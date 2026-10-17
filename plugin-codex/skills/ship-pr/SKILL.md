@@ -46,7 +46,7 @@ Finished plans close in the PR that finishes them (`/caddis:implement` step 4b).
 PR did, on the files it touches only:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
 ```
 
 (`<default>` is the default branch from Step 0. Falls back to `scripts/caddis_tidy.py` from a
@@ -84,7 +84,7 @@ source checkout; skip this step if the script is missing or the repo has no `.ca
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
@@ -124,9 +124,10 @@ scope-guard check when present:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
 - GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
-  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell → stop and report, do not merge.
+  `RESULT: pass` means every check of the PR's head commit is complete and green; `HEAD:` names that commit.
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → run `ci-watch` again; if it stays 3, stop and report, do not merge.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 On a red check, classify the failure and apply the minimum **source** fix, then re-push (through
 Step 4's safety if history must change).
@@ -145,7 +146,7 @@ human-confirmed door.
 
 ## Rules
 - **Never merges, never deploys** — no merge action exists in this command, by design.
-- Never `git add -A` without reviewing `git status` first.
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
 - Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.
 - Never edit a workflow file (`.gitea/workflows/`, `.github/workflows/`) to make a gate pass — fix the source.
 - Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.

@@ -36,6 +36,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
@@ -118,6 +119,121 @@ _CATASTROPHIC_TARGET = re.compile(
     re.I,
 )
 _FORK_BOMB = re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:")
+# `git add` of everything. A tokenizer, not a regex: three regex rounds each opened a new gap, and one backtracked
+# exponentially. Linear in the command length. guard_agy.py carries a copy; test_guard_agy.py checks they agree.
+_GA_SEPARATORS = {";", "&", "&&", "|", "||", "(", ")", "{", "}", "$", "!", "\n"}
+_GA_PUNCT = set(";&|(){}$!\n")  # a token made only of these is a separator (`$(`, `&&`, `);`, `|!`)
+_GA_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until"}  # the next word starts a command
+_GA_WRAPPERS = {"sudo", "command", "env", "exec", "nohup", "time", "timeout", "nice", "xargs", "call", "wsl",
+                "busybox"}
+_GA_SHELLS = {"bash", "sh", "zsh", "dash", "pwsh", "powershell", "cmd"}
+_GA_JOINING_SHELLS = {"cmd", "pwsh", "powershell"}  # they run ALL the words after the flag; bash -c runs one
+_GA_SHELL_RUN_FLAGS = {"-c", "/c", "/k", "-command", "-commandwithargs"}
+_GA_GIT_VALUE_OPTS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
+_GA_EVERYTHING = {"-A", "--all", ".", "./", ".\\", ":/", "*"}
+
+
+def _ga_sep(token: str) -> bool:
+    """A command separator: one of _GA_SEPARATORS, or a token made only of their characters (`$(`, `|!`)."""
+    return token in _GA_SEPARATORS or (bool(token) and set(token) <= _GA_PUNCT)
+
+
+def _ga_name(token: str) -> str:
+    """`/usr/bin/git`, `"C:\\Program Files\\Git\\cmd\\git.exe"`, `GIT` -> `git`."""
+    base = re.split(r"[\\/]", token)[-1].lower()
+    return base[:-4] if base.endswith(".exe") else base
+
+
+def _ga_tokens(text: str) -> list[str]:
+    """Shell tokens, quotes removed (also mid-token: --work-tree="my dir"), backslashes kept (Windows paths).
+    ; & | ( ) { } $ ! and newlines become separator tokens."""
+    def lex(quotes: str) -> list[str]:
+        lexer = shlex.shlex(text.replace("`", "\n"), posix=True, punctuation_chars=";&|(){}$!\n")
+        lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.quotes = " \t\r", True, "", quotes
+        return list(lexer)
+    try:
+        return lex("'\"")
+    except ValueError:  # unbalanced quotes: read it again without quote handling
+        return lex("")
+
+
+def git_add_everything(command: str, depth: int = 0) -> bool:
+    """True when `command` runs `git add` with -A/--all (also bundled, e.g. -Av), `.`, `./`, `:/` or `*`.
+
+    `git` must start a command (after a separator, a shell keyword such as `do`, VAR=value, or a wrapper such as
+    sudo, env, xargs, nice -n 10), with any path, case or .exe. `bash -c "..."`, `pwsh -Command ...` and
+    `cmd /c ...` are read inside. Only git's global options may stand between `git` and `add`, so
+    `git commit -m "add ."` and `printf "git add ."` pass. Callers pass heredoc-free text and must treat an
+    exception as "no match": this check must never stop the guard's other rules.
+    """
+    if depth > 3:
+        return False
+    text = re.sub(r"\\\r?\n|`\r?\n", " ", command)  # line continuations (bash \, PowerShell `)
+    tokens = _ga_tokens(text)
+    i, start = 0, True
+    while i < len(tokens):
+        tok = tokens[i]
+        if _ga_sep(tok):
+            i, start = i + 1, True
+            continue
+        if not start:
+            i += 1
+            continue
+        if tok in _GA_KEYWORDS or re.match(r"^\w+=", tok):  # `do git ...`, VAR=value before the command
+            i += 1
+            continue
+        name = _ga_name(tok)
+        if name in _GA_WRAPPERS:  # skip the wrapper's own flags and values up to the real command
+            i += 1
+            while i < len(tokens) and not _ga_sep(tokens[i]) and _ga_name(tokens[i]) not in ({"git"} | _GA_SHELLS):
+                i += 1
+            continue
+        start = False
+        if name in _GA_SHELLS:
+            j = i + 1
+            while j < len(tokens) and not _ga_sep(tokens[j]):
+                if tokens[j].lower() in _GA_SHELL_RUN_FLAGS:
+                    rest = tokens[j + 1:]
+                    end = next((k for k, t in enumerate(rest) if _ga_sep(t)), len(rest))
+                    if end == 0:  # `bash -c` with nothing after it
+                        break
+                    inner = " ".join(rest[:end]) if name in _GA_JOINING_SHELLS else rest[0]
+                    if git_add_everything(inner, depth + 1):
+                        return True
+                    break
+                j += 1
+            i = j
+            continue
+        if name != "git":
+            i += 1
+            continue
+        j = i + 1
+        while j < len(tokens) and tokens[j].startswith("-") and not _ga_sep(tokens[j]):
+            j += 2 if tokens[j] in _GA_GIT_VALUE_OPTS else 1
+        if j >= len(tokens) or tokens[j] != "add":
+            i = j
+            continue
+        after_dashdash = False
+        for arg in tokens[j + 1:]:
+            if _ga_sep(arg):
+                break
+            if arg == "--":
+                after_dashdash = True
+                continue
+            if after_dashdash and arg.startswith("-"):  # `git add -- -A` names a file called -A
+                continue
+            if arg in _GA_EVERYTHING or re.fullmatch(r"-[a-zA-Z]*A[a-zA-Z]*", arg):
+                return True
+        i = j + 1
+    return False
+
+
+def _git_add_everything_safe(text: str) -> bool:
+    """git_add_everything, but an error is "no match": one rule must never switch off the rest of the guard."""
+    try:
+        return git_add_everything(text)
+    except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
+        return False
 
 
 def _strip_quotes(s: str) -> str:
@@ -454,6 +570,8 @@ def classify_bash(command: str) -> tuple[str, str]:
         return "deny", "fork bomb"
     if re.search(r"\bdd\b.*\bof=/dev/", nl) or re.search(r"\bmkfs", nl) or re.search(r">\s*/dev/sd[a-z]", nl):
         return "deny", "writes directly to a disk device"
+    if _git_add_everything_safe(data_free):
+        return "deny", "git add of everything (-A, --all, . or :/): stage named files only"
 
     # ── ask: destructive-but-legit ──
     if rm_rf:

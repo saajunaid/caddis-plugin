@@ -84,6 +84,8 @@
 | Digress | `digress/` | Park the current workstream on the stack and switch to a new task — without losing the original |
 | Excalidraw Db | `excalidraw-db/` | Turn a SQL artifact into an Excalidraw diagram for a design review / ARB pack / slide — higher-level, drag-the-boxes format |
 | Feature Plan | `feature-plan/` | Create a phased, TDD-structured implementation plan that acts as the durable spine for multi-session work |
+| Fleet Close | `fleet-close/` | Close a fleet of sessions — every session writes its handoff and acks, then print one restart sheet for the owner |
+| Fleet Open | `fleet-open/` | Restore one role from the fleet restart sheet in a new session — name check, relay, tasks, peer greeting, watchers |
 | Gate Preflight | `gate-preflight/` | Deterministic headless preflight — validates a plan against the actual codebase, self-contained (never depends on a skill activating) |
 | Gate Review | `gate-review/` | Deterministic headless code review — adversarial diff review, self-contained (never depends on a skill activating) |
 | Glossary | `glossary/` | Define the words this project invented, in one place — .caddis/kb/GLOSSARY.md |

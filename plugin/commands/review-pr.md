@@ -65,7 +65,7 @@ not know to look:
   to attribute. It manufactures confidence. Worse than no check.
 - **A wall-clock assertion.** A timing threshold on a shared runner measures load, not the code.
   Assert ordering instead.
-- **Staged directories.** `git add -A` / `git add .` sweeps in files nobody reviewed.
+- **Staged directories.** `git add -A` / `git add .` / `git add <dir>` sweeps in files nobody reviewed.
 - **CI shell assumptions.** The runner may be Windows PowerShell 5.1, where a native command's
   stderr becomes a terminating error under `$ErrorActionPreference='Stop'`, and where `Should -Be`
   (Pester 4 syntax) fails on a Pester 3 runner.

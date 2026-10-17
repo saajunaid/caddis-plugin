@@ -764,13 +764,101 @@ def prune_session_states(directory: str, keep: int = STATE_KEEP) -> int:
                 os.unlink(path[:-3] + ".ended")  # the SessionEnd marker goes with its state file
             except OSError:
                 pass
+            try:
+                os.unlink(path[:-3] + ".name")  # caddis_fleet.py whoami's name file goes too
+            except OSError:
+                pass
+            try:
+                os.unlink(path[:-3] + ".waiting")  # a mark from session_waiting.py goes too
+            except OSError:
+                pass
     except Exception:
         pass
     return removed
 
 
+_UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+
+
+def _read_tasks_table(text: str) -> list[tuple[str, str, str]]:
+    """Rows of the `## Tasks` table that `render()` writes, as (#, status, task).
+
+    render() writes the subject raw, so a pipe inside it is a cell break too: the first two cells
+    are # and status, and everything after them is the task."""
+    rows: list[tuple[str, str, str]] = []
+    inside = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if inside:
+                break
+            inside = line.strip() == "## Tasks"
+            continue
+        if not inside or not line.startswith("|"):
+            continue
+        # Split off only the # and status cells; the task is the raw rest of the line without its
+        # closing pipe, so a pipe inside it keeps its exact spacing (`a|b` stays `a|b`).
+        parts = _UNESCAPED_PIPE.split(line.strip(), 3)
+        if len(parts) < 4 or not parts[3].endswith("|"):
+            continue
+        num, status, task = parts[1].strip(), parts[2].strip(), parts[3][:-1].strip()
+        if num == "#" or set(num) <= set("-: "):
+            continue  # header or |---| line
+        rows.append((num, status, task))
+    return rows
+
+
+def write_tasks_file(state_path: str, out_path: str, relay_name: str, session_id: str) -> int:
+    """Write the open tasks of a session-state file to `out_path`. Returns the row count.
+
+    With no open row it deletes an old tasks file and writes nothing: a stale list is worse
+    than none, because the next session would reload finished work."""
+    try:
+        with open(state_path, encoding="utf-8", errors="ignore") as fh:
+            rows = _read_tasks_table(fh.read())
+    except OSError:
+        return 0  # no state file: nothing is known, so an existing tasks file stays
+    open_rows = [
+        (num, "in_progress" if status == "**IN PROGRESS**" else status, task)
+        for num, status, task in rows
+        if status not in ("done", "deleted")
+    ]
+    if not open_rows:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+        return 0
+    saved = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    lines = [
+        "---", "type: todo", "status: active", "relay: " + relay_name,
+        "session: " + session_id, "saved: " + saved, "---",
+        "# %s - open tasks" % relay_name, "",
+        "| Old # | Status | Subject |", "|---|---|---|",
+    ]
+    for num, status, task in open_rows:
+        lines.append("| %s | %s | %s |" % (num, status, _UNESCAPED_PIPE.sub(r"\\|", task)))
+    if len(rows) >= _MAX_TASKS:
+        # render() cuts the table at _MAX_TASKS and leaves no marker, so a full table may be cut.
+        lines += ["", "WARNING: %d or more tasks; some may be missing." % _MAX_TASKS]
+    directory = os.path.dirname(out_path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tasks-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, out_path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return len(open_rows)
+
+
 def main(argv=None) -> int:
-    """`usage` and `prune`, for /handoff. Never fails the handoff: always exits 0 once parsed."""
+    """`usage`, `prune` and `tasks-file`, for /handoff. Never fails the handoff: always exits 0
+    once parsed."""
     parser = argparse.ArgumentParser(prog="session_state.py", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     usage_p = sub.add_parser("usage", help="append this session's usage record to usage-log.jsonl")
@@ -780,10 +868,24 @@ def main(argv=None) -> int:
     prune_p = sub.add_parser("prune", help="keep the newest session-state files")
     prune_p.add_argument("--root", default="")
     prune_p.add_argument("--keep", type=int, default=STATE_KEEP)
+    tasks_p = sub.add_parser("tasks-file", help="save this session's open tasks beside its relay")
+    tasks_p.add_argument("--session-id", required=True)
+    tasks_p.add_argument("--relay", required=True, help="the workstream relay name")
+    tasks_p.add_argument("--root", default="")
     args = parser.parse_args(argv)
     root = args.root or find_repo_root(os.getcwd())
     try:
-        if args.cmd == "usage":
+        if args.cmd == "tasks-file":
+            sid = "".join(c for c in args.session_id if c.isalnum() or c in "-_")[:64]
+            if not sid or any(sep in args.relay for sep in ("/", "\\", "..")):
+                print("[TASKS] skipped: bad session id or relay name")
+                return 0
+            art = _artifact_dir(root)
+            out = os.path.join(art, "relay", args.relay + ".tasks.md")
+            n = write_tasks_file(os.path.join(art, "session-state", sid + ".md"), out,
+                                 args.relay, args.session_id)
+            print("[TASKS] %d open task(s) -> %s" % (n, out) if n else "[TASKS] none open")
+        elif args.cmd == "usage":
             transcript = args.transcript or find_transcript(args.session_id)
             if not transcript or not os.path.isfile(transcript):
                 print("[USAGE] no transcript found for session %s; usage not recorded." % args.session_id)

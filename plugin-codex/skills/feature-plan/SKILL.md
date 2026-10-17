@@ -54,6 +54,12 @@ points), read it first. It's a free, token-zero project fingerprint that anchors
 exists instead of assumed. If the work fits comfortably in one session, say so and offer to just do it
 instead of planning. Only produce a plan for genuinely multi-phase work.
 
+**Check upstream first when the plan builds on Claude Code behaviour** (hooks, headless `claude -p`, permission
+modes, subagents, worktrees, plugins and skills, Remote Control, background sessions). Read
+`.caddis/kb/claude-code-upstream-watch.md` if the repo has it, and the latest Claude Code changelog for that area
+(Improvements, Bug fixes, In development). Do not plan a fix or a workaround for something Claude Code has already
+changed, fixed or announced; cite the release in **Constraints & decisions** instead.
+
 ### Evidence gate — do not write plan content while a BLOCKER is unresolved
 This is the direct counter to the failure
 mode that makes a plan dangerous: **you write the spec, so you cannot see its gaps.** A phase built
@@ -125,7 +131,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   - `ui`: `claude`, `codex-astra`
   - `tests`: `codex-sol`, `glm`, `claude`
   - `docs`: `agy`, `glm`, `claude`
-  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
   --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
   has budget, give any phase the `claude` lane. Override chains and model pins per project in
   `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
@@ -147,7 +153,7 @@ work; a headless one records the deviation in the Tracker. Write the launch comm
 phase — it is executed verbatim.
 
 **Choose each phase's Lane from the routing table.** Run
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_routing.py" show --json`. A phase the orchestrator
 does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
 Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
 of that role and write its Lane line as follows:
@@ -156,7 +162,7 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
 always starts with `caddis_spend.py run`: it books the call against the global EUR spend cap, and
@@ -265,7 +271,7 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 Three rules: one attempt, one review.
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -369,7 +375,7 @@ A `risk: high` phase gets two independent review runs: run by the roadmap/plan r
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always.** Add one open-work row for the plan in `.caddis/open-work.md`. Set its cells with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.139/scripts/caddis_rows.py" set --file <open-work.md> --id <row id> --col Status=todo`, never with a regex edit.
+**Trigger: Always.** Add one open-work row for the plan in `.caddis/open-work.md`. Set its cells with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_rows.py" set --file <open-work.md> --id <row id> --col Status=todo`, never with a regex edit.
 
 **Trigger: The plan records a decision.** Record it with `/caddis:decide`.
 

@@ -144,7 +144,10 @@ ENGINES: dict[str, dict] = {
 PROMPT_ON_STDIN = {"claude"}
 STUCK_SESSIONS = 3
 PLAN_PROMPT_NAME = "plan-resume-prompt.md"
-HEADLESS_ENV = {"CADDIS_HEADLESS": "1"}
+# CLAUDE_CODE_FORK_SUBAGENT=0: since 2.1.302 fork subagents are on by default in `claude -p`. A fork can run in the
+# background, and a print-mode session can end before it finishes, so its work is lost; the session prompt already
+# asks for foreground work only. Normal subagents stay available.
+HEADLESS_ENV = {"CADDIS_HEADLESS": "1", "CLAUDE_CODE_FORK_SUBAGENT": "0"}
 ROADMAP_WRITE_TIMEOUT_S = caddis_roadmap.MERGE_CHAIN_TIMEOUT + 600  # a backstop: every call inside is bounded
 RUNNING = "running"  # the last-stop record while a runner holds the lock; a killed run leaves it (needs the owner)
 GH_STOP_PREFIX = "BLOCKED gh cannot see"  # a gh error at a restart: waiting.json stays, a later tick may resume
@@ -192,7 +195,11 @@ def build_command(engine: str, model: str, prompt: str, *, usd: float, timeout_m
         raise ValueError(f"unknown engine {engine!r}; known: {', '.join(ENGINES)}")
     exe = list(engine_cmd) if engine_cmd else [engine]
     if engine == "claude":
-        tail = [*exe, "-p", "--model", model, "--output-format", "json", "--max-budget-usd", _usd(usd)]
+        # The mode is explicit: since Claude Code 2.1.302 a headless run with no mode starts in `default` (third-party
+        # providers) and no longer in auto mode, so a machine without `defaultMode` in its settings would stop at
+        # every permission prompt. The session runs in its own worktree under the governor, and the guard still runs.
+        tail = [*exe, "-p", "--permission-mode", "bypassPermissions", "--model", model, "--output-format", "json",
+                "--max-budget-usd", _usd(usd)]
     elif engine == "agy":  # probe 5: --model must come before --print
         tail = [*exe, "--model", model, "--print", prompt, "--output-format", "json",
                 "--print-timeout", f"{max(1, int(timeout_min))}m"]
@@ -481,6 +488,11 @@ def _create_with(path: Path, text: str) -> None:
         os.link(tmp, path)
     except FileExistsError:
         raise
+    except PermissionError as exc:
+        if not caddis_roadmap._WINDOWS:
+            raise
+        # Windows refuses while the old lock's delete is still pending: the name is taken, for now.
+        raise FileExistsError(str(path)) from exc
     except OSError:  # no hard links on this file system: O_EXCL, then the text
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -1187,11 +1199,31 @@ def run(*, repo: Path, plan: str | None = None, roadmap: str | None = None, caps
         if value:
             ctx.masks.append(value)
     if roadmap is not None:
-        return _run_roadmap(ctx, template, dry_run, after_session, list(roadmap_cmd or default_roadmap_cmd()),
-                            hostname or socket.gethostname(), publish or default_publish,
-                            pr_merged or default_pr_merged, worktree_root,
-                            delete_remote_branch or default_delete_remote_branch, pr_closed or default_pr_closed)
+        rm_cmd = list(roadmap_cmd or default_roadmap_cmd())
+        try:
+            return _run_roadmap(ctx, template, dry_run, after_session, rm_cmd,
+                                hostname or socket.gethostname(), publish or default_publish,
+                                pr_merged or default_pr_merged, worktree_root,
+                                delete_remote_branch or default_delete_remote_branch, pr_closed or default_pr_closed)
+        finally:
+            if not dry_run:
+                _render_page(ctx, rm_cmd)  # the page shows where the run stopped and what waits for the owner
     return _run_plan(ctx, template, dry_run, after_session)
+
+
+PAGE_RENDER_TIMEOUT_S = 120
+
+
+def _render_page(ctx: "_Ctx", roadmap_cmd: Sequence[str]) -> None:
+    """Re-render the local roadmap page (roadmap-page Phase 3). Best effort: a failure is one stderr line, never a stop."""
+    argv = [*roadmap_cmd, "render", "--roadmap", ctx.target.slug, "--root", str(ctx.repo)]
+    try:
+        proc = subprocess.run(argv, cwd=ctx.repo, env=headless_env(), stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=PAGE_RENDER_TIMEOUT_S)
+        if proc.returncode != 0:
+            print(f"caddis_roadmap_run: page not rendered (exit {proc.returncode})", file=sys.stderr)
+    except Exception as exc:  # a page must never change how a run ends
+        print(f"caddis_roadmap_run: page not rendered: {type(exc).__name__}", file=sys.stderr)
 
 
 def _dry_run_tail(ctx: _Ctx, template: Path, prompt: str, cwd: Path | None = None) -> None:
@@ -2042,6 +2074,7 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
             finally:
                 s.record.setdefault("status", "FAILED")
                 ctx.log(s.record)
+            _render_page(ctx, roadmap_cmd)
             if after_session is not None:
                 after_session(sessions)
     except _Stop as stop:

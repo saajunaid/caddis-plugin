@@ -615,6 +615,24 @@ if _event == "SessionStart" and not _is_headless():
     except Exception as _exc:
         _hook_note("routing line", _exc)
 
+# ── Claude Code version-change notice (SessionStart) ──────────────────────────
+# One line while the running Claude Code version has no section in the caddis upstream watch
+# (caddis_upstream_watch.py). Headless runs print nothing; failure logs and prints nothing.
+if _event == "SessionStart" and not _is_headless() and os.environ.get("CADDIS_UPSTREAM_WATCH", "1") != "0":
+    try:
+        from pathlib import Path as _UwPath
+
+        _uw_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if os.path.isdir(_uw_scripts) and _uw_scripts not in sys.path:
+            sys.path.insert(0, _uw_scripts)
+        import caddis_upstream_watch as _uw
+
+        _uw_line = _uw.notice(os.environ.get("CLAUDE_CODE_EXECPATH"), _UwPath.home())
+        if _uw_line:
+            print(_uw_line)
+    except Exception as _exc:
+        _hook_note("upstream watch", _exc)
+
 # Dream Memory surfacing was RETIRED 2026-08-26. It ranked facts by hit count, so the most-repeated
 # shell typo always outranked a real insight: 128 of 131 records were `failure-mode`, the top six were
 # a month stale with counts of 69-77, and the two genuinely useful records sat at hitCount 1 and never

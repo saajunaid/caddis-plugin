@@ -82,12 +82,12 @@ Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <
 
 Watch the PR's checks job-by-job until completion:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
-- GitHub lane: first record the head you are about to watch, then wait for PR checks outside the Claude session via `ci-watch`:
+- GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
-  gh pr view <pr> --json headRefOid        # write down headRefOid as <watched-sha>
   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
-  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell → stop and report, do not merge.
+  `RESULT: pass` means every check of the PR's head commit is complete and green (cancelled, failed or unfinished is never a pass). `HEAD:` names that commit: it is the `<watched-sha>`; merge with `--match-head-commit <watched-sha>`.
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell (also: gh finished but a check is still unfinished, the head's checks could not be read, or the head moved during the watch — `FAILING:` says which) → run `ci-watch` again; if it stays 3, stop and report, do not merge.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 - If any check fails (red check): report the failure, classify the cause, and **stop before merging**.
   Do not merge a failing PR. Apply the minimum source fix and re-push.
@@ -98,6 +98,14 @@ Small work that does not meet a trigger skips its block.
 
 **Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_merge_chain.py"` does this check.
 
+**Trigger: Two or more reviewed, green PRs wait to merge on one repo.** Each separate merge costs update-branch, CI and deploy, and puts every other open PR behind the default branch (measured on one fleet repo, 10 Oct 2026: about 15 to 20 minutes per PR, about 2 hours for six). Combine them:
+1. Merge their branches into one release branch made from `origin/<default>`. Resolve overlaps once.
+2. Run the full gates once, in an environment that matches CI's install.
+3. Open ONE release PR that links each component PR (their review and test evidence stays on them).
+4. After it merges, close each component PR with a link to the release PR.
+
+Keep separate: work that needs its own owner approval, a schema or DDL change that may need its own revert, and docs-only PRs. Still one merge at a time, never while a push run on the default branch is in progress. Tell any peer session that merges to the same repo.
+
 ## Step 7 — Merge to default branch
 
 Once all required checks are **green**, there are no merge conflicts, and review requirements are satisfied:
@@ -105,13 +113,13 @@ Once all required checks are **green**, there are no merge conflicts, and review
   ```bash
   gh pr view <pr> --json headRefOid,mergeStateStatus
   ```
-  Merge only when `headRefOid` equals `<watched-sha>`, the head recorded before the watch started and `mergeStateStatus` is `CLEAN` (or `HAS_HOOKS`/`UNSTABLE` only if the repo's own rules allow it; else stop and report). The ci-watch report is a signal, not proof.
+  Merge only when `headRefOid` equals `<watched-sha>` (the `HEAD:` line of the `ci-watch` run that printed `RESULT: pass`) and `mergeStateStatus` is `CLEAN` (or `HAS_HOOKS`/`UNSTABLE` only if the repo's own rules allow it; else stop and report). If the head moved, run `ci-watch` again.
 - Use the repo's configured **merge strategy** — read it from repo settings (Gitea repo settings API /
   `gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`) and `AGENTS.md`;
   an explicit argument wins. Options: **squash**, **merge-commit**, rebase-merge. **Don't assume** —
   if detection is inconclusive, use merge-commit (never silently squash someone's history without evidence).
 - Execute merge:
-  - GitHub: `gh pr merge <pr> --<strategy>` (e.g. `gh pr merge <pr> --squash`).
+  - GitHub: `gh pr merge <pr> --<strategy> --match-head-commit <watched-sha>` (e.g. `gh pr merge <pr> --squash --match-head-commit <watched-sha>`; the full SHA). GitHub refuses the merge if the head moved.
   - Gitea: call the Gitea PR merge API with the chosen strategy.
 - Record the merge SHA.
 
@@ -131,11 +139,17 @@ If the default branch triggers an automated deployment pipeline:
 ## Step 9 — Close feature-branch lifecycle (Clean up)
 
 **Only after** the merge is complete and deployment (if any) is validated green:
+- Run `git status --short`. If it shows changes you did not make, do not switch, stash, reset or commit:
+  leave them, report them, and stop cleanup here (a shared checkout often holds a peer's edits).
+- Fetch and prune: `git fetch --prune`.
 - Switch to the default branch: `git switch <default-branch>`.
 - Fast-forward to the merge commit: `git pull --ff-only origin <default-branch>`.
 - Delete the **local** feature branch: `git branch -d <branch>` (use `-D` only if squashed after verifying tree contents match).
 - Delete the **remote** feature branch: `git push origin --delete <branch>` (if not deleted by forge).
 - Drop the temporary `backup/<branch>-preship` ref if one was created in Step 4.
+- If the repo has a roadmap (`.caddis/roadmaps/`), re-render its page, because the merge changed a Tracker on origin:
+  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" render --all` (best effort; a failure is a note, not a
+  stop). The page is `~/.caddis/roadmap-pages/<repo>/<slug>.html`.
 
 If deploy validation failed: **skip cleanup** entirely and report why — never delete a branch whose
 work may need re-work.
@@ -154,7 +168,7 @@ Cleanup:       remote branch deleted / local branch deleted / backup ref dropped
 
 - Never merge a PR whose required checks are red or absent.
 - Never delete a feature branch before its merge is confirmed and any deploy validated.
-- Never `git add -A` without reviewing `git status` first (stage named files only).
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
 - Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.
 - Never edit a workflow file (`.gitea/workflows/`, `.github/workflows/`) to make a gate pass — fix the source.
 - Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.

@@ -24,8 +24,9 @@ It ships with the harness. Try, in order:
 git -C <target> status --short
 ```
 The migration **refuses a dirty tree** (a rename mixed into unrelated edits is unreviewable, and
-these working trees are shared with parallel sessions). If it's dirty: commit or stash first. Never
-pass `--allow-dirty` on a tree whose changes you didn't make.
+these working trees are shared with parallel sessions). If it's dirty with your own changes: commit
+them first. If it holds changes you did not make, stop and ask the owner: never commit, stash or reset
+them, and never pass `--allow-dirty` on such a tree.
 
 ## Step 3 — dry run
 ```

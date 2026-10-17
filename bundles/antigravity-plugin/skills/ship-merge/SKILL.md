@@ -71,8 +71,9 @@ an explicit argument wins. Options: **squash**, **merge-commit**, **rebase-merge
 if detection is inconclusive, say so and use merge-commit (never silently squash someone's history).
 
 Then merge:
-- GitHub: `gh pr merge <pr>` with `--squash` (squash), `--merge` (merge-commit) or `--rebase` (rebase-merge).
-- Gitea: call the Gitea PR merge API with the chosen strategy.
+- GitHub: `gh pr merge <pr> --match-head-commit <head-sha>` (the full SHA) with `--squash` (squash), `--merge`
+  (merge-commit) or `--rebase` (rebase-merge). GitHub refuses the merge if the head moved.
+- Gitea: call the Gitea PR merge API with the chosen strategy and `head_commit_id: <head-sha>`.
 
 Record the merge SHA.
 
@@ -99,8 +100,11 @@ attempt a silent re-deploy — and **skip cleanup** (Step 6).
 ## Step 6 — Branch cleanup — only after a confirmed-green deploy
 
 **Only after** Step 5 is green:
-- Delete the **remote** feature branch; delete the **local** feature branch.
-- Switch to the default branch and fast-forward it to the merge commit.
+- Run `git status --short`. If it shows changes you did not make, do not switch, stash, reset or commit:
+  leave them, report them, and stop cleanup here.
+- `git fetch --prune`, then switch to the default branch and fast-forward it to the merge commit.
+- Delete the **remote** feature branch; delete the **local** feature branch (for a squash merge, compare
+  the branch tree with the merged tree first, not ancestry).
 - Drop the `backup/<branch>-preship` ref `/ship-pr` created.
 
 If deploy validation failed: **skip cleanup** entirely and say so — never delete a branch whose
@@ -119,7 +123,7 @@ Cleanup:       remote branch ✗ deleted / local ✗ deleted / backup ref droppe
 ## Rules
 - Never merge without: green required checks **and** the explicit human deploy-confirm.
 - Never delete a branch before its deploy is validated green.
-- Never `git add -A` without reviewing `git status`; never edit a workflow file to make a gate pass.
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two). Never edit a workflow file to make a gate pass.
 - Local-only lane: no PR, no merge — refuse and point at `/ship`.
 
 ## Skill reference

@@ -387,6 +387,35 @@ def gate_handover_check(doc: Path, repo_root: Path, max_chars: int | None = None
         )
         return EXIT_BLOCKED
 
+    # `/handoff` Step 3c saves the open tasks beside the relay. A tasks file the resume prompt
+    # never names is a task list the next session never reloads.
+    tasks_file = doc.with_name(doc.stem + ".tasks.md")
+    if tasks_file.is_file() and tasks_file.name not in text:
+        sys.stderr.write(f"handover-check: the resume prompt does not load {tasks_file.name}\n")
+        return EXIT_BLOCKED
+
+    done_bullets = 0
+    in_done = in_fence = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):  # a heading or bullet inside a code block is text, not structure
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if stripped.startswith("## Done"):
+            in_done = True
+            continue
+        if in_done:
+            if re.match(r"#{1,2} ", stripped):  # the next ## (or #) section ends Done; a ### stays inside it
+                in_done = False
+                continue
+            if line.lstrip().startswith(("- ", "* ")):
+                done_bullets += 1
+    if done_bullets > 8:
+        sys.stderr.write(f"handover-check: Done has {done_bullets} bullets; the cap is 8\n")
+        return EXIT_BLOCKED
+
     missing: list[str] = []
     try:
         # One rule for both gates: `caddis_spawn.check_document` already treats a bare filename

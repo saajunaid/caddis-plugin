@@ -56,6 +56,12 @@ points), read it first. It's a free, token-zero project fingerprint that anchors
 exists instead of assumed. If the work fits comfortably in one session, say so and offer to just do it
 instead of planning. Only produce a plan for genuinely multi-phase work.
 
+**Check upstream first when the plan builds on Claude Code behaviour** (hooks, headless `claude -p`, permission
+modes, subagents, worktrees, plugins and skills, Remote Control, background sessions). Read
+`.caddis/kb/claude-code-upstream-watch.md` if the repo has it, and the latest Claude Code changelog for that area
+(Improvements, Bug fixes, In development). Do not plan a fix or a workaround for something Claude Code has already
+changed, fixed or announced; cite the release in **Constraints & decisions** instead.
+
 ### Evidence gate — do not write plan content while a BLOCKER is unresolved
 This is the direct counter to the failure
 mode that makes a plan dangerous: **you write the spec, so you cannot see its gaps.** A phase built

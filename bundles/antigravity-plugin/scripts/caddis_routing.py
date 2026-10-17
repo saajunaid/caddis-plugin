@@ -16,14 +16,14 @@ import oss_model
 
 # agy is Flash-only on some machines and is good only at small, exact, mechanical cards (112 of 114 passed
 # in the 2026-10-08 UI-upgrade run) and CI watching. Give design-fidelity, cross-file refactor and judgment
-# work to codex or claude. See .caddis/kb/agy-headless-implementer-limits.md. A separate `design` role is an
+# work to claude. Codex left the routing on 2026-10-12 (owner); a config may still name it. See .caddis/kb/agy-headless-implementer-limits.md. A separate `design` role is an
 # owner decision: it changes the routing line every session prints.
 DEFAULT_ROUTING: dict[str, list[str]] = {
     "critical": ["opus"],
     "light": ["sonnet"],
-    "coding": ["agy", "codex"],
-    "review": ["glm", "deepseek"],
-    "consult": ["agy", "glm", "codex"],
+    "coding": ["agy"],
+    "review": ["deepseek", "glm"],  # owner order 2026-10-16; an agy review runs through caddis_spend.py
+    "consult": ["agy", "glm"],
     "ci-watch": ["agy"],
     "mechanical": ["haiku"],
 }

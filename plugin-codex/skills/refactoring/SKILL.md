@@ -126,7 +126,8 @@ Activate when:
 
 4. **Commit current state**
    ```bash
-   git add .
+   git status --short          # stage the files you changed, by name
+   git add tests/test_<module>.py
    git commit -m "chore: add tests before refactoring"
    ```
 

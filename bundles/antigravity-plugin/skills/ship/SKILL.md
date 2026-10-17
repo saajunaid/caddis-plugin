@@ -36,7 +36,7 @@ names, branch, and service identifiers — never assume.
 - Tests: run only if the user says they're needed or a gate explicitly requires them
 - Fix any failures before proceeding. Do not commit broken code.
 
-**2. STAGE + COMMIT** — Stage only the intended files (never `git add -A` blindly):
+**2. STAGE + COMMIT** — Stage only the intended files, by name (never `git add -A`, `git add .` or a folder):
 ```
 git status --short      # confirm what's staged
 git add <specific files>
@@ -119,7 +119,7 @@ Small work that does not meet a trigger skips its block.
 
 ## Rules
 - Never push before preflight gates are green.
-- Never use `git add -A` without reviewing `git status` first.
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
 - Do not edit a workflow file (`.gitea/workflows/` or `.github/workflows/`) to make a failing gate
   pass — fix the source.
 - Gitea lane: tag-triggered runs after `release_metadata` are expected; verify `deploy_prod` is

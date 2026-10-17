@@ -352,6 +352,11 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_roadmap_page.py",
+          "destination": "scripts/caddis_roadmap_page.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_merge_chain.py",
           "destination": "scripts/caddis_merge_chain.py"
         },
@@ -384,6 +389,16 @@
           "root": "scriptsrc",
           "source": "caddis_docs_pr.py",
           "destination": "scripts/caddis_docs_pr.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_budget.py",
+          "destination": "scripts/caddis_budget.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_fleet.py",
+          "destination": "scripts/caddis_fleet.py"
         },
         {
           "root": "scriptsrc",
@@ -639,6 +654,11 @@
         },
         {
           "root": "harness",
+          "source": "scripts/caddis_upstream_watch.py",
+          "destination": "scripts/caddis_upstream_watch.py"
+        },
+        {
+          "root": "harness",
           "source": "scripts/caddis_statusline.py",
           "destination": "scripts/caddis_statusline.py"
         },
@@ -699,6 +719,11 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_roadmap_page.py",
+          "destination": "scripts/caddis_roadmap_page.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_merge_chain.py",
           "destination": "scripts/caddis_merge_chain.py"
         },
@@ -731,6 +756,16 @@
           "root": "scriptsrc",
           "source": "caddis_docs_pr.py",
           "destination": "scripts/caddis_docs_pr.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_budget.py",
+          "destination": "scripts/caddis_budget.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_fleet.py",
+          "destination": "scripts/caddis_fleet.py"
         },
         {
           "root": "scriptsrc",
@@ -943,7 +978,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.139",
+        "version": "1.3.140",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -1077,6 +1112,11 @@
         },
         {
           "root": "harness",
+          "source": "scripts/caddis_upstream_watch.py",
+          "destination": "scripts/caddis_upstream_watch.py"
+        },
+        {
+          "root": "harness",
           "source": "scripts/caddis_statusline.py",
           "destination": "scripts/caddis_statusline.py"
         },
@@ -1137,6 +1177,11 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_roadmap_page.py",
+          "destination": "scripts/caddis_roadmap_page.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_merge_chain.py",
           "destination": "scripts/caddis_merge_chain.py"
         },
@@ -1169,6 +1214,16 @@
           "root": "scriptsrc",
           "source": "caddis_docs_pr.py",
           "destination": "scripts/caddis_docs_pr.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_budget.py",
+          "destination": "scripts/caddis_budget.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_fleet.py",
+          "destination": "scripts/caddis_fleet.py"
         },
         {
           "root": "scriptsrc",

@@ -126,7 +126,8 @@ scope-guard check when present:
   ```bash
   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
-  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell → stop and report, do not merge.
+  `RESULT: pass` means every check of the PR's head commit is complete and green; `HEAD:` names that commit.
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → run `ci-watch` again; if it stays 3, stop and report, do not merge.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 On a red check, classify the failure and apply the minimum **source** fix, then re-push (through
 Step 4's safety if history must change).
@@ -145,7 +146,7 @@ human-confirmed door.
 
 ## Rules
 - **Never merges, never deploys** — no merge action exists in this command, by design.
-- Never `git add -A` without reviewing `git status` first.
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
 - Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.
 - Never edit a workflow file (`.gitea/workflows/`, `.github/workflows/`) to make a gate pass — fix the source.
 - Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.

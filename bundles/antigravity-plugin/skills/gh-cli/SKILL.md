@@ -167,7 +167,8 @@ gh alias set review 'pr list --search "review-requested:@me"'
 
 ```bash
 gh issue develop 42 --branch fix/issue-42
-git add . && git commit -m "fix: resolve login bug" && git push -u origin HEAD
+git add src/auth/login.py tests/test_login.py   # named files only, never `git add .`
+git commit -m "fix: resolve login bug" && git push -u origin HEAD
 gh pr create --title "fix: resolve login bug" --body "Closes #42"
 gh pr checks --watch
 gh pr merge --squash --delete-branch

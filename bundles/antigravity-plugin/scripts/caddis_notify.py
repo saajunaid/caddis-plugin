@@ -85,7 +85,11 @@ def push(message: str, *, run: Runner = subprocess.run, claude: Sequence[str] | 
     """The fallback: a short `claude -p` call whose only task is the push notification. The prompt goes on stdin: on
     Windows `claude` is a `.cmd` shim that cuts a multi-line argument at its first newline."""
     claude = list(claude) if claude else [shutil.which("claude") or "claude"]
-    cmd = [*claude, "-p", "--output-format", "json", "--max-budget-usd", PUSH_BUDGET_USD]
+    # An explicit, least mode: the only task is one PushNotification call. Since Claude Code 2.1.302 a headless run with
+    # no mode depends on the provider and the machine's settings; this one must not inherit bypassPermissions.
+    # `--allowedTools PushNotification`: in `default` mode a tool that asks would stall a print session with no human.
+    cmd = [*claude, "-p", "--permission-mode", "default", "--allowedTools", "PushNotification",
+           "--output-format", "json", "--max-budget-usd", PUSH_BUDGET_USD]
     try:
         proc = run(cmd, input=push_prompt(message), capture_output=True, text=True, encoding="utf-8",
                    errors="replace", timeout=300)
