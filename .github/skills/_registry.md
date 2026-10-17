@@ -66,6 +66,7 @@
 |-------|------|-------------|
 | Adopt App | `devops/adopt-app/` | Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard: inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production". |
 | Changelog Generator | `devops/changelog-generator/` | Create user-facing changelogs and release notes from git commit history, grouping changes and rewriting technical commits in plain language. |
+| CI Cd Pipeline | `devops/ci-cd-pipeline/` | CI/CD pipelines for GitHub Actions and Azure DevOps: build and deploy workflows, quality gates, environment promotion and release automation. |
 | Deploy Local | `devops/deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
 | Gh CLI | `devops/gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `devops/git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
@@ -75,6 +76,7 @@
 | Safe Cleanup | `devops/safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
 | Update README | `devops/update-readme/` | Detect feature commits and update README sections (Features, API, Usage) to match, then stage only the README. Use when features, routes or components were added. |
 | Using Git Worktrees | `devops/using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
+| Windows Deployment | `devops/windows-deployment/` | Deploy FastAPI + React/Vite apps to Windows Server with NSSM services, IIS or nginx reverse proxy and git-pull. Use for Windows prod deploys, NSSM, reverse proxy setup, dev/prod config, or prod troubleshooting. |
 
 ### Docs
 
@@ -84,10 +86,6 @@
 | Code Documentation | `docs/code-documentation/` | Write code documentation: API docs, README files, inline comments and developer guides. |
 | Confluence Hla | `docs/confluence-hla/` | High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture. |
 | Doc Coauthoring | `docs/doc-coauthoring/` | Structured workflow for co-authoring documentation: transfer context, refine by iteration, test it on readers. Use when the user is writing docs, proposals, technical specs or decision docs. |
-| DOCX | `docs/document-skills/docx/` | Create, edit and analyze .docx documents: tracked changes, comments, formatting preservation, text extraction. Use for any Word document task. |
-| PDF | `docs/document-skills/pdf/` | PDF toolkit: extract text and tables, create, merge and split PDFs, fill forms. Use to process, generate or analyze PDF documents. |
-| PPTX | `docs/document-skills/pptx/` | Create, edit and analyze .pptx presentations: layouts, comments, speaker notes. Use for any presentation task. |
-| XLSX | `docs/document-skills/xlsx/` | Create, edit and analyze spreadsheets (.xlsx, .xlsm, .csv, .tsv): formulas, formatting, data analysis, charts, recalculation. Use for any spreadsheet task. |
 | Documentation Analyzer | `docs/documentation-analyzer/` | Analyze a codebase, explain what the code does, and generate documentation such as README files. |
 | Explainer Doc | `docs/explainer-doc/` | Hand-off doc for a team that did NOT do the investigation (vendor, contractor, another team) — the "stranger must follow it alone" case. Use when the user says "write a spec for the X team", "document this for someone outside the team", "explainer doc", "implementation spec for a vendor", or "hand this off to Y". Not for readers with full context. |
 | HLD | `docs/hld/` | Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
@@ -106,6 +104,7 @@
 | Algorithmic Art | `frontend/algorithmic-art/` | Generative and algorithmic art with p5.js: flow fields, particle systems, animations, WebGL, audio-reactive visuals; exports HTML, PNG, GIF, MP4, SVG. Use for creative coding or any p5.js visual. |
 | Artifacts Builder | `frontend/artifacts-builder/` | Build elaborate multi-component claude.ai HTML artifacts with React, Tailwind CSS and shadcn/ui. Use for complex artifacts with state or routing, not simple single-file HTML. |
 | Banner Design | `frontend/banner-design/` | Design banners for social media, ads, website heroes and print, in 22 styles, sized for Facebook, X, LinkedIn, YouTube, Instagram and Google Display. |
+| Brand Design | `frontend/brand-design/` | Brand design: logos, corporate identity (CIP) mockups, SVG icons and social media visuals. Use for logo, CIP, icon or social visual design tasks. |
 | Brand Guidelines | `frontend/brand-guidelines/` | Apply brand colors and typography to artifacts. Use when brand colors, style guidelines or company design standards apply. |
 | Brand Voice | `frontend/brand-voice/` | Brand voice, tone, messaging frameworks and brand consistency. Use for branded content, marketing assets, brand compliance and style guides. |
 | Canvas Design | `frontend/canvas-design/` | Create original static visual art as .png or .pdf from a design philosophy. Use when the user asks for a poster, piece of art, design or other static visual. |
@@ -188,3 +187,4 @@
 |-------|------|-------------|
 | GitHub Issues | `productivity/github-issues/` | Create well-structured GitHub issues with proper labels, descriptions, and acceptance criteria. Use when creating bug reports, feature requests, or tracking tasks. |
 | Internal Comms | `productivity/internal-comms/` | Write internal communications in company formats: status reports, leadership updates, newsletters, FAQs, incident reports, project updates. |
+| Jira Issues | `productivity/jira-issues/` | Create, update and manage Jira issues from natural language: log bugs, create tickets, update status, manage the backlog. |

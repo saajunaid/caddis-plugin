@@ -115,7 +115,11 @@ def collect_public_skills(
 
     for skill_md in sorted(skills_dir.rglob("SKILL.md")):
         classification = manifest_mod_classify(skill_md, manifest)
-        if classification.is_private:
+        # A project install (profile set) skips every private file, including the privacy-scan
+        # allow list. The published registry (no profile) leaves out only what is never
+        # published: `private.paths` and the local-private tier. The plugin bundles and the
+        # mirror ship allow-listed skills, so that registry must list them.
+        if classification.is_private if profile is not None else _is_unpublished(classification, manifest):
             continue
 
         rel = skill_md.relative_to(skills_dir)
@@ -147,6 +151,14 @@ def collect_public_skills(
         )
 
     return skills
+
+
+def _is_unpublished(classification, manifest) -> bool:
+    from manifest import TIER_LOCAL_PRIVATE, _matches_private_path_pattern  # type: ignore[attr-defined]
+
+    return classification.tier == TIER_LOCAL_PRIVATE or _matches_private_path_pattern(
+        classification.path, manifest.private_paths
+    )
 
 
 def manifest_mod_classify(path: Path, manifest):

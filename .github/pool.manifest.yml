@@ -38,6 +38,12 @@ tiers:
 private:
   paths:
     - skills/vmie/**
+    # Anthropic-proprietary Office skills: kept for local use, never published, so the
+    # registry must not list them (sync.ps1 $PRIVATE_SKILL_CATEGORIES purges the folders).
+    - skills/docs/document-skills/**
+    # Names an internal estate (owner decision 2026-10-15). Listed here, not only in the
+    # privacy-scan allow list, because the published registry reads only this list.
+    - skills/docs/data-lineage/**
 
 profiles:
   full:
