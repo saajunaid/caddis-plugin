@@ -55,7 +55,7 @@ are uncommitted.)
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
@@ -84,7 +84,7 @@ Watch the PR's checks job-by-job until completion:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
 - GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   `RESULT: pass` means every check of the PR's head commit is complete and green (cancelled, failed or unfinished is never a pass). `HEAD:` names that commit: it is the `<watched-sha>`; merge with `--match-head-commit <watched-sha>`.
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell (also: gh finished but a check is still unfinished, the head's checks could not be read, or the head moved during the watch — `FAILING:` says which) → run `ci-watch` again; if it stays 3, stop and report, do not merge.
@@ -96,7 +96,7 @@ Watch the PR's checks job-by-job until completion:
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_merge_chain.py"` does this check.
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_merge_chain.py"` does this check.
 
 **Trigger: Two or more reviewed, green PRs wait to merge on one repo.** Each separate merge costs update-branch, CI and deploy, and puts every other open PR behind the default branch (measured on one fleet repo, 10 Oct 2026: about 15 to 20 minutes per PR, about 2 hours for six). Combine them:
 1. Merge their branches into one release branch made from `origin/<default>`. Resolve overlaps once.
@@ -129,7 +129,7 @@ If the default branch triggers an automated deployment pipeline:
 - Gitea: `lint_and_test` → `deploy_prod` → `release_metadata` (`deploy-local` skill).
 - GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_lanes.py" ci-watch --run <run-id>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 9).
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If CI-only, note that no deploy occurs.
@@ -148,7 +148,7 @@ If the default branch triggers an automated deployment pipeline:
 - Delete the **remote** feature branch: `git push origin --delete <branch>` (if not deleted by forge).
 - Drop the temporary `backup/<branch>-preship` ref if one was created in Step 4.
 - If the repo has a roadmap (`.caddis/roadmaps/`), re-render its page, because the merge changed a Tracker on origin:
-  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.140/scripts/caddis_roadmap.py" render --all` (best effort; a failure is a note, not a
+  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_roadmap.py" render --all` (best effort; a failure is a note, not a
   stop). The page is `~/.caddis/roadmap-pages/<repo>/<slug>.html`.
 
 If deploy validation failed: **skip cleanup** entirely and report why — never delete a branch whose
