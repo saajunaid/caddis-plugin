@@ -90,8 +90,19 @@ def record(hook: str, feature: str, exc: BaseException, root: str | None = None)
             "message": emsg,
         }, ensure_ascii=False))
 
-        with open(path, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write("\n".join(lines[-_MAX_LINES:]) + "\n")
+        # Write beside the ledger, then swap in one step: a crash or a second hook mid-write
+        # leaves the old ledger whole, never a torn one. The temp name is per process.
+        tmp = f"{path}.{os.getpid()}.tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("\n".join(lines[-_MAX_LINES:]) + "\n")
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
     except Exception:
         return  # the ledger must never be the thing that breaks a hook
 

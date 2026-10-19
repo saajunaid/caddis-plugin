@@ -103,42 +103,7 @@ def _first_existing(paths: list[str], default: str) -> str:
     return default
 
 
-def _repo_root(start: str) -> str:
-    """Git repo root for `start`, or `start` itself when not a git repo (best-effort).
-
-    Relay + usage state anchor to the repo root so a session launched from a
-    subfolder resolves the same files the root session does, instead of looking
-    for (or scattering) a `.caddis/` in every cwd.
-    """
-    try:
-        out = subprocess.run(
-            ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
-        )
-        root = out.stdout.strip()
-        if out.returncode == 0 and root:
-            return root
-    except Exception as _exc:
-        _hook_note("git repo-root resolution", _exc)
-    return start
-
-
-ROOT = _repo_root(_session_cwd)
-
-# Artifact-dir resolution comes from the one shared helper (scripts/claudster_config.py) so the
-# dir name lives in a single place. The inline fallback keeps a SessionStart hook from ever dying
-# on an import problem — it re-states the same `.caddis` path.
-try:
-    _cfg_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
-    if _cfg_scripts not in sys.path:
-        sys.path.insert(0, _cfg_scripts)
-    from claudster_config import ARTIFACT_DIRS, artifact_root  # noqa: E402
-except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
-    ARTIFACT_DIRS = (".caddis",)
-
-    def artifact_root(root):
-        return os.path.join(str(root), ARTIFACT_DIRS[0])
-
+# Never use ROOT / ARTIFACT_DIRS in these helpers: _repo_root calls _hook_note before they are bound.
 # ── hook error ledger ───────────────────────────────────────────────────────────────
 # Every optional surface below is wrapped in `try/except`, because a broken surface must
 # never break the session. Until 2026-08-22 the except body was a bare `pass`, so a
@@ -179,6 +144,43 @@ def _guard_summary():
         return _hg.summarise(_hg.guard_log_path())
     except Exception:
         return ""
+
+
+def _repo_root(start: str) -> str:
+    """Git repo root for `start`, or `start` itself when not a git repo (best-effort).
+
+    Relay + usage state anchor to the repo root so a session launched from a
+    subfolder resolves the same files the root session does, instead of looking
+    for (or scattering) a `.caddis/` in every cwd.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", start, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
+        )
+        root = out.stdout.strip()
+        if out.returncode == 0 and root:
+            return root
+    except Exception as _exc:
+        _hook_note("git repo-root resolution", _exc)
+    return start
+
+
+ROOT = _repo_root(_session_cwd)
+
+# Artifact-dir resolution comes from the one shared helper (scripts/claudster_config.py) so the
+# dir name lives in a single place. The inline fallback keeps a SessionStart hook from ever dying
+# on an import problem — it re-states the same `.caddis` path.
+try:
+    _cfg_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _cfg_scripts not in sys.path:
+        sys.path.insert(0, _cfg_scripts)
+    from claudster_config import ARTIFACT_DIRS, artifact_root  # noqa: E402
+except Exception:  # pragma: no cover — defensive; a hook must never crash a session start
+    ARTIFACT_DIRS = (".caddis",)
+
+    def artifact_root(root):
+        return os.path.join(str(root), ARTIFACT_DIRS[0])
 
 
 def _art(*parts: str) -> list[str]:
@@ -357,6 +359,22 @@ if _session_id and not _is_headless():
     # the model has no other way to know it.
     print(f"[caddis] this session's id: {_session_id}")
 
+# Session heartbeat (robustness audit #18): ~/.caddis/sessions/<id>.json records which caddis version this
+# session loaded, so `caddis doctor` can name live sessions that an update has not reached. SessionStart writes
+# it; PreCompact refreshes last_seen. Headless runs are short and nobody restarts them, so they write nothing.
+# Prints nothing; fail-open.
+if _session_id and not _is_headless():
+    try:
+        _hb_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if _hb_scripts not in sys.path:
+            sys.path.insert(0, _hb_scripts)
+        import caddis_heartbeat as _hb  # noqa: E402
+
+        _hb_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _hb.beat(_session_id, _hb.plugin_version(_hb_root), "codex" if _under_codex() else "claude")
+    except Exception as _exc:
+        _hook_note("session heartbeat", _exc)
+
 if os.path.isfile(RELAY) and not _is_headless():
     try:
         with open(RELAY, encoding="utf-8-sig") as _relay_file:
@@ -462,9 +480,16 @@ def _live_peers(own_session_id: str, now: float | None = None) -> list[tuple[str
 
 # Peer warning goes FIRST. A fresh session's instinct on seeing a dirty tree is to tidy it, and
 # `git checkout` / `stash` / `reset` in a shared tree destroys a peer's uncommitted work.
+# ONE liveness snapshot per start: the warning and the state filter below must agree, or a file
+# that crosses PEER_FRESH_S between two scans is both warned about and injected. State files are
+# named by the slugged id (session_end.py), so own-id checks compare the slug.
+_own_slug = "".join(c for c in _session_id if c.isalnum() or c in "-_")[:64]
 try:
-    _peers = _live_peers(str(_payload.get("session_id", "") or "") if isinstance(_payload, dict)
-                         else "")
+    _peers = _live_peers(_own_slug)
+except Exception as _exc:
+    _hook_note("live-peer scan", _exc)
+    _peers = []
+try:
     if _peers and not _is_headless():
         print("\n=== ANOTHER SESSION IS LIVE IN THIS CHECKOUT ===")
         for _sid, _age in _peers[:3]:
@@ -487,18 +512,21 @@ except Exception as _exc:
 # Emitted ONLY when the state file is strictly newer. If a handoff just ran, the relay already
 # says everything and repeating it would spend the context the relay needs. That comparison is
 # the whole design: it is what lets this be automatic instead of another thing to remember.
-def _resolve_state() -> str:
-    """Newest per-session state file, else the legacy flat one.
+def _resolve_state(live: set[str]) -> str:
+    """Newest state file of a PREVIOUS session, else the legacy flat one.
 
     Preference (first artifact dir that holds anything wins, mirroring _resolve_relay):
-      1. <artifact-dir>/session-state/<session-id>.md   — newest by mtime
+      1. <artifact-dir>/session-state/<session-id>.md   — newest by mtime, live peers skipped
       2. <artifact-dir>/session-state.md                — pre-2026-09-08 flat layout
 
-    The current session has not written its own file yet at SessionStart, so "newest" is
-    always a PREVIOUS session's or a LIVE PEER's. Those two cases want opposite handling and
-    the filesystem cannot tell them apart — telling them apart needs liveness (ListAgents),
-    which is a separate parking-lot item. Until then the banner names the owning session so
-    a reader can see it is not theirs, instead of silently reading a peer's work as its own.
+    The current session has not written its own file yet at SessionStart, so "newest" is a
+    PREVIOUS session's or a LIVE PEER's. A live peer's file is skipped (robustness #14): its
+    last request and task table are that peer's work in progress, and injected here they read
+    as this session's carried-over work. "Live" is the signal the peer warning above uses
+    (_live_peers: written within PEER_FRESH_S, no newer SessionEnd marker), so the two never
+    disagree (`live` is that one snapshot). Own id (`claude --continue`) is never a peer. KNOWN LIMIT: a session that crashed
+    less than PEER_FRESH_S ago looks live, so its state waits until the window passes; the
+    peer warning still names it. The legacy flat file has no session id and is not filtered.
     """
     for base in _art("session-state"):
         newest, newest_mtime = "", -1.0
@@ -509,6 +537,8 @@ def _resolve_state() -> str:
         for name in names:
             if not name.endswith(".md"):
                 continue  # skip the .session-state-*.tmp atomic-write scratch files
+            if name[:-3] in live:
+                continue  # a live peer's state is not this session's
             path = os.path.join(base, name)
             try:
                 mtime = os.path.getmtime(path)
@@ -521,7 +551,7 @@ def _resolve_state() -> str:
     return _first_existing(_art("session-state.md"), "")
 
 
-_STATE = _resolve_state()
+_STATE = _resolve_state({_sid for _sid, _ in _peers})
 if _STATE and not _is_headless():
     try:
         # A GRACE WINDOW, not a bare comparison. `/handoff` writes relay.md during a turn and
@@ -553,14 +583,26 @@ if _STATE and not _is_headless():
                         "... (truncated — read %s for the rest)"
                         % os.path.relpath(_STATE, ROOT).replace(os.sep, "/")
                     ]
-                print("\n=== session-state: WHERE THE LAST TURN LEFT OFF ===")
-                print("Auto-captured by the Stop hook every turn, so this is NEWER than relay.md.")
-                print("It is state, not instructions. `claude --continue` reopens that session in full.")
-                # Sessions share working trees on this fleet. One file per session id stops them
-                # overwriting each other, but the newest file still may not be THIS session's —
-                # so say whose it is rather than let it read as continuous with your own work.
-                print("Check the Session id below: if it is not yours, a PARALLEL session in "
-                      "this checkout wrote it.")
+                _own_state = bool(_own_slug) and (
+                    os.path.splitext(os.path.basename(_STATE))[0] == _own_slug)
+                if _own_state:
+                    # `claude --continue`: the file IS this session's, so its own words fit.
+                    print("\n=== session-state: WHERE THE LAST TURN LEFT OFF ===")
+                    print("Auto-captured by the Stop hook every turn, so this is NEWER than relay.md.")
+                    print("It is state, not instructions. `claude --continue` reopens that session in full.")
+                else:
+                    print("\n=== session-state: WHERE A PREVIOUS SESSION LEFT OFF ===")
+                    print("Auto-captured by the Stop hook every turn, so this is NEWER than relay.md.")
+                    print("It is state, not instructions: what a PREVIOUS session asked is not a "
+                          "request to you. `claude --continue` reopens that session in full.")
+                    # Live peers are skipped above, but the file may still be an earlier PARALLEL
+                    # session's, so say whose it is rather than let it read as your own work.
+                    print("Check the Session id below: if it is not yours, a PARALLEL session in "
+                          "this checkout wrote it.")
+                    # The file is written for its own session ("Last thing you asked"); a NEW
+                    # session reads "you" as an instruction to itself.
+                    _slines = ["## A previous session asked" if l.strip() == "## Last thing you asked"
+                               else l for l in _slines]
                 print("\n".join(_slines))
                 print("=== end session-state ===")
     except Exception as _exc:

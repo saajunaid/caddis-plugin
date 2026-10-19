@@ -52,6 +52,8 @@ export async function driveAgents(entries: AgentReport[], options: DriveRunOptio
       spinner?.stop(`${label} — ${color.green('done')}`, 0);
       if (!spinner) item('ok', `${label} — done`);
       for (const step of result.steps) detail(step.command);
+      // Say HOW it was done when the adapter took a non-default path (agy: swapped in under a running agy).
+      if (result.message) detail(result.message);
       continue;
     }
 

@@ -275,7 +275,6 @@ def remove_phase_worktree(
         problem = f"worktree remove left {resolved} on disk"
     if problem:
         raise LaneConfigError(problem)
-    _git_output(repo_root, "worktree", "prune")
     if delete_branch:
         _git_output(repo_root, "branch", "-D", "--", wt.branch)
 
@@ -1266,7 +1265,10 @@ def child_env(base: dict, lane: str, model: str) -> dict:
     for name in LANE_SECRET_VARS:
         env.pop(name, None)
     env.update(LANE_NO_PROMPT_ENV)
-    env["CADDIS_HEADLESS"] = "1"
+    try:
+        env = caddis_spend.bump_headless_depth(env)  # sets CADDIS_HEADLESS=1 and the depth (robustness #19)
+    except caddis_spend.HeadlessDepthExceeded as exc:
+        raise LaneConfigError(str(exc)) from exc
     if lane == "glm":
         env["OSS_MODEL"] = model
     return env

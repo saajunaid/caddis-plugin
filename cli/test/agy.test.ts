@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,17 @@ vi.mock('../src/util/pkg.js', async (importOriginal) => {
   return { ...actual, bundlePath: vi.fn() };
 });
 
-import { agyAdapter, extrasStatusFromHome, pluginManifestPath, readInstalledVersion, statusFromHome } from '../src/agents/agy.js';
+import {
+  agyAdapter,
+  agyStagingDir,
+  recoverInterruptedSwap,
+  runningAgyMessage,
+  extrasStatusFromHome,
+  pluginManifestPath,
+  readInstalledVersion,
+  stageAndSwap,
+  statusFromHome,
+} from '../src/agents/agy.js';
 import { run } from '../src/util/exec.js';
 import { findBin } from '../src/util/which.js';
 import { listAgyPids } from '../src/util/agyProcs.js';
@@ -299,16 +309,22 @@ describe('agy adapter drive: the release must not empty the plugin under a runni
     mockWhich.mockResolvedValue('/bin/agy');
   };
 
-  it('refuses to install while agy.exe runs, names the PIDs, and runs no install', async () => {
+  it('never runs `agy plugin install` while agy.exe runs, and names the PIDs when it cannot swap', async () => {
     agyUp();
     mockRun.mockResolvedValue(ok('1.1.7'));
     mockAgyPids.mockResolvedValue([31160, 3572]);
+    // The bundle path does not exist here, so the stage fails and nothing can be swapped.
     const result = await agyAdapter.drive('update', { dryRun: false, home: completeHome('r1') });
     expect(result.ok).toBe(false);
-    expect(result.steps).toEqual([]);
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]!.ok).toBe(false);
     expect(result.message).toMatch(/agy is running/);
     expect(result.message).toContain('31160');
     expect(result.message).toContain('3572');
+    // Staging failed: say so, never "staged at", and never suggest the override (it would not help).
+    expect(result.message).toMatch(/staging failed/);
+    expect(result.message).not.toMatch(/staged at/);
+    expect(result.message).not.toContain('CADDIS_AGY_ALLOW_RUNNING');
     expect(mockRun).toHaveBeenCalled(); // the version probe ran, so "every call" is not vacuous
     expect(mockRun.mock.calls.every(([, args]) => args[0] === '--version')).toBe(true);
   });
@@ -382,5 +398,220 @@ describe('agy adapter drive: the release must not empty the plugin under a runni
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/incomplete after the install/);
     expect(result.message).toMatch(/nothing to restore/);
+  });
+});
+
+
+/** A real bundle folder on disk, holding the three files a whole plugin needs. */
+function bundleDir(label: string, version: string, files: readonly string[] = PLUGIN_FILES): string {
+  const dir = path.join(scratch, 'bundles', label, 'antigravity-plugin');
+  mkdirSync(dir, { recursive: true });
+  for (const file of files) writeFileSync(path.join(dir, file), `${version} ${file}`);
+  return dir;
+}
+
+describe('agy refresh under a running agy: stage, then swap by rename (robustness audit #18)', () => {
+  const agyUp = () => mockWhich.mockResolvedValue('/bin/agy');
+
+  it('swaps the new plugin in by rename when nothing holds the files, and runs no agy install', async () => {
+    agyUp();
+    const home = completeHome('s1');
+    const bundle = bundleDir('s1', 'new');
+    mockBundlePath.mockImplementation((name: string) => (name === 'antigravity-plugin' ? bundle : null));
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockAgyPids.mockResolvedValue([4242]);
+    const result = await agyAdapter.drive('update', { dryRun: false, home });
+    expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/swapped/);
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`new ${file}`);
+    }
+    expect(existsSync(agyStagingDir(home, 'caddis'))).toBe(false);
+    expect(mockRun.mock.calls.every(([, args]) => args[0] === '--version')).toBe(true);
+  });
+
+  it('keeps the new version staged and the old plugin whole when agy holds the files', async () => {
+    const home = completeHome('s2');
+    const bundle = bundleDir('s2', 'new');
+    const busy = Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+    const outcome = stageAndSwap(bundle, home, 'caddis', PLUGIN_FILES, () => {
+      throw busy;
+    });
+    expect(outcome.swapped).toBe(false);
+    expect(outcome.reason).toBe('in-use');
+    expect(outcome.detail).toBe('could not move the live plugin aside (EBUSY: resource busy or locked); agy may be using it');
+    expect(outcome.staged).toBe(agyStagingDir(home, 'caddis'));
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`old ${file}`);
+      expect(readFileSync(path.join(outcome.staged!, file), 'utf8')).toBe(`new ${file}`);
+    }
+    const message = runningAgyMessage('PID 7', 'caddis', outcome);
+    expect(message).toContain(`staged at ${outcome.staged}`);
+    expect(message).not.toContain('CADDIS_AGY_ALLOW_RUNNING');
+  });
+
+  it('puts the old plugin back when the second rename fails', async () => {
+    const home = completeHome('s3');
+    const bundle = bundleDir('s3', 'new');
+    let calls = 0;
+    const outcome = stageAndSwap(bundle, home, 'caddis', PLUGIN_FILES, (from, to) => {
+      calls += 1;
+      if (calls === 2) throw Object.assign(new Error('denied'), { code: 'EPERM' });
+      renameSync(from, to);
+    });
+    expect(outcome.swapped).toBe(false);
+    expect(outcome.detail).toMatch(/the old plugin is back/);
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`old ${file}`);
+    }
+  });
+
+  it('rejects an incomplete stage BEFORE it touches the live plugin, and keeps the stage for inspection', async () => {
+    const home = completeHome('s4');
+    const bundle = bundleDir('s4', 'new', ['plugin.json']);
+    let renames = 0;
+    const outcome = stageAndSwap(bundle, home, 'caddis', PLUGIN_FILES, () => {
+      renames += 1;
+    });
+    expect(renames).toBe(0);
+    expect(outcome.swapped).toBe(false);
+    expect(outcome.reason).toBe('stage-rejected');
+    expect(outcome.staged).toBeNull();
+    expect(outcome.detail).toMatch(/hooks.json/);
+    expect(outcome.kept).toBe(agyStagingDir(home, 'caddis'));
+    expect(existsSync(path.join(agyStagingDir(home, 'caddis'), 'plugin.json'))).toBe(true);
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`old ${file}`);
+    }
+    expect(runningAgyMessage('PID 7', 'caddis', outcome)).not.toMatch(/staged at/);
+  });
+
+  it('reports a failed stage with no staged path', async () => {
+    const home = completeHome('s8');
+    const outcome = stageAndSwap(path.join(scratch, 'no-such-bundle'), home, 'caddis', PLUGIN_FILES);
+    expect(outcome.swapped).toBe(false);
+    expect(outcome.reason).toBe('stage-failed');
+    expect(outcome.staged).toBeNull();
+    expect(outcome.detail).toMatch(/^staging failed/);
+  });
+
+  it('only stages on a first install: agy itself must register the plugin', async () => {
+    const home = path.join(scratch, 's5');
+    const bundle = bundleDir('s5', 'new');
+    const outcome = stageAndSwap(bundle, home, 'caddis', PLUGIN_FILES);
+    expect(outcome.swapped).toBe(false);
+    expect(outcome.detail).toMatch(/agy plugin install/);
+    expect(existsSync(pluginDir(home))).toBe(false);
+    expect(existsSync(path.join(agyStagingDir(home, 'caddis'), 'plugin.json'))).toBe(true);
+  });
+
+  it('says where the stage is and what to do when the swap fails under a running agy', async () => {
+    agyUp();
+    const home = path.join(scratch, 's6'); // first install: stage only
+    const bundle = bundleDir('s6', 'new');
+    mockBundlePath.mockImplementation((name: string) => (name === 'antigravity-plugin' ? bundle : null));
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockAgyPids.mockResolvedValue([4242]);
+    const result = await agyAdapter.drive('update', { dryRun: false, home });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('4242');
+    expect(result.message).toContain(agyStagingDir(home, 'caddis'));
+    expect(result.message).toMatch(/caddis update/);
+  });
+
+  /** An old copy beside the stage, as a swap leaves it: `<stage>.old-<stamp>` with the given files. */
+  function oldCopy(home: string, stamp: number, files: readonly string[] = PLUGIN_FILES, label = 'old'): string {
+    const dir = `${agyStagingDir(home, 'caddis')}.old-${stamp}`;
+    mkdirSync(dir, { recursive: true });
+    for (const file of files) writeFileSync(path.join(dir, file), `${label} ${file}`);
+    return dir;
+  }
+
+  it('(a) restores the old copy when the live plugin is missing, instead of sweeping it', () => {
+    const home = path.join(scratch, 'rc-a');
+    const older = oldCopy(home, 1000, PLUGIN_FILES, 'older');
+    const newest = oldCopy(home, 2000, PLUGIN_FILES, 'newest');
+    const broken = oldCopy(home, 3000, ['plugin.json'], 'broken'); // newest stamp, but not whole
+    const note = recoverInterruptedSwap(home, 'caddis', PLUGIN_FILES);
+    expect(note).toBe(`restored the previous plugin from ${newest}`);
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`newest ${file}`);
+    }
+    expect(existsSync(older)).toBe(true); // nothing is swept while recovering
+    expect(existsSync(broken)).toBe(true);
+  });
+
+  it('(b) sweeps old copies only when the live plugin is whole', () => {
+    const home = completeHome('rc-b');
+    const leftover = oldCopy(home, 1000);
+    expect(recoverInterruptedSwap(home, 'caddis', PLUGIN_FILES)).toBeNull();
+    expect(existsSync(leftover)).toBe(false);
+  });
+
+  it('(c) a refresh after a failed rollback restores the old plugin first, then refreshes it', async () => {
+    agyUp();
+    const home = completeHome('rc-c');
+    const bundle = bundleDir('rc-c', 'new');
+    // The rollback-failed state: the second rename and the rename back both failed.
+    let calls = 0;
+    const first = stageAndSwap(bundle, home, 'caddis', PLUGIN_FILES, (from, to) => {
+      calls += 1;
+      if (calls >= 2) throw Object.assign(new Error('denied'), { code: 'EPERM' });
+      renameSync(from, to);
+    });
+    expect(first.detail).toMatch(/putting the old plugin back FAILED/);
+    expect(existsSync(pluginDir(home))).toBe(false);
+    // Next refresh, agy running: recover the old copy, then swap the new one in.
+    mockBundlePath.mockImplementation((name: string) => (name === 'antigravity-plugin' ? bundle : null));
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockAgyPids.mockResolvedValue([4242]);
+    const result = await agyAdapter.drive('update', { dryRun: false, home });
+    expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/restored the previous plugin from/);
+    for (const file of PLUGIN_FILES) {
+      expect(readFileSync(path.join(pluginDir(home), file), 'utf8')).toBe(`new ${file}`);
+    }
+  });
+
+  it('names where a rejected copy is kept, not "Nothing is staged"', () => {
+    const outcome = { swapped: false, reason: 'stage-rejected' as const, staged: null, detail: 'x', kept: '/k/caddis' };
+    const message = runningAgyMessage('PID 7', 'caddis', outcome);
+    expect(message).toContain('the rejected copy is kept at /k/caddis');
+    expect(message).not.toContain('Nothing is staged');
+  });
+
+  it('names the plugin that already swapped when a later one fails', async () => {
+    agyUp();
+    const home = completeHome('rc-e');
+    const core = bundleDir('rc-e', 'new');
+    mockBundlePath.mockImplementation((name: string) =>
+      name === 'antigravity-plugin' ? core : name === 'antigravity-plugin-extras' ? path.join(scratch, 'missing-extras') : null,
+    );
+    mockRun.mockResolvedValue(ok('1.1.7'));
+    mockAgyPids.mockResolvedValue([4242]);
+    const result = await agyAdapter.drive('update', { dryRun: false, home, extras: true });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/caddis-extras was not installed/);
+    expect(result.message).toMatch(/caddis was already swapped in/);
+  });
+
+  it('sweeps leftover old copies at the start of a refresh', async () => {
+    agyUp();
+    const home = completeHome('s9');
+    const leftover = oldCopy(home, 123);
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
+    await agyAdapter.drive('update', { dryRun: false, home });
+    expect(existsSync(leftover)).toBe(false);
+  });
+
+  it('clears an old stage after a normal install when agy is not running', async () => {
+    agyUp();
+    const home = completeHome('s7');
+    mkdirSync(agyStagingDir(home, 'caddis'), { recursive: true });
+    writeFileSync(path.join(agyStagingDir(home, 'caddis'), 'plugin.json'), 'stale stage');
+    mockRun.mockResolvedValueOnce(ok('1.1.7')).mockResolvedValueOnce(ok());
+    const result = await agyAdapter.drive('update', { dryRun: false, home });
+    expect(result.ok).toBe(true);
+    expect(existsSync(agyStagingDir(home, 'caddis'))).toBe(false);
   });
 });

@@ -88,6 +88,148 @@ function Remove-ItemRobust {
     }
 }
 
+function Restore-CaddisAgyInterruptedSwap {
+    # Run at the start of every agy refresh, before anything is staged or swept. "<stage>.old-*" folders are what a
+    # swap moved aside. If a run died between the two renames, or a rollback failed, the newest whole old copy is
+    # the ONLY working plugin: when the live plugin is missing or not whole, rename that copy back and return a
+    # note. Old copies are swept only when the live plugin is whole. Returns "" when it restored nothing.
+    # Mirrors recoverInterruptedSwap in cli/src/agents/agy.ts. Windows PowerShell 5.1 compatible. Never throws.
+    param(
+        [Parameter(Mandatory)][string]$PluginDir,
+        [Parameter(Mandatory)][string]$StageDir,
+        [string[]]$Required = @("plugin.json", "hooks.json", "guard_agy.py")
+    )
+    $parent = Split-Path -Parent $StageDir
+    if (-not (Test-Path -LiteralPath $parent)) { return "" }
+    $prefix = (Split-Path -Leaf $StageDir) + ".old-"
+    # Newest first. The stamp is .NET ticks here and Date.now() milliseconds from the CLI: compare in ms.
+    $olds = @(Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name.StartsWith($prefix) } |
+        Sort-Object -Descending -Property @{ Expression = {
+            $n = 0.0
+            if ([double]::TryParse($_.Name.Substring($prefix.Length), [ref]$n)) {
+                if ($n -gt 1e15) { ($n - 621355968000000000) / 10000 } else { $n }
+            } else { -1 }
+        } })
+    $isWhole = {
+        param($dir)
+        if (-not (Test-Path -LiteralPath $dir)) { return $false }
+        foreach ($f in $Required) { if (-not (Test-Path -LiteralPath (Join-Path $dir $f))) { return $false } }
+        return $true
+    }
+    if (& $isWhole $PluginDir) {
+        foreach ($o in $olds) { Remove-ItemRobust -Path $o.FullName }
+        return ""
+    }
+    $source = $olds | Where-Object { & $isWhole $_.FullName } | Select-Object -First 1
+    if (-not $source) { return "" }
+    try {
+        if (Test-Path -LiteralPath $PluginDir) {
+            [System.IO.Directory]::Move($PluginDir, "$StageDir.broken-" + [DateTime]::UtcNow.Ticks)
+        }
+        $liveParent = Split-Path -Parent $PluginDir
+        if (-not (Test-Path -LiteralPath $liveParent)) { New-Item -ItemType Directory -Path $liveParent -Force | Out-Null }
+        [System.IO.Directory]::Move($source.FullName, $PluginDir)
+        return "restored the previous plugin from $($source.FullName)"
+    } catch {
+        $e = $_.Exception
+        while ($e.InnerException) { $e = $e.InnerException }
+        return "could not restore the previous plugin from $($source.FullName) ($($e.GetType().Name): $($e.Message)); it is kept there"
+    }
+}
+
+function Invoke-CaddisAgyStageSwap {
+    # Refresh agy's plugin folder while agy runs, without `agy plugin install` (robustness audit #18).
+    # `agy plugin install` deletes the folder and then copies, so under a running agy the delete can succeed
+    # and the copy fail, leaving an empty plugin (v1.3.136, 2026-10-08). This never deletes the live plugin:
+    #   1. copy the bundle to $StageDir (same volume as the plugin folder, so steps 2-3 are renames) and check
+    #      the required files THERE. A bad stage is rejected before the live plugin is touched, and kept;
+    #   2. rename the live folder aside. Windows refuses this while a process holds a file in it: then
+    #      nothing has changed and the new version stays staged for the next refresh;
+    #   3. rename the stage into place; on failure, rename the old folder back. Only then remove the old copy.
+    # A first install only stages: agy itself must register a new plugin. Never throws.
+    # Reason: swapped | stage-failed | stage-rejected | first-install | in-use | swap-failed.
+    # Staged: where the new version waits (the plugin folder after a swap), or "" when nothing is staged.
+    # Mirrors stageAndSwap in cli/src/agents/agy.ts. Windows PowerShell 5.1 compatible.
+    param(
+        [Parameter(Mandatory)][string]$BundleDir,
+        [Parameter(Mandatory)][string]$PluginDir,
+        [Parameter(Mandatory)][string]$StageDir,
+        [string[]]$Required = @("plugin.json", "hooks.json", "guard_agy.py")
+    )
+    # "<type>: <message>" of the innermost exception (a .NET method call wraps it in MethodInvocationException).
+    $describe = {
+        param($record)
+        $e = $record.Exception
+        while ($e.InnerException) { $e = $e.InnerException }
+        "$($e.GetType().Name): $($e.Message)"
+    }
+    $result = [pscustomobject]@{ Swapped = $false; Reason = ""; Staged = ""; Kept = ""; Detail = "" }
+    # An interrupted earlier swap first: restore its old copy if that is the only working plugin, else sweep.
+    $recovered = Restore-CaddisAgyInterruptedSwap -PluginDir $PluginDir -StageDir $StageDir -Required $Required
+    $stageParent = Split-Path -Parent $StageDir
+    try {
+        if (Test-Path -LiteralPath $StageDir) { Remove-Item -LiteralPath $StageDir -Recurse -Force -ErrorAction Stop }
+        if (-not (Test-Path -LiteralPath $stageParent)) { New-Item -ItemType Directory -Path $stageParent -Force | Out-Null }
+        Copy-Item -LiteralPath $BundleDir -Destination $StageDir -Recurse -Force -ErrorAction Stop
+    } catch {
+        $result.Reason = "stage-failed"
+        $result.Detail = "staging failed ($(& $describe $_))"
+        if ($recovered) { $result.Detail = "$recovered; $($result.Detail)" }
+        return $result
+    }
+    $missing = @($Required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $StageDir $_)) })
+    if ($missing.Count -gt 0) {
+        $result.Reason = "stage-rejected"
+        $result.Kept = $StageDir
+        $result.Detail = "the staged copy lacks $($missing -join ', '); the live plugin was not touched"
+        if ($recovered) { $result.Detail = "$recovered; $($result.Detail)" }
+        return $result
+    }
+    if (-not (Test-Path -LiteralPath $PluginDir)) {
+        $result.Reason = "first-install"
+        $result.Staged = $StageDir
+        $result.Detail = "first install: agy must register the plugin with 'agy plugin install'"
+        if ($recovered) { $result.Detail = "$recovered; $($result.Detail)" }
+        return $result
+    }
+    $old = "$StageDir.old-" + [DateTime]::UtcNow.Ticks
+    try {
+        [System.IO.Directory]::Move($PluginDir, $old)
+    } catch {
+        $result.Reason = "in-use"
+        $result.Staged = $StageDir
+        $result.Detail = "could not move the live plugin aside ($(& $describe $_)); agy may be using it"
+        if ($recovered) { $result.Detail = "$recovered; $($result.Detail)" }
+        return $result
+    }
+    # Between these two renames there is NO plugin folder, for a few milliseconds. An agy hook call in that window
+    # finds no guard_agy.py, and agy then refuses the edit ("restore or remove the hook reference to ...guard_agy.py",
+    # seen with the empty plugin on 2026-10-08). That refuses one call; the next call finds the new folder.
+    try {
+        [System.IO.Directory]::Move($StageDir, $PluginDir)
+    } catch {
+        $why = "the swap failed ($(& $describe $_))"
+        $result.Reason = "swap-failed"
+        if (Test-Path -LiteralPath $StageDir) { $result.Staged = $StageDir }
+        try {
+            [System.IO.Directory]::Move($old, $PluginDir)
+            $result.Detail = "$why; the old plugin is back"
+        } catch {
+            $result.Detail = "$why; putting the old plugin back FAILED ($(& $describe $_)), it is kept at $old"
+        }
+        if ($recovered) { $result.Detail = "$recovered; $($result.Detail)" }
+        return $result
+    }
+    Remove-ItemRobust -Path $old
+    $result.Swapped = $true
+    $result.Reason = "swapped"
+    $result.Staged = $PluginDir
+    $result.Detail = "swapped in by rename"
+    if ($recovered) { $result.Detail = "$recovered; $($result.Detail)" }
+    return $result
+}
+
 function Remove-CaddisCacheDirs {
     param(
         [Parameter(Mandatory)][string]$RootPath,
@@ -2002,14 +2144,35 @@ function caddis-push {
         $agyBundle = Join-Path $ProjectRoot "vscode-extensions\caddis-plugin\bundles\antigravity-plugin"
         # A running agy holds the plugin folder open. `agy plugin install` deletes it and then copies, so the
         # delete can succeed and the copy fail, leaving the plugin EMPTY (v1.3.136, 2026-10-08: eight headless
-        # agy lanes lost about 25 minutes). So: skip while agy runs, keep a backup, check the plugin is whole.
+        # agy lanes lost about 25 minutes). So: never install while agy runs; keep a backup, check the plugin is whole.
+        # While agy runs, stage the new version and swap it in by rename (robustness audit #18: one idle agy used
+        # to block every refresh). Windows refuses the rename while agy holds a file; then it stays staged.
         $agyRunning = @(Get-Process -Name agy -ErrorAction SilentlyContinue)
+        $agyPluginDir = Join-Path $HOME ".gemini\config\plugins\caddis"
+        $agyStage = Join-Path $HOME ".caddis\agy-staged\caddis"
+        # An interrupted earlier swap first: restore its old copy if that is the only working plugin, else sweep.
+        $agyRecovered = Restore-CaddisAgyInterruptedSwap -PluginDir $agyPluginDir -StageDir $agyStage
+        if ($agyRecovered) { Write-Host "  [WARN] agy: $agyRecovered" -ForegroundColor Yellow }
         if ($agyCmd -and (Test-Path $agyBundle) -and $agyRunning.Count -gt 0 -and $env:CADDIS_AGY_ALLOW_RUNNING -ne '1') {
             $agyPids = ($agyRunning | ForEach-Object { $_.Id }) -join ', '
-            Write-Host "  [WARN] agy is running (PID $agyPids): refresh SKIPPED, an install can empty the plugin under it. Stop agy, then run 'caddis update'. (CADDIS_AGY_ALLOW_RUNNING=1 overrides.)" -ForegroundColor Yellow
+            $agySwap = Invoke-CaddisAgyStageSwap -BundleDir $agyBundle -PluginDir $agyPluginDir -StageDir $agyStage
+            if ($agySwap.Swapped) {
+                Write-Host "  [OK]  agy is running (PID $agyPids): the new plugin was staged and swapped in by rename; new agy sessions load it." -ForegroundColor Green
+            } else {
+                $agyMsg = "  [WARN] agy is running (PID $agyPids): not installed, $($agySwap.Detail)."
+                if ($agySwap.Kept) {
+                    $agyMsg += " Nothing was installed; the rejected copy is kept at $($agySwap.Kept)."
+                } elseif ($agySwap.Staged -and (Test-Path -LiteralPath $agySwap.Staged)) {
+                    $agyMsg += " The new version is staged at $($agySwap.Staged). Stop agy, then run 'caddis update' to put it in place."
+                } else {
+                    $agyMsg += " Nothing is staged. Stop agy, then run 'caddis update'."
+                }
+                # The override installs with agy itself under a running agy: it helps only a first install.
+                if ($agySwap.Reason -eq 'first-install') { $agyMsg += " (CADDIS_AGY_ALLOW_RUNNING=1 overrides.)" }
+                Write-Host $agyMsg -ForegroundColor Yellow
+            }
         } elseif ($agyCmd -and (Test-Path $agyBundle)) {
             Write-Host "  [..]  agy: refreshing local install from the new bundle (agy has no auto-update)..." -ForegroundColor DarkGray
-            $agyPluginDir = Join-Path $HOME ".gemini\config\plugins\caddis"
             $agyBackup = $null
             if (Test-Path $agyPluginDir) {
                 $agyBackup = Join-Path ([System.IO.Path]::GetTempPath()) ("caddis-agy-backup-" + [guid]::NewGuid().ToString("N"))
@@ -2032,7 +2195,11 @@ function caddis-push {
                 } else {
                     Write-Host "  [WARN] agy plugin is incomplete after the install (missing: $($agyMissing -join ', ')) and there was no earlier plugin to restore." -ForegroundColor Yellow
                 }
-            } elseif ($agyExit -eq 0) { Write-Host "  [OK]  agy plugin refreshed to the new bundle." -ForegroundColor Green }
+            } elseif ($agyExit -eq 0) {
+                Write-Host "  [OK]  agy plugin refreshed to the new bundle." -ForegroundColor Green
+                # A stage left by an earlier refresh under a running agy is older than what is installed now.
+                if (Test-Path -LiteralPath $agyStage) { Remove-Item -LiteralPath $agyStage -Recurse -Force -ErrorAction SilentlyContinue }
+            }
             else { Write-Host "  [WARN] agy re-import returned non-zero (non-fatal) - run 'agy plugin install' by hand if needed." -ForegroundColor Yellow }
             if ($agyBackup) { Remove-Item -LiteralPath $agyBackup -Recurse -Force -ErrorAction SilentlyContinue }
         }

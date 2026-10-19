@@ -15,6 +15,7 @@ import path from 'node:path';
 import { run } from '../util/exec.js';
 import { bundleManifest, bundlePath, packageInfo } from '../util/pkg.js';
 import { findBin } from '../util/which.js';
+import { caddisHome, liveSessions, olderSessions, type OlderSession } from '../util/sessions.js';
 import type { AgentReport, DriftState, Report } from './report.js';
 import { gather } from './report.js';
 
@@ -23,6 +24,8 @@ export interface DoctorOptions {
   /** Exit non-zero when anything needs attention. For CI. */
   strict?: boolean;
   json?: boolean;
+  /** Where `~/.caddis/sessions/` is read from. Tests only; default CADDIS_HOME or the user's home. */
+  home?: string;
 }
 
 export interface ProjectCheck {
@@ -47,10 +50,11 @@ interface Problem {
 export async function doctor(options: DoctorOptions): Promise<number> {
   const report = await gather(options.adapters, { checkCliUpdate: true });
   const findings: Problem[] = [];
+  const older = olderSessions(liveSessions(options.home ?? caddisHome()), installedVersions(report));
 
   if (options.json) {
     const project = await renderProject(findings, { quiet: true });
-    line(JSON.stringify(toJson(report, project), null, 2));
+    line(JSON.stringify({ ...toJson(report, project), olderSessions: older }, null, 2));
     return 0;
   }
 
@@ -58,6 +62,7 @@ export async function doctor(options: DoctorOptions): Promise<number> {
 
   renderEnvironment(report, findings);
   renderAgents(report, findings);
+  renderSessions(older, findings);
   await renderProject(findings);
   renderSummary(report, findings);
 
@@ -137,6 +142,43 @@ function renderAgents(report: Report, problems: Problem[]): void {
       if (extrasProblem.fix) hint(color.bold(extrasProblem.fix));
     }
   }
+}
+
+/** The caddis version installed per harness, keyed the way the session heartbeat names its harness. */
+function installedVersions(report: Report): Partial<Record<string, string>> {
+  const out: Partial<Record<string, string>> = {};
+  for (const entry of report.agents) {
+    if (entry.status.version) out[entry.adapter.id] = entry.status.version;
+  }
+  return out;
+}
+
+/**
+ * Live sessions that loaded an older caddis than the one installed now (robustness audit #18). An update
+ * reaches only new sessions; these keep the old hooks and guard until they restart.
+ */
+function renderSessions(older: OlderSession[], problems: Problem[]): void {
+  heading('Sessions');
+  if (older.length === 0) {
+    item('ok', 'no live session runs an older caddis');
+    return;
+  }
+  for (const session of older) {
+    const date = new Date(session.started);
+    const started = Number.isNaN(date.getTime()) ? 'unknown' : `${date.toISOString().replace('T', ' ').slice(0, 16)} UTC`;
+    item(
+      'warn',
+      `${session.harness} session ${color.bold(session.sessionId)} (pid ${session.pid}, started ${started}) ` +
+        `runs caddis ${color.yellow(session.caddisVersion ?? '?')}, installed ${color.bold(session.installed)}`,
+    );
+  }
+  const fix = 'restart these sessions (or run /reload-plugins in each) to load the installed caddis';
+  hint(color.bold(fix));
+  problems.push({
+    kind: 'problem',
+    text: `${older.length} live session${older.length === 1 ? '' : 's'} still run${older.length === 1 ? 's' : ''} an older caddis`,
+    fix,
+  });
 }
 
 async function renderProject(problems: Problem[], options?: { quiet?: boolean }): Promise<ProjectCheck> {

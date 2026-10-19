@@ -1207,6 +1207,8 @@ session-state.md
 session-state/
 context-window.json
 context-window.json.tmp
+context-window.json.*.tmp
+context-window/
 .session-state-*.tmp
 hook-errors.jsonl
 .relay-injected/
@@ -1420,6 +1422,18 @@ def _user_settings_path(home: Path | None = None) -> Path:
     return root / ".claude" / "settings.json"
 
 
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Write `data` to `path` through a temp file. The temp name is unique per process: every
+    SessionStart runs this (inject_relay.py), and two sessions starting at once must not share one."""
+    tmp = path.with_name(f"{path.name}.caddis-tmp-{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def ensure_user_env(dry: bool, home: Path | None = None) -> list[str]:
     """Add `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` to the user's global settings, additively.
 
@@ -1470,9 +1484,7 @@ def ensure_user_env(dry: bool, home: Path | None = None) -> list[str]:
         # whole function exists to notice.
         if raw:
             path.with_suffix(".json.caddis-bak").write_text(raw, encoding="utf-8")
-        tmp = path.with_suffix(".json.caddis-tmp")
-        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        _atomic_write_json(path, data)
     verb = "would add" if dry else "added"
     return [f"user env: {verb} {TODO_TOOLS_ENV_KEY}=1 to {path}"
             + ("" if not raw else " (previous version saved as settings.json.caddis-bak)")]
@@ -1513,9 +1525,7 @@ def ensure_cleanup_period(dry: bool, home: Path | None = None, days: int = CLEAN
         path.parent.mkdir(parents=True, exist_ok=True)
         if raw:
             path.with_suffix(".json.caddis-retention-bak").write_text(raw, encoding="utf-8")
-        tmp = path.with_suffix(".json.caddis-tmp")
-        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        _atomic_write_json(path, data)
     verb = "would set" if dry else "set"
     return f"transcript retention: {verb} {CLEANUP_PERIOD_KEY}={days} in {path}"
 

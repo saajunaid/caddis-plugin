@@ -294,17 +294,22 @@ def close_worktree(
         # Someone pushed after the merge: that work is not in main. Keep the remote branch.
         print(f"kept origin/{branch_name}: its tip {remote_tip[:12]} is not contained in the merged PR head {str(head_ref_oid)[:12]}")
     elif remote_tip:
-        cmd_push_del = ["git", "-C", str(repo), "push", "-q", "origin", "--delete", branch_name]
+        # The check above is followed by a compare-and-delete on the server: a push that lands in between wins.
+        cmd_push_del = ["git", "-C", str(repo), *caddis_worktree_safety.remote_delete_args(branch_name, remote_tip)]
         proc = subprocess.run(cmd_push_del, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if proc.returncode != 0:
-            print(f"failed command: {' '.join(cmd_push_del)}\n{proc.stderr.strip() or proc.stdout.strip()}", file=sys.stderr)
-            return caddis_exit.ERROR
+            # A push that landed after our check makes the server refuse the compare-and-delete. That is the same
+            # outcome as the "kept" path above, not an error: look at the remote again.
+            again = subprocess.run(cmd_ls, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            new_tip = again.stdout.split()[0] if again.returncode == 0 and again.stdout.split() else ""
+            if new_tip and new_tip != remote_tip:
+                print(f"kept origin/{branch_name}: its tip moved from {remote_tip[:12]} to {new_tip[:12]} while it was being deleted")
+            else:
+                print(f"failed command: {' '.join(cmd_push_del)}\n{proc.stderr.strip() or proc.stdout.strip()}", file=sys.stderr)
+                return caddis_exit.ERROR
 
-    cmd_prune = ["git", "-C", str(repo), "worktree", "prune"]
-    proc = subprocess.run(cmd_prune, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if proc.returncode != 0:
-        print(f"failed command: {' '.join(cmd_prune)}\n{proc.stderr.strip() or proc.stdout.strip()}", file=sys.stderr)
-        return caddis_exit.ERROR
+    # No `git worktree prune`: `git worktree remove` (above) dropped this registration, and a prune would also drop
+    # the registrations of other tools whose folders are missing for the moment (robustness #19).
 
     print(f"removed {worktree} ({branch_name}); merge {merge_oid}; files compared: {files_compared}")
     return caddis_exit.CLEAN

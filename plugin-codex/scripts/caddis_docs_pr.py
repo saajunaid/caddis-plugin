@@ -209,11 +209,10 @@ def _remove(main: Path, worktree: Path, branch: str) -> None:
         caddis_worktree_safety.safe_remove_worktree(main, worktree, force_locked=True, env=roadmap._quiet_env())
     except OSError:
         pass
-    for args in (("worktree", "prune"), ("branch", "-D", branch)):
-        try:
-            _git(main, *args, check=False)
-        except (roadmap.RoadmapError, OSError):
-            pass
+    try:  # no `git worktree prune`: it would drop other tools' registrations too (robustness #19)
+        _git(main, "branch", "-D", branch, check=False)
+    except (roadmap.RoadmapError, OSError):
+        pass
     if worktree.exists():
         caddis_worktree_safety.remove_tree(worktree)
 
@@ -234,6 +233,7 @@ def finish(worktree: Path, title: str, body: str, out=print) -> int:
         out("PR: none")
         return caddis_exit.CLEAN
     pushed = False
+    pushed_tip = ""
     try:
         gh_repo = roadmap.gh_repo_of(main)
         if gh_repo is None:
@@ -242,14 +242,15 @@ def finish(worktree: Path, title: str, body: str, out=print) -> int:
         _git(worktree, "commit", "--quiet", "-m", title)
         _git(worktree, "push", "--quiet", "-u", "origin", branch)
         pushed = True
+        pushed_tip = _git(worktree, "rev-parse", "HEAD").stdout.strip()  # the only tip we may delete
         url = open_pr(gh_repo, branch, base, title, body)
     except (DocsPrError, roadmap.RoadmapError, OSError) as exc:
         out(f"docs PR failed: {exc}")
         out(f"PATCH: {patch}")
         if pushed:
-            try:
-                _git(main, "push", "--quiet", "origin", "--delete", branch, check=False)
-            except (roadmap.RoadmapError, OSError):
+            try:  # only while the remote tip is still the commit we pushed
+                _git(main, *caddis_worktree_safety.remote_delete_args(branch, pushed_tip), check=False)
+            except (roadmap.RoadmapError, OSError, ValueError):
                 pass
         _remove(main, worktree, branch)
         return getattr(exc, "code", caddis_exit.NOT_RUN)

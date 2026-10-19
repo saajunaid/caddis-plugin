@@ -19,7 +19,9 @@ vi.mock('../src/util/exec.js', async (importOriginal) => {
   return { ...actual, run: vi.fn() };
 });
 
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { doctor } from '../src/commands/doctor.js';
 import { run } from '../src/util/exec.js';
 import { bundlePath, packageInfo } from '../src/util/pkg.js';
@@ -35,7 +37,11 @@ const mockWhich = vi.mocked(findBin);
 const mockBundle = vi.mocked(bundlePath);
 const mockRun = vi.mocked(run);
 
+// No test reads the real ~/.caddis/sessions/: this machine's live sessions are not test data.
+const emptyHome = mkdtempSync(path.join(tmpdir(), 'caddis-doctor-home-'));
+
 beforeEach(() => {
+  vi.stubEnv('CADDIS_HOME', emptyHome);
   mockWhich.mockReset();
   mockWhich.mockResolvedValue('/usr/bin/python');
   mockBundle.mockReset();
@@ -54,7 +60,10 @@ beforeEach(() => {
   });
   capture = captureStdout();
 });
-afterEach(() => capture.restore());
+afterEach(() => {
+  capture.restore();
+  vi.unstubAllEnvs();
+});
 
 function cleanAdapters() {
   return [
@@ -164,5 +173,59 @@ describe('caddis doctor project health check', () => {
 
     expect(out).toContain('reinstall: npm i -g @caddis/cli');
     expect(code).toBe(1);
+  });
+});
+
+describe('caddis doctor live sessions on an older caddis', () => {
+  function homeWith(entries: object[]): string {
+    const home = mkdtempSync(path.join(tmpdir(), 'caddis-doctor-sessions-'));
+    const dir = path.join(home, '.caddis', 'sessions');
+    mkdirSync(dir, { recursive: true });
+    entries.forEach((entry, i) => writeFileSync(path.join(dir, `s${i}.json`), JSON.stringify(entry)));
+    return home;
+  }
+  const nowS = Date.now() / 1000;
+
+  it('names each live session that runs an older caddis and says to restart them', async () => {
+    const home = homeWith([
+      { session_id: 'aaaa-old', harness: 'claude', caddis_version: '1.3.30', pid: process.pid, started: nowS - 3600, last_seen: nowS },
+      { session_id: 'bbbb-new', harness: 'claude', caddis_version: '1.3.39', pid: process.pid, started: nowS, last_seen: nowS },
+    ]);
+    const code = await doctor({ adapters: cleanAdapters(), strict: true, home });
+    const out = capture.output();
+    expect(out).toContain('Sessions');
+    expect(out).toContain('aaaa-old');
+    expect(out).not.toContain('bbbb-new');
+    expect(out).toContain('1.3.30');
+    expect(out).toMatch(/restart these sessions/);
+    expect(code).toBe(1);
+  });
+
+  it('says nothing is behind when every live session is current', async () => {
+    const home = homeWith([
+      { session_id: 'cccc', harness: 'claude', caddis_version: '1.3.39', pid: process.pid, started: nowS, last_seen: nowS },
+    ]);
+    const code = await doctor({ adapters: cleanAdapters(), strict: true, home });
+    expect(capture.output()).toContain('no live session runs an older caddis');
+    expect(code).toBe(0);
+  });
+
+  it('prints "started unknown" for a start time that is not a valid date', async () => {
+    const home = homeWith([
+      { session_id: 'eeee', harness: 'claude', caddis_version: '1.3.1', pid: process.pid, started: 1e20, last_seen: nowS },
+    ]);
+    await doctor({ adapters: cleanAdapters(), home });
+    expect(capture.output()).toMatch(/eeee.*started unknown/);
+  });
+
+  it('lists the older sessions in --json', async () => {
+    const home = homeWith([
+      { session_id: 'dddd', harness: 'claude', caddis_version: '1.3.1', pid: process.pid, started: nowS, last_seen: nowS },
+    ]);
+    await doctor({ adapters: cleanAdapters(), json: true, home });
+    const parsed = JSON.parse(capture.output());
+    expect(parsed.olderSessions).toEqual([
+      expect.objectContaining({ sessionId: 'dddd', caddisVersion: '1.3.1', installed: '1.3.39', pid: process.pid }),
+    ]);
   });
 });

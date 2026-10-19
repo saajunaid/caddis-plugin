@@ -13,7 +13,7 @@
  * needs no network beyond npm itself and the installed version is pinned to
  * the CLI version — "the caddis you installed IS the pool you get".
  */
-import { readFileSync, existsSync, mkdtempSync, cpSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, renameSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentAdapter, AgentStatus, Detection, DriveOptions, DriveResult, DriveAction, ExtrasStatus, StepResult } from './types.js';
@@ -83,6 +83,194 @@ function backupInstalledPlugin(
       }
     },
   };
+}
+
+/**
+ * Where a new plugin version waits while agy runs. Under ~/.caddis, NOT under agy's plugins/ folder (agy would
+ * load it as a second plugin), and on the same volume as ~/.gemini so the swap is a rename.
+ */
+export function agyStagingDir(home = os.homedir(), plugin: string = PLUGIN): string {
+  return path.join(home, '.caddis', 'agy-staged', plugin);
+}
+
+export type SwapReason = 'swapped' | 'stage-failed' | 'stage-rejected' | 'first-install' | 'in-use' | 'swap-failed';
+
+export interface SwapOutcome {
+  /** True when the new version is now the live plugin. */
+  swapped: boolean;
+  reason: SwapReason;
+  /** A rejected stage, kept for inspection. */
+  kept?: string;
+  /** Where the new version waits: the live folder after a swap, the staging folder while staged, else null. */
+  staged: string | null;
+  detail: string;
+}
+
+/** "<type>: <message>" for an error: the errno code when there is one, else the error class. */
+function errorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const code = (error as NodeJS.ErrnoException).code;
+  const kind = code ?? error.constructor.name;
+  const message = code && error.message.startsWith(`${code}: `) ? error.message.slice(code.length + 2) : error.message;
+  return `${kind}: ${message}`;
+}
+
+/** Milliseconds since the epoch for an old-copy stamp: Date.now() here, .NET ticks from sync.ps1. */
+function stampMs(stamp: string): number {
+  const n = Number(stamp);
+  if (!Number.isFinite(n)) return -1;
+  return n > 1e15 ? (n - 621_355_968_000_000_000) / 10_000 : n;
+}
+
+function isWhole(dir: string, required: readonly string[]): boolean {
+  return existsSync(dir) && required.every((file) => existsSync(path.join(dir, file)));
+}
+
+/**
+ * Run at the start of every refresh, before anything is staged. `<stage>.old-*` folders are what a swap moved
+ * aside. If a run died between the two renames, or a rollback failed, the newest whole old copy is the ONLY
+ * working plugin: when the live plugin is missing or not whole, rename that copy back and say so. Old copies are
+ * swept only when the live plugin is whole. Returns a note when it restored something, else null.
+ */
+export function recoverInterruptedSwap(home: string, plugin: string, required: readonly string[]): string | null {
+  const live = pluginDirFor(home, plugin);
+  const staged = agyStagingDir(home, plugin);
+  const parent = path.dirname(staged);
+  const prefix = `${path.basename(staged)}.old-`;
+  let olds: string[];
+  try {
+    olds = readdirSync(parent)
+      .filter((name) => name.startsWith(prefix))
+      .sort((x, y) => stampMs(y.slice(prefix.length)) - stampMs(x.slice(prefix.length)))
+      .map((name) => path.join(parent, name));
+  } catch {
+    return null;
+  }
+  if (isWhole(live, required)) {
+    for (const dir of olds) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* still held: the next refresh tries again */
+      }
+    }
+    return null;
+  }
+  const source = olds.find((dir) => isWhole(dir, required));
+  if (!source) return null;
+  try {
+    if (existsSync(live)) renameSync(live, `${staged}.broken-${Date.now()}`);
+    mkdirSync(path.dirname(live), { recursive: true });
+    renameSync(source, live);
+    return `restored the previous plugin from ${source}`;
+  } catch (error) {
+    return `could not restore the previous plugin from ${source} (${errorText(error)}); it is kept there`;
+  }
+}
+
+/**
+ * Refresh a plugin under a running agy without `agy plugin install` (robustness audit #18).
+ *
+ * `agy plugin install` deletes the folder and then copies, so under a running agy the delete can succeed and the
+ * copy fail, leaving an empty plugin (v1.3.136, 2026-10-08). This never deletes the live plugin first:
+ *   1. copy the bundle to the staging folder and check the required files THERE. A bad stage is rejected before
+ *      the live plugin is touched, and kept for inspection;
+ *   2. rename the live folder aside. Windows refuses this while a process holds a file in it: then nothing has
+ *      changed, and the new version stays staged for the next refresh;
+ *   3. rename the staged folder into place; on failure, rename the old one back. Only then remove the old copy.
+ * A first install only stages: agy itself must register a new plugin.
+ */
+export function stageAndSwap(
+  bundleDir: string,
+  home: string,
+  plugin: string,
+  required: readonly string[],
+  rename: (from: string, to: string) => void = renameSync,
+): SwapOutcome {
+  const live = pluginDirFor(home, plugin);
+  const staged = agyStagingDir(home, plugin);
+  const recovered = recoverInterruptedSwap(home, plugin, required);
+  const note = (detail: string): string => (recovered ? `${recovered}; ${detail}` : detail);
+  try {
+    rmSync(staged, { recursive: true, force: true });
+    mkdirSync(path.dirname(staged), { recursive: true });
+    cpSync(bundleDir, staged, { recursive: true });
+  } catch (error) {
+    return { swapped: false, reason: 'stage-failed', staged: null, detail: note(`staging failed (${errorText(error)})`) };
+  }
+  const missing = required.filter((file) => !existsSync(path.join(staged, file)));
+  if (missing.length > 0) {
+    return {
+      swapped: false,
+      reason: 'stage-rejected',
+      staged: null,
+      kept: staged,
+      detail: note(`the staged copy lacks ${missing.join(', ')}; the live plugin was not touched`),
+    };
+  }
+  if (!existsSync(live)) {
+    return {
+      swapped: false,
+      reason: 'first-install',
+      staged,
+      detail: note('first install: agy must register the plugin with `agy plugin install`'),
+    };
+  }
+  const old = `${staged}.old-${Date.now()}`;
+  try {
+    rename(live, old);
+  } catch (error) {
+    return {
+      swapped: false,
+      reason: 'in-use',
+      staged,
+      detail: note(`could not move the live plugin aside (${errorText(error)}); agy may be using it`),
+    };
+  }
+  // Between these two renames there is NO plugin folder, for a few milliseconds. An agy hook call in that window
+  // finds no guard_agy.py, and agy then refuses the edit ("restore or remove the hook reference to ...guard_agy.py",
+  // seen with the empty plugin on 2026-10-08). That refuses one call; the next call finds the new folder.
+  try {
+    rename(staged, live);
+  } catch (error) {
+    const why = `the swap failed (${errorText(error)})`;
+    try {
+      rename(old, live);
+      return { swapped: false, reason: 'swap-failed', staged: existsSync(staged) ? staged : null, detail: `${why}; the old plugin is back` };
+    } catch (backError) {
+      return {
+        swapped: false,
+        reason: 'swap-failed',
+        staged: existsSync(staged) ? staged : null,
+        detail: `${why}; putting the old plugin back FAILED (${errorText(backError)}), it is kept at ${old}`,
+      };
+    }
+  }
+  try {
+    rmSync(old, { recursive: true, force: true });
+  } catch {
+    /* the next refresh sweeps it */
+  }
+  return { swapped: true, reason: 'swapped', staged: live, detail: note('swapped in by rename') };
+}
+
+/** What `caddis update` prints when a refresh under a running agy did not swap. */
+export function runningAgyMessage(pids: string, plugin: string, outcome: SwapOutcome, alreadySwapped: string[] = []): string {
+  let text = `agy is running (${pids}), so ${plugin} was not installed: ${outcome.detail}.`;
+  if (alreadySwapped.length > 0) text += ` ${alreadySwapped.join(', ')} was already swapped in.`;
+  if (outcome.kept) {
+    text += ` Nothing was installed; the rejected copy is kept at ${outcome.kept}.`;
+  } else if (outcome.staged && existsSync(outcome.staged)) {
+    text += ` The new version is staged at ${outcome.staged}. Stop agy and run \`caddis update\` again to put it in place.`;
+  } else {
+    text += ' Nothing is staged. Stop agy and run `caddis update` again.';
+  }
+  // The override installs with `agy plugin install` under a running agy. It helps only where agy itself must act
+  // (a first install), never when agy holds the files or the stage is bad.
+  if (outcome.reason === 'first-install') {
+    text += ` Or set ${ALLOW_RUNNING_ENV}=1 if you know no agy holds the plugin folder.`;
+  }
+  return text;
 }
 
 /** Where agy records an imported plugin's manifest. Overridable for tests. */
@@ -248,23 +436,23 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
     };
   }
 
+  const home = options.home ?? os.homedir();
+  // An interrupted earlier swap first: restore its old copy if that is the only working plugin, else sweep.
+  const recovered = [
+    recoverInterruptedSwap(home, PLUGIN, REQUIRED_PLUGIN_FILES),
+    recoverInterruptedSwap(home, EXTRAS_PLUGIN, ['plugin.json']),
+  ].filter((note): note is string => note !== null);
+  const withRecovery = (result: DriveResult): DriveResult =>
+    recovered.length === 0 ? result : { ...result, message: [...recovered, result.message].filter(Boolean).join('; ') };
+
   // A running agy holds the plugin folder open. `agy plugin install` deletes it and then copies, so
   // the delete can succeed and the copy fail, leaving the plugin empty (v1.3.136, 2026-10-08).
+  // So under a running agy: stage the new version and swap it in by rename, never install.
   if (process.env[ALLOW_RUNNING_ENV] !== '1') {
     const running = await listAgyPids();
-    if (running.length > 0) {
-      return {
-        ok: false,
-        skipped: false,
-        steps: [],
-        message:
-          `agy is running (PID ${running.join(', ')}). Installing now can empty the caddis plugin under it, and agy then refuses every edit. ` +
-          `Stop agy and run this again, or set ${ALLOW_RUNNING_ENV}=1 if you know no agy holds the plugin folder.`,
-      };
-    }
+    if (running.length > 0) return withRecovery(swapUnderRunningAgy(planned, bundle, home, running));
   }
 
-  const home = options.home ?? os.homedir();
   const backup = backupInstalledPlugin(home);
   const cleanups: Array<() => void> = [];
   if (backup) cleanups.push(backup.cleanup);
@@ -316,10 +504,50 @@ async function drive(_action: DriveAction, options: DriveOptions): Promise<Drive
       }
     }
 
-    return { ok: true, skipped: false, steps };
+    // A stage left by an earlier refresh under a running agy is older than what is installed now.
+    for (const plugin of [PLUGIN, EXTRAS_PLUGIN]) {
+      try {
+        rmSync(agyStagingDir(home, plugin), { recursive: true, force: true });
+      } catch {
+        /* a stale stage is clutter, not a failure */
+      }
+    }
+    return withRecovery({ ok: true, skipped: false, steps });
   } finally {
     cleanups.forEach((fn) => fn());
   }
+}
+
+function swapUnderRunningAgy(
+  planned: Array<{ bundleDir: string }>,
+  bundle: string,
+  home: string,
+  running: number[],
+): DriveResult {
+  const pids = `PID ${running.join(', ')}`;
+  const steps: StepResult[] = [];
+  const swapped: string[] = [];
+  for (const step of planned) {
+    const core = step.bundleDir === bundle;
+    const plugin = core ? PLUGIN : EXTRAS_PLUGIN;
+    const outcome = stageAndSwap(step.bundleDir, home, plugin, core ? REQUIRED_PLUGIN_FILES : ['plugin.json']);
+    steps.push({
+      command: `stage ${step.bundleDir} and swap it into ${pluginDirFor(home, plugin)}`,
+      ok: outcome.swapped,
+      code: null,
+      output: outcome.swapped ? undefined : outcome.detail,
+    });
+    if (!outcome.swapped) {
+      return { ok: false, skipped: false, steps, message: runningAgyMessage(pids, plugin, outcome, swapped) };
+    }
+    swapped.push(plugin);
+  }
+  return {
+    ok: true,
+    skipped: false,
+    steps,
+    message: `agy is running (${pids}): the new plugin was staged and swapped in by rename; new agy sessions load it.`,
+  };
 }
 
 export const agyAdapter: AgentAdapter = {

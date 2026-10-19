@@ -258,14 +258,32 @@ CONTEXT_NOTE_ABOVE = 85.0
 CONTEXT_MAX_AGE_S = 900
 
 
-def read_context_pct(repo_root: Path) -> tuple[float | None, str]:
+SESSION_ID_ENV = ("CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CADDIS_SESSION_ID")
+
+
+def _session_id(explicit: str | None = None) -> str:
+    """This session's id: the explicit one, else the first of SESSION_ID_ENV that is set. Made file-name safe."""
+    raw = explicit or next((os.environ[v] for v in SESSION_ID_ENV if os.environ.get(v)), "")
+    return "".join(ch if (ch.isalnum() and ch.isascii()) or ch in "-_" else "_" for ch in raw)[:64].strip(".")
+
+
+def read_context_pct(repo_root: Path, session_id: str | None = None) -> tuple[float | None, str]:
     """(percentage, provenance) from the statusline's cache, or (None, why not).
+
+    With a session id (the argument, or CLAUDE_SESSION_ID and the like) it reads that session's own file,
+    `.caddis/context-window/<id>.json`, so a second session in the same folder cannot change the figure.
+    Without one it reads the shared `context-window.json`, which any session may have written last; the
+    provenance then says "shared".
 
     Written by `caddis_statusline.record_context`. Claude Code gives the figure to the status
     line and to nothing else, so this file is the only runtime-sourced number a plain command
     can reach.
     """
-    target = repo_root / ART / "context-window.json"
+    sid = _session_id(session_id)
+    shared = repo_root / ART / "context-window.json"
+    target = repo_root / ART / "context-window" / f"{sid}.json" if sid else shared
+    if sid and not target.is_file():
+        target, sid = shared, ""  # the status line has not written this session's file yet (or is old)
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
         pct = float(raw["used_percentage"])
@@ -275,8 +293,10 @@ def read_context_pct(repo_root: Path) -> tuple[float | None, str]:
                       + f"{ART}/context-window.json — run `/caddis:install-statusline` to install the "
                       "status line that writes it")
     if age > CONTEXT_MAX_AGE_S:
-        return pct, f"runtime figure, STALE by {age}s (a lower bound — the real number is >= this)"
-    return pct, f"runtime figure, {age}s old"
+        scope = "this session's" if sid else "shared (session unknown)"
+        return pct, f"{scope} runtime figure, STALE by {age}s (a lower bound — the real number is >= this)"
+    scope = "this session's" if sid else "shared (session unknown)"
+    return pct, f"runtime figure, {scope}, {age}s old"
 
 
 @dataclass

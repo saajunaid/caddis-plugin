@@ -200,6 +200,8 @@ def headless_env(base: dict | None = None) -> dict:
     console, so every session and every caddis_roadmap.py call the runner starts carries the marker."""
     env = dict(os.environ if base is None else base)
     env.update(HEADLESS_ENV)
+    # One level deeper for every session it starts. main() refuses to start past the limit (robustness #19).
+    env[caddis_spend.HEADLESS_DEPTH_VAR] = str(caddis_spend.headless_depth(env) + 1)
     return env
 
 
@@ -223,12 +225,19 @@ def runner_env() -> dict:
 
 
 def build_command(engine: str, model: str, prompt: str, *, usd: float, timeout_min: float,
-                  governor: Sequence[str], engine_cmd: Sequence[str] | None = None) -> list[str]:
+                  governor: Sequence[str], engine_cmd: Sequence[str] | None = None,
+                  worktree: Path | str | None = None) -> list[str]:
     """The full command line for one session: the governor prefix, then the engine's print-mode call.
 
     `claude` gets its prompt on stdin, not as an argument (PROMPT_ON_STDIN): on Windows `claude` is an npm `.cmd`
     shim, and cmd.exe cuts a multi-line argument at its first newline, which drops the rest of the prompt and every
-    argument after it."""
+    argument after it.
+
+    Every engine gets its permission mode on the command line (robustness #19), none is left to a settings file or
+    a default that a new version may change: `claude` bypassPermissions (with the deny rules), `agy` accept-edits
+    plus --dangerously-skip-permissions (as the lanes do; a print session cannot answer a prompt), `codex` the
+    workspace-write sandbox confined to `worktree` with `-C` (as the lanes do; the session's own folder, default
+    the current one). The boundary is the same for all three: no publish token (session_env) and the guard."""
     if engine not in ENGINES:
         raise ValueError(f"unknown engine {engine!r}; known: {', '.join(ENGINES)}")
     exe = list(engine_cmd) if engine_cmd else [engine]
@@ -240,10 +249,10 @@ def build_command(engine: str, model: str, prompt: str, *, usd: float, timeout_m
         tail = [*exe, "-p", "--disallowedTools", *SESSION_DENY_RULES, "--permission-mode", "bypassPermissions",
                 "--model", model, "--output-format", "json", "--max-budget-usd", _usd(usd)]
     elif engine == "agy":  # probe 5: --model must come before --print
-        tail = [*exe, "--model", model, "--print", prompt, "--output-format", "json",
-                "--print-timeout", f"{max(1, int(timeout_min))}m"]
+        tail = [*exe, "--model", model, "--mode", "accept-edits", "--dangerously-skip-permissions",
+                "--print", prompt, "--output-format", "json", "--print-timeout", f"{max(1, int(timeout_min))}m"]
     else:
-        tail = [*exe, "exec", "--model", model, "--json", prompt]
+        tail = [*exe, "exec", "--model", model, "-s", "workspace-write", "-C", str(worktree or "."), "--json", prompt]
     return [*governor, *tail]
 
 
@@ -888,7 +897,7 @@ def _one_session(ctx: _Ctx, prompt: str, relay_slug: str, n: int, spent: float, 
     remaining_s = max(1.0, min(caps.session_timeout_min * 60, caps.max_hours * 3600 - elapsed))
     usd = min(caps.max_usd_per_session, caps.max_usd_total - spent)
     cmd = build_command(ctx.engine, ctx.model, prompt, usd=usd, timeout_min=remaining_s / 60, governor=ctx.governor,
-                        engine_cmd=ctx.engine_cmd)
+                        engine_cmd=ctx.engine_cmd, worktree=cwd)
     rid = _spend_reserve(ctx.home, spend_slug, ctx.now(), n > 1) if ctx.engine == "agy" else None
     launched, outcome = ctx.clock(), None
     try:
@@ -1273,7 +1282,8 @@ def _render_page(ctx: "_Ctx", roadmap_cmd: Sequence[str]) -> None:
 def _dry_run_tail(ctx: _Ctx, template: Path, prompt: str, cwd: Path | None = None) -> None:
     caps = ctx.caps
     cmd = build_command(ctx.engine, ctx.model, "<resume prompt>", usd=min(caps.max_usd_per_session, caps.max_usd_total),
-                        timeout_min=caps.session_timeout_min, governor=ctx.governor, engine_cmd=ctx.engine_cmd)
+                        timeout_min=caps.session_timeout_min, governor=ctx.governor, engine_cmd=ctx.engine_cmd,
+                        worktree=cwd or ctx.repo)
     print(f"would launch (cwd {cwd or ctx.repo}, CADDIS_HEADLESS=1): {subprocess.list2cmdline(cmd)}"
           + (" (resume prompt on stdin)" if ctx.engine in PROMPT_ON_STDIN else ""))
     print(f"resume prompt from {template}:\n{prompt}")
@@ -1552,7 +1562,10 @@ def ensure_worktree(repo: Path, slug: str, default: str, root: Path | None = Non
     if path.resolve() in _registered_worktrees(repo):
         if path.is_dir():
             return path
-        _git_out(repo, "worktree", "prune")  # listed, but its folder is gone (temp cleanup): prune, make it again
+        # Listed, but its folder is gone (temp cleanup): drop this one registration and make it again. Not
+        # `git worktree prune`: that would drop every other tool's registration with a missing folder too.
+        if caddis_worktree_safety.safe_remove_worktree(repo, path) is not None:
+            raise _Stop(f"FAILED cannot drop the registration of the missing worktree {path}", caddis_exit.BLOCKED)
     if path.exists():
         raise _Stop(f"FAILED worktree path {path} exists and is not a worktree of this repo", caddis_exit.BLOCKED)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1586,7 +1599,6 @@ def remove_worktree_if_clean(repo: Path, slug: str, root: Path | None = None) ->
         return f"worktree kept (not clean, {len(work)} change(s)): {path}"
     if caddis_worktree_safety.safe_remove_worktree(repo, path) is not None:
         return f"worktree kept (remove failed): {path}"
-    _git_out(repo, "worktree", "prune")
     _state_file(repo, slug, "worktree").unlink(missing_ok=True)
     return f"worktree removed: {path}"
 
@@ -2660,6 +2672,11 @@ def main(argv: list[str] | None = None) -> int:
         ok, why = last_stop_restartable(args.repo, args.roadmap)
         print(why)
         return caddis_exit.CLEAN if ok else caddis_exit.BLOCKED
+    try:
+        caddis_spend.bump_headless_depth(os.environ)  # a check only: the sessions get the bump in headless_env
+    except caddis_spend.HeadlessDepthExceeded as exc:
+        print(f"caddis_roadmap_run: {exc}", file=sys.stderr)
+        return caddis_exit.BLOCKED
     caps = Caps(args.max_hours, args.max_sessions, args.session_timeout_min, args.max_usd_per_session,
                 args.max_usd_total)
     return run(repo=args.repo, plan=args.plan, roadmap=args.roadmap, caps=caps, engine=args.engine, model=args.model,

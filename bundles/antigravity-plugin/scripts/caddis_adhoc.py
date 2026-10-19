@@ -12,6 +12,7 @@ import ast
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -131,7 +132,8 @@ def slugify_prompt(prompt: str) -> str:
     if not slug:
         slug = "task"
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return f"{date_str}-{slug}"
+    # Random suffix: two runs on the same day and topic must never share a branch, plan or run dir.
+    return f"{date_str}-{slug}-{secrets.token_hex(3)}"
 
 
 def synthesize_plan(
@@ -168,18 +170,73 @@ Task requirements are met, existing tests pass, and new test assertions verify t
     return plan_path, slug, title
 
 
+def session_key() -> str:
+    """Id of this agent session, safe in a file name. One checkout can host several sessions."""
+    for var in ("CADDIS_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"):
+        raw = os.environ.get(var, "").strip()
+        key = re.sub(r"[^A-Za-z0-9_-]", "-", raw)[:64].strip("-")
+        if key:
+            return key
+    return "nosession"
+
+
+def _adhoc_dir(repo: Path) -> Path:
+    return repo / ".caddis" / "orchestrator" / "adhoc"
+
+
 def adhoc_latest_path(repo: Path) -> Path:
-    return repo / ".caddis" / "orchestrator" / "adhoc" / "latest.json"
+    return _adhoc_dir(repo) / f"latest-{session_key()}.json"
+
+
+def write_latest(repo: Path, state: dict) -> None:
+    path = adhoc_latest_path(repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
 
 def read_latest(repo: Path) -> dict | None:
     path = adhoc_latest_path(repo)
     if not path.is_file():
-        return None
+        # Migration: the old single latest.json belongs to whoever reads it first. The rename is
+        # atomic, so exactly one session adopts it and no other session ever sees it.
+        legacy = _adhoc_dir(repo) / "latest.json"
+        if not legacy.is_file():
+            return None
+        try:
+            os.replace(legacy, path)
+        except OSError:
+            return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    return data if isinstance(data, dict) else None
+
+
+def move_branch(repo: Path, branch: str, commit_sha: str, base_sha: str) -> str:
+    """Point `branch` at `commit_sha`. Return "" on success, else why it was refused.
+
+    An existing branch is moved only when its tip is merged into the base, equals the new commit, or
+    is the tip this session recorded for it. Otherwise it holds work that moving would orphan.
+    """
+    tip = git_output(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+    if tip and tip != commit_sha:
+        merged = subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", tip, base_sha],
+            capture_output=True,
+        ).returncode == 0
+        state = read_latest(repo) or {}
+        own = state.get("branch") == branch and state.get("commit_sha") == tip
+        if not merged and not own:
+            return (f"branch '{branch}' has commits not merged into {base_sha[:7]} "
+                    f"(tip {tip[:7]}); refusing to move it. Delete or merge it first.")
+    res = subprocess.run(
+        ["git", "-C", str(repo), "branch", "-f", branch, commit_sha],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if res.returncode != 0:
+        return f"branch update failed: {res.stderr.strip()}"
+    return ""
 
 
 # Tool caches every gate run regenerates. They are the only ignored files a worktree may be
@@ -355,7 +412,7 @@ def run_adhoc(
         }
         if len(kept_paths) > 1:
             state["kept_worktrees"] = [str(path) for path in kept_paths]
-        adhoc_latest_path(repo).write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        write_latest(repo, state)
         return EXIT_FAIL
 
     worktree_str = packet.get("worktree")
@@ -468,20 +525,14 @@ def run_adhoc(
 
         if not reason:
             try:
-                branch_res = subprocess.run(
-                    ["git", "-C", str(repo), "branch", "-f", adhoc_branch, commit_sha],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                )
-                if branch_res.returncode != 0:
-                    reason = f"branch update failed: {branch_res.stderr.strip()}"
-                else:
+                reason = move_branch(repo, adhoc_branch, commit_sha, base_sha)
+                if not reason:
                     # An OSError from the helper (git not runnable) lands in the `except OSError` below.
                     problem = caddis_worktree_safety.safe_remove_worktree(repo, wt_path)
                     if problem or wt_path.exists():
                         reason = problem or f"worktree remove failed: {wt_path}"
                     else:
-                        kept_worktree = None
-                        subprocess.run(["git", "-C", str(repo), "worktree", "prune"], capture_output=True)
+                        kept_worktree = None  # `git worktree remove` dropped its registration; no prune (robustness #19)
                         attempt_branch = packet.get("branch")
                         if attempt_branch and attempt_branch != adhoc_branch:
                             subprocess.run(
@@ -503,7 +554,7 @@ def run_adhoc(
     diff_stat = git_output(repo, "diff", "--shortstat", base_sha, diff_ref)
     diff_names = verified_names or changed_files
 
-    # Save state to latest.json
+    # Save this session's state (latest-<session>.json)
     state = {
         "slug": slug,
         "title": title,
@@ -525,7 +576,7 @@ def run_adhoc(
         "plan_path": plan_rel,
         "created": datetime.now(timezone.utc).isoformat(),
     }
-    adhoc_latest_path(repo).write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_latest(repo, state)
 
     # Render Verdict Card
     is_success = not reason and kept_worktree is None
@@ -618,13 +669,8 @@ def drop_adhoc(repo: Path) -> int:
         if problem:
             print(f"[mmr] Could not remove kept worktree: {problem}")
             return EXIT_FAIL
-        pruned = subprocess.run(
-            ["git", "-C", str(repo), "worktree", "prune"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
-        if pruned.returncode != 0:
-            print(f"[mmr] Could not prune worktrees: {pruned.stderr.strip()}")
-            return EXIT_FAIL
+        # No `git worktree prune` here: it drops the registrations of every other worktree whose folder is missing
+        # for the moment, and `git worktree remove` has already dropped this one (robustness #19).
 
     if branch:
         subprocess.run(["git", "-C", str(repo), "branch", "-D", branch], capture_output=True)

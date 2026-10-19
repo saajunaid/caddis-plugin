@@ -134,8 +134,9 @@ symmetric either: refusing early costs this session's remaining headroom, while 
 handover costs the successor's whole session and everything built on the error.
 
 **Where the number comes from.** Claude Code hands `context_window.used_percentage` to the status
-line and to nothing else, so the caddis status line caches it per repo and `preflight` reads it
-back. **No status line on this machine?** Pass your own reading:
+line and to nothing else, so the caddis status line caches it per repo and per session (`.caddis/context-window/<session id>.json`),
+and `preflight` reads it back (your own session's file when `CLAUDE_SESSION_ID` is set, else the shared
+`context-window.json`, which another session may have written last). **No status line on this machine?** Pass your own reading:
 
 ```bash
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spawn.py" preflight --context-pct 72

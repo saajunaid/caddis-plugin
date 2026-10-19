@@ -129,6 +129,18 @@ def _worktree_blocks(porcelain: str) -> list[list[str]]:
     return blocks
 
 
+def remote_delete_args(branch: str, expected_tip: str, remote: str = "origin") -> tuple[str, ...]:
+    """The `git` arguments that delete `remote/<branch>` only while its tip is `expected_tip` (a full object id).
+
+    `--force-with-lease=<ref>:<oid>` makes the push a compare-and-delete in one step on the server: when someone
+    pushed more commits to the branch after we looked, git refuses and the branch stays (robustness #19). Raises
+    ValueError for anything but a 40 or 64 digit hex id, so a bad value cannot turn into a plain delete."""
+    tip = str(expected_tip or "").strip().lower()
+    if len(tip) not in (40, 64) or any(ch not in "0123456789abcdef" for ch in tip):
+        raise ValueError(f"not a full object id: {expected_tip!r}")
+    return ("push", "--quiet", f"--force-with-lease=refs/heads/{branch}:{tip}", remote, "--delete", branch)
+
+
 def safe_remove_worktree(repo: Path, worktree: Path, *, force: bool = True, force_locked: bool = False,
                          git_flags: Sequence[str] = (), env: Mapping[str, str] | None = None) -> str | None:
     """Remove the linked worktree `worktree` of `repo`: its links first, then `git worktree remove`.

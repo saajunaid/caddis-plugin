@@ -58,6 +58,9 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_adhoc.py" "<task description>"
 - **Worktree result:** PASS commits code changes to `lane/adhoc-<slug>` and removes the worktree. FAIL keeps it. A Claude-lane `PENDING` keeps it and prints the `NEXT:` step. Gates that never ran show `Gates: not run`.
 - **No-op and gate failures:** A run with no code changes fails and keeps its worktree. A pytest gate that collects no tests also fails.
 - **Verdict Card:** Prints PASS, FAIL, or PENDING with diff stats and next actions.
+- **State per session:** The active task is saved in `.caddis/orchestrator/adhoc/latest-<session-id>.json` (session id from `CADDIS_SESSION_ID`, `CLAUDE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID`). `keep`, `drop` and `status` use only your own session's task. An old un-keyed `latest.json` is adopted once by the first session that reads it.
+- **Unique slug:** The `<slug>` ends in a random 6-character suffix, so two runs on the same day and topic never share a branch or plan.
+- **No branch overwrite:** If `lane/adhoc-<slug>` already exists with commits not merged into the base (and is not this session's own recorded branch), the run fails, keeps its worktree and prints why.
 
 ### 2. Keep the Result
 ```bash

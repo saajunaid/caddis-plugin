@@ -5,213 +5,90 @@ description: "Use when starting feature work that needs isolation from the curre
 
 # Using Git Worktrees
 
-## Overview
+A worktree gives one branch its own folder. It shares the repository with the main checkout.
 
-Git worktrees create isolated workspaces sharing the same repository, allowing work on multiple branches simultaneously without switching.
+**Branch in place by default.** Run `git switch -c <branch>`. Never create a sibling repository folder.
+Use a worktree only when the checkout is not safe to move.
 
-**Core principle:** Systematic directory selection + safety verification = reliable isolation.
+**Announce at start:** "I am using the using-git-worktrees skill to set up an isolated workspace."
 
-**Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
+## When to use a worktree
 
-## Directory Selection Process
+Use a worktree when any of these is true:
 
-Follow this priority order:
+1. The repo `AGENTS.md` says `Shared checkout: yes` (a dev service serves from it) and your change touches
+   served code. A change to `.caddis/` or `docs/` only may use a branch.
+2. Another session or agent may be live in the checkout, or you cannot tell. Codex and agy cannot detect
+   peers. For them, "cannot tell" means not safe.
+3. `git status` shows changes you did not make. Never stash, commit, reset or carry them.
+4. Two or more agents edit at the same time. Each editing agent gets its own worktree. The orchestrator
+   creates and removes them. Read-only subagents share the checkout and never move HEAD.
 
-### 1. Check Existing Directories
+If none is true, stop here and use `git switch -c`.
 
-```bash
-# Check in priority order
-ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-ls -d worktrees 2>/dev/null      # Alternative
+## Create the worktree
+
+1. Fetch: `git fetch origin`.
+2. Find the default branch (`main` in most repos): `git symbolic-ref --short refs/remotes/origin/HEAD`.
+   It prints `origin/main`. Use the part after `origin/` as `<default>`.
+3. Create the worktree from `origin/<default>`, never from the local HEAD, under `%TEMP%`:
+
+```powershell
+git worktree add -b <branch> "$env:TEMP\<repo>-<short-name>" origin/<default>
 ```
 
-**If found:** Use that directory. If both exist, `.worktrees` wins.
+   Do not create worktrees inside the repo (no `.worktrees/`).
+4. State the full path of the worktree. Work only there, and do not switch branches in it.
 
-### 2. Check AGENTS.md (the canonical rules file; CLAUDE.md is an @import shim)
+## Install dependencies fresh
 
-```bash
-grep -i "worktree.*director" AGENTS.md CLAUDE.md 2>/dev/null
-```
+Install inside the worktree. Use the project's own command (`npm ci`, `python -m venv .venv` then
+`.venv\Scripts\python -m pip install -r requirements.txt`, `cargo build`, `go mod download`). Call the
+venv's own `python`; a bare `pip` can install into the global Python.
 
-**If preference specified:** Use it without asking.
+Never link `node_modules` or a venv from another folder. Tools that follow the link then change the
+shared copy, and a careless delete can follow it too.
 
-### 3. Ask User
+## Verify a clean baseline
 
-If no directory exists and no AGENTS.md preference:
-
-```
-No worktree directory found. Where should I create worktrees?
-
-1. .worktrees/ (project-local, hidden)
-2. ~/.config/superpowers/worktrees/<project-name>/ (global location)
-
-Which would you prefer?
-```
-
-## Safety Verification
-
-### For Project-Local Directories (.worktrees or worktrees)
-
-**MUST verify directory is ignored before creating worktree:**
-
-```bash
-# Check if directory is ignored (respects local, global, and system gitignore)
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
-```
-
-**If NOT ignored:**
-
-Per Jesse's rule "Fix broken things immediately":
-1. Add appropriate line to .gitignore
-2. Commit the change
-3. Proceed with worktree creation
-
-**Why critical:** Prevents accidentally committing worktree contents to repository.
-
-### For Global Directory (~/.config/superpowers/worktrees)
-
-No .gitignore verification needed - outside project entirely.
-
-## Creation Steps
-
-### 1. Detect Project Name
-
-```bash
-project=$(basename "$(git rev-parse --show-toplevel)")
-```
-
-### 2. Create Worktree
-
-```bash
-# Determine full path
-case $LOCATION in
-  .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-  ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
-    ;;
-esac
-
-# Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
-```
-
-### 3. Run Project Setup
-
-Auto-detect and run appropriate setup:
-
-```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
-
-# Rust
-if [ -f Cargo.toml ]; then cargo build; fi
-
-# Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
-
-# Go
-if [ -f go.mod ]; then go mod download; fi
-```
-
-### 4. Verify Clean Baseline
-
-Run tests to ensure worktree starts clean:
-
-```bash
-# Examples - use project-appropriate command
-npm test
-cargo test
-pytest
-go test ./...
-```
-
-**If tests fail:** Report failures, ask whether to proceed or investigate.
-
-**If tests pass:** Report ready.
-
-### 5. Report Location
+Run the project tests. If they fail, report the failures and ask before you go on. Then report:
 
 ```
-Worktree ready at <full-path>
+Worktree ready at <full-path> (branch <branch>, from origin/<default>)
 Tests passing (<N> tests, 0 failures)
-Ready to implement <feature-name>
 ```
 
-## Quick Reference
+## Remove it when done
 
-| Situation | Action |
-|-----------|--------|
-| `.worktrees/` exists | Use it (verify ignored) |
-| `worktrees/` exists | Use it (verify ignored) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check AGENTS.md → Ask user |
-| Directory not ignored | Add to .gitignore + commit |
-| Tests fail during baseline | Report failures + ask |
-| No package.json/Cargo.toml | Skip dependency install |
+A worktree you create is yours to remove. Do it when the PR merges or the work stops. Remove all three:
 
-## Common Mistakes
+1. The worktree.
+2. The local branch.
+3. The remote branch, but only when its work is merged, or the owner says it is abandoned. If the work
+   only paused, keep the remote branch: it can be the only copy.
 
-### Skipping ignore verification
+After a squash merge, compare trees (content), not ancestry, before you delete.
 
-- **Problem:** Worktree contents get tracked, pollute git status
-- **Fix:** Always use `git check-ignore` before creating project-local worktree
+Do not delete a worktree folder by hand or with `rm -rf`: on Windows it can follow a junction into
+another folder. Use the `safe-cleanup` skill, or `scripts/caddis_worktree_close.py` after a merged PR.
 
-### Assuming directory location
+Check for leftovers with `git worktree list`.
 
-- **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: existing > AGENTS.md > ask
-
-### Proceeding with failing tests
-
-- **Problem:** Can't distinguish new bugs from pre-existing issues
-- **Fix:** Report failures, get explicit permission to proceed
-
-### Hardcoding setup commands
-
-- **Problem:** Breaks on projects using different tools
-- **Fix:** Auto-detect from project files (package.json, etc.)
-
-## Example Workflow
-
-```
-You: I'm using the using-git-worktrees skill to set up an isolated workspace.
-
-[Check .worktrees/ - exists]
-[Verify ignored - git check-ignore confirms .worktrees/ is ignored]
-[Create worktree: git worktree add .worktrees/auth -b feature/auth]
-[Run npm install]
-[Run npm test - 47 passing]
-
-Worktree ready at /Users/jesse/myproject/.worktrees/auth
-Tests passing (47 tests, 0 failures)
-Ready to implement auth feature
-```
-
-## Red Flags
+## Red flags
 
 **Never:**
-- Create worktree without verifying it's ignored (project-local)
-- Skip baseline test verification
-- Proceed with failing tests without asking
-- Assume directory location when ambiguous
-- Skip AGENTS.md check
-
-**Always:**
-- Follow directory priority: existing > AGENTS.md > ask
-- Verify directory is ignored for project-local
-- Auto-detect and run project setup
-- Verify clean test baseline
+- Create a worktree from the local HEAD or a stale branch.
+- Put a worktree in the repo folder or in a sibling of the repo.
+- Link `node_modules` or a venv into a worktree.
+- Leave a worktree, local branch or merged remote branch behind after the work ends.
+- Use a worktree when `git switch -c` is safe.
 
 ## Integration
 
 **Called by:**
-- **brainstorming** (Phase 4) - REQUIRED when design is approved and implementation follows
-- Any skill needing isolated workspace
+- **brainstorming** (Phase 4) - when the design is approved and implementation follows
+- Any skill that needs an isolated workspace
 
 **Pairs with:**
-- **finishing-a-development-branch** - REQUIRED for cleanup after work complete
-- **executing-plans** or **subagent-driven-development** - Work happens in this worktree
+- **finishing-a-development-branch** - cleanup after the work is complete
+- **executing-plans** or **subagent-driven-development** - the work happens in this worktree

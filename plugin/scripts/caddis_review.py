@@ -684,6 +684,16 @@ def launch_claude(prompt: str, worktree: Path, out: Path) -> str:
     # there is no sandbox on native Windows. The diff comes in the prompt (`_diff_material`).
     # No `--allowedTools`: unscoped, it approves files outside the worktree (smoke run 18 Oct 2026: without it a
     # Read in the worktree ran, a Read of ~/.caddis/spend-cap.toml was refused).
+    try:
+        import caddis_spend  # the recursion guard lives beside the spend cap (robustness #19)
+        env_depth = caddis_spend.bump_headless_depth(os.environ)
+    except ImportError:
+        env_depth = None
+    except RuntimeError as exc:  # HeadlessDepthExceeded
+        output = f"{_PREFIX}{exc}\n"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(output, encoding="utf-8")
+        return output
     exe = _claude_exe()
     if exe is None:
         output = f"{_PREFIX}claude could not start: not found on PATH (the current folder is not searched)\n"
@@ -697,11 +707,21 @@ def launch_claude(prompt: str, worktree: Path, out: Path) -> str:
     governor = default_governor()
     if governor:
         cmd = governor + cmd
+    elif os.environ.get("CADDIS_ALLOW_UNGOVERNED") == "1":  # the owner's explicit opt-out
+        print("WARNING: caddis_governor.py not found; the review runs without a CPU and memory cap "
+              "(CADDIS_ALLOW_UNGOVERNED=1)", file=sys.stderr)
     else:
-        print("WARNING: caddis_governor.py not found; the review runs without a CPU and memory cap", file=sys.stderr)
+        # The plan reviewer needs the governor, as the roadmap runner does (robustness #19): an ungoverned
+        # `claude -p` can fill the machine's CPU and memory, and a review that cannot run is only NOT_RUN.
+        output = (f"{_PREFIX}caddis_governor.py not found, so the review is not started without a CPU and memory "
+                  "cap (set CADDIS_ALLOW_UNGOVERNED=1 to run it ungoverned)\n")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(output, encoding="utf-8")
+        return output
     # CADDIS_HEADLESS keeps relay and session-end hooks quiet (claude-oss.ps1 sets it too).
     # No program from the current folder (Windows searches it first), no git index rewrite by the reviewer's tools.
-    env = {**os.environ, "CADDIS_HEADLESS": "1", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    env = {**(env_depth if env_depth is not None else os.environ), "CADDIS_HEADLESS": "1",
+           "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
            "NoDefaultCurrentDirectoryInExePath": "1", "GIT_OPTIONAL_LOCKS": "0"}
     # Its own process group (Windows) or session (POSIX), so a timeout kills the whole tree, not only the top process.
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"

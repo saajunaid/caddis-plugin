@@ -33,6 +33,8 @@ let capture: ReturnType<typeof captureStdout>;
 const mockRun = vi.mocked(run);
 
 beforeEach(() => {
+  // doctor reads ~/.caddis/sessions/; this machine's live sessions are not test data.
+  vi.stubEnv('CADDIS_HOME', '/nonexistent-caddis-home');
   vi.mocked(bundleManifest).mockReturnValue({ poolVersion: '1.3.39', bundles: { 'antigravity-plugin': '1.3.39' } });
   // doctor's own npm-registry lookup (checkCliUpdate) must never hit the real network in tests --
   // default to "already current" so it's a non-event unless a test overrides it.
@@ -40,7 +42,10 @@ beforeEach(() => {
   mockRun.mockResolvedValue({ ok: true, code: 0, stdout: '0.1.0', stderr: '' } satisfies RunResult);
   capture = captureStdout();
 });
-afterEach(() => capture.restore());
+afterEach(() => {
+  capture.restore();
+  vi.unstubAllEnvs();
+});
 
 /** The machine this CLI was built on: two supported agents behind, two stubs detected. */
 function realWorldAdapters() {
@@ -235,6 +240,19 @@ describe('update', () => {
     expect(adapters[1]?.drive).toHaveBeenCalled();
     expect(code).toBe(1);
     expect(capture.output()).toContain('1 agent(s) failed');
+  });
+
+  it('prints how an agent was updated when the adapter says (agy swapped in under a running agy)', async () => {
+    const adapters = [
+      fakeAdapter({
+        id: 'agy',
+        name: 'agy',
+        agentStatus: { installed: true, version: '1.3.38' },
+        driveResult: { ok: true, skipped: false, steps: [], message: 'agy is running (PID 7): swapped in by rename' },
+      }),
+    ];
+    expect(await update({ adapters, dryRun: false, yes: true })).toBe(0);
+    expect(capture.output()).toContain('swapped in by rename');
   });
 
   it('guides the user when no supported agent exists at all', async () => {

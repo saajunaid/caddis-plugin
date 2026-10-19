@@ -47,21 +47,62 @@ ext = os.path.splitext(file_path)[1].lower()
 MAX_FINDINGS = 20
 
 
-def run(cmd):
-    """Run a linter, tolerating a missing executable (returns None then)."""
+def _timeout_s():
+    """Wall-clock limit for one linter run. A hung linter must not hang every Edit/Write."""
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, **NO_WINDOW_KW)
+        return max(1.0, float(os.environ.get("CADDIS_LINT_TIMEOUT_S", "20")))
+    except ValueError:
+        return 20.0
+
+
+class TimedOut:
+    """Stands in for a finished run when the linter had to be killed."""
+    returncode = 0
+    stdout = ""
+
+
+def _kill_tree(proc):
+    """Kill the linter and its children (npx starts node; a .cmd shim starts the real tool)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=10, **NO_WINDOW_KW)
+        else:
+            os.killpg(proc.pid, 9)
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def run(cmd):
+    """Run a linter with a timeout, tolerating a missing executable (None) and a hang (TimedOut)."""
+    group = {} if os.name == "nt" else {"start_new_session": True}
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, **NO_WINDOW_KW, **group)
     except (FileNotFoundError, OSError):
         return None
+    try:
+        out, _err = proc.communicate(timeout=_timeout_s())
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        return TimedOut()
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, _err)
 
 
 if ext == ".py":
     # E501 is ignored: with no ruff config every line over 88 chars was a finding, and the
     # default "full" format printed a source snippet for each - 32,305 chars into context
     # for one 63-finding file. Concise format is one line per finding; the cap bounds the rest.
-    r = run(["ruff", "check", "--select", "E,F,W", "--ignore", "E501",
+    _ruff = shutil.which("ruff") or "ruff"  # .cmd/.bat shims need the resolved path on Windows
+    r = run([_ruff, "check", "--select", "E,F,W", "--ignore", "E501",
              "--output-format", "concise", "--quiet", file_path])
-    if r and r.stdout.strip():
+    if isinstance(r, TimedOut):
+        print(f"[lint] ruff timed out after {_timeout_s():g}s; skipped", flush=True)
+    elif r and r.stdout.strip():
         findings = r.stdout.strip().splitlines()
         shown = "\n".join(findings[:MAX_FINDINGS])
         extra = len(findings) - MAX_FINDINGS
@@ -78,7 +119,9 @@ elif ext in (".ts", ".tsx", ".js", ".jsx"):
     if not _npx:
         sys.exit(0)
     r = run([_npx, "--no", "eslint", "--format", "compact", file_path])
-    if r and r.returncode != 0 and r.stdout.strip():
+    if isinstance(r, TimedOut):
+        print(f"[lint] eslint timed out after {_timeout_s():g}s; skipped", flush=True)
+    elif r and r.returncode != 0 and r.stdout.strip():
         print(f"[lint] eslint:\n{r.stdout.strip()[:600]}", flush=True)
 
 sys.exit(0)

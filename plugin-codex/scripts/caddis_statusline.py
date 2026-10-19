@@ -329,7 +329,12 @@ def ram_facts():
     return None
 
 
-def record_context(cwd: str, pct: float) -> None:
+def _safe_session_id(session_id) -> str:
+    """A file-name-safe form of a session id (letters, digits, - and _ only, 64 chars at most); "" when empty."""
+    return "".join(ch if (ch.isalnum() and ch.isascii()) or ch in "-_" else "_" for ch in str(session_id or ""))[:64].strip(".")
+
+
+def record_context(cwd: str, pct: float, session_id: str = "") -> None:
     """Cache the runtime context figure for tools that never see the statusline payload.
 
     Claude Code hands `context_window.used_percentage` to the statusline and to NOTHING else.
@@ -342,6 +347,11 @@ def record_context(cwd: str, pct: float) -> None:
     render. Only writes where `.caddis/` already exists, so cd-ing into an unrelated folder
     never scatters artifact dirs. Fail-open and silent: a status line must never break a
     prompt, and this is the least important thing it does.
+
+    One folder can host several sessions, so the figure is also kept per session, in
+    `.caddis/context-window/<session id>.json`; a reader that knows its session id reads that file and
+    never another session's figure. `context-window.json` stays as the shared "last writer" for a reader
+    that does not know its session (robustness #19). Per-session files older than 2 days are removed.
     """
     try:
         if not cwd:
@@ -349,20 +359,44 @@ def record_context(cwd: str, pct: float) -> None:
         art = os.path.join(cwd, ".caddis")
         if not os.path.isdir(art):
             return
-        target = os.path.join(art, "context-window.json")
         payload = {"used_percentage": round(float(pct), 1), "at": int(time.time())}
-        try:
-            with open(target, encoding="utf-8") as fh:
-                if json.load(fh).get("used_percentage") == payload["used_percentage"]:
-                    return
-        except Exception:
-            pass
-        tmp = target + ".tmp"
+        sid = _safe_session_id(session_id)
+        if sid:
+            per_dir = os.path.join(art, "context-window")
+            os.makedirs(per_dir, exist_ok=True)
+            _write_if_changed(os.path.join(per_dir, sid + ".json"), payload)
+            try:
+                cutoff = time.time() - 2 * 86400
+                for name in os.listdir(per_dir):
+                    old = os.path.join(per_dir, name)
+                    if os.path.getmtime(old) < cutoff:
+                        os.unlink(old)
+            except Exception:
+                pass
+        _write_if_changed(os.path.join(art, "context-window.json"), payload)
+    except Exception:
+        pass
+
+
+def _write_if_changed(target: str, payload: dict) -> None:
+    """Write the JSON `payload` atomically (a temp file named for this process), only when the figure changed."""
+    try:
+        with open(target, encoding="utf-8") as fh:
+            if json.load(fh).get("used_percentage") == payload["used_percentage"]:
+                return
+    except Exception:
+        pass
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
         os.replace(tmp, target)
     except Exception:
-        pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def relay_present(cwd: str) -> bool:
@@ -501,7 +535,7 @@ def render_claude(data: dict, cfg: dict) -> str:
             used = as_int(cw.get("total_input_tokens"))
         max_tokens = as_int(cw.get("context_window_size"))
         pct = float(as_int(cw.get("used_percentage")))
-        record_context(cwd, pct)  # feeds /caddis:spawn-session's 95% gate; see record_context
+        record_context(cwd, pct, str(dig(data, "session_id") or ""))  # feeds /caddis:spawn-session's 95% gate; see record_context
         parts.append(context_segment(c, cfg, used, max_tokens, pct))
         loud = cached_segment(c, cfg, cached)
         if loud:

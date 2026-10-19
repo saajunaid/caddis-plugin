@@ -1072,7 +1072,6 @@ def merged_checkout(root: Path, branch: str):
         yield worktree
     finally:
         caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
-        _git(root, "worktree", "prune", check=False)
         caddis_worktree_safety.remove_tree(tmp)     # links first: a junction's target survives
 
 
@@ -1822,11 +1821,12 @@ def write_change(root: Path, slug: str, mid: str, change: str, edit, dry_run: bo
             _git(worktree, "add", "--", path)
             _git(worktree, "commit", "--quiet", "-m", title)
             _git(worktree, "push", "--quiet", "-u", "origin", branch)
+            pushed_tip = _git(worktree, "rev-parse", "HEAD").stdout.strip()  # the tip we pushed: the only one we delete
             try:
                 pr = open_pr(root, gh_repo, branch, snap.branch, title,
                              f"Roadmap change by caddis_roadmap.py: {slug} {mid} {change}.")
             except Exception:
-                _git(root, "push", "--quiet", "origin", "--delete", branch, check=False)
+                _git(root, *caddis_worktree_safety.remote_delete_args(branch, pushed_tip), check=False)
                 raise
             try:
                 rc = merge_pr(root, pr, gh_repo)
@@ -1834,13 +1834,12 @@ def write_change(root: Path, slug: str, mid: str, change: str, edit, dry_run: bo
                 merge_exit = "timeout"
                 raise
             out(f"#{pr} {title}: " + ("merged" if rc == caddis_exit.CLEAN else f"not merged (merge chain exit {rc})"))
-            if rc == caddis_exit.CLEAN:
-                _git(root, "push", "--quiet", "origin", "--delete", branch, check=False)
+            if rc == caddis_exit.CLEAN:  # only while the remote tip is still the commit we pushed
+                _git(root, *caddis_worktree_safety.remote_delete_args(branch, pushed_tip), check=False)
             else:
                 rc = caddis_exit.NOT_RUN if rc == caddis_exit.NOT_RUN else caddis_exit.BLOCKED
         finally:
             caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
-            _git(root, "worktree", "prune", check=False)
             _git(root, "branch", "-D", branch, check=False)
             caddis_worktree_safety.remove_tree(tmp)
             _audit(root, slug, {"utc": _utc(), "roadmap": slug, "id": mid, "change": change, "branch": branch,
