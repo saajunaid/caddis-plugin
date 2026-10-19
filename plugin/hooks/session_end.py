@@ -18,6 +18,8 @@ Rules this file keeps:
   - Headless runs (CADDIS_HEADLESS set and non-empty) are
     skipped entirely, so review and lane runs leave no state files.
   - No subprocess: the repo root is found by walking up to the nearest `.git`.
+  - Opt-in only: it writes nothing unless that repo already has a `.caddis/` folder, and
+    nothing at all outside a git repository. It never creates `.caddis/` itself.
   - Fail-open: nothing here may raise or exit non-zero, and it prints nothing.
 
 Cross-platform (pure Python, stdlib only).
@@ -43,7 +45,7 @@ except Exception:  # pragma: no cover — defensive
 # the sessions it saves.
 try:
     from session_state import (  # noqa: E402
-        extract_state, find_repo_root, read_carry, render, write_state,
+        extract_state, read_carry, render, repo_root_or_none, write_state,
     )
 except Exception:  # pragma: no cover — defensive
     extract_state = None
@@ -73,12 +75,16 @@ def main() -> None:
         # process's launch cwd. Mirrors guard.py.
         # The root is the nearest folder holding `.git` (a FILE in a worktree), found without
         # the `git rev-parse` subprocess this used to run every turn.
-        root = find_repo_root(str(data.get("cwd") or os.getcwd()))
+        root = repo_root_or_none(str(data.get("cwd") or os.getcwd()))
+        if not root:
+            return  # in no git repository: there is no project to attach state to
         # ONE FILE PER SESSION, not one shared name: two sessions routinely share a working
         # tree, and a flat name let whichever stopped last overwrite the other. Falls back to
         # the flat name when the payload carries no session id (the layout inject_relay.py
         # still reads). The flat file is shared, so it never seeds a carry.
         art_dir = str(artifact_root(root))
+        if not os.path.isdir(art_dir):
+            return  # the repo never opted in: the hook must not create the artifact folder
         sid = str(data.get("session_id", "") or "").strip()
         slug = "".join(c for c in sid if c.isalnum() or c in "-_")[:64]
         if str(data.get("hook_event_name", "") or "") == "SessionEnd":

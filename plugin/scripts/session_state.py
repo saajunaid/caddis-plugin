@@ -691,6 +691,25 @@ def find_repo_root(start: str) -> str:
     return start
 
 
+def repo_root_or_none(start: str) -> str | None:
+    """Like find_repo_root, but None when `start` is in no git repository.
+
+    The Stop hooks use this so a session outside any repo (the home folder, a scratch folder)
+    never gets a `.caddis/` created in its cwd.
+    """
+    try:
+        current = os.path.abspath(start)
+        while True:
+            if os.path.exists(os.path.join(current, ".git")):
+                return current
+            parent = os.path.dirname(current)
+            if parent == current:
+                return None
+            current = parent
+    except Exception:
+        return None
+
+
 def _artifact_dir(root: str) -> str:
     try:
         from claudster_config import artifact_root

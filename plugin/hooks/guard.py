@@ -14,18 +14,23 @@ Tiers:
           (git add -A/./-u/<directory>, git commit -a). Blocked outright.
   ask   — consequential-but-legit: lockfile / CI-workflow writes; rm -rf <path>, find -delete,
           git force-push / reset --hard / clean -f / history rewrite, DB drop, package publish,
-          piping a download into a shell. The user confirms. (Routine config like package.json/
+          piping a download into a shell, a git tree move (switch, rebase, pull, ...) in a checkout whose
+          AGENTS.md says `Shared checkout: yes` (deny when headless). The user confirms. (Routine config like package.json/
           tsconfig is NOT gated — frequent and not dangerous; over-prompting gets the guard disabled.)
   allow — everything else; the hook stays silent so normal handling applies.
 
 Escape hatch: `.caddis/config.toml [guard] allow = ["substr", ...]` may only DOWNGRADE an `ask`
 to `allow` (it can never override a `deny`); it matches the command/path value. Use specific strings.
 
-Kill switch: for users who run Claude Code with `bypassPermissions` and want zero additional
-gating from caddis, the guard can be turned off entirely (bypasses ALL tiers, deny included) via:
-  * env var `CADDIS_GUARD_DISABLED=1` (also 1/true/yes/on) — global, survives plugin updates.
-  * `.caddis/config.toml [guard] enabled = false`  (or `mode = "off"`) — per-repo or user-level.
-When disabled, the hook exits 0 immediately and every call falls through to normal permission handling.
+Kill switch (robustness #13): a model can write files, so no file can turn the guard off.
+  * env var `CADDIS_GUARD_DISABLED=1` (also 1/true/yes/on) is the only full off (every tier, deny included),
+    and only in an interactive session. Under `CADDIS_HEADLESS=1` it acts as deny-only.
+  * `.caddis/config.toml [guard] enabled = false` (or `mode = "off"`) acts as deny-only: no prompts, every
+    deny stays. A write to any `.caddis/config.toml` or `~/.caddis/*.toml` asks, by tool and through the shell.
+
+Failure (robustness #13): hooks.json gives this hook `timeout: 30` and `onFailure: "block"`, so a hang or a
+crash blocks the call. An internal error denies a shell or write call ("guard error: ..."); only a payload
+that is not a JSON object stays open, because then there is no call to judge.
 
 Artifact dir: reads `.caddis/config.toml`.
 The name is duplicated from scripts/claudster_config.py ON PURPOSE — this hook runs on EVERY tool
@@ -35,9 +40,11 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import math
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 
@@ -78,11 +85,53 @@ def classify_write(file_path: str) -> tuple[str, str]:
     if base in _SECRET_BASENAMES or any(base.endswith(s) for s in _SECRET_SUFFIXES):
         return "deny", f"writes a credential/key file ({base})"
 
+    why = guard_config_reason(file_path)
+    if why:
+        return "ask", why
     if base in _ASK_BASENAMES:
         return "ask", f"edits a lockfile ({base})"
     if _CI_WORKFLOW_RE.search(p):
         return "ask", "edits a CI/CD workflow"
     return "allow", ""
+
+
+# ── the guard's own config (robustness #13) ──────────────────────────────────
+# `[guard]` settings relax the guard, and a model or a tracked file could write them. A write to any
+# `.caddis/config.toml` or to `~/.caddis/*.toml` asks. guard_agy.py carries a copy; test_guard_agy.py checks it.
+_WHY_CONFIG = "edits caddis config ({}); a guard setting there can relax the guard, so confirm the change is yours"
+
+
+# The home folder as a shell spells it: PowerShell `$env:USERPROFILE` / `$env:HOME` / `$HOME`, bash `$HOME` /
+# `${HOME}` / `$USERPROFILE` / `${USERPROFILE}`, cmd `%USERPROFILE%` / `%HOME%`; `~user` is out of scope. Each
+# becomes `~`, which _home_path expands from os.path.expanduser("~") (os.path.expandvars knows neither `$env:` nor
+# an unset HOME on Windows).
+_HOME_VAR = re.compile(r"\$\{?env:(?:userprofile|home)\}?|\$\{(?:home|userprofile)\}|\$(?:home|userprofile)\b"
+                       r"|%(?:userprofile|home)%", re.I)
+
+
+def _home_path(raw: str) -> str:
+    """``raw`` with a leading home spelling (`~`, `$HOME`, `$env:USERPROFILE`, `%USERPROFILE%`) made absolute."""
+    raw = _HOME_VAR.sub("~", raw)
+    if raw == "~" or raw[:2] in ("~/", "~\\"):
+        raw = os.path.expanduser("~") + raw[1:]
+    return raw
+
+
+def guard_config_reason(path: str) -> str:
+    """The ask reason when ``path`` is a `.caddis/config.toml` or a `~/.caddis/*.toml`, else ''."""
+    if not isinstance(path, str):
+        return ""
+    raw = path.strip().strip("'\"")
+    parts = [seg.lower() for seg in raw.replace("\\", "/").rstrip(". ").split("/") if seg]
+    if not parts or not parts[-1].endswith(".toml"):
+        return ""
+    if len(parts) >= 2 and parts[-2] == _ARTIFACT_DIR and parts[-1] == "config.toml":
+        return _WHY_CONFIG.format(parts[-1])
+    full = os.path.abspath(os.path.normpath(_home_path(raw).replace("\\", "/")))
+    home = os.path.join(os.path.expanduser("~"), _ARTIFACT_DIR)
+    if os.path.normcase(os.path.realpath(os.path.dirname(full))) == os.path.normcase(os.path.realpath(home)):
+        return _WHY_CONFIG.format(f"~/{_ARTIFACT_DIR}/{parts[-1]}")
+    return ""
 
 
 def classify_read(file_path: str) -> tuple[str, str]:
@@ -448,11 +497,15 @@ _NPM_VALUE_FLAGS = {"--registry", "--userconfig", "--prefix", "-w", "--workspace
                     "--cache", "-C", "--cwd", "--dir"}
 
 
+def _headless() -> bool:
+    """A headless session: CADDIS_HEADLESS set, not empty, not 0. The hook reads the marker from its own
+    environment: Claude Code and agy start hooks with the session's env, which the model's shell cannot change."""
+    return str(os.environ.get(f"{_ENV_PREFIX}_HEADLESS", "")).strip() not in ("", "0")
+
+
 def _publish_allowed_headless() -> bool:
-    """False only in a headless session (CADDIS_HEADLESS set, not empty, not 0) without CADDIS_ALLOW_PUBLISH=1.
-    The hook reads the marker from its own environment: Claude Code and agy start hooks with the session's env."""
-    headless = str(os.environ.get(f"{_ENV_PREFIX}_HEADLESS", "")).strip()
-    if headless in ("", "0"):
+    """False only in a headless session without CADDIS_ALLOW_PUBLISH=1."""
+    if not _headless():
         return True
     return str(os.environ.get(f"{_ENV_PREFIX}_ALLOW_PUBLISH", "")).strip() == "1"
 
@@ -550,6 +603,193 @@ def _headless_publish_safe(text: str) -> str:
         return ""
     try:
         return headless_publish_reason(text)
+    except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
+        return ""
+
+
+# ── no tree moves in a shared checkout (robustness #11) ──
+# A checkout whose AGENTS.md says `Shared checkout: yes` has a dev service serving from it, and often a peer's
+# uncommitted edits. `git switch`, `checkout <branch>`, `rebase`, `pull`, `merge`, `reset --hard` and `stash` move
+# or discard its files. Interactive: ask. Headless (CADDIS_HEADLESS=1): deny, because deny-only mode turns every ask
+# into a silent allow and a runner session has no one to ask. `restore`/`checkout` of `.` or a folder discard a
+# peer's edits too; `reset --keep`/`--merge` count as `--hard`; `stash apply`/`pop` count. Free: `switch -c <new>` and
+# `checkout -b <new>` with NO start point (a start point checks that commit out), `checkout [-- ] <file>`,
+# `git worktree add`, `pull --dry-run`, and the recovery verbs (`rebase`/`merge` `--abort`/`--continue`/`--skip`/
+# `--quit`), so a headless runner can always finish or undo a stopped operation. `checkout <name>` where <name> is
+# both a path and a ref is a branch switch (one `git rev-parse`, run only then). The checkout is the one the command acts on (`cd`, `git -C`, as for staging). A
+# linked worktree is never shared: AGENTS.md is tracked, so the worktree has the line too, but it is the safe place.
+# Known limits (it catches accidents, it is not a boundary): a cwd from a variable (`cd $X`) is not followed, and a
+# git alias is not read. The regex is the one in scripts/caddis_checkout_guard.py (SHARED_RE); guard_agy.py carries
+# a copy, and test_guard_agy.py checks they agree.
+_SHARED_RE = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?Shared checkout:[ \t]*yes(?:\*\*)?[ \t]*(?:$|[(\-–—.:,;#])",
+                        re.IGNORECASE | re.MULTILINE)
+_SWITCH_CREATE = {"-c", "-C", "--create", "--force-create"}
+_CHECKOUT_CREATE = {"-b", "-B", "--orphan"}
+_GIT_RECOVERY = {"--abort", "--continue", "--skip", "--quit"}  # a stopped rebase/merge must be finishable headless
+_RESET_MOVES = {"--hard", "--keep", "--merge"}
+_FORCE = {"-f", "--force", "--discard-changes"}  # `switch -f -c x` / `checkout -f -b x` throw changes away
+
+
+def _options(args: list[str]) -> list[str]:
+    """The words before `--`. After `--` every word is a pathspec, even `-b` or `--staged`."""
+    return args[:args.index("--")] if "--" in args else args
+
+
+def _create_flag(word: str, creates: set[str]) -> bool:
+    """`word` makes a branch: `-c`, attached `-cfoo`, or `--create=foo`."""
+    return word in creates or any(word.startswith(c + "=") if c.startswith("--") else
+                                  (word.startswith(c) and len(word) > len(c)) for c in creates)
+
+
+def _create_moves(args: list[str], creates: set[str]) -> bool:
+    """`switch -c <new> [<start>]` / `checkout -b <new> [<start>]`: True when a start point follows the new name, or
+    `-f`/`--force`/`--discard-changes` throws the tree's changes away. The bare form starts from HEAD and keeps
+    the tree; a start point checks that commit out."""
+    opts = _options(args)
+    if any(a in _FORCE for a in opts):
+        return True
+    named, skip = [], False
+    for a in opts:
+        if skip:
+            skip = False
+        elif a in creates:
+            skip = True  # the next word is the new branch name (`-cfoo` / `--create=foo` carry it)
+        elif not a.startswith("-"):
+            named.append(a)
+    return bool(named)
+
+
+def _broad_path(path: str, cwd: str) -> bool:
+    """A pathspec that can hold files other than the one named: `.`, a folder, a glob or pathspec magic (`:/`)."""
+    if path.startswith(":") or any(c in path for c in "*?["):
+        return True
+    return os.path.isdir(os.path.join(cwd, path))
+
+
+# No console window for the git call (a hook in a console-less session would flash one).
+_NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+
+def _is_ref(name: str, cwd: str) -> bool:
+    """True when `name` resolves as a commit in the repo at `cwd`. Git cannot run (missing, hung): True, so the
+    caller asks. Called only when `name` is also a path, so most checkouts never pay for the git call."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--verify", "--quiet", f"{name}^{{commit}}"],
+                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL,
+                           **_NO_WINDOW_KW)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return r.returncode == 0
+
+
+def _from_file(opts: list[str]) -> bool:
+    """`--pathspec-from-file`: the paths are in a file the guard does not read, so assume they are broad."""
+    return any(a == "--pathspec-from-file" or a.startswith("--pathspec-from-file=") for a in opts)
+
+
+def _checkout_moves(args: list[str], cwd: str) -> bool:
+    opts = _options(args)
+    if _from_file(opts):
+        return True
+    if any(_create_flag(a, _CHECKOUT_CREATE) for a in opts):
+        paths = args[len(opts) + 1:]
+        return _create_moves(args, _CHECKOUT_CREATE) or any(_broad_path(p, cwd) for p in paths)
+    if "--" in args:  # `checkout [<tree-ish>] -- <paths>`: only a broad pathspec discards more than the named file
+        paths = args[args.index("--") + 1:]
+        return not paths or any(_broad_path(p, cwd) for p in paths)
+    named = [a for a in args if not a.startswith("-")]
+    if not named or not all(os.path.exists(os.path.join(cwd, a)) for a in named):
+        return True  # `checkout <branch>`, `checkout -`
+    if _is_ref(named[0], cwd):  # a branch and a path share the name: git takes the branch
+        return len(named) == 1 or any(_broad_path(p, cwd) for p in named[1:])
+    return any(_broad_path(p, cwd) for p in named)
+
+
+def _restore_moves(args: list[str], cwd: str) -> bool:
+    opts = _options(args)
+    staged = any(a in ("-S", "--staged") for a in opts)
+    if staged and not any(a in ("-W", "--worktree") for a in opts):
+        return False  # `restore --staged` changes the index only
+    if _from_file(opts):
+        return True
+    paths, skip = list(args[len(opts) + 1:]), False
+    for a in opts:
+        if skip:
+            skip = False
+        elif a in ("-s", "--source"):
+            skip = True
+        elif not a.startswith("-"):
+            paths.append(a)
+    return any(_broad_path(p, cwd) for p in paths)
+
+
+def _moves_tree(sub: str, args: list[str], cwd: str) -> bool:
+    """True when `git <sub> <args>` moves or discards the work tree (see the block note)."""
+    verb = sub.lower()
+    if verb == "switch":
+        if any(_create_flag(a, _SWITCH_CREATE) for a in _options(args)):
+            return _create_moves(args, _SWITCH_CREATE)
+        return True
+    if verb == "checkout":
+        return _checkout_moves(args, cwd)
+    if verb == "restore":
+        return _restore_moves(args, cwd)
+    if verb in ("rebase", "merge"):
+        return not any(a in _GIT_RECOVERY for a in args)
+    if verb == "pull":
+        return "--dry-run" not in args
+    if verb == "reset":
+        return any(a in _RESET_MOVES for a in args)
+    if verb == "stash":
+        return not (args[:1] and args[0].lower() in ("list", "show"))
+    return False
+
+
+def _declares_shared(cwd: str) -> bool:
+    """The repo that holds `cwd` says `Shared checkout: yes` in its top AGENTS.md, and is not a linked worktree."""
+    here = os.path.abspath(cwd)
+    top = here
+    while True:
+        if os.path.exists(os.path.join(top, ".git")):
+            break
+        parent = os.path.dirname(top)
+        if parent == top:
+            top = here
+            break
+        top = parent
+    gitfile = os.path.join(top, ".git")
+    if os.path.isfile(gitfile):
+        try:
+            with open(gitfile, encoding="utf-8", errors="replace") as fh:
+                line = fh.read().strip()
+        except OSError:
+            line = ""
+        if line.lower().startswith("gitdir:") and "/worktrees/" in line.replace("\\", "/").lower():
+            return False
+    try:
+        with open(os.path.join(top, "AGENTS.md"), encoding="utf-8", errors="replace") as fh:
+            return bool(_SHARED_RE.search(fh.read()))
+    except OSError:
+        return False
+
+
+def shared_checkout_reason(command: str, root: str | None) -> str:
+    """The reason when `command` moves the tree of a checkout that says `Shared checkout: yes`, else ''.
+    Callers pass heredoc-free text and treat an exception as "no match"."""
+    for cwd, sub, args in _git_calls(command, root):
+        if cwd is None or "$" in cwd or "%" in cwd or not os.path.isdir(cwd):
+            continue
+        if _moves_tree(sub, args, cwd) and _declares_shared(cwd):
+            return (f"`git {sub.lower()}` moves the tree of a shared checkout (AGENTS.md says Shared checkout: yes; "
+                    "a dev service or a peer uses it). Work in your own worktree instead: "
+                    "`git worktree add \"$TEMP/<name>\" -b <branch> origin/<default>`, and remove it when done")
+    return ""
+
+
+def _shared_checkout_safe(text: str, root: str | None) -> str:
+    """shared_checkout_reason, but an error is "no match": one rule must never switch off the rest of the guard."""
+    try:
+        return shared_checkout_reason(text, root)
     except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
         return ""
 
@@ -661,14 +901,100 @@ _SHELL_WRITE_TARGET = re.compile(
 
 
 def _shell_write_targets(command: str) -> list[str]:
-    """Every path this command appears to write to. Best-effort by design: a miss degrades to the
-    old behaviour, it never invents a denial."""
-    out: list[str] = []
-    for m in _SHELL_WRITE_TARGET.finditer(command):
-        for val in m.groupdict().values():
-            if val:
-                out.append(val.strip("'\"" ))
+    """Every path this command appears to write to, quotes removed: a redirection, `| tee`, `| Out-File`, and the
+    targets of the writer programs the config rule knows (cp, mv, Copy-Item, Set-Content, New-Item, Tee-Object, sed -i,
+    ...). Not the regex's `-Path` group: `Get-Content -Path x` reads. Best-effort by design: a miss degrades to the old
+    behaviour, it never invents a denial. guard_agy.py carries a copy; test_guard_agy.py checks they agree."""
+    command = _HOME_VAR.sub("~", command)  # the tokenizer splits on `$`, so in `$HOME/x` the home part would be lost
+    out = [m.group(g).strip("'\"") for m in _SHELL_WRITE_TARGET.finditer(command)
+           for g in ("redir", "tee", "outfile") if m.group(g)]
+    try:
+        for name, _cwd, _sub, args in _tool_calls(command, None, _CONFIG_WRITERS):
+            if name == "sed":
+                if any(a.startswith(("-i", "--in-place")) for a in args):
+                    out += [a for a in args if not a.startswith("-")]
+            elif name == "tee":
+                out += [a for a in args if not a.startswith(("-", "<", ">"))]
+            elif name in _CONFIG_SETTERS:
+                out += _setter_targets(args)
+            else:
+                out += _copier_targets(args)
+    except Exception:  # noqa: BLE001 - a tokenizer failure keeps the regex targets; it never switches the rule off
+        pass
     return out
+
+
+# Shell writes onto the guard's config: redirections and `| tee` / `| Out-File` (the regex above, not its -Path
+# group: Get-Content -Path reads), then the programs below, found with the tokenizer (wrapped shells and `cd` count).
+# Known limits: an interpreter one-liner (`python -c "open(...,'w')"`), a script that writes the file, a variable
+# other than the home folder (_HOME_VAR), a symlink or glob that points at the file.
+_CONFIG_COPIERS = frozenset({"cp", "copy", "mv", "move", "copy-item", "move-item", "cpi", "mi", "install"})
+_CONFIG_SETTERS = frozenset({"set-content", "sc", "add-content", "ac", "out-file", "new-item", "ni", "tee-object"})
+_CONFIG_WRITERS = _CONFIG_COPIERS | _CONFIG_SETTERS | {"tee", "sed"}
+_PS_PATH_PARAMS = {"-path", "-literalpath", "-filepath", "-pspath"}
+_PS_VALUE_PARAMS = {"-value", "-encoding", "-inputobject", "-width", "-stream", "-delimiter", "-itemtype",
+                    "-filter", "-include", "-exclude", "-credential", "-variable"}
+
+
+def _setter_targets(args: list[str]) -> list[str]:
+    """Set-Content / Out-File / New-Item: the -Path value, else the first positional word (+ New-Item -Name)."""
+    path, name, positional, i = "", "", [], 0
+    while i < len(args):
+        word = args[i].lower()
+        if word in _PS_PATH_PARAMS and i + 1 < len(args):
+            path, i = args[i + 1], i + 2
+        elif word == "-name" and i + 1 < len(args):
+            name, i = args[i + 1], i + 2
+        elif word in _PS_VALUE_PARAMS:
+            i += 2
+        else:
+            if not word.startswith(("-", ">", "<")):
+                positional.append(args[i])
+            i += 1
+    path = path or (positional[0] if positional else "")
+    return [os.path.join(path or ".", name) if name else path] if (path or name) else []
+
+
+def _copier_targets(args: list[str]) -> list[str]:
+    """cp / mv / Copy-Item / Move-Item: the destination, and destination/<source name> for a folder destination."""
+    sources, dest, i = [], "", 0
+    while i < len(args):
+        word = args[i].lower()
+        if word in ("-destination", "-t", "--target-directory") and i + 1 < len(args):
+            dest, i = args[i + 1], i + 2
+            continue
+        if word.startswith("--target-directory="):
+            dest = args[i].split("=", 1)[1]
+        elif word in ("-path", "-literalpath") and i + 1 < len(args):
+            sources.append(args[i + 1])
+            i += 1
+        elif not word.startswith(("-", ">", "<")):
+            sources.append(args[i])
+        i += 1
+    if not dest and len(sources) >= 2:
+        dest = sources.pop()
+    if not dest:
+        return []
+    return [dest] + [os.path.join(dest, os.path.basename(src.replace("\\", "/"))) for src in sources]
+
+
+def guard_config_shell_reason(command: str) -> str:
+    """The ask reason when a shell command writes a `.caddis/config.toml` or `~/.caddis/*.toml`, else ''.
+    Callers pass heredoc-free text and treat an exception as "no match"."""
+    targets = _shell_write_targets(command)
+    for target in targets:
+        why = guard_config_reason(target)
+        if why:
+            return f"shell command {why}"
+    return ""
+
+
+def _config_shell_safe(text: str) -> str:
+    """guard_config_shell_reason, but an error is "no match": one rule must never switch off the rest."""
+    try:
+        return guard_config_shell_reason(text)
+    except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
+        return ""
 
 
 _HEREDOC_MARKER = re.compile(
@@ -856,6 +1182,13 @@ def classify_bash(command: str, root: str | None = None) -> tuple[str, str]:
     n = _strip_quotes(c)          # quote-normalized: defeats `rm '-rf' "/"` evasion
     nl = n.lower()
 
+    # ── deny: copying or reading a secret env file through the shell ──
+    # First, so `cp .env /tmp/x` keeps its "copies a secret env file" reason (the write rule below would also
+    # deny it, through the `/tmp/x/.env` folder-destination target). guard_agy.py has no read rule.
+    _tier, _reason = _shell_env_access(_strip_quotes(data_free))
+    if _tier == "deny":
+        return _tier, _reason
+
     # ── deny: writing a secret through the shell ──
     # classify_write denied `.env` and credential files; classify_bash had no equivalent, so the
     # SAME file was denied via Edit and waved through via `echo ... > .env`. Observed live: a phase
@@ -865,11 +1198,6 @@ def classify_bash(command: str, root: str | None = None) -> tuple[str, str]:
         _tier, _why = classify_write(_target)
         if _tier == "deny":
             return "deny", f"shell command {_why}"
-
-    # ── deny: copying or reading a secret env file through the shell ──
-    _tier, _reason = _shell_env_access(_strip_quotes(data_free))
-    if _tier == "deny":
-        return _tier, _reason
 
     # ── deny: an inline python/node/etc. one-liner that touches a secret env file ──
     if _INLINE_ENV.search(c):
@@ -895,8 +1223,16 @@ def classify_bash(command: str, root: str | None = None) -> tuple[str, str]:
     _publish = _headless_publish_safe(data_free)
     if _publish:
         return "deny", _publish
+    _shared = _shared_checkout_safe(data_free, os.getcwd() if root is None else root)
+    if _shared and _headless():
+        return "deny", f"headless session: {_shared}"
 
     # ── ask: destructive-but-legit ──
+    _config = _config_shell_safe(data_free)
+    if _config:
+        return "ask", _config
+    if _shared:
+        return "ask", _shared
     if rm_rf:
         return "ask", "recursive force-delete (rm -rf)"
     if find_delete:
@@ -945,19 +1281,14 @@ def decide(tool_name: str, tool_input, allow_patterns: list[str], root: str | No
                         if p:
                             paths.append(p)
                         break
-        target = ""
-        tier, reason = "allow", ""
-        first_ask = None
-        for p in paths:
-            t, r = classify_write(p)
-            if t == "deny":
-                tier, reason = t, r
-                target = p
-                break
-            elif t == "ask" and first_ask is None:
-                first_ask = (t, r, p)
-        if tier != "deny" and first_ask is not None:
-            tier, reason, target = first_ask
+        # Every file in the patch: a deny wins, else the first ask file the allow-list does not cover asks.
+        # (Matching only the first ask file let an allow-listed lockfile carry `.caddis/config.toml` through.)
+        tiers = [(p, *classify_write(p)) for p in paths]
+        deny = next(((t, r) for _p, t, r in tiers if t == "deny"), None)
+        if deny:
+            return deny
+        return next(((t, r) for p, t, r in tiers if t == "ask" and not _allow_listed(p, allow_patterns)),
+                    ("allow", ""))
     elif tool_name in ("Bash", "PowerShell"):
         # PowerShell is a DISTINCT tool on Windows-primary hosts. Classifying only "Bash" meant
         # `Remove-Item -Recurse -Force <root>` bypassed every tier — while _is_win_recursive_delete
@@ -988,9 +1319,14 @@ def decide(tool_name: str, tool_input, allow_patterns: list[str], root: str | No
     else:
         return "allow", ""
 
-    if tier == "ask" and any(pat and pat.lower() in target.lower() for pat in allow_patterns):
+    if tier == "ask" and _allow_listed(target, allow_patterns):
         return "allow", ""
     return tier, reason
+
+
+def _allow_listed(target: str, allow_patterns: list[str]) -> bool:
+    """The `[guard] allow` escape hatch: a substring of ``target``, case-insensitive."""
+    return any(pat and pat.lower() in target.lower() for pat in allow_patterns)
 
 
 # ── the shared-tree lock during a spawn-session handover ─────────────────────
@@ -1020,9 +1356,15 @@ def _open_handshake(start: str) -> str:
         d = os.path.join(here, _ARTIFACT_DIR, "spawn-session")
         if os.path.isdir(d):
             now = time.time()
-            for name in sorted(os.listdir(d)):
+            try:
+                names = sorted(os.listdir(d))
+            except FileNotFoundError:  # gone since isdir: no handshake. Any other OSError reaches tree_lock_check.
+                return ""
+            for name in names:
                 if not name.endswith("-handshake.json"):
                     continue
+                # A file that is not a lock (unreadable, not an object, no `tree_lock: true`) is skipped. It must
+                # never raise: the hook would fail closed and deny every tree-moving git command.
                 try:
                     with open(os.path.join(d, name), encoding="utf-8") as fh:
                         st = json.load(fh)
@@ -1031,9 +1373,14 @@ def _open_handshake(start: str) -> str:
                 # `tree_lock` is written by handshakes opened since the lock existed. Older files
                 # never stamped `closed_at`, so without this opt-in a handshake finished under the
                 # old code would lock a live session's tree — measured on a real one, 11h old.
-                if not st.get("tree_lock") or st.get("closed_at"):
+                if not isinstance(st, dict) or st.get("tree_lock") is not True or st.get("closed_at"):
                     continue
-                if now - float(st.get("opened_at", 0)) > _HANDSHAKE_LIVE_S:
+                # An explicit open lock fails closed: a missing or bad `opened_at` is live, never abandoned.
+                try:
+                    opened = float(st["opened_at"])
+                except (KeyError, TypeError, ValueError):
+                    opened = now
+                if math.isfinite(opened) and now - opened > _HANDSHAKE_LIVE_S:
                     continue
                 return str(st.get("id") or name[: -len("-handshake.json")])
             return ""
@@ -1043,18 +1390,33 @@ def _open_handshake(start: str) -> str:
         here = parent
 
 
-def tree_lock_reason(command: str, root: str) -> str:
-    """The deny reason when ``command`` would move a checkout a live handshake shares, else ''."""
+def tree_lock_check(command: str, root: str) -> tuple[str, str]:
+    """("deny", why) when ``command`` would move a checkout a live handshake shares; ("ask", why) when the handshake
+    folder cannot be read, so a live lock may be hidden; else ("", "")."""
     m = _TREE_MOVING_GIT.search(command)
     if not m:
-        return ""
+        return "", ""
     # `git -C <path>` acts on <path>, not on the checkout the command was issued from.
     target = re.search(r"\s-C\s+(\S+)", m.group(0))
     if target:
         root = os.path.join(root, target.group(1).strip("'\""))
-    hs = _open_handshake(root)
+    try:
+        hs = _open_handshake(root)
+    except OSError as exc:
+        return "ask", (f"cannot read the spawn-session handshakes ({type(exc).__name__}), so another session may "
+                       "share this checkout; confirm that no handshake is open before you move the tree")
     if not hs:
-        return ""
+        return "", ""
+    return "deny", _tree_lock_why(hs)
+
+
+def tree_lock_reason(command: str, root: str) -> str:
+    """The deny reason when ``command`` would move a checkout a live handshake shares, else ''."""
+    tier, why = tree_lock_check(command, root)
+    return why if tier == "deny" else ""
+
+
+def _tree_lock_why(hs: str) -> str:
     return (f"spawn-session handshake `{hs}` is open, so two sessions share this checkout. Moving or "
             "discarding the tree here carries or destroys the other session's uncommitted work. "
             "Work in your own tree instead: `git worktree add <scratch>/<name> -b <branch> "
@@ -1091,22 +1453,21 @@ def _load_allow(root: str) -> list[str]:
     return [str(x) for x in allow] if isinstance(allow, list) else []
 
 
-def guard_disabled(root: str) -> bool:
-    """True when the guard is turned off entirely (all tiers bypassed).
+def _env_off() -> bool:
+    return os.environ.get(f"{_ENV_PREFIX}_GUARD_DISABLED", "").strip().lower() in _TRUTHY
 
-    Precedence: the env var wins (global, survives plugin auto-updates); otherwise the per-repo
-    `[guard]` table — `enabled = false` or `mode = "off"`. Any parse problem → not disabled (fail safe).
 
-    Env var: CADDIS_GUARD_DISABLED. Read silently (this runs on every tool call — no per-call warn)."""
-    _disabled = os.environ.get(f"{_ENV_PREFIX}_GUARD_DISABLED", "")
-    if _disabled.strip().lower() in _TRUTHY:
-        return True
-    section = _load_guard_config(root)
-    if section.get("enabled") is False:
-        return True
-    if str(section.get("mode", "")).strip().lower() == "off":
-        return True
-    return False
+def _config_off(section: dict) -> bool:
+    """A config off switch in the ``[guard]`` table: ``enabled = false`` or ``mode = "off"``."""
+    return section.get("enabled") is False or str(section.get("mode", "")).strip().lower() == "off"
+
+
+def guard_disabled(root: str | None = None) -> bool:
+    """True when the guard is turned off entirely (all tiers bypassed): env CADDIS_GUARD_DISABLED, interactively.
+
+    Robustness #13: the config file cannot do this any more (a model can write it; see ``deny_only``), and a
+    headless session ignores the env var too. ``root`` is kept for callers; the answer no longer reads it."""
+    return _env_off() and not _headless()
 
 
 def deny_only(root: str) -> bool:
@@ -1114,21 +1475,50 @@ def deny_only(root: str) -> bool:
     (downgrades ask -> allow), so it NEVER prompts. For autonomous / no-prompt workflows that still
     want a catastrophe net: a big plan runs uninterrupted, only a truly destructive call is blocked.
 
-    Precedence like ``guard_disabled``: env wins, then the per-repo ``[guard]`` table. Env:
-    ``CADDIS_GUARD_MODE=deny-only``; config: ``[guard] mode = "deny-only"``. Read silently (runs on
-    every tool call)."""
+    On: env ``CADDIS_GUARD_MODE=deny-only``; config ``[guard] mode = "deny-only"``; a config off switch
+    (``enabled = false`` / ``mode = "off"``); the env off switch in a headless session. Read silently."""
     _mode = os.environ.get(f"{_ENV_PREFIX}_GUARD_MODE", "")
-    if _mode.strip().lower() == "deny-only":
+    if _mode.strip().lower() == "deny-only" or (_env_off() and _headless()):
         return True
     section = _load_guard_config(root)
-    return str(section.get("mode", "")).strip().lower() == "deny-only"
+    return _config_off(section) or str(section.get("mode", "")).strip().lower() == "deny-only"
 
 
-def headless_publish_decision(tool_name: str, tool_input) -> str:
-    """The headless publish deny reason for a shell tool call, else ''. Used when the guard is switched off."""
-    if tool_name not in ("Bash", "PowerShell") or not isinstance(tool_input, dict):
-        return ""
-    return _headless_publish_safe(_without_heredoc_bodies(str(tool_input.get("command", "")).strip()))
+# A shell or write call is denied when the guard itself fails; a read stays open (robustness #13).
+_FAIL_CLOSED_TOOLS = frozenset({"Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"})
+_HOOK_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+
+
+def _note(feature: str, exc: BaseException, root=None) -> None:
+    """Log a guard failure: one stderr line, and the caddis hook ledger when it can be loaded. Never raises."""
+    try:
+        sys.stderr.write(f"[caddis guard] {feature}: {type(exc).__name__}: {str(exc)[:200]}\n")
+    except Exception:
+        pass
+    try:
+        if _HOOK_SCRIPTS not in sys.path:
+            sys.path.insert(0, _HOOK_SCRIPTS)
+        import hook_log
+        hook_log.record("guard", feature, exc, root if isinstance(root, str) else None)
+    except Exception:
+        pass  # the ledger must never block the tool call
+
+
+def hook_decision(data: dict) -> tuple[str, str]:
+    """The tier and reason for one PreToolUse payload. Raises on an internal error; main() decides what then."""
+    tool_name = data.get("tool_name", "")
+    tool_input = data.get("tool_input", {})
+    root = data.get("cwd") or os.getcwd()
+    if guard_disabled(root):
+        return "allow", ""  # interactive env kill switch: bypass every tier, defer to normal permission handling
+    tier, reason = decide(tool_name, tool_input, _load_allow(root), root)
+    if tier != "deny" and tool_name in ("Bash", "PowerShell") and isinstance(tool_input, dict):
+        lock_tier, lock = tree_lock_check(str(tool_input.get("command", "")), root)
+        if lock_tier == "deny" or (lock_tier == "ask" and tier == "allow"):
+            tier, reason = lock_tier, lock
+    if tier == "ask" and deny_only(root):
+        tier = "allow"  # deny-only: keep catastrophe blocks, never prompt (no plan interruption)
+    return tier, reason
 
 
 def main() -> None:
@@ -1138,32 +1528,24 @@ def main() -> None:
             _reconfig(encoding="utf-8")
         except Exception:
             pass
+    # Open ONLY for a payload that is not a JSON object: there is no call to judge, and a crash here would block
+    # every call (hooks.json sets onFailure: "block"). JSONDecodeError and UnicodeDecodeError are ValueErrors.
     try:
         data = json.load(sys.stdin)
-    except Exception:
-        sys.exit(0)  # never block on a malformed payload
+    except ValueError as exc:
+        _note("unparseable payload", exc)
+        sys.exit(0)
+    if not isinstance(data, dict):
+        _note("payload is not an object", TypeError(type(data).__name__))
+        sys.exit(0)
 
     try:
-        tool_name = data.get("tool_name", "")
-        tool_input = data.get("tool_input", {})
-        root = data.get("cwd") or os.getcwd()
-        if guard_disabled(root):
-            # Kill switch: bypass every tier, defer to normal permission handling. Not for a headless session's
-            # push, merge or publish (robustness #4): a session can write .caddis/config.toml itself.
-            why = headless_publish_decision(tool_name, tool_input)
-            if not why:
-                sys.exit(0)
-            tier, reason = "deny", why
-        else:
-            tier, reason = decide(tool_name, tool_input, _load_allow(root), root)
-            if tier != "deny" and tool_name in ("Bash", "PowerShell") and isinstance(tool_input, dict):
-                lock = tree_lock_reason(str(tool_input.get("command", "")), root)
-                if lock:
-                    tier, reason = "deny", lock
-            if tier == "ask" and deny_only(root):
-                tier = "allow"  # deny-only: keep catastrophe blocks, never prompt (no plan interruption)
-    except Exception:
-        sys.exit(0)  # any unexpected shape → fail open, never crash the tool call
+        tier, reason = hook_decision(data)
+    except Exception as exc:  # noqa: BLE001 - fail CLOSED for a shell or write call, open for a read
+        _note("decision", exc, data.get("cwd"))
+        if str(data.get("tool_name") or "") not in _FAIL_CLOSED_TOOLS:  # str(): a list name is unhashable
+            sys.exit(0)
+        tier, reason = "deny", f"guard error: {type(exc).__name__}: {str(exc)[:120]}"
 
     if tier in ("deny", "ask"):
         tail = (" Blocked as too dangerous to run automatically — do it by hand if you are certain."

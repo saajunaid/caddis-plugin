@@ -1,14 +1,16 @@
 """Merge pull requests one at a time, from green CI to a verified deploy, and stop the line at the first problem.
 
 For each PR (design section 11): when BEHIND, update the branch and cancel the old head's runs (force-cancel after
-2 minutes); a cancelled run on the head is re-run, never merged on; "no checks reported" waits; a failed check stops;
-no merge while a push run is in progress on the default branch; squash merge with --match-head-commit; then the merge
-SHA must get a push run, and `caddis_prod_check.py` must pass before the next PR starts. A STOP file is checked before
-each update-branch and each merge. --dry-run makes read-only `gh` calls and prints what it would do.
+2 minutes); a cancelled run on the head is re-run, never merged on; "checks green" is ci-watch's verdict on the
+`statusCheckRollup` of the PR's `headRefOid` (never the `gh pr checks` table, which can show an older head); "no
+checks reported" waits, then stops; every check skipped stops (no job ran), both unless --allow-no-checks; a failed
+check stops; no merge while a push run is in progress on the default branch; squash merge with --match-head-commit;
+then the merge SHA must get a push run, and `caddis_prod_check.py` must pass before the next PR starts. A STOP file is
+checked before each update-branch and each merge. --dry-run makes read-only `gh` calls and prints what it would do.
 
 Exit 0 when every PR merged and verified; 1 at the first stop; 3 when the profile cannot be read.
 
-Usage: caddis_merge_chain.py [--repo PATH] [--gh-repo OWNER/NAME] [--docs-only] [--dry-run]
+Usage: caddis_merge_chain.py [--repo PATH] [--gh-repo OWNER/NAME] [--docs-only] [--dry-run] [--allow-no-checks]
                              [--stop-file PATH ...] <pr> [<pr> ...]
 """
 
@@ -21,13 +23,15 @@ from pathlib import Path
 
 try:
     import caddis_exit
+    import caddis_lanes
     import caddis_prod_check as prod
 except ModuleNotFoundError as exc:
-    if exc.name not in {"caddis_exit", "caddis_prod_check"}:
+    if exc.name not in {"caddis_exit", "caddis_lanes", "caddis_prod_check", "caddis_heavy_slot", "caddis_routing"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
+    import caddis_lanes
     import caddis_prod_check as prod
 
 MAX_ATTEMPTS = 8
@@ -45,6 +49,7 @@ class Stop(Exception):
 class ChainContext(prod.Context):
     stop_files: list[Path] = field(default_factory=list)
     docs_only: bool = False
+    allow_no_checks: bool = False
 
 
 def _stop_check(ctx: ChainContext, before: str) -> None:
@@ -90,26 +95,63 @@ def _head_run(ctx: ChainContext, branch: str, head: str) -> dict | None:
     return next((r for r in runs if r.get("headSha") == head), None)  # type: ignore[union-attr]
 
 
-def _wait_checks(ctx: ChainContext, pr: int) -> str:
-    """Return 'pass', 'fail' or 'cancel'. Raise Stop when no check reports in time."""
+def _rollup_state(rollup: object, allow_no_checks: bool) -> tuple[str, str]:
+    """(state, detail) from the head's `statusCheckRollup`, by ci-watch's own verdict (`caddis_lanes._rollup_verdict`).
+
+    state is 'pass', 'fail', 'cancel', 'pending', 'none' (no check reported) or 'skipped' (every check skipped).
+    A check that only SKIPPED or NEUTRAL ran no job, so a rollup with no SUCCESS proves nothing: 'skipped', unless
+    the owner passed --allow-no-checks for a repo that has no CI at all.
+    """
+    verdict = caddis_lanes._rollup_verdict(rollup)
+    if verdict is None:
+        return ("pass", "no checks reported (--allow-no-checks)") if allow_no_checks else ("none", "")
+    _green, failed, unfinished = verdict
+    if failed:
+        cancelled = {str(i.get("name") or i.get("context") or "?") for i in rollup  # type: ignore[union-attr]
+                     if isinstance(i, dict) and str(i.get("conclusion") or "").upper() == "CANCELLED"}
+        return ("cancel" if set(failed) <= cancelled else "fail"), ", ".join(failed)
+    if unfinished:
+        return "pending", ", ".join(unfinished)
+    ran = sum(1 for i in rollup if isinstance(i, dict)  # type: ignore[union-attr]
+              and str(i.get("conclusion") or i.get("state") or "").upper() == "SUCCESS")
+    if not ran:
+        return ("pass", "every check skipped (--allow-no-checks)") if allow_no_checks else ("skipped", "")
+    return "pass", ""
+
+
+def _wait_checks(ctx: ChainContext, pr: int, head: str) -> str:
+    """Return 'pass', 'fail', 'cancel' or 'moved' for the commit `head`. Raise Stop when no proof comes in time.
+
+    The verdict is ci-watch's: the `statusCheckRollup` of the PR's `headRefOid`, read in one `gh pr view`. The
+    `gh pr checks` table is never read: it can still show an older head's checks.
+    """
     deadline = ctx.clock.now() + CHECKS_WAIT_MINUTES * 60
     while True:
-        proc = ctx.gh("pr", "checks", str(pr), "--json", "name,bucket")
-        if proc.rc != 0 and not proc.out.strip() and "no checks reported" not in proc.err + proc.out:
+        proc = ctx.gh("pr", "view", "--json", "headRefOid,statusCheckRollup", str(pr))
+        if proc.rc != 0:
             # Auth or network failure: say so now instead of waiting 30 minutes as if no check had started.
-            raise Stop(f"#{pr}: gh pr checks failed: {(proc.err or proc.out).strip()[:300]}")
-        buckets: list[str] = []
+            raise Stop(f"#{pr}: gh pr view failed: {(proc.err or proc.out).strip()[:300]}")
         try:
-            buckets = [c.get("bucket", "") for c in prod.json.loads(proc.out)] if proc.out.strip() else []
+            data = prod.json.loads(proc.out) if proc.out.strip() else {}
         except ValueError:
-            buckets = []
-        if "fail" in buckets:
-            return "fail"
-        if "cancel" in buckets:
-            return "cancel"
-        if buckets and "pending" not in buckets:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        if data.get("headRefOid") != head:
+            ctx.out(f"  #{pr}: the head is now {str(data.get('headRefOid'))[:12]}, not {head[:12]}; reading again")
+            return "moved"
+        state, detail = _rollup_state(data.get("statusCheckRollup"), ctx.allow_no_checks)
+        if state == "pass":
+            if detail:
+                ctx.out(f"  #{pr}: WARNING: {detail} on head {head[:12]}")
             return "pass"
-        waiting = "no checks reported yet" if not buckets else "checks pending"
+        if state in ("fail", "cancel"):
+            return state
+        if state == "skipped":
+            raise Stop(f"#{pr}: every check on head {head[:12]} was skipped: no job ran, so this is not a pass. "
+                       "If this repo has no CI at all, run again with --allow-no-checks")
+        waiting = (f"checks pending ({detail})" if state == "pending" else
+                   "no checks reported yet (if this repo has no CI at all, run again with --allow-no-checks)")
         if ctx.clock.now() >= deadline:
             raise Stop(f"#{pr}: {waiting} after {CHECKS_WAIT_MINUTES} min")
         if ctx.dry_run:
@@ -159,10 +201,10 @@ def merge_one(ctx: ChainContext, pr: int) -> str | None:
                 ctx.out(f"  WARNING: re-run of {run['databaseId']} refused: {(rerun.err or rerun.out).strip()[:200]}")
             ctx.clock.sleep(60)
             continue
-        result = _wait_checks(ctx, pr)
+        result = _wait_checks(ctx, pr, head)
         if result == "fail":
             raise Stop(f"#{pr}: CI failed on head {head[:12]}")
-        if result == "cancel":
+        if result in ("cancel", "moved"):
             continue
         if ctx.dry_run:
             ctx.out(f"#{pr} ({merge_state}): checks green; would wait for idle push runs, then squash-merge {head[:12]}")
@@ -219,6 +261,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", type=Path, help="default: <repo>/.caddis/prod-check.toml")
     parser.add_argument("--docs-only", action="store_true", help="the PRs change docs only: expect no deploy")
     parser.add_argument("--dry-run", action="store_true", help="read-only gh calls; print the steps")
+    parser.add_argument("--allow-no-checks", action="store_true",
+                        help="the repo has no CI: accept a head with no check, or with every check skipped")
     parser.add_argument("--stop-file", type=Path, action="append", default=[],
                         help="extra STOP file (~/.caddis/STOP is always checked)")
     args = parser.parse_args(argv)
@@ -229,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         return caddis_exit.NOT_RUN
     ctx = ChainContext(run=prod.real_runner(args.repo), clock=prod.Clock(), profile=profile, repo=args.repo,
                        gh_repo=args.gh_repo, dry_run=args.dry_run, docs_only=args.docs_only,
+                       allow_no_checks=args.allow_no_checks,
                        stop_files=[Path.home() / ".caddis" / "STOP", *args.stop_file])
     return merge_chain(ctx, args.prs)
 

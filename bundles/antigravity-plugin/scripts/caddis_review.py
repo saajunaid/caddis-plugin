@@ -77,6 +77,33 @@ USAGE_LIMIT_RE = re.compile(
     r"Usage limit reached for|Limit Exhausted|Insufficient balance|You.ve hit your .*limit|RESOURCE_EXHAUSTED",
     re.IGNORECASE,
 )
+# A provider failure, not a review: HTTP 429, any 5xx, a rate-limit or overload error. Counts only when the run gave no
+# verdict line (a review may quote such text from the code). 18-19 Oct 2026: a GLM 429 was reported as
+# "FAILED no verdict line" = BLOCKED, which can start a fix session for nothing.
+PROVIDER_FAILURE_RE = re.compile(
+    r"API Error: (?:429|5\d\d)\b|\bHTTP (?:429|5\d\d)\b|Too Many Requests|rate_limit_error|overloaded_error"
+    r"|Service Unavailable|Bad Gateway|Gateway Time-?out|Internal Server Error",
+    re.IGNORECASE,
+)
+CARD_TIMEOUT_SECS = 30 * 60  # one card review; at the limit the launcher tree is killed and the run is NOT_RUN
+
+
+def _provider_failure(output: str, review_text: str) -> str | None:
+    """Why a run with no verdict line is a provider failure (NOT_RUN), or None when it is a real review."""
+    if _verdicts(review_text):
+        return None  # any verdict line, even two that conflict, means a model wrote a review: BLOCKED, never NOT_RUN
+    if not review_text.strip():
+        return "empty reply"
+    match = PROVIDER_FAILURE_RE.search(output)
+    if match:
+        return f"provider error ({match.group(0)})"
+    try:
+        data = _leading_json(output)
+    except ValueError:  # not JSON (JSONDecodeError is a ValueError)
+        data = None
+    if isinstance(data, dict) and data.get("is_error") is True:
+        return "the run reported is_error"
+    return None
 
 
 def _review_role(repo: Path) -> list[str]:
@@ -120,12 +147,30 @@ def launch(provider: str, prompt: str, cwd: Path) -> tuple[int, str]:
     # and the verdict is lost (seen with DeepSeek on 10 Oct 2026). claude-oss.ps1 sets this for GLM only.
     env = {**os.environ, "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
     # stdin closed: started from a background shell with an open stdin, the launcher hung 40 minutes (10 Oct 2026).
-    res = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
-                         errors="replace", env=env)
-    if res.returncode != 0 and res.stderr:
+    # Its own process group (Windows) or session (POSIX), so the timeout kills the whole tree (pwsh, claude), not only
+    # the top process. A timeout is NOT_RUN (3): the run switches provider, never BLOCKED.
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+             else {"start_new_session": True})
+    proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace", env=env, **group)
+    try:
+        stdout, stderr = proc.communicate(timeout=CARD_TIMEOUT_SECS)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        try:
+            stdout, _stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            stdout = ""
+        return caddis_exit.NOT_RUN, (f"caddis_review: card review timed out after {CARD_TIMEOUT_SECS} s; process tree "
+                                     f"killed\n{stdout or ''}")
+    except BaseException:
+        _kill_tree(proc)
+        raise
+    stdout, stderr = stdout or "", stderr or ""
+    if proc.returncode != 0 and stderr:
         # A limit or key message often comes on stderr; keep it for the switch decision.
-        return res.returncode, (res.stdout + "\n" + res.stderr).strip() + "\n"
-    return res.returncode, res.stdout
+        return proc.returncode, (stdout + "\n" + stderr).strip() + "\n"
+    return proc.returncode, stdout
 
 
 def _leading_json(output: str) -> object:
@@ -261,12 +306,15 @@ def run_review(
                     break
 
             # Limit text counts only when the run gave no verdict: a review may quote such text from the code.
-            has_usage_limit = bool(USAGE_LIMIT_RE.search(output)) and not (
-                code == 0 and _verdicts(_extract_review_text(output)))
-            needs_switch = (code == 3) or (code == 2) or has_usage_limit
+            extracted = _extract_review_text(output)
+            has_usage_limit = bool(USAGE_LIMIT_RE.search(output)) and not (code == 0 and _verdicts(extracted))
+            # A 429, a 5xx or an empty reply is the provider failing, not the reviewer finding nothing: switch, and
+            # NOT_RUN when no provider is left. Never "FAILED no verdict line" (BLOCKED).
+            provider_failed = _provider_failure(output, extracted)
+            needs_switch = (code == 3) or (code == 2) or has_usage_limit or provider_failed is not None
 
             # Again after the JSON decode: an escaped key form that survived in the raw JSON is plain text now.
-            review_text = caddis_redact.redact(_extract_review_text(output), masks)
+            review_text = caddis_redact.redact(extracted, masks)
             review_file = out_dir / f"{card.stem}-{provider}.txt"
             content = review_text.rstrip("\r\n") + f"\nEXIT {code} secs {duration}\n"
 
@@ -277,6 +325,8 @@ def run_review(
                     reason = "exit 2"
                 elif has_usage_limit:
                     reason = "usage limit reached"
+                elif provider_failed is not None:
+                    reason = provider_failed
                 else:
                     reason = f"exit {code}"
 

@@ -9,7 +9,7 @@ must never fail a subagent's turn. Anchors to the SESSION repo (payload `cwd`, s
 convention as session_end.py/inject_relay.py), not the hook process's launch cwd.
 Cross-platform, stdlib only.
 
-Writes into the repo's `.caddis/` artifact dir.
+Writes into the repo's `.caddis/` artifact dir, only when that folder already exists.
 """
 import json
 import os
@@ -49,8 +49,8 @@ def _read_input() -> dict:
         return {}
 
 
-def _repo_root(start: str) -> str:
-    """Git repo root for `start`, or `start` itself when not a git repo."""
+def _repo_root(start: str):
+    """Git repo root for `start`, or None when `start` is in no git repository."""
     try:
         out = subprocess.run(
             ["git", "-C", start, "rev-parse", "--show-toplevel"],
@@ -61,7 +61,7 @@ def _repo_root(start: str) -> str:
             return root
     except Exception:
         pass
-    return start
+    return None
 
 
 def _agent_type_from_meta(transcript_path: str) -> str:
@@ -174,6 +174,8 @@ def main() -> int:
     data = _read_input()
     cwd = data.get("cwd") or os.getcwd()
     root = _repo_root(cwd)
+    if not root:
+        return 0  # in no git repository: nothing to attach a log to
     transcript = data.get("agent_transcript_path") or data.get("transcript_path") or ""
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -184,7 +186,8 @@ def main() -> int:
     }
     try:
         log_dir = str(artifact_root(root))
-        os.makedirs(log_dir, exist_ok=True)
+        if not os.path.isdir(log_dir):
+            return 0  # the repo never opted in: do not create the artifact folder
         with open(os.path.join(log_dir, "agent-log.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:

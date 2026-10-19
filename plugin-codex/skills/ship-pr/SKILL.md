@@ -10,7 +10,7 @@ after. This command does the mechanics only: push safely, open (or update) the P
 and **stop at green** with a mergeability verdict. It **never merges and never deploys** — on these
 repos merge == deploy, so the merge stays a separate, deliberate act: `/ship-merge`.
 
-For a hotfix straight to the default branch, use `/ship` (the express lane) instead.
+For a quick commit and push of a feature branch, use `/ship` (the express lane). It never pushes the default branch.
 
 Optional argument: **$ARGUMENTS** (PR title override; default = derived from the branch's
 conventional-commit summary).
@@ -27,11 +27,47 @@ conventional-commit summary).
 Read `AGENTS.md` + the detected workflow file(s) first for the repo's real gate names, default
 branch, and merge conventions — never assume `main`, never assume job names.
 
+## Step 0b — Is this checkout safe to move?
+
+<!-- checkout-safety: keep byte-identical in pr-merge, ship-pr, ship-merge and cloud-phases; a test pins it -->
+Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
+`stash`, `reset --hard`). Before the first of them, run:
+```
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_checkout_guard.py" shared --root .
+```
+It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
+`Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
+`--own-files`, every change counts as another session's. A linked worktree is never shared.
+
+- **On `SHARED: no`,** do the steps as written, in this checkout.
+- **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
+  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+    `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
+  - **Pull a branch to test it:** `git fetch origin`, then
+    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
+  - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
+    `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
+    checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no
+    checkout has it out.
+  - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
+
+`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
+<!-- /checkout-safety -->
+
 ## Step 1 — Refuse on the default branch
 
-A PR is *branch → default*. If HEAD **is** the default branch, stop and point at `/ship` — there is
-nothing to open a PR from. (Offer to create a feature branch from the current work if the changes
-are uncommitted.)
+A PR is *branch → default*. Read the default branch as a bare name: `git rev-parse --abbrev-ref
+origin/HEAD` prints `origin/<default>`, so strip the `origin/` prefix before you compare.
+```bash
+d=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) && d=${d#origin/}   # prints origin/<default>: strip origin/
+[ -n "$d" ] || d=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)   # origin/HEAD not set
+git branch --show-current                                                  # compare with "$d"
+```
+If HEAD **is** the default branch, stop: there is nothing to open a PR from. Offer to move the
+uncommitted work to a feature branch (`git switch -c <branch>`), or run `/ship`, which does that and
+hands back here.
 
 ## Step 2 — Preflight (local gates mirroring CI)
 
@@ -46,7 +82,7 @@ Finished plans close in the PR that finishes them (`/caddis:implement` step 4b).
 PR did, on the files it touches only:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
 ```
 
 (`<default>` is the default branch from Step 0. Falls back to `scripts/caddis_tidy.py` from a
@@ -84,7 +120,7 @@ source checkout; skip this step if the script is missing or the repo has no `.ca
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
@@ -108,6 +144,8 @@ Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/ca
   git rebase <default-branch>
   git push --force-with-lease origin <branch> # never bare --force
   ```
+- In a shared checkout (Step 0b says `SHARED: yes`), never rebase here: rebase in a detached worktree, as
+  Step 0b says.
 
 ## Step 5 — Push + create/update the PR
 
@@ -124,7 +162,7 @@ scope-guard check when present:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
 - GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   `RESULT: pass` means every check of the PR's head commit is complete and green; `HEAD:` names that commit.
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → run `ci-watch` again; if it stays 3, stop and report, do not merge.

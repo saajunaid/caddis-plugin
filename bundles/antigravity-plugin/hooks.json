@@ -9,7 +9,8 @@
             "command": "python guard_agy.py",
             "windows": "python guard_agy.py",
             "linux": "python3 guard_agy.py",
-            "osx": "python3 guard_agy.py"
+            "osx": "python3 guard_agy.py",
+            "timeout": 30
           }
         ]
       }

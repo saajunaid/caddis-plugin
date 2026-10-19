@@ -29,11 +29,21 @@ Exit codes (fail-closed):
   0  REVIEW: CLEAN      — no blocking issues
   1  REVIEW: BLOCKING   — one or more blocking issues
   2  unused             — advisory is not a review verdict
-  3  misconfigured      — REVIEW_API_KEY missing, OR the pre-send secret filter refused (a
-                          denylisted path / possible secret; see secret_filter.py) — actionable
-                          message on stderr/stdout either way
-  4  error              — no diff verdict parsed, git failure, endpoint/parse failure, or the diff
+  3  could not run      — REVIEW_API_KEY missing, OR the pre-send secret filter refused (a
+                          denylisted path / possible secret; see secret_filter.py), OR every
+                          provider failed with a PROVIDER failure: HTTP 429, any 5xx, a timeout, a
+                          connection error, an empty reply, an agy error status, or the agy spend
+                          cap refused — actionable message on stderr/stdout either way
+  4  error              — no diff verdict parsed, git failure, other endpoint/parse failure, or the diff
                           exceeds REVIEW_MAX_DIFF_CHARS (see below — never silently downgraded to CLEAN)
+
+Provider chain (owner policy, 2026-10-16): deepseek -> agy-argon -> glm. A named --provider goes first,
+then the rest in policy order; a provider with no key (or no agy on PATH) is skipped. A provider failure
+moves to the next provider and never splits the diff. On HTTP 429 a `Retry-After` is honoured ONCE per
+provider (capped at 60 s), then the next provider is tried. A provider that failed gets no more calls in
+the same run. agy runs through `caddis_spend.py run` (the EUR spend cap), in plan mode, with the diff in
+the prompt (no tools needed). The secret filter runs once, before any provider, agy included. The
+provider that gave each verdict is printed.
 
 Diff-size ceiling: an oversized diff sent to a chat-completions endpoint has been observed, live, to
 come back two different unsafe ways — an empty `content` field on an HTTP 200 (at least fails closed:
@@ -54,8 +64,11 @@ import argparse
 import http.client
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -88,8 +101,9 @@ PROVIDERS: dict[str, dict[str, str]] = {
 }
 DEFAULT_PROVIDER = "deepseek"
 
-# Tried, in order, ONLY when the primary provider fails at transport level (timeout, HTTP
-# error, unparseable response) AND the user did not name a provider explicitly.
+# The review chain, in owner-policy order (2026-10-16): DeepSeek, then agy Argon, then GLM. A named
+# provider goes first and the rest follow in this order; a custom endpoint (REVIEW_BASE_URL /
+# REVIEW_MODEL) never falls back, because its owner named exactly who reviews.
 #
 # Why a fallback rather than just picking one vendor: the whole point of this tool is that the
 # reviewer is a DIFFERENT vendor from the author, so collapsing to a single provider means an
@@ -102,7 +116,20 @@ DEFAULT_PROVIDER = "deepseek"
 # two same-vendor passes missed, an anchor bug, an orphaned-permission-rows bug). GLM is the
 # spare tyre, not a co-equal — an alternation policy that sends half the phases to a provider
 # that times out buys variety it never actually collects.
-FALLBACK_PROVIDERS: tuple[str, ...] = ("glm",)
+AGY_PROVIDER = "agy-argon"
+REVIEW_ORDER: tuple[str, ...] = ("deepseek", AGY_PROVIDER, "glm")
+
+# agy runs headless through the spend cap: plan mode (it needs no tools, the diff is in the prompt).
+AGY_MODEL = "gemini-4-argon-high"
+AGY_TIMEOUT_S = 15 * 60
+# The prompt is one command-line argument (`--print=<prompt>`). A Windows command line holds at most
+# 32,767 characters, so a larger prompt skips agy instead of failing to start.
+AGY_MAX_PROMPT_CHARS = 28_000
+# `caddis_spend.py run` refusal codes: 75 over the cap or no lock, 78 cap not configured. Never agy's own.
+SPEND_REFUSED = (75, 78)
+
+# On HTTP 429, wait for `Retry-After` once per provider per run, at most this long.
+RETRY_AFTER_CAP_S = 60.0
 
 # Fail-closed diff-size ceiling (see the module docstring). Observed live: an oversized diff got back
 # an empty `content` field (safe, but wasteful) on one occasion, and — separately, a bulk multi-document
@@ -147,6 +174,56 @@ MAX_REVIEW_BATCHES = 12
 
 class ConfigError(Exception):
     """Raised when configuration can't be resolved (unknown provider, or missing API key)."""
+
+
+class ProviderFailure(RuntimeError):
+    """The provider could not answer: HTTP 429, a 5xx, a timeout, a connection error, an empty reply, an agy
+    error status. NOT_RUN (exit 3), never a verdict, never a reason to split the diff."""
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class ProviderSkipped(Exception):
+    """The provider is not available for this run (the spend cap refused agy, agy is missing, the prompt
+    is too long for the agy command line). The chain moves on; nothing was reviewed. `for_run=False`: skip only
+    this prompt (it was too long), so a smaller batch may still use the provider."""
+
+    def __init__(self, message: str, for_run: bool = True):
+        super().__init__(message)
+        self.for_run = for_run
+
+
+def _retry_after(exc: BaseException) -> float | None:
+    """Seconds from a 429's `Retry-After` header (delta-seconds form only), else None."""
+    if isinstance(exc, ProviderFailure):
+        return exc.retry_after
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 429 and exc.headers is not None:
+        try:
+            value = float((exc.headers.get("Retry-After") or "").strip())
+        except ValueError:
+            return None
+        return value if value >= 0 else None
+    return None
+
+
+def failure_kind(exc: BaseException) -> str:
+    """'provider' (NOT_RUN: next provider, no split), 'truncation' (size signal: may split), or 'other'.
+
+    Order matters: HTTPError is a URLError, and RemoteDisconnected is both a ConnectionError and an
+    HTTPException (a dropped connection, not a truncated body)."""
+    if isinstance(exc, (ProviderFailure, ProviderSkipped)):
+        return "provider"
+    if isinstance(exc, urllib.error.HTTPError):
+        return "provider" if exc.code == 429 or exc.code >= 500 else "other"
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)):
+        return "provider"
+    if isinstance(exc, http.client.HTTPException):
+        return "truncation"
+    if isinstance(exc, OSError):
+        return "provider"
+    return "other"
 
 
 DEFAULT_KEYS_FILE = "~/.caddis/keys.env"
@@ -490,12 +567,114 @@ def call_llm(base_url: str, api_key: str, model: str, prompt: str, timeout: int 
     #     which is EXIT_BLOCKING. A crash was being reported to scripted callers as "the
     #     reviewer found blocking issues."
     # Raising here routes both into the existing retry/failover path and kills the crash.
+    # Since 2026-10-19 this is a ProviderFailure: NOT_RUN and the next provider, never a split. An empty
+    # reply from a throttled DeepSeek is not size-correlated, and halving it sent MORE calls to it.
     if not isinstance(content, str) or not content.strip():
-        raise RuntimeError(
+        raise ProviderFailure(
             "endpoint returned HTTP 200 with empty or absent message content "
             f"(type={type(content).__name__}) — treating as a provider failure"
         )
     return content
+
+
+def _spend_script() -> Path | None:
+    """caddis_spend.py: beside this file in a bundle, else the source repo's scripts/ folder."""
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "caddis_spend.py", here.parents[1] / "scripts" / "caddis_spend.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def agy_launcher() -> list[str] | None:
+    """The command prefix that runs agy under the spend cap, or None when agy or caddis_spend is missing.
+    Every agy call goes through `caddis_spend.py run` (owner policy: agy only through the spend cap)."""
+    agy = shutil.which("agy")
+    spend = _spend_script()
+    if not agy or spend is None:
+        return None
+    return [sys.executable, str(spend), "run", "--caller", "oss-review", "--", agy]
+
+
+def _kill_tree(proc) -> None:
+    """Kill the child and everything it started (it runs in its own process group / session)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+
+
+def _run_capped(argv: list[str], timeout: float) -> tuple[int, str, str]:
+    """Run `argv` with stdin closed; (exit, stdout, stderr). On timeout kill the whole tree and raise
+    TimeoutError: a killed caddis_spend must not leave agy running on."""
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+             else {"start_new_session": True})
+    env = {**os.environ, "CADDIS_HEADLESS": "1"}
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace", env=env, **group)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        try:
+            proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        raise TimeoutError(f"agy timed out after {int(timeout)} s; process tree killed") from None
+    except BaseException:
+        _kill_tree(proc)
+        raise
+    return proc.returncode, stdout or "", stderr or ""
+
+
+def _agy_document(stdout: str) -> dict | None:
+    """The last agy JSON document (keys status/response) that starts a line of `stdout`.
+
+    Mirror of scripts/caddis_spend.py::_agy_document, duplicated so this tool stays one stdlib-only file.
+    A `{` inside the model reply never starts a line of the raw output (it is inside a JSON string)."""
+    decoder = json.JSONDecoder()
+    text = stdout or ""
+    starts = [0] if text.startswith("{") else []
+    starts += [i + 1 for i, ch in enumerate(text) if ch == "\n" and text[i + 1:i + 2] == "{"]
+    found = None
+    for start in starts:
+        try:
+            obj, _end = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and {"status", "response"} <= obj.keys():
+            found = obj
+    return found
+
+
+def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S) -> str:
+    """One review by agy Argon through the spend cap -> the reply text.
+
+    ProviderSkipped: the cap refused, agy is missing, or the prompt is too long for one argument.
+    ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no JSON
+    document, or an empty reply."""
+    if len(prompt) > AGY_MAX_PROMPT_CHARS:
+        raise ProviderSkipped(f"prompt is {len(prompt):,} chars, over the {AGY_MAX_PROMPT_CHARS:,}-char "
+                              "agy command-line limit", for_run=False)
+    argv = [*launcher, "--model", AGY_MODEL, "--mode", "plan", "--output-format", "json",
+            f"--print={prompt}"]
+    code, stdout, stderr = _run_capped(argv, timeout)
+    if code in SPEND_REFUSED:
+        raise ProviderSkipped(f"the agy spend cap refused the call (caddis_spend exit {code}): "
+                              f"{stderr.strip()[-300:]}")
+    if code == 127:
+        raise ProviderSkipped(f"agy could not start: {stderr.strip()[-300:]}")
+    doc = _agy_document(stdout)
+    status = str(doc.get("status")) if doc else "no JSON document"
+    if code != 0 or status != "SUCCESS":
+        raise ProviderFailure(f"agy exit {code}, status {status}: {(stderr or stdout).strip()[-300:]}")
+    response = doc.get("response")
+    if not isinstance(response, str) or not response.strip():
+        raise ProviderFailure("agy returned an empty response")
+    return response
 
 
 def _force_utf8_stdio() -> None:
@@ -555,7 +734,9 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                         help="git range to review (e.g. origin/main..HEAD); default = working tree")
     parser.add_argument("--cwd", default=".", help="repo directory (default: cwd)")
     parser.add_argument("--provider", default=None,
-                        help=f"preset: {', '.join(sorted(PROVIDERS))} (default {DEFAULT_PROVIDER}); env REVIEW_PROVIDER")
+                        help=f"preset: {', '.join(sorted(PROVIDERS))} or {AGY_PROVIDER} (default "
+                             f"{DEFAULT_PROVIDER}); env REVIEW_PROVIDER. A provider failure falls back in "
+                             f"the order {' -> '.join(REVIEW_ORDER)}")
     parser.add_argument("--base-url", dest="base_url", default=None, help="override REVIEW_BASE_URL / the preset")
     parser.add_argument("--model", default=None, help="override REVIEW_MODEL / the preset")
     parser.add_argument("--max-diff-chars", type=int, default=None,
@@ -623,11 +804,29 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         return EXIT_CONFIG
     diff_text = filter_result.kept_diff
 
+    primary_provider = (
+        args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
+    ).strip().lower()
+    # A custom ENDPOINT names exactly who reviews (REVIEW_BASE_URL/REVIEW_MODEL, the documented
+    # future-proofing path): it never falls back. A named preset falls back on a provider failure,
+    # and the switch is printed, so the reviewer is never misreported.
+    custom = bool(args.base_url or env.get("REVIEW_BASE_URL") or args.model or env.get("REVIEW_MODEL"))
+    agy_cmd = agy_launcher()
+
+    def _http_entry(name: str, url: str, key: str, mdl: str):
+        return (name, mdl, url, lambda prompt: call_llm(url, key, mdl, prompt))
+
+    def _agy_entry(launcher: list[str]):
+        return (AGY_PROVIDER, AGY_MODEL, "caddis_spend run", lambda prompt: call_agy(launcher, prompt))
+
     try:
-        base_url, api_key, model = resolve_config(args, env)
-        primary_provider = (
-            args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
-        ).strip().lower()
+        if primary_provider == AGY_PROVIDER and not custom:
+            if agy_cmd is None:
+                raise ConfigError(f"provider {AGY_PROVIDER!r} needs agy on PATH and caddis_spend.py "
+                                  "(beside this script or in the repo's scripts/ folder).")
+            chain = [_agy_entry(agy_cmd)]
+        else:
+            chain = [_http_entry(primary_provider, *resolve_config(args, env))]
     except ConfigError as exc:
         sys.stderr.write(f"{exc}\n")
         return EXIT_CONFIG
@@ -698,85 +897,100 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
 
     branch = current_branch(args.cwd)
 
-    # Fall back to another vendor only when the user did NOT name one. If they asked for a
-    # specific provider, silently reviewing with a different one would misreport who checked
-    # the code — the single fact this tool exists to establish.
-    # "Explicit" must include a custom ENDPOINT, not just a named preset. Someone who set
-    # REVIEW_BASE_URL/REVIEW_MODEL (the documented future-proofing path) has named exactly who
-    # should review their code; falling back to the GLM preset would misreport the reviewer —
-    # the one fact this tool exists to establish.
-    explicit = bool(
-        args.provider or env.get("REVIEW_PROVIDER")
-        or args.base_url or env.get("REVIEW_BASE_URL")
-        or args.model or env.get("REVIEW_MODEL")
-    )
-    chain: list[tuple[str, str, str, str]] = [(primary_provider, base_url, api_key, model)]
-    if not explicit:
-        for name in FALLBACK_PROVIDERS:
-            if name == primary_provider:
+    # The rest of the chain in policy order (DeepSeek -> agy Argon -> GLM). A provider with no key, or
+    # agy with no agy on PATH, is skipped: not an error, just nothing to fall back to.
+    if not custom:
+        for name in REVIEW_ORDER:
+            if name == chain[0][0]:
+                continue
+            if name == AGY_PROVIDER:
+                if agy_cmd is not None:
+                    chain.append(_agy_entry(agy_cmd))
                 continue
             try:
-                fb_url, fb_key, fb_model = resolve_config(args, env, provider=name, use_overrides=False)
+                chain.append(_http_entry(name, *resolve_config(args, env, provider=name, use_overrides=False)))
             except ConfigError:
-                continue  # no key for the spare — not an error, just nothing to fall back to
-            chain.append((name, fb_url, fb_key, fb_model))
-
-    def _try_chain(prompt: str, label: str) -> str | None:
-        """One payload against every provider in the chain. None when all of them failed."""
-        for idx, (name, url, key, mdl) in enumerate(chain):
-            try:
-                review = call_llm(url, key, mdl, prompt)
-            except TRANSPORT_ERRORS as exc:
-                remaining = len(chain) - idx - 1
-                sys.stderr.write(
-                    f"review request failed{label} ({mdl} @ {url}): {exc}\n"
-                    + (
-                        f"  falling back to {chain[idx + 1][0]}...\n"
-                        if remaining
-                        else "  If the model id was renamed, set REVIEW_MODEL to the current id "
-                             "(env overrides the preset).\n"
-                    )
-                )
                 continue
-            if idx:
-                # Loud on purpose. A verdict from a different vendor than the one requested is
-                # a material fact about the review, not an implementation detail — it belongs
-                # in the transcript the phase report quotes.
-                print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}).")
-            return review
-        return None
 
-    def _review_chunk(chunk: str, label: str, depth: int = 0) -> list[str] | None:
-        """Review `chunk`, halving it and retrying once per level if every provider failed.
+    # Per run: a provider that failed (429, 5xx, timeout, empty reply, cap refusal) gets no more calls,
+    # and each provider waits for a 429 Retry-After at most once. Hammering a throttled provider with
+    # more, smaller calls is the 18-19 Oct 2026 failure.
+    down: set[str] = set()
+    waited: set[str] = set()
 
-        WHY HALVE RATHER THAN JUST FAIL. Both observed failures were transport truncation on a
-        long reply — an `http.client.IncompleteRead` on one provider and an empty HTTP 200 body on
-        another — and both were SIZE-CORRELATED. Retrying the same payload against the same
-        endpoint reproduces the same overflow; retrying a smaller one usually does not. The whole
-        run used to abort here, which is safe but throws away a review the user has already
-        waited minutes for.
+    def _try_chain(prompt: str, label: str) -> tuple[str | None, list[str]]:
+        """One payload against every provider still up. (review, []) or (None, the failure kinds)."""
+        kinds: list[str] = []
+        for idx, (name, mdl, where, call) in enumerate(chain):
+            if name in down:
+                continue
+            while True:
+                try:
+                    review = call(prompt)
+                except ProviderSkipped as exc:
+                    sys.stderr.write(f"[cross-review] {name} skipped{label}: {exc}\n")
+                    if exc.for_run:
+                        down.add(name)
+                    kinds.append("provider")
+                    break
+                except TRANSPORT_ERRORS as exc:
+                    kind = failure_kind(exc)
+                    retry = _retry_after(exc)
+                    if kind == "provider" and retry is not None and name not in waited:
+                        waited.add(name)
+                        delay = min(retry, RETRY_AFTER_CAP_S)
+                        sys.stderr.write(f"[cross-review] {name} is rate-limited (HTTP 429){label}; waiting "
+                                         f"{delay:g} s once (Retry-After), then one retry\n")
+                        time.sleep(delay)
+                        continue
+                    kinds.append(kind)
+                    if kind == "provider":
+                        down.add(name)
+                    left = [n for n, *_ in chain[idx + 1:] if n not in down]
+                    sys.stderr.write(
+                        f"review request failed{label} ({mdl} @ {where}): {exc}\n"
+                        + (f"  falling back to {left[0]}...\n" if left
+                           else "  If the model id was renamed, set REVIEW_MODEL to the current id "
+                                "(env overrides the preset).\n" if kind == "other"
+                           else "  no provider left to try.\n")
+                    )
+                    break
+                # Loud on purpose, every time: which vendor gave the verdict is a material fact about
+                # the review, and it belongs in the transcript the phase report quotes.
+                if idx:
+                    print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}).")
+                else:
+                    print(f"[cross-review] reviewed by {name} ({mdl}).")
+                return review, []
+        return None, kinds or ["provider"]  # nothing tried: every provider was already down
+
+    def _review_chunk(chunk: str, label: str, depth: int = 0) -> tuple[list[str] | None, list[str]]:
+        """Review `chunk`; on a size-truncation failure, halve it and retry once per level.
+
+        WHY HALVE. The observed truncations (`http.client.IncompleteRead`, parking-lot 006) were
+        SIZE-CORRELATED: a smaller payload usually gets through. Only that signal splits. A provider
+        failure (429, 5xx, timeout, empty reply) does NOT: halving a throttled call sends it more calls.
 
         Bounded at RETRY_SPLIT_DEPTH levels and never splits a single file, so it cannot loop and
-        cannot silently shrink a diff to nothing. Returns None when a chunk that cannot be split
-        any further still fails — the abort path stays reachable.
+        cannot silently shrink a diff to nothing. Returns (None, kinds) when the chunk failed.
         """
-        review = _try_chain(build_review_prompt(chunk, branch, args.range, whole_change), label)
+        review, kinds = _try_chain(build_review_prompt(chunk, branch, args.range, whole_change), label)
         if review is not None:
-            return [review]
+            return [review], []
         files = split_diff_by_file(chunk)
-        if depth >= RETRY_SPLIT_DEPTH or len(files) < 2:
-            return None
+        if "truncation" not in kinds or depth >= RETRY_SPLIT_DEPTH or len(files) < 2:
+            return None, kinds
         half = len(files) // 2
         sys.stderr.write(
             f"[cross-review] retrying{label} as 2 smaller chunks ({half} + {len(files) - half} "
-            "file(s)) — both observed failures were size-correlated truncation.\n")
+            "file(s)) — a truncated reply is size-correlated.\n")
         out: list[str] = []
         for part_no, part in enumerate(("".join(files[:half]), "".join(files[half:])), 1):
-            got = _review_chunk(part, f"{label} part {part_no}", depth + 1)
+            got, sub_kinds = _review_chunk(part, f"{label} part {part_no}", depth + 1)
             if got is None:
-                return None
+                return None, kinds + sub_kinds
             out += got
-        return out
+        return out, []
 
     whole_change = changed_paths(diff_text)
     verdicts: list[bool | None] = []
@@ -787,13 +1001,20 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             print(f"\n===== batch {batch_no}/{len(batches)} — {files} file(s), "
                   f"{len(batch):,} chars =====")
 
-        reviews = _review_chunk(batch, label)
+        reviews, kinds = _review_chunk(batch, label)
         if reviews is None:
             # Every provider failed, and splitting did not rescue it. Do NOT continue to the next
             # batch: a partial sweep that still prints a verdict is the failure mode this whole
-            # tool guards against.
-            sys.stderr.write(f"batch {batch_no}/{len(batches)} could not be reviewed — aborting.\n")
-            return EXIT_ERROR
+            # tool guards against. Only provider failures: could not run (3). Anything else: 4.
+            not_run = all(k == "provider" for k in kinds)
+            sys.stderr.write(f"batch {batch_no}/{len(batches)} could not be reviewed — aborting"
+                             + (" (every provider failed: NOT_RUN).\n" if not_run else ".\n"))
+            if any(v is False for v in verdicts):
+                # An earlier batch already found a blocking issue. A later failure must not hide it behind
+                # NOT_RUN (3), which reads as "nothing found, retry". Fail closed and report the finding.
+                print("REVIEW: BLOCKING  (an earlier batch blocked; the remaining batches were not reviewed)")
+                return EXIT_BLOCKING
+            return EXIT_CONFIG if not_run else EXIT_ERROR
 
         for review in reviews:
             print(review)

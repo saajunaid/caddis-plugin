@@ -602,7 +602,26 @@ def is_test_file(path: str) -> bool:
     return False
 
 
+_STEERING_FILENAMES = {"conftest.py", "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini"}
+
+
+def is_review_steering_file(path: str) -> bool:
+    """True for config that steers reviews, merges or tests: never tier 0, and never a 0-reviewer "1-small".
+
+    `.caddis/*.toml` (review/implement routing, merge-chain checks, spend cap), any `conftest.py`, the pytest and
+    packaging config, and `.github/workflows/**`. A fix diff that changes these can turn a gate off, so it is reviewed.
+    """
+    norm = path.replace("\\", "/").lower().removeprefix("./")
+    if norm.startswith(".caddis/") and norm.endswith(".toml"):
+        return True
+    if norm.startswith(".github/workflows/"):
+        return True
+    return norm.rsplit("/", 1)[-1] in _STEERING_FILENAMES
+
+
 def is_tier0_file(path: str) -> bool:
+    if is_review_steering_file(path):
+        return False
     norm = path.replace("\\", "/").lower()
     if norm.startswith("./"):
         norm = norm[2:]
@@ -685,6 +704,8 @@ def review_tier(files: list[tuple[str, int]], plan_risk: str = "normal") -> str:
     non_tier0_lines = sum(lines for _, lines in non_tier0)
     if review_triggers(non_tier0_paths, non_tier0_lines):
         return "2"
+    if any(is_review_steering_file(p) for p in non_tier0_paths):
+        return "1"
     has_test = any(is_test_file(p) for p, _ in files)
     if non_tier0_lines <= 40 and has_test:
         return "1-small"

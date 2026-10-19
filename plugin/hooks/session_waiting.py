@@ -16,14 +16,21 @@ Rules for a hook that runs in every session: stdlib only, no network in the hook
 become context), never raises, always exits 0. Headless runs are skipped: they never wait for input.
 
 Refresh (roadmap-page Phase 3): when a mark was written or removed AND the checkout has `.caddis/roadmaps/`, start
-`caddis_roadmap.py render --all` DETACHED and do not wait for it (the child fetches origin, as every
-roadmap read does), so the page's "Waiting for you" stays current and
-no prompt is slowed. A prompt with no mark to clear starts nothing.
+`caddis_roadmap.py render --all --no-fetch` in the background and do not wait for it, so the page's "Waiting for
+you" stays current and no prompt is slowed. A prompt with no mark to clear starts nothing.
+Robustness #8: N sessions must not start N renders. The hook starts one only when the repo's debounce stamp
+(`.caddis/session-state/.roadmap-render.stamp`) is older than 60 s; the render itself takes a non-blocking per-repo
+lock and exits at once when another render holds it; `--no-fetch` reads the origin refs the checkout already has, so
+no hook ever runs `git fetch` against a peer's pull or push. The first mark change inside the 60 s window creates
+`.roadmap-render.pending` and starts ONE follow-up render with `--delay` (it waits for the window's end); later
+changes in the window start nothing. A render that runs when the pending file appears renders once more at its end,
+so the last change always reaches the page: at most two starts per repo per minute.
 """
 import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 WAITING_KINDS = {
@@ -35,6 +42,9 @@ WAITING_KINDS = {
 }
 CLEAR_EVENTS = ("UserPromptSubmit", "Stop", "SessionEnd")
 MESSAGE_MAX = 300
+RENDER_DEBOUNCE_S = 60
+STAMP_NAME = ".roadmap-render.stamp"
+PENDING_NAME = ".roadmap-render.pending"  # caddis_roadmap.py render reads it: one more render at its end
 
 
 def _repo_root(start: str) -> str:
@@ -111,6 +121,31 @@ def _render_detached(marker: str) -> None:
     script = _roadmap_script()
     if script is None or not os.path.isdir(os.path.join(root, ".caddis", "roadmaps")):
         return
+    state = os.path.dirname(marker)
+    stamp = os.path.join(state, STAMP_NAME)
+    try:
+        age = time.time() - os.path.getmtime(stamp)
+    except OSError:
+        age = None
+    if age is not None and 0 <= age < RENDER_DEBOUNCE_S:
+        # A render started under a minute ago. Queue ONE follow-up for the end of the window, so this change still
+        # reaches the page: the first hook to create the pending file starts it; the others start nothing.
+        pending = os.path.join(state, PENDING_NAME)
+        try:
+            os.close(os.open(pending, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except OSError:
+            return  # already queued (or a running render will render once more)
+        if not _start(script, root, ["--delay", str(int(RENDER_DEBOUNCE_S - age) + 1)]):
+            try:
+                os.remove(pending)
+            except OSError:
+                pass
+        return
+    if _start(script, root, []):
+        _touch(stamp)  # only after the start worked: a failed start must not hold the next one back
+
+
+def _start(script: str, root: str, extra: list) -> bool:
     kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "cwd": root,
               "env": {**os.environ, "CADDIS_HEADLESS": "1"}}
     # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: a hidden console that the render's git.exe calls share.
@@ -119,7 +154,20 @@ def _render_detached(marker: str) -> None:
     flags = (0x08000000 | 0x00000200) if os.name == "nt" else 0
     if os.name != "nt":
         kwargs["start_new_session"] = True
-    subprocess.Popen([sys.executable, script, "render", "--all", "--root", root], creationflags=flags, **kwargs)
+    try:
+        subprocess.Popen([sys.executable, script, "render", "--all", "--no-fetch", *extra, "--root", root],
+                         creationflags=flags, **kwargs)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _touch(path: str) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(str(os.getpid()))
+    except OSError:
+        pass  # a debounce file is a convenience: never fail the hook
 
 
 def main() -> None:

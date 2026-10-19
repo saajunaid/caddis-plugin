@@ -61,7 +61,8 @@ def _repo_root(path: str):
 
 
 def _user_artifact_root() -> str:
-    """Where usage goes when the workspace is in no repository: the user's own folder, never the cwd."""
+    """Where usage goes when the workspace is in no repository: the user's own folder, never the cwd.
+    The caller writes there only when it already exists."""
     return _artifact_root(os.path.expanduser("~"))
 
 
@@ -121,21 +122,24 @@ def main() -> None:
     try:
         roots = _workspace_roots(data) or [os.getcwd()]
         # A workspace folder may sit inside a repo: the artifact dir is the REPO ROOT's, not the sub-folder's.
-        resolved = [(_repo_root(r) or str(r)) for r in roots]
-        # Write the record to every root that ALREADY has a .caddis dir, rather than to
-        # whichever root happened to be first. A multi-root session's usage belongs to each
-        # repo that participates in it, and creating .caddis in a repo that never opted in
+        # A folder in no repository is skipped: it has no project, and its cwd is never a fallback.
+        resolved = [top for top in (_repo_root(r) for r in roots) if top]
+        # Write the record only to roots that ALREADY have a .caddis dir. A multi-root session's usage
+        # belongs to each repo that participates in it, and creating .caddis in a repo that never opted in
         # would be caddis littering someone else's tree.
         targets = []
         for root in resolved:
             art = _artifact_root(root)
             if os.path.isdir(art) and art not in targets:
                 targets.append(art)
+        if not resolved:
+            # No workspace is in a repository. Usage goes to the user's own folder, and only when
+            # that folder already exists. It is never created and never the cwd.
+            user_art = _user_artifact_root()
+            if os.path.isdir(user_art):
+                targets = [user_art]
         if not targets:
-            # Nothing has opted in. In a repo, the first root's repo root is the default. Outside any
-            # repo there is no project to attach usage to, so it goes to the user's folder, not the cwd.
-            first_repo = _repo_root(roots[0])
-            targets = [_artifact_root(first_repo) if first_repo else _user_artifact_root()]
+            return  # nothing has opted in: write nothing
         record = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "event": "session_end",
@@ -146,7 +150,6 @@ def main() -> None:
             "model": data.get("modelName"),
         }
         for art in targets:
-            os.makedirs(art, exist_ok=True)
             with open(os.path.join(art, "usage-log.jsonl"), "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
     except Exception as _exc:

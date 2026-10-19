@@ -9,11 +9,12 @@ Ship the current working changes via this repo's actual delivery pipeline. The p
 repo, so **detect it first**, then follow the matching lane. Preflight, staging, and commit are
 identical across lanes; only monitoring and validation differ.
 
-> **This is the express lane** — it pushes straight to the default branch with no review pause.
-> Right for a hotfix. On a repo where that push deploys to production, Step 2c stops it before the
-> push and the owner merges. **For feature work, use the reviewed lane instead: `/ship-pr`** (open a
-> PR, monitor CI, stop at green) **→ `/ship-merge`** (merge the green PR behind a deploy-confirm,
-> validate, clean up).
+> **This is the express lane** — commit, push the current feature branch and watch its CI, with no
+> review pause. **It never pushes to the default branch.** On the default branch (Gitea or GitHub lane)
+> it moves the change to a new branch and hands over to the reviewed lane: **`/caddis:ship-pr`** (open
+> a PR, monitor CI, stop at green) **→ `/caddis:ship-merge`** (merge the green PR behind a
+> deploy-confirm, validate, clean up). Why: a direct push skips the PR, the ci-watch `RESULT: pass` on
+> the watched head and the check that no default-branch run is in progress.
 
 Optional message: **$ARGUMENTS** (if empty, derive a conventional commit message from staged changes)
 
@@ -36,6 +37,22 @@ names, branch, and service identifiers — never assume.
 - Tests: run only if the user says they're needed or a gate explicitly requires them
 - Fix any failures before proceeding. Do not commit broken code.
 
+**1b. BRANCH CHECK** — Read the default branch as a bare name (don't assume `main`) and the current
+branch. `git rev-parse --abbrev-ref origin/HEAD` prints `origin/<default>`, so strip the `origin/`
+prefix before you compare, or the check never matches:
+```bash
+d=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) && d=${d#origin/}   # prints origin/<default>: strip origin/
+[ -n "$d" ] || d=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)   # origin/HEAD not set
+git branch --show-current                                                  # compare with "$d"
+```
+- **On a non-default branch:** continue at Step 2, then Step 3 pushes that branch.
+- **On the default branch, Gitea or GitHub lane:** do not commit here. Run `git switch -c ship/<slug>`
+  (the uncommitted changes go with you) and commit on it (Step 2). Then **STOP: `/ship` ends here.**
+  Do not run Step 3 or later. Hand over to `/caddis:ship-pr` → `/caddis:ship-merge`.
+  A direct push to the default branch is refused: it skips the PR, the CI pass on the watched head
+  and the in-progress check.
+- **Local-only lane:** there is no CI and no PR; commit where you are.
+
 **2. STAGE + COMMIT** — Stage only the intended files, by name (never `git add -A`, `git add .`, `git add -u`, a folder, or `git commit -a`):
 ```
 git status --short      # confirm what's staged
@@ -51,14 +68,16 @@ Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope
 **2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
-**3. PUSH** — to the repo's default branch (confirm the branch first; don't assume `main`):
+**3. PUSH** — only when Step 1b found a non-default branch (on the default branch, `/ship` stopped at Step 2):
 ```
-git push origin <branch>
+git push -u origin <feature branch>
 ```
+Never `git push origin <default branch>`: the change reaches the default branch only through
+`/caddis:ship-pr` → `/caddis:ship-merge`, which merge on ci-watch `RESULT: pass` at the watched head.
 Confirm the push succeeded and the SHA is accepted by the remote. (Local-only lane: skip if there is
 no remote, and note that nothing was pushed.)
 
@@ -76,7 +95,7 @@ the minimum fix (see `deploy-local` skill §6).
 **GitHub lane** — Find the run id for the pushed SHA, then wait outside the Claude session via `ci-watch`:
 ```bash
 gh run list --branch <branch> --limit 1                 # find the run id for the pushed SHA
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_lanes.py" ci-watch --run <run-id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_lanes.py" ci-watch --run <run-id>
 ```
 Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop and report.
 On failure, pull only the failing job logs:
@@ -112,11 +131,11 @@ Release tag:     <tag> → <sha> | n/a
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_merge_chain.py"` does this check.
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_merge_chain.py"` does this check.
 
 **Trigger: A peer session is known.** A relay or a SessionStart warning names another session on this repo. Before the merge, send each named peer session a message (SendMessage or the peer channel). It is a notice, never a request for permission.
 
-**Trigger: Always, when the repo deploys on push.** After the merge, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_prod_check.py" <sha>` with the repo's profile, `.caddis/prod-check.toml`. The script resolves a short SHA to the full SHA first, or refuses with exit 4. A repo with no profile gets items 1 and 2 only, and the script says so.
+**Trigger: Always, when the repo deploys on push.** After the merge, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_prod_check.py" <sha>` with the repo's profile, `.caddis/prod-check.toml`. The script resolves a short SHA to the full SHA first, or refuses with exit 4. A repo with no profile gets items 1 and 2 only, and the script says so.
 
 **Trigger: Two or more reviewed green PRs wait to merge.** Combine them into one release PR (the global rule of 2026-10-10): merge their branches into one release branch, run the gates once, open one release PR that links the components, then close the components with a link.
 

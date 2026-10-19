@@ -9,7 +9,7 @@ End-to-end delivery of feature-branch work through the reviewed lane in one shot
 push safely, create or update the Pull Request, monitor CI checks to green, merge into the default
 branch, validate the deployment, and clean up the feature branch.
 
-For a hotfix straight to the default branch with no PR ceremony, use `/ship` (the express lane) instead.
+For a quick commit and push of a feature branch, use `/ship` (the express lane). It never pushes the default branch.
 To open a PR and stop at green for human review without merging, use `/ship-pr`.
 To merge an already-opened PR, use `/ship-merge`.
 
@@ -29,11 +29,47 @@ can be provided.
 Read `AGENTS.md` + the detected workflow file(s) first for the repo's real gate names, default
 branch, and merge conventions — never assume `main`, never assume job names.
 
+## Step 0b — Is this checkout safe to move?
+
+<!-- checkout-safety: keep byte-identical in pr-merge, ship-pr, ship-merge and cloud-phases; a test pins it -->
+Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
+`stash`, `reset --hard`). Before the first of them, run:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_checkout_guard.py" shared --root .
+```
+It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
+`Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
+`--own-files`, every change counts as another session's. A linked worktree is never shared.
+
+- **On `SHARED: no`,** do the steps as written, in this checkout.
+- **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
+  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+    `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
+  - **Pull a branch to test it:** `git fetch origin`, then
+    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
+  - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
+    `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
+    checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no
+    checkout has it out.
+  - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
+
+`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
+<!-- /checkout-safety -->
+
 ## Step 1 — Refuse on the default branch
 
-A PR is *branch → default*. If HEAD **is** the default branch, stop and point at `/ship` — there is
-nothing to open a PR from. (Offer to create a feature branch from the current work if the changes
-are uncommitted.)
+A PR is *branch → default*. Read the default branch as a bare name: `git rev-parse --abbrev-ref
+origin/HEAD` prints `origin/<default>`, so strip the `origin/` prefix before you compare.
+```bash
+d=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) && d=${d#origin/}   # prints origin/<default>: strip origin/
+[ -n "$d" ] || d=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)   # origin/HEAD not set
+git branch --show-current                                                  # compare with "$d"
+```
+If HEAD **is** the default branch, stop: there is nothing to open a PR from. Offer to move the
+uncommitted work to a feature branch (`git switch -c <branch>`), or run `/ship`, which does that and
+hands back here.
 
 ## Step 2 — Preflight (local gates mirroring CI)
 
@@ -69,6 +105,8 @@ Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <
   git rebase <default-branch>
   git push --force-with-lease origin <branch> # never bare --force
   ```
+- In a shared checkout (Step 0b says `SHARED: yes`), never rebase here: rebase in a detached worktree, as
+  Step 0b says.
 
 ## Step 5 — Push + create or update the PR
 
@@ -141,6 +179,8 @@ If the default branch triggers an automated deployment pipeline:
 **Only after** the merge is complete and deployment (if any) is validated green:
 - Run `git status --short`. If it shows changes you did not make, do not switch, stash, reset or commit:
   leave them, report them, and stop cleanup here (a shared checkout often holds a peer's edits).
+- In a shared checkout (Step 0b says `SHARED: yes`), skip the switch and the pull below. Clean up as Step 0b
+  says: `git fetch --prune`, `git fetch origin <default-branch>:<default-branch>`, then delete the branches.
 - Fetch and prune: `git fetch --prune`.
 - Switch to the default branch: `git switch <default-branch>`.
 - Fast-forward to the merge commit: `git pull --ff-only origin <default-branch>`.

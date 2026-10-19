@@ -96,7 +96,7 @@ When receiving a handoff:
 1b. **Hotfix scope check:** If `pipeline-state.json` has `"type": "hotfix"`, check `_notes._hotfix_brief` for the changes list — it contains the authoritative scoped brief written by the Orchestrator. If `_hotfix_brief` is absent from `_notes`, check `_notes.handoff_payload` as a secondary source. If **neither** exists: STOP immediately and report `"BLOCKED: Missing hotfix scope. _notes._hotfix_brief was not written by Orchestrator. Cannot implement without a defined scope."` Do NOT infer scope from context, conversation history, or the feature name alone.
 2. Read the plan file or architecture doc referenced in the conversation (if present)
 3. Check the prompt/step being implemented — follow it exactly
-4. Run `run_command(command=".venv/Scripts/pytest tests/ --tb=short -q", timeout=120)` before AND after changes to verify no regressions — use the MCP tool, not a manual terminal ask
+4. Run `run_command(command=".venv/Scripts/pytest tests/<touched test file> --tb=short -q", timeout=600)` for the tests of the files you touch, before AND after changes, to verify no regressions — use the MCP tool, not a manual terminal ask. Run in the foreground, each command under 10 minutes. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR
 4. If you spot an issue with the plan itself, use the "Debug Issue" handoff — do NOT edit plan files
 5. For full pipeline context, load `.github/skills/workflow/agent-orchestration/SKILL.md`
 
@@ -178,8 +178,8 @@ Before writing code, classify the work to scale your verification effort:
 | Size | Criteria | Verification |
 |------|----------|--------------|
 | **S** | ≤3 files, isolated change | Run affected tests |
-| **M** | 4–10 files, service/data layers | Full test suite before AND after |
-| **L** | 10+ files, cross-cutting patterns | Full suite + regression sweep + edge cases |
+| **M** | 4–10 files, service/data layers | Touched-file tests before AND after (CI runs the full suite) |
+| **L** | 10+ files, cross-cutting patterns | Touched-file tests (in parts, each command under 10 minutes) + regression sweep + edge cases |
 
 State the size in your first message: `**Task size: M** — 6 files, touches query layer and service.`
 
@@ -596,7 +596,7 @@ except Exception as e:
 3. If implementation: fix the code
 4. If test: fix the test (but verify the test was actually wrong)
 5. Re-run the specific failing test
-6. Run full test suite to ensure no regressions
+6. Run the tests of the files you touched (foreground, each command under 10 minutes) to check for regressions. CI runs the full suite
 ```
 
 ### When the App Crashes
@@ -832,8 +832,8 @@ def extract_date(filename: str) -> str | None:
 # Run the app (check project-config for actual command)
 # e.g., uvicorn src.api.main:app --reload --port 8000
 
-# Run tests
-pytest tests/ -v
+# Run tests (touched files only; CI runs the full suite)
+pytest tests/test_relevant.py -v
 
 # Format code
 black {source-dir}/ tests/

@@ -9,11 +9,12 @@ Ship the current working changes via this repo's actual delivery pipeline. The p
 repo, so **detect it first**, then follow the matching lane. Preflight, staging, and commit are
 identical across lanes; only monitoring and validation differ.
 
-> **This is the express lane** — it pushes straight to the default branch with no review pause.
-> Right for a hotfix. On a repo where that push deploys to production, Step 2c stops it before the
-> push and the owner merges. **For feature work, use the reviewed lane instead: `/ship-pr`** (open a
-> PR, monitor CI, stop at green) **→ `/ship-merge`** (merge the green PR behind a deploy-confirm,
-> validate, clean up).
+> **This is the express lane** — commit, push the current feature branch and watch its CI, with no
+> review pause. **It never pushes to the default branch.** On the default branch (Gitea or GitHub lane)
+> it moves the change to a new branch and hands over to the reviewed lane: **`/caddis:ship-pr`** (open
+> a PR, monitor CI, stop at green) **→ `/caddis:ship-merge`** (merge the green PR behind a
+> deploy-confirm, validate, clean up). Why: a direct push skips the PR, the ci-watch `RESULT: pass` on
+> the watched head and the check that no default-branch run is in progress.
 
 Optional message: **$ARGUMENTS** (if empty, derive a conventional commit message from staged changes)
 
@@ -36,6 +37,22 @@ names, branch, and service identifiers — never assume.
 - Tests: run only if the user says they're needed or a gate explicitly requires them
 - Fix any failures before proceeding. Do not commit broken code.
 
+**1b. BRANCH CHECK** — Read the default branch as a bare name (don't assume `main`) and the current
+branch. `git rev-parse --abbrev-ref origin/HEAD` prints `origin/<default>`, so strip the `origin/`
+prefix before you compare, or the check never matches:
+```bash
+d=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) && d=${d#origin/}   # prints origin/<default>: strip origin/
+[ -n "$d" ] || d=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)   # origin/HEAD not set
+git branch --show-current                                                  # compare with "$d"
+```
+- **On a non-default branch:** continue at Step 2, then Step 3 pushes that branch.
+- **On the default branch, Gitea or GitHub lane:** do not commit here. Run `git switch -c ship/<slug>`
+  (the uncommitted changes go with you) and commit on it (Step 2). Then **STOP: `/ship` ends here.**
+  Do not run Step 3 or later. Hand over to `/caddis:ship-pr` → `/caddis:ship-merge`.
+  A direct push to the default branch is refused: it skips the PR, the CI pass on the watched head
+  and the in-progress check.
+- **Local-only lane:** there is no CI and no PR; commit where you are.
+
 **2. STAGE + COMMIT** — Stage only the intended files, by name (never `git add -A`, `git add .`, `git add -u`, a folder, or `git commit -a`):
 ```
 git status --short      # confirm what's staged
@@ -55,10 +72,12 @@ Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
-**3. PUSH** — to the repo's default branch (confirm the branch first; don't assume `main`):
+**3. PUSH** — only when Step 1b found a non-default branch (on the default branch, `/ship` stopped at Step 2):
 ```
-git push origin <branch>
+git push -u origin <feature branch>
 ```
+Never `git push origin <default branch>`: the change reaches the default branch only through
+`/caddis:ship-pr` → `/caddis:ship-merge`, which merge on ci-watch `RESULT: pass` at the watched head.
 Confirm the push succeeded and the SHA is accepted by the remote. (Local-only lane: skip if there is
 no remote, and note that nothing was pushed.)
 

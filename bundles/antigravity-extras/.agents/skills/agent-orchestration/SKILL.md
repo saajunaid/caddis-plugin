@@ -128,7 +128,7 @@ Spec Input
 2. Categorise every item by effort (H = hours, D = days) and value (high / medium / low)
 3. Items that are **≤ 1 hour AND high-value** become quick wins (H1, H2, H3…)
 4. Implement quick wins in a single session
-5. Run full test suite — all tests must pass
+5. Run the tests of the touched files in the foreground (each command under 10 minutes) — all must pass. CI runs the full suite
 6. Commit: `feat: H1–H3 quick wins — <summary>`
 
 **Decision Gate:**
@@ -266,10 +266,10 @@ Score each identified risk:
 2. Provide the phase prompt:
    ```
    Read .caddis/plans/<feature>.md and implement Phase N.
-   Run pytest after every file change. All tests must pass before commit.
+   Run the tests of the files you changed, in the foreground, each command under 10 minutes. They must pass before commit. CI runs the full suite.
    ```
 3. Implement Agent reads the plan, executes numbered steps
-4. After implementation: run full test suite
+4. After implementation: run the tests of the touched files in the foreground (each command under 10 minutes). CI runs the full suite
 5. If tests pass → commit: `feat(<scope>): phase N — <summary>`
 6. If tests fail → fix within the same session before committing
 
@@ -340,7 +340,7 @@ The plan document should contain **copy-paste prompts** for each phase. This rem
    - Acceptance criteria
 3. **Write fix-up plan** — Place in `.caddis/plans/<feature>-fixup.md`
 4. **Execute** — Implement Agent works through issues sequentially
-5. **Verify** — Run full test suite + visual inspection
+5. **Verify** — Run the tests of the touched files (foreground, each command under 10 minutes) + visual inspection. CI runs the full suite
 6. **Commit** — `fix(<scope>): post-track cross-component polish`
 
 **Example from practice:**
@@ -610,7 +610,7 @@ Every stage that produces code changes should result in a commit:
 A well-orchestrated session should produce:
 
 - [ ] **Traceability** — Every spec requirement maps to a plan step, which maps to a commit
-- [ ] **Green tests** — Full suite passing after every commit
+- [ ] **Green tests** — Touched-file tests pass before every commit; CI runs the full suite on every PR
 - [ ] **Clean plan** — Fidelity audit: 0 gaps
 - [ ] **Managed risks** — No showstoppers unresolved
 - [ ] **Minimal rework** — Debug pass finds cosmetic issues, not fundamental errors

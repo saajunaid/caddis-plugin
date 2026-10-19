@@ -19,6 +19,7 @@ from the files is escaped: a plan, a relay or a hook message can hold any text.
 from __future__ import annotations
 
 import datetime
+import functools
 import hashlib
 import html
 import json
@@ -452,11 +453,13 @@ def default_page_path(root: Path, slug: str, home: Path | None = None) -> Path:
     return pages_root(home) / f"{main.name}-{tag}" / f"{slug}.html"
 
 
-def write_page(root: Path, slug: str, out: Path | None, roadmap_mod) -> Path:
+def write_page(root: Path, slug: str, out: Path | None, roadmap_mod) -> Path | None:
     """The page. At the default path it also writes `<slug>.json`, the one-row summary the hub is built from; an
-    `--out` page is a one-off copy and stays out of the hub."""
-    model = build(root, slug, roadmap_mod)
+    `--out` page is a one-off copy and stays out of the hub. None: a newer caddis wrote this page, so it is kept."""
     path = Path(out) if out else default_page_path(root, slug)
+    if out is None and _owned_by_newer(slug, path.with_suffix(".json")):  # before build: a skip does no work
+        return None
+    model = build(root, slug, roadmap_mod)
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_atomic(path, render_html(model))
     if out is None:
@@ -466,6 +469,66 @@ def write_page(root: Path, slug: str, out: Path | None, roadmap_mod) -> Path:
         except Exception as exc:
             print(f"[ROADMAP] hub summary not written: {exc}", file=sys.stderr)
     return path
+
+
+# ---- the version gate: a session on an old plugin never overwrites what a newer caddis wrote (robustness #8) -------
+
+@functools.lru_cache(maxsize=8)
+def generator_version(here: Path | None = None) -> str:
+    """This caddis's version: the Claude plugin's `.claude-plugin/plugin.json` or the agy plugin's root
+    `plugin.json` (both beside `scripts/`), else the source checkout's `caddis` entry in
+    `.github/runtime-targets.json`, else "dev"."""
+    base = Path(here or Path(__file__).resolve().parent).parent
+    for manifest in (base / ".claude-plugin" / "plugin.json", base / "plugin.json"):
+        data, _ = _read_json(manifest)
+        if data and data.get("version"):
+            return str(data["version"])
+    data, _ = _read_json(base / ".github" / "runtime-targets.json")
+    for target in (data or {}).get("targets") or []:
+        plugin = target.get("plugin") if isinstance(target, dict) else None
+        if isinstance(plugin, dict) and plugin.get("name") == "caddis" and plugin.get("version"):
+            return str(plugin["version"])
+    return "dev"
+
+
+def _version_key(text) -> tuple[int, ...] | None:
+    parts = str(text or "").strip().split(".")
+    return tuple(int(p) for p in parts) if all(p.isdigit() for p in parts) else None
+
+
+def is_newer(theirs, mine) -> bool:
+    """True only when both are numeric versions and `theirs` is the higher one; "dev" or "" never blocks."""
+    a, b = _version_key(theirs), _version_key(mine)
+    return a is not None and b is not None and a > b
+
+
+GENERATOR_OWNERSHIP_S = 1800  # a newer caddis owns a page only while it keeps writing it (review of #71)
+
+
+def _newer_owner(summary: Path) -> tuple[str, bool]:
+    """(version, live): the newer caddis that wrote `summary` ("" when it is not newer), and whether it wrote it in
+    the last GENERATOR_OWNERSHIP_S. An unreadable time is not live: a downgrade must never freeze a page."""
+    data, _ = _read_json(summary)
+    theirs = str((data or {}).get("generator") or "")
+    if not is_newer(theirs, generator_version()):
+        return "", False
+    age_h = _age_h(str((data or {}).get("generated_utc") or ""), datetime.datetime.now(datetime.timezone.utc))
+    return theirs, age_h is not None and age_h * 3600 <= GENERATOR_OWNERSHIP_S
+
+
+def _gate(label: str, theirs: str, live: bool) -> bool:
+    """True: skip the write. Prints one line when a newer caddis owns it, or when this one takes it over."""
+    if theirs and live:
+        print(f"[ROADMAP] {label}: a newer caddis ({theirs}) owns this page; skipped")
+        return True
+    if theirs:
+        print(f"[ROADMAP] {label}: taking over from caddis {theirs} (it has not written for "
+              f"{GENERATOR_OWNERSHIP_S // 60} min)")
+    return False
+
+
+def _owned_by_newer(slug: str, summary: Path) -> bool:
+    return _gate(slug, *_newer_owner(summary))
 
 
 # ---- the hub: one page over every roadmap page on this machine, grouped per repo ---------------------------------
@@ -507,7 +570,7 @@ def page_summary(model: dict, main: Path, path: Path) -> dict:
               else f"stopped: {stop.get('reason')}" if stop.get("reason") else "")
     nxt = model.get("next") or {}
     return {
-        "version": 1, "repo": main.name, "checkout": str(main), "folder": path.parent.name, "slug": model["roadmap"],
+        "version": 1, "generator": generator_version(), "repo": main.name, "checkout": str(main), "folder": path.parent.name, "slug": model["roadmap"],
         "branch": model["branch"], "origin_commit": model.get("origin_commit", ""),
         "generated_utc": model["generated"],
         "milestones_done": model["done"], "milestones_total": model["total"],
@@ -530,7 +593,7 @@ def prune_folder(folder: Path, keep: set[str]) -> int:
     if not folder.is_dir():
         return removed
     for js in folder.glob("*.json"):
-        if js.stem in keep:
+        if js.stem in keep or _newer_owner(js)[1]:  # a live newer caddis may know a roadmap this one cannot list
             continue
         for f in (js, js.with_suffix(".html")):
             try:
@@ -667,11 +730,21 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime) -> s
     return "".join(out)
 
 
-def write_hub(home: Path | None = None, now: datetime.datetime | None = None) -> Path:
-    """`~/.caddis/roadmap-pages/index.html`: every roadmap page on this machine, grouped per repo."""
+def write_hub(home: Path | None = None, now: datetime.datetime | None = None) -> Path | None:
+    """`~/.caddis/roadmap-pages/index.html`: every roadmap page on this machine, grouped per repo. None: a newer
+    caddis wrote the hub (its version is in `.hub-generator`), so it is kept."""
     root_dir = pages_root(home)
     root_dir.mkdir(parents=True, exist_ok=True)
+    stamp = root_dir / ".hub-generator"
+    try:
+        theirs = stamp.read_text(encoding="utf-8").strip()
+        live = time.time() - stamp.stat().st_mtime <= GENERATOR_OWNERSHIP_S
+    except (OSError, UnicodeDecodeError):
+        theirs, live = "", False
+    if _gate("hub", theirs if is_newer(theirs, generator_version()) else "", live):
+        return None
     rows, errors = read_summaries(root_dir)
     path = root_dir / "index.html"
     _write_atomic(path, render_hub(rows, errors, now or datetime.datetime.now(datetime.timezone.utc)))
+    _write_atomic(stamp, generator_version() + "\n")
     return path

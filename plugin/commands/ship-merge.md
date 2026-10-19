@@ -30,6 +30,35 @@ Resolve the target PR from `$ARGUMENTS`, else the current branch's open PR. No o
 that and point at `/ship-pr`. Read `AGENTS.md` + the workflow file(s) for the repo's real deploy
 job names and default branch — never assume.
 
+## Step 0b — Is this checkout safe to move?
+
+<!-- checkout-safety: keep byte-identical in pr-merge, ship-pr, ship-merge and cloud-phases; a test pins it -->
+Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
+`stash`, `reset --hard`). Before the first of them, run:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_checkout_guard.py" shared --root .
+```
+It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
+`Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
+`--own-files`, every change counts as another session's. A linked worktree is never shared.
+
+- **On `SHARED: no`,** do the steps as written, in this checkout.
+- **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
+  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+    `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
+  - **Pull a branch to test it:** `git fetch origin`, then
+    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
+  - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
+    `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
+    checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no
+    checkout has it out.
+  - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
+
+`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
+<!-- /checkout-safety -->
+
 ## Step 1 — Refuse unless green + mergeable + reviewed
 
 All of, per the repo's own rules:
@@ -104,6 +133,8 @@ attempt a silent re-deploy — and **skip cleanup** (Step 6).
 **Only after** Step 5 is green:
 - Run `git status --short`. If it shows changes you did not make, do not switch, stash, reset or commit:
   leave them, report them, and stop cleanup here.
+- In a shared checkout (Step 0b says `SHARED: yes`), do not switch or pull. Clean up as Step 0b says:
+  `git fetch --prune`, `git fetch origin <default-branch>:<default-branch>`, then delete the branches.
 - `git fetch --prune`, then switch to the default branch and fast-forward it to the merge commit.
 - Delete the **remote** feature branch; delete the **local** feature branch (for a squash merge, compare
   the branch tree with the merged tree first, not ancestry).

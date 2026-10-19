@@ -44,8 +44,8 @@ Resolve the tool path deterministically — check only these two exact locations
 ```bash
 # THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
 # of whatever caddis shipped the day someone copied it, and it never updates again.
-if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/oss_review.py" ]; then
-  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/oss_review.py"
+if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/oss_review.py" ]; then
+  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/oss_review.py"
   # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
   if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
     echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"
@@ -86,24 +86,27 @@ now means the narrower case — a **single file** too big to split, or more batc
 see it, the fix is usually to review that one file separately, not to narrow `--range`; don't raise
 `--max-diff-chars` blind.
 
-**Do not alternate providers on a schedule.** DeepSeek is the default because it has actually found real
-bugs that same-vendor passes missed; GLM is the documented fallback, used automatically when DeepSeek is
-unavailable and you did not name a provider. The policy lives in `oss_review.py`'s `FALLBACK_PROVIDERS`
-comment — a rota that sends half your phases to a provider observed timing out three phases running buys
-variety it never actually collects, and a review that silently does not happen is the same failure class
-as a diff that silently is not read. Name a provider explicitly only when you have a reason.
+**Do not alternate providers on a schedule.** The order is the owner policy: **DeepSeek, then agy Argon,
+then GLM** (`REVIEW_ORDER` in `oss_review.py`). A named `--provider` goes first; on a provider failure
+(HTTP 429, any 5xx, a timeout, a connection error, an empty reply) the tool moves to the next one in
+that order and prints which provider gave the verdict. A provider with no key is skipped. agy runs
+through `caddis_spend.py run` (the spend cap); if the cap refuses, agy is skipped. On a 429 the tool
+waits for `Retry-After` once (at most 60 s); it never splits the diff because of a 429 or an empty
+reply. A custom endpoint (`--base-url`/`--model`) never falls back. Name a provider only when you have
+a reason.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
 - **1 — REVIEW: BLOCKING** → read the printed findings, then **FIX each blocking item** (or explicitly
   justify why one is a false positive). Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, or a git/endpoint failure. Read stderr; do NOT treat as clean.
-- **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisite) and re-run.
+- **3 — could not run** → no key (see Prerequisite), the secret filter refused, or every provider
+  failed (429, 5xx, timeout, empty reply). Read stderr. A provider failure is not a verdict: re-run later.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
-2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.

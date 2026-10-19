@@ -245,23 +245,32 @@ def _hook_note(feature, exc, root=None):
 
 
 
-def _injected_marker(root, conversation):
-    """Path of the per-conversation "relay already injected" marker, or None."""
-    try:
-        safe = "".join(c for c in str(conversation) if c.isalnum() or c in "-_")[:64]
-        if not safe:
-            return None
-        return os.path.join(str(root), ".caddis", ".relay-injected", safe)
-    except Exception:
-        return None
+def _safe_conversation(conversation):
+    return "".join(c for c in str(conversation) if c.isalnum() or c in "-_")[:64]
+
+
+def _injected_markers(root, conversation):
+    """Where the "relay already injected" marker for this conversation may be: (repo marker, temp marker).
+
+    The repo marker lives in `.caddis/.relay-injected/`. The temp marker lives in the user's temp
+    folder, keyed by the repo path, for a repo that has no `.caddis/` (the hook must not create one).
+    """
+    safe = _safe_conversation(conversation)
+    if not safe:
+        return None, None
+    import hashlib
+    import tempfile
+    repo_marker = os.path.join(str(root), ".caddis", ".relay-injected", safe)
+    key = hashlib.sha1(os.path.normcase(os.path.abspath(str(root))).encode("utf-8", "replace")).hexdigest()[:16]
+    temp_marker = os.path.join(tempfile.gettempdir(), "caddis-relay-injected", key + "-" + safe)
+    return repo_marker, temp_marker
 
 
 def _already_injected(root, conversation):
     """True when this conversation has had its relay injected before. Fail-open: on any
     error return False, because a duplicate relay is a smaller harm than none at all."""
     try:
-        marker = _injected_marker(root, conversation)
-        return bool(marker) and os.path.isfile(marker)
+        return any(m and os.path.isfile(m) for m in _injected_markers(root, conversation))
     except Exception:
         return False
 
@@ -269,13 +278,15 @@ def _already_injected(root, conversation):
 def _mark_injected(root, conversation):
     """Record that this conversation received its relay. Never raises.
 
-    A failure here means the next truncation may re-inject — the pre-2026-08-22 behaviour,
-    which is exactly the fail-open direction we want.
+    The marker goes in `.caddis/` when the repo already has it, else in the user's temp folder:
+    this hook never creates `.caddis/` in a repo that did not opt in. A failure here means the
+    next truncation may re-inject, which is the fail-open direction we want.
     """
     try:
-        marker = _injected_marker(root, conversation)
-        if not marker:
+        repo_marker, temp_marker = _injected_markers(root, conversation)
+        if not repo_marker:
             return
+        marker = repo_marker if os.path.isdir(os.path.join(str(root), ".caddis")) else temp_marker
         os.makedirs(os.path.dirname(marker), exist_ok=True)
         with open(marker, "w", encoding="utf-8") as fh:
             fh.write("")

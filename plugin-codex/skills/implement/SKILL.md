@@ -11,7 +11,7 @@ Implement the plan at **$ARGUMENTS**.
 it is empty, find the active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -32,8 +32,8 @@ These override everything below. They exist because branch isolation and the run
 depend on them:
 
 - **Work ONLY on the current branch.** You are already on the feature branch (the current branch,
-  `git branch --show-current`; that read is the only `git branch` form allowed). **NEVER** run
-  `git checkout`, `git switch`, `git branch <name>`, `git switch -c`, or any command that changes,
+  `git branch --show-current`; that read is the only `git branch` form allowed).
+  **NEVER** run `git checkout`, `git switch`, `git branch <name>`, `git switch -c`, or any command that changes,
   creates, or leaves the current branch. Read the default branch with
   `git symbolic-ref --short refs/remotes/origin/HEAD`, which prints `origin/<default>`: remove the
   `origin/` prefix before you compare. If that command fails (origin/HEAD is not set), the default
@@ -57,8 +57,8 @@ depend on them:
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
-2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -94,8 +94,8 @@ at the repo root and in each folder you will touch (the canonical rules; `CLAUDE
 **Run the machine gates first — they decide, not your reading of the prose below.**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
 ```
 
 Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
@@ -151,7 +151,7 @@ lane the plan planned. A deviation then shows up as a diff between the phase blo
 row, visible to any later reader without anyone having to catch it live.
 
 **Multi-lane phases — `caddis_lanes.py`.** Use this procedure when the phase launch command is
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_lanes.py" run …`.
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_lanes.py" run …`.
 
 1. In an interactive session, run the phase's literal command. The script creates a temporary
    worktree. It runs the lane or its fallback chain inside a resource-capped job. It re-runs the
@@ -185,12 +185,17 @@ row, visible to any later reader without anyone having to catch it live.
    this wording without `--allow-load`. Only the owner gives that flag.
 7b. **Write test economy into every agent brief, not only the lane prompt.** The script already adds it
    to its lane prompts. A brief you write yourself (an Agent-tool subagent, a peer session) needs the same
-   five lines: after each step run only the tests for the file or module you changed; run the full suite only
-   for the baseline and once at the end; run no review loop inside the agent (you review); report progress
-   every 20 minutes; never start a second heavy test run while one is still running. **Two parallel agents
-   must not both run full suites.** Measured 2026-10-02 on one shared box: a 2,063-test suite took 2.7 min
+   five lines: after each step run only the tests for the file or module you changed, in the foreground, each
+   command under 10 minutes; never start the full suite, and never wait on a monitor for it (CI runs it on every PR);
+   run no review loop inside the agent (you review); report progress
+   every 20 minutes; never start a second heavy test run while one is still running. **Agents never run
+   the full suite.** Measured 2026-10-02 on one shared box: a 2,063-test suite took 2.7 min
    alone and 6.7 min beside a second test-heavy agent, and one agent's brief (baseline, tests after each of 9
    module switches, full gates, in-agent review) cost 30-40 of its 59 minutes.
+   On 18-19 Oct 2026 agents started the full suite (about 40 min) in the background and waited through
+   monitors with their own timeouts. One missed the finish and sat "Waiting" for over 1 h. Four parallel
+   suites also slowed the box. The orchestrator checks a stalled agent by process (pytest alive, CPU moving),
+   not by its monitor.
 8. Record these Tracker values:
    - `Model` = the packet's `model`.
    - `Lane` = the lanes tried, joined with ` -> ` and followed by the reason. For example,
@@ -206,9 +211,9 @@ row, visible to any later reader without anyone having to catch it live.
 10. **When a dispatched Claude run is out of budget**, read the output from the subagent or
     `claude -p`. If it holds Claude usage-limit text (for example `You've hit your session limit`
     or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
-    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
+    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
-    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
+    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
     using the same form that `/feature-plan` writes. Never start agy without the `caddis_spend.py run`
     prefix: it is the global spend cap. Its own refusals have their own exit codes, never agy's:
     **75** = over the cap or could not lock (treat like out of budget: switch lane, not an attempt);
@@ -288,10 +293,12 @@ You:     /clear, then paste ↓
 **In headless/runner mode, never ask — halt, write the block, and exit.** The block is how a
 non-interactive run tells a human what it needs; asking is still forbidden.
 
-**4. Run the tests yourself.** After the last phase you complete, run the project's full test command once
-more and record the real result. The runner will re-run it independently and that decides success — but
-you run it too so your reported `"tests"` value is truthful, not assumed. Never report `"passed"` on a
-suite you did not see go green.
+**4. Run the tests yourself.** After the last phase you complete, run the tests of the files you touched
+once more, in the foreground, each command under 10 minutes (split into parts if needed), and record the
+real result. Never start the full suite in the background and never wait on a monitor for it. CI runs the
+full suite on every PR and is the gate before merge. The runner re-runs its own gate independently and
+that decides success — but you run your tests too so your reported `"tests"` value is truthful, not
+assumed. Never report `"passed"` on tests you did not see go green.
 
 **4b. If every phase is now done, tidy the plan into `done/` IN THE SAME COMMIT.** Only when the
 whole plan is finished (every `## Tracker` row is `done`, no halt, no blocker) — a mid-plan halt is
@@ -303,7 +310,7 @@ for a later session to clean up, and nothing is left uncommitted. Order matters:
    it into `done/`. `--only` keeps it off every other file, so another session's finished plan, a
    shipped prompt or a done parking-lot item is never swept into this PR:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
    ```
    Read the output before you commit. It must say `moved: .caddis/plans/<this plan>.md` and name
    no other file. **Refuse** if it would touch anything else, or prints `ERROR` or `NOT MOVED`:

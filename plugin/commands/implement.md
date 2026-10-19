@@ -34,8 +34,8 @@ These override everything below. They exist because branch isolation and the run
 depend on them:
 
 - **Work ONLY on the current branch.** You are already on the feature branch (the current branch,
-  `git branch --show-current`; that read is the only `git branch` form allowed). **NEVER** run
-  `git checkout`, `git switch`, `git branch <name>`, `git switch -c`, or any command that changes,
+  `git branch --show-current`; that read is the only `git branch` form allowed).
+  **NEVER** run `git checkout`, `git switch`, `git branch <name>`, `git switch -c`, or any command that changes,
   creates, or leaves the current branch. Read the default branch with
   `git symbolic-ref --short refs/remotes/origin/HEAD`, which prints `origin/<default>`: remove the
   `origin/` prefix before you compare. If that command fails (origin/HEAD is not set), the default
@@ -59,7 +59,7 @@ depend on them:
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
-2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
+2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
 3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
@@ -187,12 +187,17 @@ row, visible to any later reader without anyone having to catch it live.
    this wording without `--allow-load`. Only the owner gives that flag.
 7b. **Write test economy into every agent brief, not only the lane prompt.** The script already adds it
    to its lane prompts. A brief you write yourself (an Agent-tool subagent, a peer session) needs the same
-   five lines: after each step run only the tests for the file or module you changed; run the full suite only
-   for the baseline and once at the end; run no review loop inside the agent (you review); report progress
-   every 20 minutes; never start a second heavy test run while one is still running. **Two parallel agents
-   must not both run full suites.** Measured 2026-10-02 on one shared box: a 2,063-test suite took 2.7 min
+   five lines: after each step run only the tests for the file or module you changed, in the foreground, each
+   command under 10 minutes; never start the full suite, and never wait on a monitor for it (CI runs it on every PR);
+   run no review loop inside the agent (you review); report progress
+   every 20 minutes; never start a second heavy test run while one is still running. **Agents never run
+   the full suite.** Measured 2026-10-02 on one shared box: a 2,063-test suite took 2.7 min
    alone and 6.7 min beside a second test-heavy agent, and one agent's brief (baseline, tests after each of 9
    module switches, full gates, in-agent review) cost 30-40 of its 59 minutes.
+   On 18-19 Oct 2026 agents started the full suite (about 40 min) in the background and waited through
+   monitors with their own timeouts. One missed the finish and sat "Waiting" for over 1 h. Four parallel
+   suites also slowed the box. The orchestrator checks a stalled agent by process (pytest alive, CPU moving),
+   not by its monitor.
 8. Record these Tracker values:
    - `Model` = the packet's `model`.
    - `Lane` = the lanes tried, joined with ` -> ` and followed by the reason. For example,
@@ -290,10 +295,12 @@ You:     /clear, then paste ↓
 **In headless/runner mode, never ask — halt, write the block, and exit.** The block is how a
 non-interactive run tells a human what it needs; asking is still forbidden.
 
-**4. Run the tests yourself.** After the last phase you complete, run the project's full test command once
-more and record the real result. The runner will re-run it independently and that decides success — but
-you run it too so your reported `"tests"` value is truthful, not assumed. Never report `"passed"` on a
-suite you did not see go green.
+**4. Run the tests yourself.** After the last phase you complete, run the tests of the files you touched
+once more, in the foreground, each command under 10 minutes (split into parts if needed), and record the
+real result. Never start the full suite in the background and never wait on a monitor for it. CI runs the
+full suite on every PR and is the gate before merge. The runner re-runs its own gate independently and
+that decides success — but you run your tests too so your reported `"tests"` value is truthful, not
+assumed. Never report `"passed"` on tests you did not see go green.
 
 **4b. If every phase is now done, tidy the plan into `done/` IN THE SAME COMMIT.** Only when the
 whole plan is finished (every `## Tracker` row is `done`, no halt, no blocker) — a mid-plan halt is

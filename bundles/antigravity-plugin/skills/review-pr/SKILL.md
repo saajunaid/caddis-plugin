@@ -34,8 +34,11 @@ gh pr view <n> --repo <owner/repo> --json number,title,author,state,isDraft,merg
 - the PR is **merged or closed** — there is nothing to decide;
 - it is a **draft** — say so and ask whether to continue;
 - **the operator is the author.** GitHub does not allow approving your own PR. Say it plainly, and
-  say the alternatives: have someone else approve it, or merge with an admin bypass
-  (`gh pr merge <n> --squash --admin`). Do not silently produce a review they cannot submit.
+  say the alternatives: have someone else approve it, or merge with an admin bypass. An admin
+  bypass skips the approval only, never the CI rule: merge only after `caddis_lanes.py ci-watch
+  --pr <n>` prints `RESULT: pass`, with no default-branch run in progress (section 4)
+  (`gh pr merge <n> --squash --admin --match-head-commit <watched head>`). Do not silently produce a
+  review they cannot submit.
 
 ## 2. Gather what the decision needs
 
@@ -85,12 +88,18 @@ Lead with the verdict. Keep it short enough to read before deciding:
 - **CI** — green, red, or still running. Name the failing check.
 - **Merge state** — and what would clear it.
 
-Then print the exact commands, and stop:
+Then print the exact commands, and stop. The merge follows the CI rule: wait with ci-watch, and
+merge only on `RESULT: pass`, only the head it watched (`HEAD:`), and never while a CI run on the
+default branch is in progress.
 
 ```bash
 # approve
 gh pr review <n> --repo <owner/repo> --approve
-gh pr merge  <n> --repo <owner/repo> --squash --delete-branch
+# wait for CI; merge only on RESULT: pass. HEAD: is the watched head
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <n> --repo <owner/repo>
+# no in_progress or queued run may be listed
+gh run list --repo <owner/repo> --branch <default branch> --json status
+gh pr merge  <n> --repo <owner/repo> --squash --delete-branch --match-head-commit <watched head>
 
 # or ask for changes
 gh pr review <n> --repo <owner/repo> --request-changes --body "..."

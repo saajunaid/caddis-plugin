@@ -73,7 +73,10 @@ gh pr diff 55
 gh pr checkout 55
 gh pr review 55 --approve --body "LGTM!"
 gh pr review 55 --request-changes --body "Please fix error handling"
-gh pr merge 55 --squash --delete-branch
+# merge only on ci-watch RESULT: pass, only its HEAD:, with no default-branch run in progress
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_lanes.py" ci-watch --pr 55
+gh run list --branch main --json status       # no in_progress or queued run (main = the default branch)
+gh pr merge 55 --squash --delete-branch --match-head-commit <watched head>
 
 # Manage
 gh pr ready 55             # Mark draft as ready
@@ -170,8 +173,9 @@ gh issue develop 42 --branch fix/issue-42
 git add src/auth/login.py tests/test_login.py   # named files only, never `git add .`
 git commit -m "fix: resolve login bug" -- src/auth/login.py tests/test_login.py && git push -u origin HEAD
 gh pr create --title "fix: resolve login bug" --body "Closes #42"
-gh pr checks --watch
-gh pr merge --squash --delete-branch
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.143/scripts/caddis_lanes.py" ci-watch --pr <n>   # RESULT: pass, HEAD: <watched head>
+gh run list --branch main --json status       # wait while a default-branch run is in progress
+gh pr merge <n> --squash --delete-branch --match-head-commit <watched head>
 ```
 
 ### Release Workflow
@@ -189,8 +193,8 @@ gh release upload v1.3.0 ./dist/*.tar.gz
 | Create repo       | `gh repo create name --public`                 |
 | Create issue      | `gh issue create --title "..." --labels bug`   |
 | Create PR         | `gh pr create --title "..." --reviewer user`   |
-| Merge PR          | `gh pr merge 55 --squash --delete-branch`      |
+| Merge PR          | `gh pr merge 55 --squash --delete-branch --match-head-commit <watched head>`, only after ci-watch `RESULT: pass` |
 | Create release    | `gh release create v1.0.0 --generate-notes`    |
-| Watch CI          | `gh run watch`                                 |
+| Watch CI          | `caddis_lanes.py ci-watch --pr 55` (fallback: `gh run watch`) |
 | Set secret        | `echo "val" \| gh secret set KEY`              |
 | API call          | `gh api /repos/o/r --jq '.description'`        |

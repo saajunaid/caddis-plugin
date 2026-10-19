@@ -1206,6 +1206,10 @@ relay/
 session-state.md
 session-state/
 context-window.json
+context-window.json.tmp
+.session-state-*.tmp
+hook-errors.jsonl
+.relay-injected/
 PROJECT-FACTS.md
 # lock files beside locked documents, and migration backups (never commit these)
 *.lock

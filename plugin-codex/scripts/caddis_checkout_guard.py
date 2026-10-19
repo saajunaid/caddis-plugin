@@ -3,6 +3,11 @@
 `shared` (handoff-integrity Phase 5, the design of fleet-handoff Phase 2): a checkout is shared when its root
 `AGENTS.md` says `Shared checkout: yes`, or when `git status` lists a path this session did not change. In a
 shared checkout handoff writes no tracked file there; it uses `caddis_docs_pr.py` instead.
+
+`checkout_is_shared` and `foreign_changes` (robustness #11) are the two halves of that test. `caddis_lanes.py accept`
+calls them before it fast-forwards the session checkout, and the commands that switch, rebase or pull run
+`shared` first (pr-merge, ship-pr, ship-merge, cloud-phases). A linked worktree is never shared: AGENTS.md is
+tracked, so a worktree carries the line too, but the worktree is the safe place the rule sends the work to.
 """
 
 from __future__ import annotations
@@ -79,28 +84,74 @@ def _norm(path: str) -> str:
     return path.strip().replace("\\", "/")
 
 
+class CheckoutStatusError(OSError):
+    """`git status` could not run in the checkout, so foreign changes cannot be ruled out."""
+
+
+def _repo_top(start: Path) -> Path:
+    """The nearest folder at or above `start` that holds `.git` (a folder or a gitfile); `start` when none does."""
+    here = Path(start).resolve()
+    for folder in (here, *here.parents):
+        if (folder / ".git").exists():
+            return folder
+    return here
+
+
+def is_linked_worktree(top: Path) -> bool:
+    """True when `top/.git` is a gitfile that points into `<repo>/.git/worktrees/` (a `git worktree add` tree)."""
+    gitfile = Path(top) / ".git"
+    if not gitfile.is_file():
+        return False
+    try:
+        line = gitfile.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return False
+    return line.lower().startswith("gitdir:") and "/worktrees/" in line.replace("\\", "/").lower()
+
+
+def checkout_is_shared(root: Path) -> bool:
+    """True when the repo that holds `root` says `Shared checkout: yes` in its top `AGENTS.md` (any case).
+
+    A linked worktree is never shared (see the module note). A missing or unreadable AGENTS.md means no."""
+    top = _repo_top(Path(root))
+    if is_linked_worktree(top):
+        return False
+    try:
+        text = (top / "AGENTS.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(SHARED_RE.search(text))
+
+
+def foreign_changes(root: Path, own_files: set[str] | None = None) -> list[str]:
+    """The dirty paths in `root` that are not in `own_files`, in `git status` order. A rename counts both paths.
+
+    Without session tracking (`own_files` None or empty), every dirty path counts. Raises CheckoutStatusError
+    when `git status` fails: the caller must then treat the checkout as unsafe."""
+    ret, lines = get_porcelain_lines(Path(root))
+    if ret != 0:
+        raise CheckoutStatusError(f"git status failed in {root}")
+    own = {_norm(p) for p in (own_files or set())}
+    foreign: list[str] = []
+    for entry in lines:
+        for path in entry_paths(entry):
+            if _norm(path) not in own and path not in foreign:
+                foreign.append(path)
+    return foreign
+
+
 def is_shared_checkout(root: Path, own_files: set[str]) -> tuple[bool, str]:
     """(True, reason) when handoff must not write tracked files in `root`; else (False, "").
 
     `Shared checkout: no` in AGENTS.md never hides a change this session did not make. When git status cannot
     run, the checkout counts as shared: a wrong "no" could commit another session's files.
     """
-    agents = Path(root) / "AGENTS.md"
-    try:
-        text = agents.read_text(encoding="utf-8", errors="replace") if agents.is_file() else ""
-    except OSError:
-        text = ""
-    if SHARED_RE.search(text):
+    if checkout_is_shared(Path(root)):
         return True, "AGENTS.md says Shared checkout: yes"
-    ret, lines = get_porcelain_lines(Path(root))
-    if ret != 0:
+    try:
+        foreign = foreign_changes(Path(root), own_files)
+    except CheckoutStatusError:
         return True, "git status failed, so changes by other sessions cannot be ruled out"
-    own = {_norm(p) for p in own_files}
-    foreign: list[str] = []
-    for entry in lines:
-        for path in entry_paths(entry):
-            if _norm(path) not in own and path not in foreign:
-                foreign.append(path)
     if foreign:
         return True, "changes not made by this session: " + ", ".join(foreign[:3])
     return False, ""

@@ -208,7 +208,7 @@ Auto-load these skills when the condition matches — do not skip.
 Don't just read code — **verify claims.** When reviewing changes:
 
 1. **Run the tests yourself** using `run_command` — confirm the stated pass count is real
-2. **Check for regressions** — run the full suite, not just the changed tests
+2. **Check for regressions** — run the tests of the changed files and their direct callers, in the foreground, each command under 10 minutes. CI runs the full suite
 3. **Verify file paths** in deferred items by reading/grepping the actual file before recording
 
 ### Adversarial Review (for 🔴 issues or L-sized changes)

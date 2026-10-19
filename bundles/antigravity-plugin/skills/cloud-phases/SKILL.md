@@ -23,6 +23,35 @@ Two modes:
 With no plan argument, use the active plan (`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_todo.py" active-plan`,
 or the one `status: current` plan in `.caddis/plans/`). If there is none, or more than one, ask.
 
+## Step 0 — Is this checkout safe to move?
+
+<!-- checkout-safety: keep byte-identical in pr-merge, ship-pr, ship-merge and cloud-phases; a test pins it -->
+Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
+`stash`, `reset --hard`). Before the first of them, run:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_checkout_guard.py" shared --root .
+```
+It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
+`Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
+`--own-files`, every change counts as another session's. A linked worktree is never shared.
+
+- **On `SHARED: no`,** do the steps as written, in this checkout.
+- **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
+  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+    `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
+  - **Pull a branch to test it:** `git fetch origin`, then
+    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
+  - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
+    `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
+    checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no
+    checkout has it out.
+  - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
+
+`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
+<!-- /checkout-safety -->
+
 ## Step 1 — check the preconditions (stop on any failure)
 
 ```
@@ -35,7 +64,11 @@ gh auth status
 - `origin` must be a GitHub repository. Cloud sessions clone from GitHub; a repo with no GitHub
   remote cannot use this command. Say so and stop.
 - The current branch must be the plan's feature branch, never the default branch. The cloud PRs
-  target this branch, and it goes to `main` later through the normal `/caddis:ship-pr`.
+  target this branch, and it goes to the default branch later through the normal `/caddis:ship-pr`.
+  Read the default branch as a bare name: `git rev-parse --abbrev-ref origin/HEAD` prints
+  `origin/<default>`, so strip the `origin/` prefix before you compare
+  (`d=$(git rev-parse --abbrev-ref origin/HEAD) && d=${d#origin/}`; when origin/HEAD is not set,
+  `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
 - Tracked changes must be committed. A cloud session cannot see uncommitted work.
 - `gh` must be signed in as an account that can push to the repository and open PRs.
 
@@ -152,14 +185,26 @@ gh pr list --base <feature branch> --state open --json number,title,headRefName,
 For each PR from a `<prefix>/phase-<NN>` branch, one at a time:
 1. Read the whole diff (`gh pr diff <N>`). Check it against the phase's Design and Touches. A file
    outside Touches is a finding.
-2. Wait for CI: `gh pr checks <N> --watch` (or the ci-watch lane, if this caddis has it).
+2. Wait for CI outside the session:
+   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <N>`. Only `RESULT: pass`
+   counts; `HEAD:` names the watched head. A `gh pr checks` table is not proof: it can show an older
+   head's checks.
 3. Review under the three rules (rule 3, review by tier): stop at the first CLEAN; after 3 rounds,
-   ask the owner. A fix goes back to the same cloud session or is made locally on the PR branch.
-4. Just before merging, re-read `gh pr view <N> --json headRefOid,mergeStateStatus`. Merge only if
-   the head SHA is the one you reviewed and CI passed on it:
-   `gh pr merge <N> --squash --delete-branch`.
-5. Pull: `git pull --ff-only origin <feature branch>`.
-6. Run the phase's exit gate locally, and after the last PR, the full test suite.
+   ask the owner. A fix goes back to the same cloud session or is made locally on the PR branch. A
+   fix pushes a new head: run ci-watch again.
+4. Just before merging, check all three, then merge that head only:
+   - the last ci-watch printed `RESULT: pass`, and its `HEAD:` is the head you reviewed;
+   - `gh pr view <N> --json headRefOid,mergeStateStatus` still shows that head;
+   - no CI run on the default branch is in progress:
+     `gh run list --branch <default branch> --json status` lists no `in_progress` or `queued` run
+     (wait, then check again).
+
+   `gh pr merge <N> --squash --delete-branch --match-head-commit <watched head>` (the full SHA).
+   GitHub refuses the merge if the head moved. A merge on a head match alone merged a red PR (#34).
+5. Pull: `git pull --ff-only origin <feature branch>`. In a shared checkout (Step 0 says `SHARED: yes`), never
+   pull here: make a detached worktree of `origin/<feature branch>`, as Step 0 says, and run point 6 there.
+6. Run the phase's exit gate locally: the tests of the touched files, in the foreground, each command under
+   10 minutes. Do not start the full suite in the background. CI runs it on every PR.
 7. Update the phase's Tracker row: status, PR number, merge commit, review result. Set the prompt's
    frontmatter `status: done` so `/caddis:handoff` tidies it.
 

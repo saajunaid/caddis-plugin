@@ -33,6 +33,7 @@ except ModuleNotFoundError as exc:
     import caddis_exit
     from caddis_heavy_slot import HeavySlotBusy, heavy_slot
 
+import caddis_checkout_guard
 import caddis_routing
 import caddis_redact
 import caddis_spend
@@ -2165,6 +2166,28 @@ def _printable(value: object) -> str:
     return _CONTROL_CHARS.sub("", text)
 
 
+# Accept fast-forwards the SESSION checkout. In a checkout a dev service serves from, or one that holds a peer's
+# uncommitted edits, that moves files under them (robustness #11). The lane's own scaffolding is not a peer's change.
+_LANE_OWN_PREFIX = ".caddis/orchestrator/"
+
+
+def shared_checkout_reason(repo: Path) -> str:
+    """Why accept must not fast-forward `repo`, or ''. Shared (AGENTS.md) and/or foreign changes (git status):
+    every reason that holds, joined with "; ", so an --allow-shared audit records all of them."""
+    reasons = []
+    if caddis_checkout_guard.checkout_is_shared(repo):
+        reasons.append("AGENTS.md says Shared checkout: yes")
+    try:
+        dirty = caddis_checkout_guard.foreign_changes(repo)
+    except caddis_checkout_guard.CheckoutStatusError:
+        reasons.append("git status failed, so changes by other sessions cannot be ruled out")
+        dirty = []
+    foreign = [path for path in dirty if not path.replace("\\", "/").startswith(_LANE_OWN_PREFIX)]
+    if foreign:
+        reasons.append("changes not made by this lane: " + ", ".join(foreign[:3]))
+    return "; ".join(reasons)
+
+
 def _accept_command(
     args,
     repo: Path,
@@ -2221,6 +2244,16 @@ def _accept_command(
             or packet["worktree_digest"] != worktree_digest(wt.path, files)):
         print("refusing: worktree changed since check")
         return EXIT_FAIL
+    unsafe = shared_checkout_reason(repo)
+    if unsafe and not getattr(args, "allow_shared", False):
+        print(f"refusing: the session checkout is not safe to fast-forward ({_printable(unsafe)}). "
+              "Run the programme from a worktree of origin/<default> under %TEMP% (git worktree add), "
+              "or pass --allow-shared to fast-forward here anyway")
+        return EXIT_USAGE
+    if unsafe:
+        packet["allow_shared"] = unsafe
+        write_packet(packet_path, packet)
+        print(f"ALLOW SHARED: {_printable(unsafe)}")
     if args.override_review is not None:
         packet["override_review"] = args.override_review
         write_packet(packet_path, packet)
@@ -2458,6 +2491,8 @@ def main(argv: list[str] | None = None) -> int:
     _add_phase_arguments(accept)
     accept.add_argument("--message", required=True)
     accept.add_argument("--override-review")
+    accept.add_argument("--allow-shared", action="store_true",
+                        help="fast-forward a shared checkout or one with foreign changes anyway (recorded)")
     abandon = subparsers.add_parser("abandon")
     _add_phase_arguments(abandon)
     finish = subparsers.add_parser("finish")

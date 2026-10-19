@@ -241,9 +241,13 @@ def default_branch(root: Path) -> str:
                        caddis_exit.NOT_RUN)
 
 
+FETCH = True  # `render --no-fetch` (the waiting hook) turns it off for one command: read the origin refs it has
+
+
 def fetch(root: Path) -> str:
     """Fetch origin and return the default branch name."""
-    _git(root, "fetch", "--quiet", "origin")
+    if FETCH:
+        _git(root, "fetch", "--quiet", "origin")
     return default_branch(root)
 
 
@@ -2218,7 +2222,91 @@ def _build_parser() -> argparse.ArgumentParser:
     which.add_argument("--all", action="store_true", help="every roadmap on origin (used by hooks and commands)")
     p.add_argument("--root", default=".")
     p.add_argument("--out", default=None, help="the HTML file (default ~/.caddis/roadmap-pages/<repo>/<slug>.html)")
+    p.add_argument("--no-fetch", action="store_true",
+                   help="use the origin refs this checkout has; no git fetch (the waiting hook's background render)")
+    p.add_argument("--delay", type=int, default=0,
+                   help="wait this many seconds (at most 60) first: the waiting hook's follow-up render")
     return parser
+
+
+RENDER_LOCK_STALE_S = 600  # a render lock older than this is left by a killed render
+PENDING_NAME = ".roadmap-render.pending"  # session_waiting.py writes it beside its debounce stamp
+
+
+def _clear(path: Path | None) -> bool:
+    """Delete `path`; True when it was there."""
+    if path is None:
+        return False
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return path.exists()
+
+
+def _take_render_lock(lock: Path) -> bool:
+    """One render per repo at a time (robustness #8): create `lock` with O_EXCL, never wait. A lock older than
+    RENDER_LOCK_STALE_S is taken over once. False: another render holds it."""
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    for attempt in range(2):
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            pass
+        except PermissionError:  # Windows: a deleted lock whose delete is still pending
+            return False
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(str(os.getpid()))
+            return True
+        try:
+            stale = time.time() - lock.stat().st_mtime > RENDER_LOCK_STALE_S
+        except FileNotFoundError:
+            stale = True  # released between the create and the stat: try again
+        except OSError:  # Windows: a lock being deleted cannot be read either
+            return False
+        if attempt or not stale:
+            return False
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+    return False
+
+
+def _render(root: Path, args: argparse.Namespace) -> int:
+    """`render`: the pages, the prune and the hub. The caller holds the repo's render lock."""
+    import caddis_roadmap_page
+    slugs, on_origin = list_roadmaps_checked(root) if args.all else ([args.roadmap], None)
+    failed = written = pruned = 0
+    for slug in slugs:  # --all: one bad roadmap must not stop the others
+        try:
+            path = caddis_roadmap_page.write_page(root, slug, Path(args.out) if args.out else None,
+                                                  sys.modules[__name__])
+            if path is None:  # a newer caddis owns this page: kept, and neither written nor failed
+                continue
+            written += 1
+            print(f"[ROADMAP] page written: {path.resolve()}")
+        except Exception as exc:  # --all: one roadmap must never stop the others
+            if not args.all:
+                raise
+            failed += 1
+            print(f"[ROADMAP] {slug}: page not written: {exc}", file=sys.stderr)
+    try:  # the hub is a convenience: nothing below ever fails a render or changes its exit code
+        if args.all and on_origin is not None:  # a roadmap removed from origin leaves the hub too; a listing
+            # that failed removes nothing, and a folder still on origin keeps its page even if its render failed
+            pruned = caddis_roadmap_page.prune_folder(
+                caddis_roadmap_page.default_page_path(root, "_").parent, on_origin | set(slugs))
+        hub = caddis_roadmap_page.write_hub() if not args.out and (written or pruned) else None
+        if hub is not None:  # None: a newer caddis owns the hub (write_hub said so)
+            print(f"[ROADMAP] hub written: {hub.resolve()}")
+    except Exception as exc:
+        print(f"[ROADMAP] hub not written: {exc}", file=sys.stderr)
+    return caddis_exit.BLOCKED if failed else caddis_exit.CLEAN
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -2266,29 +2354,37 @@ def _dispatch(args: argparse.Namespace) -> int:
         import caddis_roadmap_page  # the page is separate; only `render` needs it
         if args.all and args.out:
             raise RoadmapError("--out works with one --roadmap, not with --all", caddis_exit.ERROR)
-        slugs, on_origin = list_roadmaps_checked(root) if args.all else ([args.roadmap], None)
-        failed = written = pruned = 0
-        for slug in slugs:  # --all: one bad roadmap must not stop the others
-            try:
-                path = caddis_roadmap_page.write_page(root, slug, Path(args.out) if args.out else None,
-                                                      sys.modules[__name__])
-                written += 1
-                print(f"[ROADMAP] page written: {path.resolve()}")
-            except Exception as exc:  # --all: one roadmap must never stop the others
-                if not args.all:
-                    raise
-                failed += 1
-                print(f"[ROADMAP] {slug}: page not written: {exc}", file=sys.stderr)
-        try:  # the hub is a convenience: nothing below ever fails a render or changes its exit code
-            if args.all and on_origin is not None:  # a roadmap removed from origin leaves the hub too; a listing
-                # that failed removes nothing, and a folder still on origin keeps its page even if its render failed
-                pruned = caddis_roadmap_page.prune_folder(
-                    caddis_roadmap_page.default_page_path(root, "_").parent, on_origin | set(slugs))
-            if not args.out and (written or pruned):
-                print(f"[ROADMAP] hub written: {caddis_roadmap_page.write_hub().resolve()}")
-        except Exception as exc:
-            print(f"[ROADMAP] hub not written: {exc}", file=sys.stderr)
-        return caddis_exit.BLOCKED if failed else caddis_exit.CLEAN
+        if args.delay > 0:
+            time.sleep(min(args.delay, 60))
+        folder = caddis_roadmap_page.default_page_path(root, "_").parent.name
+        lock = caddis_roadmap_page.pages_root() / ".locks" / f"{folder}.lock"
+        # The waiting hook's debounce (and a render that finds the lock held) leaves PENDING_NAME: the render that
+        # holds the lock renders once more at its end, so the last mark change always reaches the page.
+        state = caddis_roadmap_page.main_checkout(root) / ".caddis" / "session-state"
+        pending = state / PENDING_NAME if args.all and not args.out else None
+        if not _take_render_lock(lock):
+            if pending is not None and state.is_dir():
+                try:
+                    pending.write_text(str(os.getpid()), encoding="utf-8")
+                except OSError:
+                    pass
+            print("[ROADMAP] another render of this repo is running; skipped")
+            return caddis_exit.CLEAN
+        global FETCH
+        FETCH = not args.no_fetch
+        try:
+            _clear(pending)  # this render reads the marks as they are now
+            code = _render(root, args)
+            if _clear(pending):  # a mark changed while it ran: once more, under the same lock
+                code = _render(root, args)
+            return code
+        finally:
+            FETCH = True
+            try:  # only our own lock: a render that ran past the stale age may have been taken over
+                if lock.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                    lock.unlink()
+            except (OSError, UnicodeDecodeError):
+                pass
     return caddis_exit.ERROR
 
 
