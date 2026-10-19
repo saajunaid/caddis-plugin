@@ -168,7 +168,7 @@ Cleanup:       remote branch deleted / local branch deleted / backup ref dropped
 
 - Never merge a PR whose required checks are red or absent.
 - Never delete a feature branch before its merge is confirmed and any deploy validated.
-- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies all three, and `git add -u` and `git commit -a`). Commit with `git commit -m "..." -- <files>`, after `git diff --cached --name-only` shows only those files.
 - Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.
 - Never edit a workflow file (`.gitea/workflows/`, `.github/workflows/`) to make a gate pass — fix the source.
 - Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.

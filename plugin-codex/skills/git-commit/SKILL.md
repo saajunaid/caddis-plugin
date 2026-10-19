@@ -87,9 +87,8 @@ Optional area of change:
    # Stage specific files
    git add path/to/file1 path/to/file2
 
-   # Stage by pattern
-   git add *.test.*
-   git add src/components/*
+   # Never stage by pattern or folder (`*.test.*`, `src/components/`): a pattern also takes
+   # files you did not change, and the caddis guard denies it. Name each file.
    ```
 
    **Never stage secrets** (`.env`, `credentials.json`, private keys).

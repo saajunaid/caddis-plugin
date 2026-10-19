@@ -23,6 +23,13 @@ Rules the runner trusts unattended:
   environment (any value, even empty), stdin not a terminal, or (Windows) stdin not a console (a NUL stdin is not);
 - Exit check and Check commands run in a temporary worktree of `origin/<default>` (the merged code), with no stdin,
   in their own process group (a job object on Windows); the tree is killed on every exit;
+- that worktree has no venv, no node_modules and no build. An optional roadmap line `**Exit setup:** <command>` runs
+  first in it (900 s) and must install fresh into it; a failing setup is exit 3 and writes nothing. An exit check
+  that fails because the environment is missing (ENV_FAILURE_PATTERNS, exit 9009/127/126) is exit 3 and writes
+  nothing; a real failure writes an `external` blocker whose reason ends with the masked tail of the output (one
+  line, the whole cell at most 200 characters; deduped and unblocked by its stable `exit check failing (exit N)`
+  part). Both keep the last 64 KB of output (masked) in `.caddis/roadmaps/<slug>/.local/exit-check-<id>-<utc>.log`
+  (the newest 10 per roadmap);
 - every network call has a timeout (git fetch/ls-remote/push 120 s, gh 60 s, the merge chain 1800 s) and runs with
   GIT_TERMINAL_PROMPT=0 and GCM_INTERACTIVE=never; a timeout is exit 3 (a merge-chain timeout is logged as
   "merge_exit": "timeout"); Ctrl+C kills the tree too;
@@ -39,7 +46,8 @@ commit on a `roadmap/<slug>-<id>-<utc>` branch made from `origin/<default>` in a
 prints the diff it would write and the commands it would run, and runs and writes nothing.
 
 Exit codes (caddis_exit): 0 clean, 1 blocked (nothing ready, check failing, PR not merged), 3 could not run
-(no origin, no roadmap, lock busy), 4 error (malformed roadmap, unknown id, column or value, refused change).
+(no origin, no roadmap, lock busy, an exit check or Exit setup that cannot run in the merged checkout), 4 error
+(malformed roadmap, unknown id, column or value, refused change).
 
 Usage: caddis_roadmap.py status --roadmap SLUG [--root DIR] [--json]
        caddis_roadmap.py next --roadmap SLUG [--root DIR] [--json]
@@ -63,7 +71,6 @@ import difflib
 import json
 import os
 import re
-import shutil
 import signal
 import socket
 import subprocess
@@ -78,14 +85,22 @@ from pathlib import Path
 
 try:
     import caddis_exit
+    import caddis_redact
     import caddis_rows
+    import caddis_worktree_safety
 except ModuleNotFoundError as exc:
-    if exc.name not in {"caddis_exit", "caddis_rows"}:
+    if exc.name not in {"caddis_exit", "caddis_redact", "caddis_rows", "caddis_worktree_safety"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
+    import caddis_redact
     import caddis_rows
+    import caddis_worktree_safety
+
+# No child process opens a console window on Windows (this runs under hooks and status lines that
+# have no console). Inline, not scripts/no_window.py: in the source tree this file does not sit beside it.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 STATUSES = ("todo", "in-progress", "code-done/data-pending", "done", "not-needed")
@@ -97,7 +112,55 @@ MILESTONE_COLS = ["ID", "Milestone", "Phases", "Depends on", "Exit check", "Stat
 BLOCKER_COLS = ["Milestone", "Type", "Reason", "Check"]
 HEADLESS_VARS = ("CADDIS_HEADLESS", "CLAUDECODE")
 EXIT_CHECK_TIMEOUT = 300
+EXIT_SETUP_TIMEOUT = 900  # a fresh venv + pip install, or npm ci + a build, is slower than a check
 RECHECK_TIMEOUT = 120
+# Exit codes of a shell that could not start the command: 9009 cmd.exe "not recognized", 127 sh "command not
+# found", 126 sh "found but not executable".
+SHELL_CANNOT_RUN_CODES = (9009, 127, 126)
+# Output that says the merged checkout lacks the project's environment (no venv, no node_modules, no build), not that
+# the product fails (serve-sight #301). Matched case-insensitively, only on a check that exits non-zero; a match is
+# NOT_RUN (exit 3): no blocker, no PR. Each pattern has a sample in test_caddis_roadmap.py ENV_SAMPLES.
+ENV_FAILURE_PATTERNS = (
+    "not recognized as an internal or external command",  # cmd.exe: the tool is not on PATH
+    "command not found",  # sh / bash: the tool is not on PATH
+    "No module named",  # Python: no venv, or a package not installed
+    "ModuleNotFoundError",  # Python: the same, as a traceback names it
+    "Cannot find module",  # Node (CommonJS): no node_modules
+    "ERR_MODULE_NOT_FOUND",  # Node (ES modules): no node_modules
+    "ENOENT",  # Node: a file or binary that a build or an install makes is missing
+    "run npm run build first",  # a check that needs the front-end bundle
+    "is not installed",  # a tool or a browser (Playwright) that an install step adds
+    "could not find a version",  # pip: a package index the setup cannot reach
+)
+ENV_FAILURE_RE = re.compile("|".join(re.escape(p) for p in ENV_FAILURE_PATTERNS), re.IGNORECASE)
+ENV_SCAN_LINES = 40  # the patterns are searched only in this many last non-empty output lines
+REASON_TAIL_LINES = 3  # a real failure's blocker reason ends with this many last non-empty output lines
+REASON_CELL_CHARS = 200  # the whole stored Reason cell of a rollup blocker, after every escape
+ROLLUP_PREFIX_RE = re.compile(r"exit check failing \((?:exit -?\d+|timed out after \d+ s)\)")  # its stable part
+KEEP_CHECK_LOGS = 10  # exit-check-*.log files kept per roadmap; older ones are removed
+# Masks for the output tail that goes to origin and for the local log, after caddis_redact (which masks only the
+# values of secret-named variables). The token rules are copied from the high-confidence SECRET_RULES in
+# .github/tools/secret_filter.py (that folder is not on this script's import path in an installed plugin).
+OUTPUT_MASKS: list[tuple[re.Pattern, str]] = [
+    # secret_filter private-key, widened to the WHOLE block: BEGIN to END, or to the end of the output with no END.
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.DOTALL), "***"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "***"),  # secret_filter aws-key
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"), "***"),  # secret_filter github-token
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"), "***"),  # secret_filter slack-token
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "***"),  # secret_filter jwt
+    # secret_filter assignment, widened: a quoted value may hold spaces (a passphrase of several words).
+    (re.compile(r"(?i)([A-Za-z0-9_]*(?:password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*\s*[:=]\s*)"
+                r"(['\"])[^'\"\n]{8,}\2"), r"\1\2***\2"),
+    (re.compile(r"(?im)^(\s*(?:export\s+)?[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|TOKEN|PRIVATE_KEY)"
+                r"[A-Za-z0-9_]*\s*=\s*)[^\s'\"#]{8,}"), r"\1***"),  # secret_filter env-assignment
+    (re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1***@"),  # URL credentials
+    # Absolute paths, which can name a user or a host. A path may hold spaces, so each one runs to the end of the
+    # line or a quote; a Windows drive or UNC path also stops at `<`, `>` or `|` (never part of a Windows path).
+    (re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\r\n'\"<>|]*"), "<path>"),  # a Windows drive path
+    (re.compile(r"(?<![\w\\])\\\\[^\s\\'\"<>|]+\\[^\r\n'\"<>|]*"), "<path>"),  # a UNC path
+    (re.compile(r"(?<![\w:/.~-])/(?:home|Users|tmp|root|var|etc|opt)/[^\r\n'\"]*"), "<path>"),  # a POSIX path
+]
+EXIT_SETUP_RE = re.compile(r"^\*\*Exit setup:\*\*[ \t]*(.*?)[ \t]*$")
 LOCK_TIMEOUT = 30
 LOCK_MALFORMED_STALE_S = 60  # an empty or non-JSON lock file older than this is stale
 _WINDOWS = os.name == "nt"  # a create can fail with PermissionError while a deleted lock's delete is pending
@@ -136,10 +199,17 @@ class RoadmapError(Exception):
 # -- git -------------------------------------------------------------------------------------------------------
 
 
+# The login this process's own git, gh and merge-chain calls use (GH_TOKEN from the runner's --gh-account). It is
+# never put in os.environ, so a session or lane started from os.environ cannot inherit it (robustness #4).
+AUTH_ENV: dict[str, str] = {}
+
+
 def _quiet_env() -> dict:
-    """The environment for git, gh and the merge chain: never wait for a credential prompt."""
+    """The environment for git, gh and the merge chain: never wait for a credential prompt. A fresh dict each call,
+    with AUTH_ENV on top."""
     env = dict(os.environ)
     env.update(NO_PROMPT_ENV)
+    env.update(AUTH_ENV)
     return env
 
 
@@ -149,7 +219,7 @@ def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
         proc = run_bounded(argv, GIT_NET_TIMEOUT, f"git {args[0]}")
     else:
         proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              stdin=subprocess.DEVNULL, env=_quiet_env())
+                              stdin=subprocess.DEVNULL, env=_quiet_env(), creationflags=_NO_WINDOW)
     if check and proc.returncode != 0:
         raise RoadmapError(f"git {' '.join(args)} failed: {(proc.stderr or proc.stdout).strip()[:300]}",
                            caddis_exit.NOT_RUN)
@@ -179,7 +249,7 @@ def fetch(root: Path) -> str:
 
 def show(root: Path, branch: str, path: str) -> str | None:
     proc = subprocess.run(["git", "-C", str(root), "show", f"origin/{branch}:{path}"], capture_output=True,
-                          stdin=subprocess.DEVNULL)
+                          stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
     if proc.returncode != 0:
         return None
     # Bytes, not text mode: text mode would turn CRLF into LF and a write would change every line ending.
@@ -387,6 +457,7 @@ class Blocker:
 @dataclass
 class Roadmap:
     runner_host: str = ""
+    exit_setup: str = ""  # the `**Exit setup:**` command run before an Exit check; empty when there is none
     milestones: list[Milestone] = field(default_factory=list)
     blockers: list[Blocker] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -518,6 +589,12 @@ def parse_roadmap(text: str) -> Roadmap:
     rm.runner_host = next((m.group(1) for m in map(HOST_RE.match, view) if m), "")
     if not rm.runner_host:
         rm.errors.append("no `Runner host: <host>` line")
+    setups = [(i, m.group(1)) for i, m in enumerate(map(EXIT_SETUP_RE.match, view)) if m]
+    if len(setups) > 1:
+        rm.errors.append("more than one `**Exit setup:**` line (lines "
+                         + ", ".join(str(i + 1) for i, _ in setups) + "); a roadmap has at most one")
+    elif setups:
+        rm.exit_setup = _cell_text(setups[0][1])
 
     table = _section(tables, "Milestones", MILESTONE_COLS, rm.errors)
     seen: set[str] = set()
@@ -865,7 +942,10 @@ _CALENDAR_NEEDS_DATE = ("a calendar blocker needs --check with an ISO date YYYY-
                         "date has passed, UTC)")
 
 
-def add_blocker(text: str, mid: str, btype: str, reason: str, check_cmd: str = "") -> str:
+def add_blocker(text: str, mid: str, btype: str, reason: str, check_cmd: str = "", same_prefix: str = "") -> str:
+    """The text with one more Blockers row. No change when the same milestone, type and reason exist, or (with
+    `same_prefix`, rollup's stable `exit check failing (...)`) a row whose reason is that prefix or starts with it
+    and `: `."""
     rm = parse_roadmap(text)
     if rm.get(mid) is None:
         raise RoadmapError(f"unknown milestone id {mid}")
@@ -879,7 +959,9 @@ def add_blocker(text: str, mid: str, btype: str, reason: str, check_cmd: str = "
         if when is None:
             raise RoadmapError(_CALENDAR_NEEDS_DATE)
         check_cmd = when.isoformat()
-    if any(b.milestone == mid and b.type == btype and b.reason == reason.strip() for b in rm.blockers):
+    if any(b.milestone == mid and b.type == btype and (b.reason == reason.strip() or (
+            same_prefix and (b.reason == same_prefix or b.reason.startswith(same_prefix + ": "))))
+           for b in rm.blockers):
         return text
     check_cell = _clean_value(check_cmd, "--check")
     if check_cell and "`" not in check_cell:
@@ -901,7 +983,18 @@ def remove_blockers(text: str, rows: list[Blocker]) -> str:
 
 
 def _find_blockers(rm: Roadmap, mid: str, btype: str, reason: str, check_cmd: str | None = None) -> list[Blocker]:
-    """The rows to remove. More than one row with this milestone, type and reason needs --check to pick one."""
+    """The rows to remove. More than one row with this milestone, type and reason needs --check to pick one.
+    A reason that is only rollup's stable prefix (`exit check failing (exit N)`) removes EVERY row of this milestone
+    and type whose reason is that prefix or starts with it and `: ` (each is the same blocker with another tail)."""
+    if ROLLUP_PREFIX_RE.fullmatch(reason.strip()):
+        prefix = reason.strip()
+        rows = [b for b in rm.blockers if b.milestone == mid and b.type == btype
+                and (b.reason == prefix or b.reason.startswith(prefix + ": "))]
+        if not rows:
+            raise RoadmapError(f"no `{btype}` blocker on {mid} with reason `{prefix}` (or `{prefix}: ...`)")
+        if check_cmd is not None:
+            rows = [b for b in rows if b.check == _cell_text(check_cmd)]
+        return rows
     rows = [b for b in rm.blockers if b.milestone == mid and b.type == btype and b.reason == reason.strip()]
     if not rows:
         raise RoadmapError(f"no `{btype}` blocker on {mid} with reason `{reason.strip()}`")
@@ -974,15 +1067,15 @@ def merged_checkout(root: Path, branch: str):
         _git(root, "worktree", "add", "--quiet", "--detach", str(worktree), f"origin/{branch}")
         yield worktree
     finally:
-        _git(root, "worktree", "remove", "--force", "--force", str(worktree), check=False)
+        caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
         _git(root, "worktree", "prune", check=False)
-        shutil.rmtree(tmp, ignore_errors=True)
+        caddis_worktree_safety.remove_tree(tmp)     # links first: a junction's target survives
 
 
 def _kill_tree(proc: subprocess.Popen) -> None:
     if WINDOWS:
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
-                       stdin=subprocess.DEVNULL)
+                       stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -1078,11 +1171,11 @@ class _WinJob:
 
 def _start(argv, **kwargs) -> tuple[subprocess.Popen, "_WinJob | None"]:
     """Popen with no stdin, in its own process group (and, on Windows, its own job object)."""
-    if WINDOWS:
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
+    if not WINDOWS:
         kwargs["start_new_session"] = True
-    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, **kwargs)
+    # CREATE_NO_WINDOW: the child (git, gh, a gate) must not flash a window when this runs from a hook.
+    flags = (subprocess.CREATE_NEW_PROCESS_GROUP | _NO_WINDOW) if WINDOWS else 0
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, creationflags=flags, **kwargs)
     job = None
     if WINDOWS:
         try:
@@ -1204,6 +1297,81 @@ def run_check(cwd: Path, cmd: str, timeout: float) -> tuple[int | None, str]:
 
 def _failure(rc: int | None, timeout: float) -> str:
     return f"timed out after {timeout:.0f} s" if rc is None else f"exit {rc}"
+
+
+def env_failure(rc: int | None, output: str) -> str | None:
+    """Why a failed check could not run in the merged checkout (the environment is missing); None for a real failure
+    (also for a timeout: it ran)."""
+    if rc is None or rc == 0:
+        return None
+    if rc in SHELL_CANNOT_RUN_CODES:
+        return f"exit {rc}: the shell could not start the command"
+    lines = [ln for ln in (output or "").splitlines() if ln.strip()][-ENV_SCAN_LINES:]
+    match = ENV_FAILURE_RE.search("\n".join(lines))
+    return f"the output says `{match.group(0)}`" if match else None
+
+
+def mask_output(text: str, secrets: list[str]) -> str:
+    """`text` with secret values (caddis_redact), token-shaped strings, URL credentials and absolute paths masked."""
+    text = caddis_redact.redact(text or "", secrets)
+    for pattern, repl in OUTPUT_MASKS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _plain_line(text: str) -> str:
+    """Text a roadmap cell holds as is: printable ASCII on one line, no HTML comment marker, and no `|` or backslash,
+    so `_clean_value` escapes nothing and the stored cell is exactly this text."""
+    text = "".join(ch if " " <= ch <= "~" else " " for ch in text)
+    text = text.replace("\\", "/").replace("|", "/").replace("<!--", "<! --").replace("-->", "-- >")
+    return " ".join(text.split())
+
+
+def blocker_reason(failure: str, output: str, secrets: list[str]) -> str:
+    """`exit check failing (<failure>)`, then `: ` and the last REASON_TAIL_LINES non-empty output lines on one line,
+    masked (mask_output), with nothing left to escape, cut from the front so the whole cell is at most
+    REASON_CELL_CHARS: the merged blocker says why. The part before `: ` is the stable identity (ROLLUP_PREFIX_RE)."""
+    base = f"exit check failing ({failure})"
+    lines = [ln.strip() for ln in mask_output(output, secrets).splitlines() if ln.strip()]
+    tail = _plain_line(" / ".join(lines[-REASON_TAIL_LINES:]))
+    room = REASON_CELL_CHARS - len(base) - len(": ")
+    if len(tail) > room:
+        tail = ("..." + tail[-(room - 3):].lstrip())[:room]
+    return f"{base}: {tail}" if tail else base
+
+
+def _log_stamp() -> str:
+    """The UTC stamp in an exit-check log name; it sorts in time order (a seam for the tests)."""
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def keep_check_output(root: Path, slug: str, mid: str, runs: list[tuple[str, str, int | None, str]],
+                      secrets: list[str]) -> Path | None:
+    """Write the last OUTPUT_TAIL_BYTES of what the Exit setup and Exit check printed, masked (mask_output), to
+    `<.local>/exit-check-<id>-<utc>.log` and return its path (None when it cannot be written; the caller says so).
+    Only the newest KEEP_CHECK_LOGS such logs of the roadmap stay. `runs` holds (what, command, exit code or None,
+    output)."""
+    parts = []
+    for what, cmd, rc, output in runs:
+        body = output if not output or output.endswith("\n") else output + "\n"
+        result = "timed out" if rc is None else f"exit {rc}"
+        parts.append(f"== {what}: {cmd}\n{body}== {what} result: {result}\n")
+    data = mask_output("".join(parts), secrets).encode("utf-8")[-OUTPUT_TAIL_BYTES:]
+    path = local_dir(root, slug) / f"exit-check-{mid}-{_log_stamp()}.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data.decode("utf-8", errors="ignore").encode("utf-8"))
+    except OSError:
+        return None
+    logs = sorted(path.parent.glob("exit-check-*.log"), key=lambda f: (f.stem.rsplit("-", 1)[-1], f.name))
+    for old in logs[:-KEEP_CHECK_LOGS]:
+        with contextlib.suppress(OSError):
+            old.unlink()
+    return path
+
+
+def _log_note(log: Path | None) -> str:
+    return f"Output: {log}" if log is not None else "Output not kept (the .local folder cannot be written)."
 
 
 # -- the write path ---------------------------------------------------------------------------------------------
@@ -1373,7 +1541,7 @@ BATCH_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)#(\d+|\*)$")  # `<plan>#<ph
 def runner_state_dir(root: Path) -> Path | None:
     """`<git common dir>/caddis-runner`, or None when `root` is not inside a git repo."""
     proc = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-common-dir"], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+                          encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
     common = Path(proc.stdout.strip())
@@ -1667,10 +1835,10 @@ def write_change(root: Path, slug: str, mid: str, change: str, edit, dry_run: bo
             else:
                 rc = caddis_exit.NOT_RUN if rc == caddis_exit.NOT_RUN else caddis_exit.BLOCKED
         finally:
-            _git(root, "worktree", "remove", "--force", "--force", str(worktree), check=False)
+            caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
             _git(root, "worktree", "prune", check=False)
             _git(root, "branch", "-D", branch, check=False)
-            shutil.rmtree(tmp, ignore_errors=True)
+            caddis_worktree_safety.remove_tree(tmp)
             _audit(root, slug, {"utc": _utc(), "roadmap": slug, "id": mid, "change": change, "branch": branch,
                                 "pr": pr, "merge_exit": merge_exit if merge_exit is not None
                                 else (rc if pr is not None else None)})
@@ -1843,28 +2011,60 @@ def rollup(root: Path, slug: str, mid: str, dry_run: bool = False, out=print) ->
             return edit_cell(fresh.text, mid, "Status", value)
         return edit
 
+    setup = snap.roadmap.exit_setup
     if dry_run:
         if ms.exit_check:
+            if setup:
+                out(f"would run setup: {setup}")
             out(f"would run: {ms.exit_check}")
         return write_change(root, slug, mid, "Status done", to_status("done"), True, out)
     rc: int | None = 0
+    output = ""
+    log: Path | None = None
+    secrets: list[str] = []
     if ms.exit_check:
+        secrets = caddis_redact.load_secrets(Path.home())
+        runs: list[tuple[str, str, int | None, str]] = []
+        setup_rc: int | None = 0
         with merged_checkout(root, snap.branch) as cwd:
-            rc, _output = run_check(cwd, ms.exit_check, EXIT_CHECK_TIMEOUT)
+            if setup:  # installs fresh into this worktree; never a link to a shared venv or node_modules
+                setup_rc, setup_output = run_check(cwd, setup, EXIT_SETUP_TIMEOUT)
+                runs.append(("Exit setup", setup, setup_rc, setup_output))
+            if setup_rc == 0:
+                rc, output = run_check(cwd, ms.exit_check, EXIT_CHECK_TIMEOUT)
+                runs.append(("Exit check", ms.exit_check, rc, output))
+        if setup_rc != 0:  # the check never ran: an environment problem, never a blocker
+            log = keep_check_output(root, slug, mid, runs, secrets)
+            out(f"{mid}: exit check not run: the Exit setup failed "
+                f"({_failure(setup_rc, EXIT_SETUP_TIMEOUT)}); nothing written. {_log_note(log)}")
+            return caddis_exit.NOT_RUN
+        if rc != 0:
+            log = keep_check_output(root, slug, mid, runs, secrets)
+            why = env_failure(rc, output)
+            if why is not None:
+                hint = ("check the `**Exit setup:**` line (it ran and passed, but did not install what the check "
+                        "needs, or the check does not call the venv it made)" if setup else
+                        "give the roadmap an `**Exit setup:**` line that installs it fresh")
+                out(f"{mid}: exit check not run: the merged checkout lacks the project environment ({why}); "
+                    f"nothing written. Fix: {hint}, or fix the check. {_log_note(log)}")
+                return caddis_exit.NOT_RUN
     if rc == 0:
         out(f"{mid}: exit check passed" if ms.exit_check else f"{mid}: every phase merged, no exit check")
         return write_change(root, slug, mid, "Status done", to_status("done"), False, out)
     failure = _failure(rc, EXIT_CHECK_TIMEOUT)
     if any(b.type == "data-condition" for b in snap.roadmap.blockers_of(mid)):
-        out(f"{mid}: exit check failing ({failure}) and a data-condition blocker is open: code-done/data-pending")
+        out(f"{mid}: exit check failing ({failure}) and a data-condition blocker is open: code-done/data-pending. "
+            f"{_log_note(log)}")
         write_rc = write_change(root, slug, mid, "Status code-done/data-pending",
                                 to_status("code-done/data-pending"), False, out)
         return write_rc if write_rc != caddis_exit.CLEAN else caddis_exit.BLOCKED
-    # The command's output is never written to the roadmap: it can hold paths or secrets.
-    reason = f"exit check failing ({failure})"
-    out(f"{mid}: {reason}")
+    # Only a short tail of the output reaches the roadmap: redacted, one line, plain ASCII. The rest stays local.
+    reason = blocker_reason(failure, output, secrets)
+    out(f"{mid}: {reason}. {_log_note(log)}")
+    stable = f"exit check failing ({failure})"  # a rollup blocker's identity: the tail varies from run to run
     write_rc = write_change(root, slug, mid, "block external",
-                            lambda fresh: add_blocker(fresh.text, mid, "external", reason), False, out)
+                            lambda fresh: add_blocker(fresh.text, mid, "external", reason, same_prefix=stable), False,
+                            out)
     return write_rc if write_rc != caddis_exit.CLEAN else caddis_exit.BLOCKED
 
 
@@ -1944,7 +2144,7 @@ class _Parser(argparse.ArgumentParser):
 
 def _repo_root(raw: str) -> Path:
     proc = subprocess.run(["git", "-C", raw, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                          stdin=subprocess.DEVNULL)
+                          stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
     if proc.returncode != 0:
         raise RoadmapError(f"{raw} is not inside a git repo", caddis_exit.NOT_RUN)
     return Path(proc.stdout.strip())

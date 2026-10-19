@@ -48,7 +48,9 @@ depend on them:
   the project's test command anywhere (config, CI, package scripts). The runner treats any such edit as
   tampering and fails the run. If the plan asks you to touch these, skip that step and note it in the
   review file instead.
-- **Commit per phase, on this branch, with a normal commit.** Use `git add <paths> && git commit -m "…"`.
+- **Commit per phase, on this branch, with a normal commit.** Use `git add <paths>`, then check `git diff --cached --name-only` lists only those paths (refuse on any
+  other staged path: a peer staged it; note it in the review file), then `git commit -m "…" -- <paths>`.
+  Never `git add -A`, `.`, `-u` or a folder, and never `git commit -a` (the guard denies them).
   Do not use `--no-verify` (a pre-commit hook guards the branch — let it run). Do not amend or rebase
   prior commits. One phase → one (or more) commit(s); never one giant end-of-run commit.
 - **Never ask a question, never pause, never wait for input.** No human will answer. Never use
@@ -166,8 +168,11 @@ row, visible to any later reader without anyone having to catch it live.
      so it proves timing by design.
 3. **ACCEPT** means run `caddis_lanes.py accept --plan <plan> --phase N --attempt K --message
    "<the phase's commit message>"`. It runs only on the programme branch, never on `main`. It
-   refuses a `BLOCKING` review. If you checked the finding and it is false, add
-   `--override-review "<why the finding is false>"`. The script records that reason in the packet.
+   refuses a `BLOCKING` review and a `MISSING` review (no verdict: provider down, 429, filter
+   refusal). If you checked the finding and it is false, add
+   `--override-review "<why the finding is false>"`. For a `MISSING` review, re-run the review
+   first; add the override only if the owner accepts a phase with no vendor verdict. The reason
+   must not be empty. The script records it in the packet.
 4. Allow at most **2 attempts** per phase on a non-Claude lane. An out-of-budget switch is not an
    attempt. The owner can request TAKEOVER at any time.
 5. A UI phase needs a `ui-design-reviewer` screenshot review before ACCEPT. This rule applies
@@ -236,7 +241,8 @@ report — do not redo completed work.
    - **REFACTOR** — clean names/structure/duplication while keeping green.
    - **VERIFY** — run the phase's exit-gate check (the literal command the plan names) and the relevant
      suite so you didn't regress. Do not claim a state you did not run.
-   - **COMMIT** — `git add` the phase's files and `git commit` with the phase's conventional-commit message
+   - **COMMIT** — `git add` the phase's files by name, check `git diff --cached --name-only` shows only
+     them, and `git commit -m "…" -- <files>` with the phase's conventional-commit message
      (from the plan, or a faithful equivalent). Stay on the current branch.
    - **UPDATE THE TRACKER** — edit the plan's `## Tracker` row for this phase: set Status to `done`, fill
      the short commit hash (`git rev-parse --short HEAD`), set the `Lane` column to the lane this phase
@@ -305,8 +311,9 @@ for a later session to clean up, and nothing is left uncommitted. Order matters:
    no other file. **Refuse** if it would touch anything else, or prints `ERROR` or `NOT MOVED`:
    stop, do not commit the move, and report the output in the review file.
 3. `git add` the moved plan by name (`.caddis/plans/done/<plan>.md`, so the status and Tracker edits
-   are staged with the rename), then make the final commit. The move, the status and the last
-   Tracker row land in one commit.
+   are staged with the rename), then make the final commit with
+   `git commit -m "…" -- .caddis/plans/<plan>.md .caddis/plans/done/<plan>.md` (both sides of the
+   rename). The move, the status and the last Tracker row land in one commit.
 
 (Falls back to `scripts/caddis_tidy.py` from a source checkout; **skip this step if the script is
 missing** — degrades open, same as the gates in Step 1.) A **collision** (`done/<name>` already

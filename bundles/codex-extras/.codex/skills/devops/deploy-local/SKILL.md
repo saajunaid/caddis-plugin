@@ -80,7 +80,8 @@ Example:
 ```powershell
 git status --short
 git add <files>
-git commit -m "fix(ci): resolve deploy health check"
+git diff --cached --name-only   # only <files>; else stop and report
+git commit -m "fix(ci): resolve deploy health check" -- <files>
 git push origin main
 git rev-parse HEAD
 ```

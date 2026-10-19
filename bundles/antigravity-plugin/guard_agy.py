@@ -100,6 +100,18 @@ _GA_JOINING_SHELLS = {"cmd", "pwsh", "powershell"}  # they run ALL the words aft
 _GA_SHELL_RUN_FLAGS = {"-c", "/c", "/k", "-command", "-commandwithargs"}
 _GA_GIT_VALUE_OPTS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
 _GA_EVERYTHING = {"-A", "--all", ".", "./", ".\\", ":/", "*"}
+_GA_CD = {"cd", "chdir", "pushd", "set-location", "sl"}  # change the cwd the next `git add <path>` resolves against
+# `git commit` short options that take the REST of their bundle as a value (`-ma` is the message "a"). The
+# first five also take the next word when they end the bundle (`-m msg`); -S and -u take an attached value only.
+_GC_VALUE_SHORT = set("mFCct")
+_GC_ATTACHED_SHORT = _GC_VALUE_SHORT | set("Su")
+_GC_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--fixup", "--squash", "--author",
+                  "--date", "--template", "--cleanup", "--trailer", "--pathspec-from-file"}
+_SAFE_COMMIT = 'stage named files only: `git add <file> ...`, then `git commit -m "..." -- <files>`'
+_WHY_EVERYTHING = f"git add of everything (-A, --all, . or :/): {_SAFE_COMMIT}"
+_WHY_UPDATE = f"git add -u stages every tracked change, a peer's too: {_SAFE_COMMIT}"
+_WHY_COMMIT_ALL = f"git commit -a commits every tracked change, a peer's too: {_SAFE_COMMIT}"
+_GA_QUOTE_CHARS = set(" \t\"';&|(){}$!\n")  # a token holding one of these is quoted again for an inner pass
 
 
 def _ga_sep(token: str) -> bool:
@@ -115,7 +127,11 @@ def _ga_name(token: str) -> str:
 
 def _ga_tokens(text: str) -> list[str]:
     """Shell tokens, quotes removed (also mid-token: --work-tree="my dir"), backslashes kept (Windows paths).
-    ; & | ( ) { } $ ! and newlines become separator tokens."""
+    ; & | ( ) { } $ ! and newlines become separator tokens.
+
+    Known limits (the guard catches accidents; it is not a security boundary, see test_known_limits_not_caught):
+    an escaped quote inside `bash -c "..."` (`\\"`), a PowerShell backtick escape (`` `-A ``, read as a line
+    break), and a git alias (`git -c alias.x=add x -A`) are not read as `git add`."""
     def lex(quotes: str) -> list[str]:
         lexer = shlex.shlex(text.replace("`", "\n"), posix=True, punctuation_chars=";&|(){}$!\n")
         lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.quotes = " \t\r", True, "", quotes
@@ -126,17 +142,45 @@ def _ga_tokens(text: str) -> list[str]:
         return lex("")
 
 
-def git_add_everything(command: str, depth: int = 0) -> bool:
-    """True when `command` runs `git add` with -A/--all (also bundled, e.g. -Av), `.`, `./`, `:/` or `*`.
+def _ga_quote(token: str) -> str:
+    """`token` quoted so _ga_tokens reads it back as the same one token (a cmd/pwsh re-join keeps `"my dir"`)."""
+    if token and not set(token) & _GA_QUOTE_CHARS:
+        return token
+    return f"'{token}'" if '"' in token else f'"{token}"'
+
+
+def _ga_inside(path: str, folder: str) -> bool:
+    """`path` is `folder` or below it (real paths, case-folded on Windows)."""
+    inner, outer = os.path.normcase(os.path.realpath(path)), os.path.normcase(os.path.realpath(folder))
+    return inner == outer or inner.startswith(outer.rstrip("\\/") + os.sep)
+
+
+def _ga_cd(cwd: str | None, path: str) -> str | None:
+    """The cwd after `cd path` or `git -C path`; None (unknown) when either is unknown."""
+    if cwd is None or not path or _ga_sep(path):
+        return None
+    return os.path.join(cwd, os.path.expanduser(path))
+
+
+def _git_calls(command: str, cwd: str | None, depth: int = 0):
+    """Yield (cwd, subcommand, args) for every git run in `command`.
 
     `git` must start a command (after a separator, a shell keyword such as `do`, VAR=value, or a wrapper such as
     sudo, env, xargs, nice -n 10), with any path, case or .exe. `bash -c "..."`, `pwsh -Command ...` and
-    `cmd /c ...` are read inside. Only git's global options may stand between `git` and `add`, so
-    `git commit -m "add ."` and `printf "git add ."` pass. Callers pass heredoc-free text and must treat an
-    exception as "no match": this check must never stop the guard's other rules.
+    `cmd /c ...` are read inside. Only git's global options may stand between `git` and its subcommand, so
+    `git commit -m "add ."` and `printf "git add ."` hold no `add`. `cwd` follows `cd`/`Set-Location` and
+    `git -C`; None means unknown (no directory checks). Linear in the command length.
     """
+    for _name, here, sub, args in _tool_calls(command, cwd, frozenset({"git"}), depth):
+        yield here, sub, args
+
+
+def _tool_calls(command: str, cwd: str | None, programs: frozenset, depth: int = 0):
+    """Yield (program, cwd, subcommand, args) for every run of a program in `programs`, found as _git_calls finds
+    git (separators, keywords, wrappers, wrapped shells, `cd`). For git, `subcommand` is the word after git's global
+    options. For another program it is None, and `args` holds every word up to the next separator."""
     if depth > 3:
-        return False
+        return
     text = re.sub(r"\\\r?\n|`\r?\n", " ", command)  # line continuations (bash \, PowerShell `)
     tokens = _ga_tokens(text)
     i, start = 0, True
@@ -154,7 +198,7 @@ def git_add_everything(command: str, depth: int = 0) -> bool:
         name = _ga_name(tok)
         if name in _GA_WRAPPERS:  # skip the wrapper's own flags and values up to the real command
             i += 1
-            while i < len(tokens) and not _ga_sep(tokens[i]) and _ga_name(tokens[i]) not in ({"git"} | _GA_SHELLS):
+            while i < len(tokens) and not _ga_sep(tokens[i]) and _ga_name(tokens[i]) not in (programs | _GA_SHELLS):
                 i += 1
             continue
         start = False
@@ -166,35 +210,181 @@ def git_add_everything(command: str, depth: int = 0) -> bool:
                     end = next((k for k, t in enumerate(rest) if _ga_sep(t)), len(rest))
                     if end == 0:  # `bash -c` with nothing after it
                         break
-                    inner = " ".join(rest[:end]) if name in _GA_JOINING_SHELLS else rest[0]
-                    if git_add_everything(inner, depth + 1):
-                        return True
+                    # cmd and pwsh run every word after the flag; quote each again so `"my dir"` stays one word.
+                    joined = name in _GA_JOINING_SHELLS and end > 1
+                    inner = " ".join(_ga_quote(t) for t in rest[:end]) if joined else rest[0]
+                    yield from _tool_calls(inner, cwd, programs, depth + 1)
                     break
                 j += 1
             i = j
             continue
-        if name != "git":
+        if name in _GA_CD:  # `cd dir`, `Set-Location -Path dir`, `cd /d dir` (cmd)
+            k = i + 1
+            while k < len(tokens) and (tokens[k].startswith("-") or tokens[k].lower() == "/d") and not _ga_sep(tokens[k]):
+                k += 1
+            cwd = _ga_cd(cwd, tokens[k] if k < len(tokens) else "")
+            i = k
+            continue
+        if name not in programs:
             i += 1
             continue
-        j = i + 1
+        if name != "git":
+            end = next((k for k in range(i + 1, len(tokens)) if _ga_sep(tokens[k])), len(tokens))
+            yield name, cwd, None, tokens[i + 1:end]
+            i += 1
+            continue
+        here, work_tree, j = cwd, "", i + 1
         while j < len(tokens) and tokens[j].startswith("-") and not _ga_sep(tokens[j]):
-            j += 2 if tokens[j] in _GA_GIT_VALUE_OPTS else 1
-        if j >= len(tokens) or tokens[j] != "add":
+            opt, value = tokens[j], tokens[j + 1] if j + 1 < len(tokens) else ""
+            if opt == "-C":
+                here = _ga_cd(here, value)
+            elif opt.startswith("-C"):  # `-Cdir`, `-C"my dir"`
+                here = _ga_cd(here, opt[2:])
+            elif opt == "--work-tree":
+                work_tree = value
+            elif opt.startswith("--work-tree="):
+                work_tree = opt.split("=", 1)[1]
+            j += 2 if opt in _GA_GIT_VALUE_OPTS else 1
+        if work_tree:  # outside the work tree, git reads paths from its top (--git-dir alone keeps the cwd)
+            top = _ga_cd(here, work_tree)
+            if top is None or here is None or not _ga_inside(here, top):
+                here = top
+        if j >= len(tokens) or _ga_sep(tokens[j]):
             i = j
             continue
-        after_dashdash = False
-        for arg in tokens[j + 1:]:
-            if _ga_sep(arg):
-                break
-            if arg == "--":
-                after_dashdash = True
-                continue
-            if after_dashdash and arg.startswith("-"):  # `git add -- -A` names a file called -A
-                continue
-            if arg in _GA_EVERYTHING or re.fullmatch(r"-[a-zA-Z]*A[a-zA-Z]*", arg):
-                return True
+        end = next((k for k in range(j + 1, len(tokens)) if _ga_sep(tokens[k])), len(tokens))
+        yield "git", here, tokens[j], tokens[j + 1:end]
         i = j + 1
+
+
+def _plain_directory(cwd: str | None, path: str) -> bool:
+    """`path` names an existing directory that is not a nested repository (a submodule pointer is one path).
+    The repository that holds `cwd` is never exempt: `git add ..` from a subfolder stages everything."""
+    if cwd is None or not path or any(ch in path for ch in "*?[") or path.startswith(":"):
+        return False
+    full = os.path.join(cwd, os.path.expanduser(path))
+    if not os.path.isdir(full):
+        return False
+    return not os.path.exists(os.path.join(full, ".git")) or _ga_inside(cwd, full)
+
+
+def _ga_file(cwd: str | None, path: str) -> bool:
+    """`path` is an existing file under `cwd` (an unknown cwd is never a file)."""
+    return bool(cwd and path) and os.path.isfile(os.path.join(cwd, os.path.expanduser(path)))
+
+
+def _magic_split(path: str) -> tuple[set[str], str]:
+    """`:(top,glob)src` -> ({"top", "glob"}, "src"); `:/!src` -> ({"/", "!"}, "src"). Unclosed `:(` -> rest ''."""
+    if path.startswith(":("):
+        close = path.find(")")
+        if close < 0:
+            return {"unclosed"}, ""
+        return {w.strip().lower().split(":")[0] for w in path[2:close].split(",")}, path[close + 1:]
+    k = 1
+    while k < len(path) and path[k] in "/!^":
+        k += 1
+    rest = path[k + 1:] if path[k:k + 1] == ":" else path[k:]
+    return set(path[1:k]), rest
+
+
+def _pathspec_reason(path: str, cwd: str | None, after_dashdash: bool) -> str:
+    """Why one `git add` pathspec can stage more than one named file, or ''."""
+    if path.startswith(":"):  # pathspec magic: everything, a folder or a pattern unless it is plainly one file
+        magic, rest = _magic_split(path)
+        if rest in ("", ".", "./", ".\\", "*") or magic & {"!", "^", "exclude", "unclosed"}:
+            return _WHY_EVERYTHING
+        if "glob" in magic or set(rest) & set("*?["):
+            return _why_glob(path)
+        if _ga_file(cwd, rest):
+            return ""
+        return f"git add of a pathspec ({path}) that is not one existing file: {_SAFE_COMMIT}"
+    if set(path) & set("*?["):  # a glob stages files you did not name; `-- <file>` may name a real file like a[1].py
+        return "" if after_dashdash and _ga_file(cwd, path) else _why_glob(path)
+    if _plain_directory(cwd, path):
+        return f"git add of a directory ({path}) stages every file under it: {_SAFE_COMMIT}"
+    return ""
+
+
+def _why_glob(path: str) -> str:
+    return f"git add of a pattern ({path}) can stage files you did not change: name files, {_SAFE_COMMIT}"
+
+
+def _add_reason(args: list[str], cwd: str | None) -> str:
+    """Why this `git add <args>` stages more than named files, or ''."""
+    after_dashdash, update, paths = False, False, []
+    for arg in args:
+        if arg == "--" and not after_dashdash:
+            after_dashdash = True
+            continue
+        if arg.startswith("-") and not after_dashdash:
+            long_name = arg[2:].split("=", 1)[0] if arg.startswith("--") else ""
+            if (arg in _GA_EVERYTHING or re.fullmatch(r"-[a-zA-Z]*A[a-zA-Z]*", arg)
+                    or (long_name and "all".startswith(long_name))
+                    or (len(long_name) >= 4 and "no-ignore-removal".startswith(long_name))):
+                return _WHY_EVERYTHING  # git takes any unique prefix of a long option: --al, --no-ignore-rem
+            if re.fullmatch(r"-[a-zA-Z]*u[a-zA-Z]*", arg) or (long_name and "update".startswith(long_name)):
+                update = True
+            continue
+        if arg in _GA_EVERYTHING and not arg.startswith("-"):  # `git add -- -A` names a file called -A
+            return _WHY_EVERYTHING
+        paths.append((arg, after_dashdash))
+    if update and not paths:
+        return _WHY_UPDATE
+    for path, named in paths:
+        why = _pathspec_reason(path, cwd, named)
+        if why:
+            return why
+    return ""
+
+
+def _commit_all(args: list[str]) -> bool:
+    """True when `git commit <args>` carries -a / --all, also bundled (`-am`, `-qam`), not inside a value."""
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg == "--":
+            return False
+        if arg == "--all":
+            return True
+        if arg.startswith("--"):
+            skip = arg in _GC_VALUE_LONG
+            continue
+        if arg.startswith("-") and len(arg) > 1:
+            for pos, ch in enumerate(arg[1:]):
+                if ch == "a":
+                    return True
+                if ch in _GC_ATTACHED_SHORT:
+                    skip = ch in _GC_VALUE_SHORT and pos == len(arg) - 2
+                    break
     return False
+
+
+def git_staging_reason(command: str, root: str | None = None) -> str:
+    """The deny reason when `command` stages or commits more than named files, else ''.
+
+    Denied: `git add` of everything (-A, --all and its prefixes, --no-ignore-removal, ., :/, *),
+    `git add -u`/`--update` with no pathspec, `git commit -a`/`--all` (bundled too), a glob or a magic
+    pathspec that is not plainly one existing file, and `git add <dir>` for an existing directory under `root`
+    (the command's cwd; `cd`, `cd /d`, `git -C`, `-C<dir>` and `--work-tree` in the command are followed). In a shared checkout each of these
+    sweeps in files a peer staged or changed (audit #3). Callers pass heredoc-free text and must treat an
+    exception as "no match": this check must never stop the guard's other rules.
+    """
+    for cwd, sub, args in _git_calls(command, root):
+        if sub == "add":
+            why = _add_reason(args, cwd)
+            if why:
+                return why
+        elif sub == "commit" and _commit_all(args):
+            return _WHY_COMMIT_ALL
+    return ""
+
+
+def git_add_everything(command: str, depth: int = 0) -> bool:
+    """True when `command` runs `git add` with -A/--all (also bundled, e.g. -Av), `.`, `./`, `:/` or `*`."""
+    return any(sub == "add" and _add_reason(args, None) == _WHY_EVERYTHING
+               for _cwd, sub, args in _git_calls(command, None, depth))
 
 
 # Copied from hooks/guard.py: a heredoc body that only carries data is not a command.
@@ -261,12 +451,139 @@ def _without_heredoc_bodies(command: str) -> str:
     return "".join(kept)
 
 
-def _git_add_everything_safe(text: str) -> bool:
-    """git_add_everything, but an error is "no match": one rule must never switch off the rest of the guard."""
+def _git_staging_safe(text: str, root: str | None) -> str:
+    """git_staging_reason, but an error is "no match": one rule must never switch off the rest of the guard."""
     try:
-        return git_add_everything(text)
+        return git_staging_reason(text, root)
     except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
-        return False
+        return ""
+
+
+# ── headless sessions cannot publish (robustness #4) ──
+# A runner session (CADDIS_HEADLESS=1) can be prompt-injected through a plan or a diff. The runner pushes, opens the
+# PR and merges by itself; a session never needs to. The real boundary is the credential: the runner gives its
+# sessions no GH_TOKEN or NPM_TOKEN. This rule covers the machine's own gh keyring and git credential logins, which
+# a session can still reach. Like the staging rule it uses the tokenizer, so wrapped shells, `cd` and `git -C`
+# count. Known limits (it is not a boundary): a git or gh alias, a script file that pushes, a program it does not name.
+_WHY_HEADLESS = "headless sessions cannot publish; the runner does that"
+_PUBLISH_TOOLS = frozenset({"git", "gh", "npm", "pnpm", "yarn", "npx", "twine", "cargo", "python", "python3",
+                            "py"})
+_GH_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-q", "--jq", "-t", "--template", "-p", "--preview",
+                   "--hostname", "--cache"}
+_GH_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
+_GIT_PUSHES = {"push", "send-pack", "http-push"}  # `git subtree push` is checked on its own
+_GH_WRITES = [["pr", "merge"], ["pr", "create"], ["pr", "comment"], ["issue", "create"], ["issue", "comment"],
+              ["repo", "create"], ["repo", "delete"], ["repo", "edit"], ["repo", "rename"], ["repo", "archive"],
+              ["secret", "set"], ["secret", "delete"], ["variable", "set"], ["variable", "delete"]]
+_NPM_WRITES = {"publish", "unpublish", "deprecate", "dist-tag", "dist-tags", "owner", "access"}
+_NPM_VALUE_FLAGS = {"--registry", "--userconfig", "--prefix", "-w", "--workspace", "--otp", "--tag", "--access",
+                    "--cache", "-C", "--cwd", "--dir"}
+
+
+def _publish_allowed_headless() -> bool:
+    """False only in a headless session (CADDIS_HEADLESS set, not empty, not 0) without CADDIS_ALLOW_PUBLISH=1.
+    The hook reads the marker from its own environment: Claude Code and agy start hooks with the session's env."""
+    headless = str(os.environ.get(f"{_ENV_PREFIX}_HEADLESS", "")).strip()
+    if headless in ("", "0"):
+        return True
+    return str(os.environ.get(f"{_ENV_PREFIX}_ALLOW_PUBLISH", "")).strip() == "1"
+
+
+def _gh_publish(args: list[str]) -> str:
+    """The gh call that publishes, or '': pr merge/create, release, workflow run, and a write through gh api."""
+    words, method, fields, i = [], "", False, 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-X", "--method"):
+            method, i = (args[i + 1] if i + 1 < len(args) else "?"), i + 2
+            continue
+        if arg in _GH_FIELD_FLAGS:
+            fields, i = True, i + 2
+            continue
+        if arg in _GH_VALUE_FLAGS:
+            i += 2
+            continue
+        if arg.startswith("--method="):
+            method = arg.split("=", 1)[1]
+        elif arg.startswith("-X"):
+            method = arg[2:]
+        elif arg.startswith(("--field=", "--raw-field=", "--input=")) or arg[:2] in ("-f", "-F"):
+            fields = True
+        elif not arg.startswith("-"):
+            words.append(arg.lower())
+        i += 1
+    if words[:2] in _GH_WRITES:
+        return f"gh {words[0]} {words[1]}"
+    if words[:1] == ["release"]:
+        return "gh release"
+    if words[:2] == ["workflow", "run"]:
+        return "gh workflow run"
+    if words[:1] == ["api"]:
+        verb = method.strip().upper()
+        if verb and verb != "GET":
+            return f"gh api -X {verb}"
+        if fields and verb != "GET":
+            return "gh api with fields (a POST)"
+        if words[1:2] == ["graphql"]:
+            return "gh api graphql"
+    return ""
+
+
+def _package_publish(name: str, args: list[str]) -> str:
+    """The package-registry call that publishes, or ''. `npx npm publish` and `python -m twine upload` count."""
+    if name in ("python", "python3", "py"):
+        at = args.index("-m") if "-m" in args[:-1] else -1
+        return _package_publish("twine", args[at + 2:]) if at >= 0 and args[at + 1].lower() == "twine" else ""
+    words, i = [], 0
+    while i < len(args):
+        if args[i] in _NPM_VALUE_FLAGS:
+            i += 2
+            continue
+        if not args[i].startswith("-"):
+            words.append(args[i].lower())
+        i += 1
+    if name == "npx":
+        tool = words[0] if words[:1] in (["npm"], ["pnpm"], ["yarn"]) else ""
+        return _package_publish(tool, args[[a.lower() for a in args].index(tool) + 1:]) if tool else ""
+    if name in ("npm", "pnpm", "yarn") and words[:1] and words[0] in _NPM_WRITES:
+        return f"{name} {words[0]}"
+    if name == "yarn" and words[:2] == ["npm", "publish"]:
+        return "yarn npm publish"
+    if (name, words[:1]) in (("twine", ["upload"]), ("cargo", ["publish"])):
+        return f"{name} {words[0]}"
+    return ""
+
+
+def headless_publish_reason(command: str) -> str:
+    """The deny reason when `command` pushes, merges or publishes, else ''. It does not read the environment:
+    callers check _publish_allowed_headless() first, and pass heredoc-free text."""
+    for name, _cwd, sub, args in _tool_calls(command, None, _PUBLISH_TOOLS):
+        if name == "git":
+            verb = sub.lower()
+            if verb in _GIT_PUSHES:
+                what = f"git {verb}"
+            elif verb == "subtree" and "push" in (a.lower() for a in args):
+                what = "git subtree push"
+            else:
+                what = ""
+        elif name == "gh":
+            what = _gh_publish(args)
+        else:
+            what = _package_publish(name, args)
+        if what:
+            return f"{_WHY_HEADLESS} ({what})"
+    return ""
+
+
+def _headless_publish_safe(text: str) -> str:
+    """headless_publish_reason in a headless session, else ''. An error is "no match", as for staging: one rule must
+    never switch off the rest of the guard (the credential, not this rule, is the boundary)."""
+    if _publish_allowed_headless():
+        return ""
+    try:
+        return headless_publish_reason(text)
+    except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
+        return ""
 
 
 def _strip_quotes(s: str) -> str:
@@ -353,8 +670,9 @@ def _catastrophic_statement(c: str) -> str:
     return ""
 
 
-def classify_bash(command: str) -> tuple[str, str]:
-    """Risk tier (deny|ask|allow) + reason for a shell command."""
+def classify_bash(command: str, root: str | None = None) -> tuple[str, str]:
+    """Risk tier (deny|ask|allow) + reason for a shell command. ``root`` is the cwd the command runs in
+    (default: this process's cwd); `git add <dir>` resolves against it."""
     c = command.strip()
     cl = c.lower()
     n = _strip_quotes(c)          # quote-normalized: defeats `rm '-rf' "/"` evasion
@@ -373,8 +691,13 @@ def classify_bash(command: str) -> tuple[str, str]:
         return "deny", "fork bomb"
     if re.search(r"\bdd\b.*\bof=/dev/", nl) or re.search(r"\bmkfs", nl) or re.search(r">\s*/dev/sd[a-z]", nl):
         return "deny", "writes directly to a disk device"
-    if _git_add_everything_safe(_without_heredoc_bodies(c)):
-        return "deny", "git add of everything (-A, --all, . or :/): stage named files only"
+    data_free = _without_heredoc_bodies(c)
+    _staging = _git_staging_safe(data_free, os.getcwd() if root is None else root)
+    if _staging:
+        return "deny", _staging
+    _publish = _headless_publish_safe(data_free)
+    if _publish:
+        return "deny", _publish
 
     # ── ask: destructive-but-legit ──
     if rm_rf:
@@ -409,6 +732,7 @@ def classify_bash(command: str) -> tuple[str, str]:
 # shell (a missed tool name = no guard at all, which is the failure we most want to avoid).
 _COMMAND_TOOLS = {"run_command", "runcommand", "run_terminal_command", "bash", "shell", "terminal"}
 _COMMAND_ARG_KEYS = ("CommandLine", "commandLine", "command_line", "command", "Command")
+_CWD_ARG_KEYS = ("Cwd", "cwd", "WorkingDirectory", "workingDirectory")
 
 # Write-ish tool detection is heuristic until the live check pins agy's file-edit tool name.
 _WRITE_NAME_RE = re.compile(r"(edit|write|create|replace|patch|append)", re.I)
@@ -425,7 +749,7 @@ def _first_str(args: dict, keys) -> str:
     return ""
 
 
-def decide(tool_name: str, args, allow_patterns: list[str]) -> tuple[str, str]:
+def decide(tool_name: str, args, allow_patterns: list[str], root: str | None = None) -> tuple[str, str]:
     """Top-level decision. Classify FIRST; the allow escape hatch may only DOWNGRADE an `ask` to
     `allow` (never override a `deny`), and it matches the command/path value — not the JSON envelope —
     so a key name like "command" can't disable the guard. Never raises on a malformed payload."""
@@ -435,7 +759,8 @@ def decide(tool_name: str, args, allow_patterns: list[str]) -> tuple[str, str]:
 
     if name in _COMMAND_TOOLS:
         target = _first_str(args, _COMMAND_ARG_KEYS)
-        tier, reason = classify_bash(target) if target else ("allow", "")
+        cwd = _first_str(args, _CWD_ARG_KEYS) or root  # the command's own cwd, else the workspace root
+        tier, reason = classify_bash(target, cwd) if target else ("allow", "")
     elif _WRITE_NAME_RE.search(name) and not _READONLY_NAME_RE.search(name):
         target = _first_str(args, _PATH_ARG_KEYS)
         tier, reason = classify_write(target) if target else ("allow", "")
@@ -558,6 +883,13 @@ def _workspace_roots(data):
         return []
     return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
 
+def headless_publish_decision(tool_name: str, args) -> str:
+    """The headless publish deny reason for a shell tool call, else ''. Used when the guard is switched off."""
+    if (tool_name or "").strip().lower() not in _COMMAND_TOOLS or not isinstance(args, dict):
+        return ""
+    return _headless_publish_safe(_without_heredoc_bodies(_first_str(args, _COMMAND_ARG_KEYS).strip()))
+
+
 def main() -> None:
     tier, reason = "allow", ""
     try:
@@ -585,7 +917,12 @@ def main() -> None:
         # repo B. Require UNANIMITY instead: a relaxation applies only when every root asks
         # for it. One root is the common case and behaves exactly as before.
         if all(guard_disabled(r) for r in roots):
-            return  # kill switch: bypass every tier
+            # Kill switch: bypass every tier. Not for a headless session's push, merge or publish (robustness #4):
+            # a session can write .caddis/config.toml itself.
+            why = headless_publish_decision(str(call.get("name") or ""), call.get("args"))
+            if why:
+                tier, reason = "deny", why
+            return
 
         # The allow-list downgrades an ask, so with several roots take only the entries
         # present in ALL of them — the strictest reading, not the most permissive.
@@ -593,7 +930,11 @@ def main() -> None:
         for other in roots[1:]:
             allow = [a for a in allow if a in _load_allow(other)]
 
-        tier, reason = decide(str(call.get("name") or ""), call.get("args"), allow)
+        # A path such as `git add src` may sit in any workspace root: decide once per root, keep the strictest.
+        # (guard.py has one cwd. A run_command `Cwd` argument wins inside decide, so every root agrees then.)
+        _rank = {"deny": 0, "ask": 1}
+        tier, reason = min((decide(str(call.get("name") or ""), call.get("args"), allow, r) for r in roots),
+                           key=lambda d: _rank.get(d[0], 2))
         if tier == "ask" and all(deny_only(r) for r in roots):
             tier = "allow"  # deny-only: keep catastrophe blocks, never force_ask (no plan interruption)
     except Exception:

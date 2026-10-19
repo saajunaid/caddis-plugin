@@ -36,13 +36,16 @@ names, branch, and service identifiers — never assume.
 - Tests: run only if the user says they're needed or a gate explicitly requires them
 - Fix any failures before proceeding. Do not commit broken code.
 
-**2. STAGE + COMMIT** — Stage only the intended files, by name (never `git add -A`, `git add .` or a folder):
+**2. STAGE + COMMIT** — Stage only the intended files, by name (never `git add -A`, `git add .`, `git add -u`, a folder, or `git commit -a`):
 ```
 git status --short      # confirm what's staged
 git add <specific files>
-git commit -m "<type>(<scope>): <message>"
+git diff --cached --name-only   # must list ONLY <specific files>
+git commit -m "<type>(<scope>): <message>" -- <specific files>
 git rev-parse HEAD      # record SHA for monitoring
 ```
+If `git diff --cached --name-only` lists a path you did not change, **stop**: a peer staged it. Do not
+commit, unstage or stash it; report it. `-- <files>` commits only the named files even then.
 Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope = affected module.
 
 **2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
@@ -119,7 +122,7 @@ Small work that does not meet a trigger skips its block.
 
 ## Rules
 - Never push before preflight gates are green.
-- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies all three, and `git add -u` and `git commit -a`). Commit with `git commit -m "..." -- <files>`, after `git diff --cached --name-only` shows only those files.
 - Do not edit a workflow file (`.gitea/workflows/` or `.github/workflows/`) to make a failing gate
   pass — fix the source.
 - Gitea lane: tag-triggered runs after `release_metadata` are expected; verify `deploy_prod` is

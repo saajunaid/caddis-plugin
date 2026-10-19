@@ -123,7 +123,7 @@ Cleanup:       remote branch ✗ deleted / local ✗ deleted / backup ref droppe
 ## Rules
 - Never merge without: green required checks **and** the explicit human deploy-confirm.
 - Never delete a branch before its deploy is validated green.
-- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two). Never edit a workflow file to make a gate pass.
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies all three, and `git add -u` and `git commit -a`). Commit with `git commit -m "..." -- <files>`, after `git diff --cached --name-only` shows only those files. Never edit a workflow file to make a gate pass.
 - Local-only lane: no PR, no merge — refuse and point at `/ship`.
 
 ## Skill reference

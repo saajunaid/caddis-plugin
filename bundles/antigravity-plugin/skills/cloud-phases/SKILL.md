@@ -117,7 +117,8 @@ internal host names, no machine paths and no credentials.
 
 ```
 git add <each prompt file by name>
-git commit -m "docs(prompts): cloud prompts for <feature> phases <N, M>"
+git diff --cached --name-only   # must list only the prompt files; else stop and report
+git commit -m "docs(prompts): cloud prompts for <feature> phases <N, M>" -- <each prompt file>
 git push -u origin <feature branch>
 git rev-parse HEAD
 git ls-remote origin refs/heads/<feature branch>

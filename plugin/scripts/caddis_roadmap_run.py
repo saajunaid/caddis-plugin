@@ -57,10 +57,10 @@ review child (the reviewer has full Bash) and the fix session are each guarded b
 session; the runner writes `reviewed/<plan>.json` only between children, before the next child's snapshot.
 
 Snapshot guard: one baseline across the whole run. The Milestones and Blockers tables (every cell of every row, rows
-added, removed or moved) and the `Runner host` line are frozen. Every origin read (each `next`, and the reads after
-the runner's own writes and after each session) is compared with the previous read: the only differences allowed are
-the exact edits the runner made and recorded for that read (a Status it set, a blocker row it added, and what a
-rollup's audit entry says it actually wrote). Anything else stops the run `FAILED roadmap changed` (exit 1). Every
+added, removed or moved), the `Runner host` line and the `**Exit setup:**` line are frozen. Every origin read (each
+`next`, and the reads after the runner's own writes and after each session) is compared with the previous read: the
+only differences allowed are the exact edits the runner made and recorded for that read (a Status it set, a blocker
+row it added, and what a rollup's audit entry says it actually wrote). Anything else stops the run `FAILED roadmap changed` (exit 1). Every
 roadmap change goes through `caddis_roadmap.py` as a child process with `CADDIS_HEADLESS=1`; the runner never passes
 `--by-owner`.
 
@@ -90,8 +90,9 @@ The runner never passes an owner gate, never raises a cap and never deletes a ST
 
 Exit codes: 0 stopped at a status the session wrote (plan mode: OWNER-GATE, BLOCKED), or at a STOP file after a
 session; 1 a FAILED stop, a cap, the agy spend cap, a usage limit, `BLOCKED stuck`, `BLOCKED nothing ready`,
-`BLOCKED waiting for merge`, `BLOCKED review`, `BLOCKED review not run`, or the snapshot guard; 3 never started (lock, STOP file, no governor, agy spend cap not configured,
-another host, a plan a roadmap runner holds); 4 bad input (no plan or roadmap, both, a bad slug, no prompt template,
+`BLOCKED waiting for merge`, `BLOCKED review`, `BLOCKED review not run`, `BLOCKED rollup not run` (a rollup exit 3,
+for example an exit check that cannot run in the merged checkout; not restartable by the recheck task), or the
+snapshot guard; 3 never started (lock, STOP file, no governor, agy spend cap not configured, another host, a plan a roadmap runner holds); 4 bad input (no plan or roadmap, both, a bad slug, no prompt template,
 bad engine).
 
 Engines: `claude` is built and live-tested. `agy` and `codex` are command-line adapters with unit tests only (not
@@ -134,6 +135,7 @@ import caddis_redact  # noqa: E402
 import caddis_review  # noqa: E402
 import caddis_roadmap  # noqa: E402
 import caddis_spend  # noqa: E402
+import caddis_worktree_safety  # noqa: E402
 import caddis_workstreams  # noqa: E402
 
 ENGINES: dict[str, dict] = {
@@ -148,12 +150,29 @@ PLAN_PROMPT_NAME = "plan-resume-prompt.md"
 # background, and a print-mode session can end before it finishes, so its work is lost; the session prompt already
 # asks for foreground work only. Normal subagents stay available.
 HEADLESS_ENV = {"CADDIS_HEADLESS": "1", "CLAUDE_CODE_FORK_SUBAGENT": "0"}
-ROADMAP_WRITE_TIMEOUT_S = caddis_roadmap.MERGE_CHAIN_TIMEOUT + 600  # a backstop: every call inside is bounded
+# Robustness #4: what a session never gets. The publish tokens (the same list as caddis_lanes.LANE_SECRET_VARS), the
+# runner publish step's marker, and the guard kill switch (the guard denies push, merge and publish headless).
+SESSION_SECRET_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN",
+                       "CADDIS_ALLOW_PUBLISH", "CADDIS_GUARD_DISABLED")
+SESSION_NO_PROMPT_ENV = {"GH_PROMPT_DISABLED": "1", "GIT_TERMINAL_PROMPT": "0"}
+# Layer 3 for claude sessions. Not a boundary: Claude Code matches a rule against the raw command string, so
+# `git "push"` or `bash -c "git push"` passes it (#65, 18 Oct). The boundary is layer 1 (session_env: no token) and
+# layer 2 (the guard denies push, merge and publish when CADDIS_HEADLESS=1). With those, bypassPermissions is
+# acceptable for implementers: they need a shell and the write tools, and on native Windows there is no sandbox.
+SESSION_DENY_RULES = ("Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(gh pr create:*)", "Bash(gh release:*)",
+                      "Bash(gh api:*)", "Bash(npm publish:*)")
+ROADMAP_WRITE_TIMEOUT_S = (caddis_roadmap.MERGE_CHAIN_TIMEOUT + caddis_roadmap.EXIT_SETUP_TIMEOUT
+                           + caddis_roadmap.EXIT_CHECK_TIMEOUT + 600)  # a backstop: every call inside is bounded
 RUNNING = "running"  # the last-stop record while a runner holds the lock; a killed run leaves it (needs the owner)
 GH_STOP_PREFIX = "BLOCKED gh cannot see"  # a gh error at a restart: waiting.json stays, a later tick may resume
 RESTARTABLE_STOP = "BLOCKED nothing ready"  # restartable once a blocker cleared
 WAITING_PREFIX = "BLOCKED waiting for merge"  # restartable once its PR merged
-ROLLUP_BLOCK_RE = r"exit check failing \((exit -?\d+|timed out after \d+ s)\)"  # the blocker rollup writes
+# The blocker rollup writes: its stable prefix, then (since caddis-robustness Phase 7) `: ` and the output tail. The
+# lookahead caps the WHOLE reason at caddis_roadmap.REASON_CELL_CHARS, the same cap blocker_reason applies, so the
+# tail may hold REASON_CELL_CHARS - len(prefix) - len(": ") characters at most.
+ROLLUP_BLOCK_RE = (rf"(?=[ -~]{{1,{caddis_roadmap.REASON_CELL_CHARS}}}\Z)" + caddis_roadmap.ROLLUP_PREFIX_RE.pattern
+                   + r"(: [ -~]+)?")
+ROLLUP_NOT_RUN = "BLOCKED rollup not run"  # rollup exit 3 (exit check, Exit setup, git or lock); the owner decides
 _SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 _CLOSED = {"done", "not-needed"}
 _LANE_RE = re.compile(r"^\s*\*\*Lane:\*\*\s*(.*?)\s*$")
@@ -184,6 +203,25 @@ def headless_env(base: dict | None = None) -> dict:
     return env
 
 
+def session_env(base: dict | None = None) -> dict:
+    """The environment of a session (and of the review child, whose reviewer sessions inherit it): headless_env with
+    no publish credential (SESSION_SECRET_VARS) and no credential prompt. A session can be prompt-injected through a
+    plan or a diff; the runner pushes, opens the PR and merges by itself, with its own login (runner_env)."""
+    env = headless_env(base)
+    for name in SESSION_SECRET_VARS:
+        env.pop(name, None)
+    env.update(SESSION_NO_PROMPT_ENV)
+    return env
+
+
+def runner_env() -> dict:
+    """The environment of the runner's own caddis_roadmap.py children (writes, merge chain, render): headless_env
+    plus the runner's gh login. Never given to a session."""
+    env = headless_env()
+    env.update(caddis_roadmap.AUTH_ENV)
+    return env
+
+
 def build_command(engine: str, model: str, prompt: str, *, usd: float, timeout_min: float,
                   governor: Sequence[str], engine_cmd: Sequence[str] | None = None) -> list[str]:
     """The full command line for one session: the governor prefix, then the engine's print-mode call.
@@ -198,8 +236,9 @@ def build_command(engine: str, model: str, prompt: str, *, usd: float, timeout_m
         # The mode is explicit: since Claude Code 2.1.302 a headless run with no mode starts in `default` (third-party
         # providers) and no longer in auto mode, so a machine without `defaultMode` in its settings would stop at
         # every permission prompt. The session runs in its own worktree under the governor, and the guard still runs.
-        tail = [*exe, "-p", "--permission-mode", "bypassPermissions", "--model", model, "--output-format", "json",
-                "--max-budget-usd", _usd(usd)]
+        # The deny rules are an extra only (SESSION_DENY_RULES); the token-free env and the guard are the boundary.
+        tail = [*exe, "-p", "--disallowedTools", *SESSION_DENY_RULES, "--permission-mode", "bypassPermissions",
+                "--model", model, "--output-format", "json", "--max-budget-usd", _usd(usd)]
     elif engine == "agy":  # probe 5: --model must come before --print
         tail = [*exe, "--model", model, "--print", prompt, "--output-format", "json",
                 "--print-timeout", f"{max(1, int(timeout_min))}m"]
@@ -405,8 +444,8 @@ def roadmap_guard(before: "caddis_roadmap.Roadmap", after: "caddis_roadmap.Roadm
                   edits: Sequence[tuple] = ()) -> list[str]:
     """Every difference between two origin reads that the runner's own recorded `edits` do not explain.
 
-    The Milestones and Blockers tables and the `Runner host` line are frozen: every cell of every milestone row, the
-    row order, and the multiset of blocker rows. `edits` are what the runner itself wrote since `before`:
+    The Milestones and Blockers tables, the `Runner host` line and the `**Exit setup:**` line are frozen: every cell
+    of every milestone row, the row order, and the multiset of blocker rows. `edits` are what the runner itself wrote since `before`:
     `("status", mid, value)`, `("blocker", mid, type, reason)` (a row with no Check; nothing when the same
     milestone, type and reason exist, as `caddis_roadmap.add_blocker` does), and `("blocker-like", mid, type,
     regex)` (one added row whose reason matches, for the blocker a rollup writes)."""
@@ -426,6 +465,8 @@ def roadmap_guard(before: "caddis_roadmap.Roadmap", after: "caddis_roadmap.Roadm
     changes: list[str] = []
     if after.runner_host != before.runner_host:
         changes.append("Runner host changed")
+    if after.exit_setup != before.exit_setup:  # a command rollup runs unattended, like an Exit check
+        changes.append("Exit setup changed")
     now = {ms.id: _milestone_cells(ms) for ms in after.milestones}
     changes += [f"{mid} milestone removed" for mid in rows if mid not in now]
     changes += [f"{mid} milestone added" for mid in now if mid not in rows]
@@ -655,11 +696,13 @@ GH_ACCOUNT = {"name": None}  # the account the runner's gh calls use (GH_TOKEN s
 
 
 def use_gh_account(account: str | None) -> str | None:
-    """Make every gh call of this process (and of the caddis_roadmap.py children, which inherit the environment) use
-    `account`: GH_TOKEN from `gh auth token -u <account>`. None keeps the environment / active account. Returns the
-    value set, so it can be masked; GhError when gh cannot give it."""
+    """Make every gh call of this process (through caddis_roadmap._quiet_env) and of its caddis_roadmap.py children
+    (runner_env) use `account`: GH_TOKEN from `gh auth token -u <account>`, held in caddis_roadmap.AUTH_ENV, never in
+    os.environ, so no session inherits it. None keeps the environment / active account. Returns the value set, so
+    it can be masked; GhError when gh cannot give it."""
     GH_ACCOUNT["name"] = account or None
     if not account:
+        caddis_roadmap.AUTH_ENV.pop("GH_TOKEN", None)
         return None
     try:
         proc = subprocess.run(["gh", "auth", "token", "-u", account], capture_output=True, text=True,
@@ -671,7 +714,7 @@ def use_gh_account(account: str | None) -> str | None:
     gh_auth = (proc.stdout or "").strip()
     if proc.returncode != 0 or not gh_auth:
         raise GhError(f"gh has no login for account {account}", caddis_exit.BLOCKED)
-    os.environ["GH_TOKEN"] = gh_auth
+    caddis_roadmap.AUTH_ENV["GH_TOKEN"] = gh_auth
     return gh_auth
 
 
@@ -852,7 +895,7 @@ def _one_session(ctx: _Ctx, prompt: str, relay_slug: str, n: int, spent: float, 
         _, hash_before = _read_relay(cwd, relay_slug)
         record = {"kind": "session", "n": n, "start": _iso(ctx.now()), "relay_hash_before": hash_before}
         outcome = _launch(cmd, cwd, remaining_s, prompt if ctx.engine in PROMPT_ON_STDIN else None,
-                          env=headless_env())
+                          env=session_env())
     finally:  # any exception, KeyboardInterrupt too, still settles the reservation
         if rid is not None:
             _spend_settle(ctx.home, rid, cmd, outcome, ctx.now(), ctx.clock() - launched)
@@ -1039,7 +1082,7 @@ def _run_review(ctx: _Ctx, tally: _Tally, plan_file: Path, phase: int, out_dir: 
     kind, slug = ctx.target.kind, ctx.target.slug
     state_before = state_snapshot(ctx.repo, kind, slug)  # the reviewer has full Bash: it is guarded like a session
     try:
-        proc = subprocess.run(argv, cwd=cwd, env=headless_env(), stdin=subprocess.DEVNULL, capture_output=True,
+        proc = subprocess.run(argv, cwd=cwd, env=session_env(), stdin=subprocess.DEVNULL, capture_output=True,
                               text=True, encoding="utf-8", errors="replace",
                               timeout=max(1.0, min(REVIEW_TIMEOUT_S, left_s)))
         code, output = proc.returncode, (proc.stdout or "") + (proc.stderr or "")
@@ -1198,6 +1241,7 @@ def run(*, repo: Path, plan: str | None = None, roadmap: str | None = None, caps
             return caddis_exit.BLOCKED
         if value:
             ctx.masks.append(value)
+            caddis_roadmap.AUTH_ENV["GH_TOKEN"] = value  # the runner's own calls only; never a session's env
     if roadmap is not None:
         rm_cmd = list(roadmap_cmd or default_roadmap_cmd())
         try:
@@ -1218,7 +1262,7 @@ def _render_page(ctx: "_Ctx", roadmap_cmd: Sequence[str]) -> None:
     """Re-render the local roadmap page (roadmap-page Phase 3). Best effort: a failure is one stderr line, never a stop."""
     argv = [*roadmap_cmd, "render", "--roadmap", ctx.target.slug, "--root", str(ctx.repo)]
     try:
-        proc = subprocess.run(argv, cwd=ctx.repo, env=headless_env(), stdin=subprocess.DEVNULL, capture_output=True,
+        proc = subprocess.run(argv, cwd=ctx.repo, env=runner_env(), stdin=subprocess.DEVNULL, capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=PAGE_RENDER_TIMEOUT_S)
         if proc.returncode != 0:
             print(f"caddis_roadmap_run: page not rendered (exit {proc.returncode})", file=sys.stderr)
@@ -1360,7 +1404,7 @@ def _roadmap_write(ctx: _Ctx, roadmap_cmd: Sequence[str], args: list[str]) -> in
         raise ValueError("the runner never makes an owner-only roadmap change")
     argv = [*roadmap_cmd, *args, "--roadmap", ctx.target.slug, "--root", str(ctx.repo)]
     try:
-        proc = subprocess.run(argv, cwd=ctx.repo, env=headless_env(), stdin=subprocess.DEVNULL, capture_output=True,
+        proc = subprocess.run(argv, cwd=ctx.repo, env=runner_env(), stdin=subprocess.DEVNULL, capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=ROADMAP_WRITE_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         print(f"caddis_roadmap_run: roadmap {args[0]} timed out", file=sys.stderr)
@@ -1377,8 +1421,9 @@ def _roadmap_write(ctx: _Ctx, roadmap_cmd: Sequence[str], args: list[str]) -> in
 
 class _Baseline:
     """The snapshot guard's baseline, kept across iterations. Every origin read is compared with the previous read
-    first: the Milestones and Blockers tables and the Runner host line are frozen, except for the exact edits the
-    runner itself made and recorded (`expect`) since that read. Then the new read becomes the baseline."""
+    first: the Milestones and Blockers tables, the Runner host line and the Exit setup line are frozen, except for
+    the exact edits the runner itself made and recorded (`expect`) since that read. Then the new read becomes the
+    baseline."""
 
     def __init__(self, roadmap: "caddis_roadmap.Roadmap"):
         self.roadmap = roadmap
@@ -1539,7 +1584,7 @@ def remove_worktree_if_clean(repo: Path, slug: str, root: Path | None = None) ->
         return f"worktree kept (status not readable): {path}"
     if work:
         return f"worktree kept (not clean, {len(work)} change(s)): {path}"
-    if _git_out(repo, "worktree", "remove", "--force", str(path)) is None:
+    if caddis_worktree_safety.safe_remove_worktree(repo, path) is not None:
         return f"worktree kept (remove failed): {path}"
     _git_out(repo, "worktree", "prune")
     _state_file(repo, slug, "worktree").unlink(missing_ok=True)
@@ -1740,6 +1785,26 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
         written = 0
         seen = len(_audit_lines(repo, slug))
         rc = _roadmap_write(ctx, roadmap_cmd, ["rollup", "--id", mid])
+        if rc == caddis_exit.NOT_RUN:  # a retry would fail the same way: the owner decides
+            opened = []
+            for line in _audit_lines(repo, slug)[seen:]:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict) and entry.get("id") == mid and entry.get("pr") is not None:
+                    opened.append(f"#{entry['pr']}")
+            if len(opened) > 1:
+                written = (f"its docs PRs {', '.join(opened)} were opened and may still be open (the merge chain did "
+                           "not finish): check them")
+            elif opened:
+                written = (f"its docs PR {opened[0]} was opened and may still be open (the merge chain did not "
+                           "finish): check it")
+            else:
+                written = "nothing written"
+            raise _Stop(f"{ROLLUP_NOT_RUN}: {mid} (its exit check or Exit setup could not run, or a git, lock or "
+                        f"merge step; {written}; output in {caddis_roadmap.local_dir(repo, slug)}); the owner decides",
+                        caddis_exit.BLOCKED)
         if rc not in (caddis_exit.CLEAN, caddis_exit.BLOCKED):
             raise _Stop(f"FAILED roadmap rollup {mid} exit {rc}", caddis_exit.BLOCKED)
         for line in _audit_lines(repo, slug)[seen:]:
@@ -2289,7 +2354,7 @@ def _launch(cmd: list[str], cwd: Path, timeout_s: float, stdin_text: str | None 
     try:
         proc = subprocess.run(cmd, cwd=cwd, input=stdin_text if stdin_text is not None else "", capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=timeout_s,
-                              env=env if env is not None else headless_env())
+                              env=env if env is not None else session_env())
     except subprocess.TimeoutExpired as exc:
         out = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
         err = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")

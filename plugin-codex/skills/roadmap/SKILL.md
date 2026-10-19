@@ -9,7 +9,7 @@ description: "Track milestones across plans in .caddis/roadmaps/<slug>/: next ba
 small docs PR, so it is ordered and recorded in git history. The tool's PRs are merged automatically on green checks
 by `caddis_merge_chain.py --docs-only`; a repo that wants a human to review them protects its default branch.
 
-`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts` in an installed plugin, `scripts/` in
+`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts` in an installed plugin, `scripts/` in
 the caddis source repo.
 
 ## The folder
@@ -89,8 +89,26 @@ python scripts/caddis_roadmap.py recheck --roadmap <slug>
   `Depends on` milestone `done` or `not-needed`, and no open blocker other than `data-condition` (exit 1 names it),
   then runs the Exit check (300 s): pass -> `done`; fail with a `data-condition` blocker -> `code-done/data-pending`;
   fail otherwise -> an `external` blocker
-  `exit check failing (exit <n>)` (never the command's output). A milestone with no phase refs and no Exit check is
-  refused (exit 4).
+  `exit check failing (exit <n>): <tail>` (the last 3 non-empty output lines on one line, the whole reason at most
+  200 characters, masked as below). The part before `: ` is the blocker's identity: a later rollup adds no second
+  row, and `unblock --reason "exit check failing (exit <n>)"` removes every row of that prefix. A check that fails
+  on a missing environment (exit 9009/127/126, or output in its last 40 lines such as `No module named`,
+  `Cannot find module`, `ENOENT`, `run npm run build first`) is exit 3: no blocker, no PR. Either way the last 64 KB
+  of output (masked the same way) go to `.local/exit-check-<id>-<utc>.log` (the newest 10 stay), and rollup prints
+  the path. A milestone with no phase refs and no Exit check is refused (exit 4).
+  **Masked** in the reason and the log: the values of secret-named variables (`caddis_redact`); a whole
+  `-----BEGIN ... PRIVATE KEY-----` block up to its END line (or the end of the output); AWS, GitHub, Slack and JWT
+  tokens; a quoted value after a `password`/`secret`/`api_key`/`token` name, spaces included; an unquoted
+  `*PASSWORD*=`/`*TOKEN*=`-style line value; URL credentials (`scheme://***@`); and absolute paths as `<path>`: a
+  drive or UNC path up to the end of the line, a quote, `<`, `>` or `|`, and a `/home/`, `/Users/`, `/tmp/`, `/root/`,
+  `/var/`, `/etc/` or `/opt/` path up to the end of the line or a quote. Other text is published as printed.
+- **`**Exit setup:** <command>`** (optional, one per roadmap, beside `Runner host:`; no `|`) runs in the temp worktree
+  before every Exit check (900 s). It must install fresh into that worktree, for example
+  `python -m venv .venv && .venv\Scripts\pip install -e .[dev]` or `npm ci && npm run build`. Each command runs in a
+  new shell, so the Exit check must call the venv itself: `.venv\Scripts\python -m pytest tests -q`, not
+  `python -m pytest`. Never link or junction a shared venv or `node_modules`: the worktree is removed with `--force`
+  after the check. A setup that fails or times out is exit 3 and writes nothing; the runner stops
+  `BLOCKED rollup not run` and the owner decides (the stop names a docs PR that was opened but not merged).
 - **Owner-only changes:** `set` Status `not-needed`, any `set` Owner, `unblock` of an `owner-gate`, and `block --check`
   (recheck runs that command unattended later). They need `--by-owner` and are refused headless: `CADDIS_HEADLESS`
   or `CLAUDECODE` in the environment (even empty), stdin not a terminal, or on
@@ -179,8 +197,8 @@ Stops (each one notifies and releases the lock): a STOP file (`~/.caddis/STOP` o
 `caddis_spend.py` still counts across runs), a lock or batch claim that cannot be written
 (`BLOCKED claim not written`, before any session), the agy spend cap refusing a reservation, three sessions
 with no newly merged phase, a roadmap write that fails, and the **snapshot guard**: one baseline for the whole run.
-The Milestones and Blockers tables (every cell of every row, rows added, removed or moved) and the `Runner host` line
-are frozen. Every origin read (each `next`, after the runner's own writes, after each session) is compared with the
+The Milestones and Blockers tables (every cell of every row, rows added, removed or moved), the `Runner host` line
+and the `**Exit setup:**` line are frozen. Every origin read (each `next`, after the runner's own writes, after each session) is compared with the
 previous one; the only differences allowed are the exact edits the runner itself made and recorded for that read: a
 Status it set, a blocker row it added, and what a rollup's audit entry (`changes.jsonl`) says it actually wrote.
 Anything else stops the run `FAILED roadmap changed`.
@@ -206,7 +224,10 @@ refuses a plan that a roadmap lock names, at start and before every session. `-D
 the session command, the worktree and any pending rollup, skips the host check, writes no files and starts nothing; it
 does run `git fetch`, which updates the remote-tracking refs. `-GhAccount <login>` (recorded in the launch options,
 passed on by the recheck task and in the printed task) makes every gh call of the runner and of `--last-stop` use
-GH_TOKEN from `gh auth token -u <login>`; on a machine with several gh logins, give the repo's account. A gh call that
+GH_TOKEN from `gh auth token -u <login>`; on a machine with several gh logins, give the repo's account. The sessions
+never get that token, nor GH_TOKEN, GITHUB_TOKEN, GH_ENTERPRISE_TOKEN, NPM_TOKEN or NODE_AUTH_TOKEN from the
+environment; with CADDIS_HEADLESS=1 the guard denies `git push`, `gh pr merge|create`, `gh release`, a write through
+`gh api`, `gh workflow run` and package publishes. Only the runner publishes. A gh call that
 cannot answer (gh missing, 401, 404) is an error, never "not merged": the run stops
 `BLOCKED gh cannot see <repo> with account <login>`, notified and recorded.
 
@@ -223,7 +244,8 @@ phases) holds the whole plan for every other roadmap and for plan mode. At the t
 every milestone that waits only for its rollup (Status not finished, every phase merged, and the same rule as
 `next`: no blocker, dependencies finished, Owner the runner); `--last-stop` says `rollup-ready:` for such a milestone,
 so recheck restarts the runner. A sweep rollup that writes nothing stops `BLOCKED rollup of <id> wrote nothing`
-(recorded, not restartable) and is not retried or reported until the roadmap changes. The dry run lists them first. If
+(recorded, not restartable) and is not retried or reported until the roadmap changes. A rollup that exits 3 (its
+exit check or Exit setup could not run) stops `BLOCKED rollup not run: <id> ...` (not restartable; the owner decides). The dry run lists them first. If
 the owner edits the roadmap during a merge wait, the restart stops `FAILED roadmap changed ...` and names the
 recovery: `roadmap-run.ps1 -Roadmap <slug> -AcceptRoadmap` (owner only, refused headless) takes the runner lock (a live
 runner refuses it), prints the diff from the published baseline, asks you to type `accept` (or `--yes`), and accepts

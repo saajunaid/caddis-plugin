@@ -608,6 +608,9 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         secret_filter.DEFAULT_DENY_GLOBS + cfg_deny,
         cfg_allow + list(args.allow_path),
     )
+    for warn_path, warn_line, warn_rule in filter_result.warnings:
+        # Context lines are already in the repo: sending them adds no exposure. Name them anyway.
+        print(f"WARN  {warn_path}:{warn_line} ({warn_rule}) — already in the repo, not refused")
     if filter_result.hits:
         print("REVIEW: REFUSED — possible secrets:")
         for hit_path, hit_line, hit_rule in filter_result.hits:

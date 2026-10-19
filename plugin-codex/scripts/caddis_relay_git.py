@@ -20,13 +20,18 @@ except ModuleNotFoundError as exc:
     import secret_filter
 
 
+# No child process opens a console window on Windows (this runs under hooks and status lines that
+# have no console). Inline, not scripts/no_window.py: in the source tree this file does not sit beside it.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 MAX_NOTE_CHARS = 4000
 
 
 def _git(repo: Path, *args: str, input_data: bytes | None = None,
          env: dict[str, str] | None = None) -> bytes:
     result = subprocess.run(["git", *args], cwd=repo, env=env, input=input_data,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                            creationflags=_NO_WINDOW)
     if result.returncode:
         # Name the subcommand, not a leading "-c key=value" option.
         command = next((arg for i, arg in enumerate(args) if not arg.startswith("-") and (i == 0 or args[i - 1] != "-c")), "?")
@@ -53,7 +58,8 @@ def _pre_send(note: str) -> None:
             "--- /dev/null\n+++ b/relay.md\n"
             f"@@ -0,0 +1,{len(lines)} @@\n" +
             "".join("+" + line + "\n" for line in lines))
-    result = secret_filter.filter_diff(diff, list(secret_filter.DEFAULT_DENY_GLOBS), [])
+    result = secret_filter.filter_diff(diff, list(secret_filter.DEFAULT_DENY_GLOBS), [],
+                                       env_assignment_everywhere=True)
     if result.hits or result.dropped_paths or not result.kept_diff:
         raise ValueError("relay refused by pre-send filter")
 

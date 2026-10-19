@@ -11,7 +11,7 @@ Implement the plan at **$ARGUMENTS**.
 it is empty, find the active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -46,7 +46,9 @@ depend on them:
   the project's test command anywhere (config, CI, package scripts). The runner treats any such edit as
   tampering and fails the run. If the plan asks you to touch these, skip that step and note it in the
   review file instead.
-- **Commit per phase, on this branch, with a normal commit.** Use `git add <paths> && git commit -m "…"`.
+- **Commit per phase, on this branch, with a normal commit.** Use `git add <paths>`, then check `git diff --cached --name-only` lists only those paths (refuse on any
+  other staged path: a peer staged it; note it in the review file), then `git commit -m "…" -- <paths>`.
+  Never `git add -A`, `.`, `-u` or a folder, and never `git commit -a` (the guard denies them).
   Do not use `--no-verify` (a pre-commit hook guards the branch — let it run). Do not amend or rebase
   prior commits. One phase → one (or more) commit(s); never one giant end-of-run commit.
 - **Never ask a question, never pause, never wait for input.** No human will answer. Never use
@@ -56,7 +58,7 @@ depend on them:
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs the same checks as CI (name the exact commands in the task). Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -92,8 +94,8 @@ at the repo root and in each folder you will touch (the canonical rules; `CLAUDE
 **Run the machine gates first — they decide, not your reading of the prose below.**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
 ```
 
 Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
@@ -149,7 +151,7 @@ lane the plan planned. A deviation then shows up as a diff between the phase blo
 row, visible to any later reader without anyone having to catch it live.
 
 **Multi-lane phases — `caddis_lanes.py`.** Use this procedure when the phase launch command is
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_lanes.py" run …`.
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_lanes.py" run …`.
 
 1. In an interactive session, run the phase's literal command. The script creates a temporary
    worktree. It runs the lane or its fallback chain inside a resource-capped job. It re-runs the
@@ -164,8 +166,11 @@ row, visible to any later reader without anyone having to catch it live.
      so it proves timing by design.
 3. **ACCEPT** means run `caddis_lanes.py accept --plan <plan> --phase N --attempt K --message
    "<the phase's commit message>"`. It runs only on the programme branch, never on `main`. It
-   refuses a `BLOCKING` review. If you checked the finding and it is false, add
-   `--override-review "<why the finding is false>"`. The script records that reason in the packet.
+   refuses a `BLOCKING` review and a `MISSING` review (no verdict: provider down, 429, filter
+   refusal). If you checked the finding and it is false, add
+   `--override-review "<why the finding is false>"`. For a `MISSING` review, re-run the review
+   first; add the override only if the owner accepts a phase with no vendor verdict. The reason
+   must not be empty. The script records it in the packet.
 4. Allow at most **2 attempts** per phase on a non-Claude lane. An out-of-budget switch is not an
    attempt. The owner can request TAKEOVER at any time.
 5. A UI phase needs a `ui-design-reviewer` screenshot review before ACCEPT. This rule applies
@@ -201,9 +206,9 @@ row, visible to any later reader without anyone having to catch it live.
 10. **When a dispatched Claude run is out of budget**, read the output from the subagent or
     `claude -p`. If it holds Claude usage-limit text (for example `You've hit your session limit`
     or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
-    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
+    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
-    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
+    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
     using the same form that `/feature-plan` writes. Never start agy without the `caddis_spend.py run`
     prefix: it is the global spend cap. Its own refusals have their own exit codes, never agy's:
     **75** = over the cap or could not lock (treat like out of budget: switch lane, not an attempt);
@@ -234,7 +239,8 @@ report — do not redo completed work.
    - **REFACTOR** — clean names/structure/duplication while keeping green.
    - **VERIFY** — run the phase's exit-gate check (the literal command the plan names) and the relevant
      suite so you didn't regress. Do not claim a state you did not run.
-   - **COMMIT** — `git add` the phase's files and `git commit` with the phase's conventional-commit message
+   - **COMMIT** — `git add` the phase's files by name, check `git diff --cached --name-only` shows only
+     them, and `git commit -m "…" -- <files>` with the phase's conventional-commit message
      (from the plan, or a faithful equivalent). Stay on the current branch.
    - **UPDATE THE TRACKER** — edit the plan's `## Tracker` row for this phase: set Status to `done`, fill
      the short commit hash (`git rev-parse --short HEAD`), set the `Lane` column to the lane this phase
@@ -297,14 +303,15 @@ for a later session to clean up, and nothing is left uncommitted. Order matters:
    it into `done/`. `--only` keeps it off every other file, so another session's finished plan, a
    shipped prompt or a done parking-lot item is never swept into this PR:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
    ```
    Read the output before you commit. It must say `moved: .caddis/plans/<this plan>.md` and name
    no other file. **Refuse** if it would touch anything else, or prints `ERROR` or `NOT MOVED`:
    stop, do not commit the move, and report the output in the review file.
 3. `git add` the moved plan by name (`.caddis/plans/done/<plan>.md`, so the status and Tracker edits
-   are staged with the rename), then make the final commit. The move, the status and the last
-   Tracker row land in one commit.
+   are staged with the rename), then make the final commit with
+   `git commit -m "…" -- .caddis/plans/<plan>.md .caddis/plans/done/<plan>.md` (both sides of the
+   rename). The move, the status and the last Tracker row land in one commit.
 
 (Falls back to `scripts/caddis_tidy.py` from a source checkout; **skip this step if the script is
 missing** — degrades open, same as the gates in Step 1.) A **collision** (`done/<name>` already

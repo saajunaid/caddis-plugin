@@ -23,6 +23,19 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+# No child process of this hook opens a console window on Windows (scripts/no_window.py). agy hooks ship
+# FLAT at the plugin root with scripts/ beside them; in the source repo scripts/ is one level up.
+try:
+    _nw_here = os.path.dirname(os.path.abspath(__file__))
+    for _nw_cand in (os.path.join(_nw_here, "scripts"), os.path.join(os.path.dirname(_nw_here), "scripts")):
+        if os.path.isfile(os.path.join(_nw_cand, "no_window.py")):
+            if _nw_cand not in sys.path:
+                sys.path.insert(0, _nw_cand)
+            break
+    from no_window import NO_WINDOW_KW  # noqa: E402
+except Exception:  # pragma: no cover - defensive
+    NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 
 def _artifact_root(root: str) -> str:
     return os.path.join(str(root), ".caddis")
@@ -39,7 +52,7 @@ def _repo_root(path: str):
     try:
         done = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, **NO_WINDOW_KW,
         )
         top = done.stdout.strip()
         return os.path.normpath(top) if done.returncode == 0 and top else None

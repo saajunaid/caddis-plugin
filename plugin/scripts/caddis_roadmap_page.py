@@ -137,7 +137,8 @@ def main_checkout(root: Path) -> Path:
     session-state folder; the waiting hook writes its marks there too."""
     try:
         out = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                             creationflags=0x08000000 if os.name == "nt" else 0)
         common = Path(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None
     except (OSError, subprocess.SubprocessError):
         common = None

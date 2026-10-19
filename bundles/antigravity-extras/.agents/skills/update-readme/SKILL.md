@@ -54,7 +54,7 @@ Use this skill when users ask to:
 ### Phase 4 — Stage only README changes for docs commit
 
 1. Stage README files only:
-   - `git add README.md **/README.md`
+   - `git add README.md <each changed README by path>` (no `**` pattern: the guard denies it)
 2. Verify staged diff contains no non-README files.
 3. Suggested conventional commit:
    - `docs(readme): document <feature summary>`

@@ -448,6 +448,8 @@ def _repo_root() -> Path:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True, text=True, timeout=5,
+            # No console window when the parent has none (a hook or an editor task).
+            creationflags=0x08000000 if os.name == "nt" else 0,
         )
         if out.returncode == 0 and out.stdout.strip():
             return Path(out.stdout.strip())

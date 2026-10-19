@@ -31,7 +31,6 @@ import datetime
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,14 +40,16 @@ try:
     import caddis_exit
     import caddis_checkout_guard
     import caddis_roadmap as roadmap
+    import caddis_worktree_safety
 except ModuleNotFoundError as exc:
-    if exc.name not in {"caddis_exit", "caddis_checkout_guard", "caddis_roadmap"}:
+    if exc.name not in {"caddis_exit", "caddis_checkout_guard", "caddis_roadmap", "caddis_worktree_safety"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
     import caddis_checkout_guard
     import caddis_roadmap as roadmap
+    import caddis_worktree_safety
 
 BRANCH_PREFIX = "docs/handoff-"
 DIR_PREFIX = "caddis-docs-pr-"
@@ -199,14 +200,22 @@ def _save_patch(worktree: Path) -> Path:
 
 
 def _remove(main: Path, worktree: Path, branch: str) -> None:
-    for args in (("worktree", "remove", "--force", "--force", str(worktree)), ("worktree", "prune"),
-                 ("branch", "-D", branch)):
+    """Remove the worktree (links first, so a junction's target survives), prune, delete the branch.
+
+    Best effort, as before: the result of each step is not checked. Every caller has already saved the session's
+    work as a patch or has none, so a step that fails leaves only a temp folder. A folder that git leaves is
+    removed below through remove_tree, which also removes links first."""
+    try:
+        caddis_worktree_safety.safe_remove_worktree(main, worktree, force_locked=True, env=roadmap._quiet_env())
+    except OSError:
+        pass
+    for args in (("worktree", "prune"), ("branch", "-D", branch)):
         try:
             _git(main, *args, check=False)
         except (roadmap.RoadmapError, OSError):
             pass
     if worktree.exists():
-        shutil.rmtree(worktree, ignore_errors=True)
+        caddis_worktree_safety.remove_tree(worktree)
 
 
 def finish(worktree: Path, title: str, body: str, out=print) -> int:

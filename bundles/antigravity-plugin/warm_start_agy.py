@@ -28,6 +28,19 @@ import os
 import subprocess
 import sys
 
+# No child process of this hook opens a console window on Windows (scripts/no_window.py). agy hooks ship
+# FLAT at the plugin root with scripts/ beside them; in the source repo scripts/ is one level up.
+try:
+    _nw_here = os.path.dirname(os.path.abspath(__file__))
+    for _nw_cand in (os.path.join(_nw_here, "scripts"), os.path.join(os.path.dirname(_nw_here), "scripts")):
+        if os.path.isfile(os.path.join(_nw_cand, "no_window.py")):
+            if _nw_cand not in sys.path:
+                sys.path.insert(0, _nw_cand)
+            break
+    from no_window import NO_WINDOW_KW  # noqa: E402
+except Exception:  # pragma: no cover - defensive
+    NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 _ARTIFACT_DIRS = (".caddis",)
 
 INJECT_MAX_LINES = 120      # same budget as the Claude Code hook
@@ -151,7 +164,7 @@ def resolve_relay(root: str, session_id: str = "") -> tuple[str, str | None]:
     try:
         branch = subprocess.run(
             ["git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
         ).stdout.strip()
     except Exception:
         branch = ""

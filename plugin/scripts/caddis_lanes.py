@@ -36,6 +36,7 @@ except ModuleNotFoundError as exc:
 import caddis_routing
 import caddis_redact
 import caddis_spend
+import caddis_worktree_safety
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -265,7 +266,14 @@ def remove_phase_worktree(
     if delete_branch and not wt.branch.startswith("lane/"):
         raise LaneConfigError(f"refusing to delete non-lane branch: {wt.branch}")
 
-    _git_output(repo_root, "worktree", "remove", "--force", str(resolved))
+    try:
+        problem = caddis_worktree_safety.safe_remove_worktree(repo_root, resolved)
+    except OSError as exc:
+        raise LaneConfigError(f"worktree remove failed: {exc}") from exc
+    if not problem and os.path.lexists(resolved):
+        problem = f"worktree remove left {resolved} on disk"
+    if problem:
+        raise LaneConfigError(problem)
     _git_output(repo_root, "worktree", "prune")
     if delete_branch:
         _git_output(repo_root, "branch", "-D", "--", wt.branch)
@@ -1244,8 +1252,19 @@ def validate_codex_argv(argv: list[str]) -> None:
             )
 
 
+# Robustness #4: a lane agent can be prompt-injected through a plan or a diff, so it gets no publish token and no
+# credential prompt, and cannot switch the guard off. The same list as caddis_roadmap_run.SESSION_SECRET_VARS. The
+# gh keyring login stays on the machine; the guard denies push, merge and publish when CADDIS_HEADLESS=1.
+LANE_SECRET_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN",
+                    "CADDIS_ALLOW_PUBLISH", "CADDIS_GUARD_DISABLED")
+LANE_NO_PROMPT_ENV = {"GH_PROMPT_DISABLED": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+
 def child_env(base: dict, lane: str, model: str) -> dict:
     env = base.copy()
+    for name in LANE_SECRET_VARS:
+        env.pop(name, None)
+    env.update(LANE_NO_PROMPT_ENV)
     env["CADDIS_HEADLESS"] = "1"
     if lane == "glm":
         env["OSS_MODEL"] = model
@@ -2132,6 +2151,20 @@ def _check_command(
     return exit_code
 
 
+_TERMINAL_ESCAPES = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"  # CSI (colours, cursor)
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?"  # OSC (titles, links)
+    r"|\x1b[@-Z\\-_]"  # other two-byte escapes
+)
+_CONTROL_CHARS = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
+
+
+def _printable(value: object) -> str:
+    """Text safe to print: no ANSI escapes and no C0 control characters except newline."""
+    text = _TERMINAL_ESCAPES.sub("", str(value if value is not None else ""))
+    return _CONTROL_CHARS.sub("", text)
+
+
 def _accept_command(
     args,
     repo: Path,
@@ -2151,12 +2184,26 @@ def _accept_command(
     if packet.get("next") != "review":
         print(f"refusing: packet next={packet.get('next')}")
         return EXIT_USAGE
-    review_status = packet.get("review", {}).get("status")
-    if review_status == "BLOCKING" and not getattr(args, "override_review", None):
-        print("refusing: review BLOCKING; pass --override-review with a reason")
+    # Fail closed: only an exact CLEAN verdict merges without an owner override.
+    review = packet.get("review") or {}
+    if not isinstance(review, dict):
+        review = {}
+    review_status = review.get("status")
+    override_reason = (getattr(args, "override_review", None) or "").strip()
+    if review_status != "CLEAN" and not override_reason:
+        if review_status == "BLOCKING":
+            print("refusing: review BLOCKING; pass --override-review with a reason")
+        else:
+            # MISSING = no verdict (provider down, 429, secret-filter refusal). Anything else
+            # that is not CLEAN (absent, null, unknown, lowercase) is also no valid verdict.
+            cause = " ".join(_printable(review.get("tail")).split())[-300:] or "no reason recorded"
+            label = (
+                "MISSING" if review_status == "MISSING"
+                else f"status {_printable(review_status)!r}"
+            )
+            print(f"refusing: review {label} (no verdict: {cause}); re-run the review, "
+                  "or pass --override-review with a reason")
         return EXIT_USAGE
-    if review_status == "MISSING":
-        print("WARNING: review MISSING")
     if _git_output(repo, "rev-parse", "HEAD") != packet.get("base_sha"):
         print("refusing: programme branch moved since the attempt started")
         return EXIT_FAIL
@@ -2178,6 +2225,11 @@ def _accept_command(
         packet["override_review"] = args.override_review
         write_packet(packet_path, packet)
         print(f"OVERRIDE REVIEW: {args.override_review}")
+        if review_status != "CLEAN":
+            print(
+                f"WARNING: merged without a vendor review (status {_printable(review_status)}): "
+                f"{args.override_review}"
+            )
     _git_output(wt.path, "add", "--", *(str(path) for path in files))
     _git_output(wt.path, "commit", "-m", args.message)
     accepted_sha = _git_output(wt.path, "rev-parse", "HEAD")

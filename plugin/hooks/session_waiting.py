@@ -113,14 +113,13 @@ def _render_detached(marker: str) -> None:
         return
     kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "cwd": root,
               "env": {**os.environ, "CADDIS_HEADLESS": "1"}}
-    if os.name == "nt":
-        # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: a hidden console that the render's git.exe calls share.
-        # Never DETACHED_PROCESS: Windows then ignores CREATE_NO_WINDOW, the render has no console, and every
-        # git.exe it starts opens its own visible window (owner report, 18 Oct).
-        kwargs["creationflags"] = 0x08000000 | 0x00000200
-    else:
+    # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: a hidden console that the render's git.exe calls share.
+    # Never DETACHED_PROCESS: Windows then ignores CREATE_NO_WINDOW, the render has no console, and every
+    # git.exe it starts opens its own visible window (owner report, 18 Oct).
+    flags = (0x08000000 | 0x00000200) if os.name == "nt" else 0
+    if os.name != "nt":
         kwargs["start_new_session"] = True
-    subprocess.Popen([sys.executable, script, "render", "--all", "--root", root], **kwargs)
+    subprocess.Popen([sys.executable, script, "render", "--all", "--root", root], creationflags=flags, **kwargs)
 
 
 def main() -> None:

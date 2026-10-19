@@ -10,6 +10,14 @@ FAIL OPEN, ALWAYS. Every path exits 0 and every git call is wrapped. A hook that
 or fail a session start is worse than the staleness it prevents, so a failed or slow fetch
 reports and continues.
 
+NO LOCKS, NO PROMPTS, A TIME BUDGET (robustness audit #6, 18 Oct 2026). Every git call
+runs with GIT_OPTIONAL_LOCKS=0 (and `git status` with --no-optional-locks), so this hook never takes
+index.lock from a peer session mid-commit. Every call runs with GIT_TERMINAL_PROMPT=0 and
+GCM_INTERACTIVE=never, so a credential helper can never pop a sign-in window. The fetch runs in a
+job object (Windows) or process group (POSIX), so `git-remote-https` dies with `git` on a timeout
+instead of surviving it holding a ref lock. All git calls share one 18 s budget under the 25 s hook
+timeout; with less than the fetch timeout left, the fetch is skipped and the output says so.
+
 IT ONLY PRINTS. It never switches, stashes, resets, commits or creates anything except one
 throttle stamp inside .git/. A SessionStart hook cannot ask a question, and these checkouts
 are shared with other live sessions — acting without an answer could take work with it.
@@ -25,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -49,19 +58,156 @@ if _reconfig:
         pass
 
 FETCH_TIMEOUT_S = 15        # ceiling: a slow or unreachable remote must not stall a session
+TOTAL_BUDGET_S = 18         # all git calls together; the hook timeout in hooks.json is 25 s
 FETCH_MAX_AGE_S = 600       # a restart within 10 minutes reuses the last fetch
 PEER_FRESH_S = 1800         # live peer session-state threshold (30 minutes, matches inject_relay)
 STAMP_NAME = "caddis-freshness-stamp"
 
+# No git child opens a console window on Windows (a hook is not a place for flashing windows).
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+_NEW_PROCESS_GROUP = 0x00000200
+# Never take an optional lock, never ask for a credential, never open a credential-manager window.
+_GIT_ENV_OVERRIDES = {"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+
+_deadline: float | None = None      # time.monotonic() value that ends this run's git budget; None = no budget
+
+
+def _git_env() -> dict:
+    """os.environ plus the no-lock, no-prompt overrides. A fresh dict each call."""
+    return {**os.environ, **_GIT_ENV_OVERRIDES}
+
+
+def _remaining() -> float:
+    """Seconds left in the git budget. Effectively unbounded outside report()."""
+    return float("inf") if _deadline is None else _deadline - time.monotonic()
+
 
 def _git(cwd: str, *args: str, timeout: int = 15) -> tuple[int, str]:
-    """(exit code, stdout). Never raises; a timeout is just a non-zero code."""
+    """(exit code, stdout). Never raises; a timeout is just a non-zero code. No call starts once the budget is
+    gone, and no call may run past it."""
+    left = _remaining()
+    if left <= 0:
+        return 1, ""
     try:
         r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=min(timeout, left),
+                           stdin=subprocess.DEVNULL, env=_git_env(), creationflags=_NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return 1, ""
     return r.returncode, (r.stdout or "").strip()
+
+
+# -- the bounded runner for the fetch ---------------------------------------------------------------------------
+# Equivalent to caddis_roadmap.run_bounded (job object, tree kill), kept local on purpose: that module cannot take a
+# cwd or creation flags, costs ~120 ms to import, and agy ships this file in a bundle where scripts/ may not sit
+# beside it. A hook that cannot import its helper must still work.
+
+
+class _Job:
+    """A Windows job object holding one process and its children. KILL_ON_JOB_CLOSE: closing the handle (or the
+    death of this process) ends the whole tree, even after the first process has exited."""
+
+    def __init__(self, proc: "subprocess.Popen"):
+        import ctypes
+        from ctypes import wintypes
+
+        class _Basic(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class _Io(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class _Extended(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", _Basic), ("IoInfo", _Io), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+        k.SetInformationJobObject.restype = wintypes.BOOL
+        k.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+        k.AssignProcessToJobObject.restype = wintypes.BOOL
+        k.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+        k.TerminateJobObject.restype = wintypes.BOOL
+        k.CloseHandle.argtypes = (wintypes.HANDLE,)
+        k.CloseHandle.restype = wintypes.BOOL
+        self._k = k
+        self.handle = k.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+        info = _Extended()
+        info.BasicLimitInformation.LimitFlags = 0x2000          # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not k.SetInformationJobObject(self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+            err = ctypes.get_last_error()
+            k.CloseHandle(self.handle)
+            raise OSError(err, "SetInformationJobObject failed")
+        if not k.AssignProcessToJobObject(self.handle, int(proc._handle)):  # type: ignore[attr-defined]
+            err = ctypes.get_last_error()
+            k.CloseHandle(self.handle)
+            raise OSError(err, "AssignProcessToJobObject failed")
+
+    def terminate(self) -> None:
+        self._k.TerminateJobObject(self.handle, 1)
+
+    def close(self) -> None:
+        self._k.CloseHandle(self.handle)
+
+
+def _kill_tree(proc: "subprocess.Popen", job: "_Job | None") -> None:
+    try:
+        if job is not None:
+            job.terminate()
+        elif os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                           stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=5)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:
+        pass            # the kill is best effort; the caller still reports the timeout
+
+
+def _run_bounded(argv: list[str], cwd: str, timeout: float, env: dict) -> "int | None":
+    """Run `argv` with no stdin and no output. Returns its exit code, 1 when it cannot start, or None on timeout.
+    On a timeout the whole process tree is killed (job object on Windows, process group elsewhere). The tree is
+    also killed on any other way out, Ctrl+C included, and when this process dies (Windows job)."""
+    kwargs: dict = {"cwd": cwd, "env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                    "stderr": subprocess.DEVNULL}
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    try:
+        proc = subprocess.Popen(argv, creationflags=(_NO_WINDOW | _NEW_PROCESS_GROUP) if os.name == "nt" else 0, **kwargs)
+    except (OSError, subprocess.SubprocessError):
+        return 1
+    job = None
+    if os.name == "nt":
+        try:
+            job = _Job(proc)
+        except Exception:
+            job = None          # no job object: taskkill /T is the fallback
+    try:
+        try:
+            return proc.wait(timeout=max(timeout, 0))
+        except subprocess.TimeoutExpired:
+            _kill_tree(proc, job)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.SubprocessError:
+                pass
+            return None
+    except BaseException:
+        _kill_tree(proc, job)
+        raise
+    finally:
+        if job is not None:
+            job.close()
 
 
 def _default_ref(cwd: str) -> str:
@@ -108,7 +254,12 @@ def _status_entries(top: str) -> list[list[str]]:
     """`git status --porcelain -z` at the repo top: one list of paths per entry (a rename gives two).
     NUL-separated, so a path is never quoted. [] when git fails."""
     try:
-        r = subprocess.run(["git", "status", "--porcelain", "-z"], cwd=top, capture_output=True, timeout=15)
+        left = _remaining()
+        if left <= 0:
+            return []
+        r = subprocess.run(["git", "--no-optional-locks", "status", "--porcelain", "-z"], cwd=top,
+                           capture_output=True, timeout=min(15, left), stdin=subprocess.DEVNULL,
+                           env=_git_env(), creationflags=_NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return []
     if r.returncode != 0:
@@ -201,8 +352,31 @@ def _dirty_owners(top: str, dirty_paths: set[str], own_session_id: str = "") -> 
         return []
 
 
+def _fetch(cwd: str) -> "bool | None":
+    """`git fetch origin` through the bounded runner. True = fetched, False = failed or timed out, None = skipped
+    because less than FETCH_TIMEOUT_S of the budget is left. Never raises. Maintenance is off for this one call:
+    a background `gc --auto` would be killed with the job and could leave its lock behind."""
+    left = _remaining()
+    if left < FETCH_TIMEOUT_S:
+        return None
+    argv = ["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "origin", "--quiet"]
+    try:
+        return _run_bounded(argv, cwd, min(FETCH_TIMEOUT_S, left), _git_env()) == 0
+    except Exception:
+        return False
+
+
 def report(cwd: str, own_session_id: str = "") -> list[str]:
     """The lines to print. Empty when there is nothing worth saying."""
+    global _deadline
+    _deadline = time.monotonic() + TOTAL_BUDGET_S
+    try:
+        return _report(cwd, own_session_id)
+    finally:
+        _deadline = None
+
+
+def _report(cwd: str, own_session_id: str = "") -> list[str]:
     if _git(cwd, "rev-parse", "--is-inside-work-tree")[0] != 0:
         return []                                   # not a git repository
     branch = _git(cwd, "branch", "--show-current")[1]
@@ -214,8 +388,12 @@ def report(cwd: str, own_session_id: str = "") -> list[str]:
     has_origin = "origin" in _git(cwd, "remote")[1].split()
     git_dir = _git(cwd, "rev-parse", "--absolute-git-dir")[1] or os.path.join(cwd, ".git")
     if has_origin and _fetch_is_due(git_dir):
-        if _git(cwd, "fetch", "origin", "--quiet", timeout=FETCH_TIMEOUT_S)[0] == 0:
+        fetched = _fetch(cwd)
+        if fetched:
             _mark_fetched(git_dir)
+        elif fetched is None:
+            lines.append("[HARNESS] skipped the fetch - the session-start time budget was nearly spent. "
+                         "The figures below may be stale.")
         else:
             lines.append("[HARNESS] could not fetch origin - the figures below may be stale.")
 

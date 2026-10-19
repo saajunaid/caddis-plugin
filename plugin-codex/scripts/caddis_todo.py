@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -25,6 +26,10 @@ except ModuleNotFoundError as exc:
     from caddis_frontmatter import parse, split_document
     from caddis_workstreams import _artifact, _name
 
+
+# No child process opens a console window on Windows (this runs under hooks and status lines that
+# have no console). Inline, not scripts/no_window.py: in the source tree this file does not sit beside it.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _ITEM = re.compile(r'^- \[([ x])\] (.+?) <!-- caddis: (\{.*\}) -->$')
 _PHASE = re.compile(r'^\|\s*(\d+)\s*\|', re.M)
@@ -240,7 +245,8 @@ def _plans_changed_on_branch(root: Path, plans: list[Path]) -> list[Path]:
     def git(*args: str) -> str | None:
         try:
             done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace", timeout=5, check=False)
+                                  encoding="utf-8", errors="replace", timeout=5, check=False,
+                                  creationflags=_NO_WINDOW)
         except (OSError, subprocess.SubprocessError):
             return None
         return done.stdout.strip() if done.returncode == 0 else None

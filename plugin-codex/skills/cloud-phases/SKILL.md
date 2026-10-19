@@ -20,7 +20,7 @@ Two modes:
 - `/caddis:cloud-phases [plan] [phases]` — **dispatch**: Steps 1–6.
 - `/caddis:cloud-phases intake` — **intake**: Step 7, after the owner has run the sessions.
 
-With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.141/scripts/caddis_todo.py" active-plan`,
+With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.142/scripts/caddis_todo.py" active-plan`,
 or the one `status: current` plan in `.caddis/plans/`). If there is none, or more than one, ask.
 
 ## Step 1 — check the preconditions (stop on any failure)
@@ -117,7 +117,8 @@ internal host names, no machine paths and no credentials.
 
 ```
 git add <each prompt file by name>
-git commit -m "docs(prompts): cloud prompts for <feature> phases <N, M>"
+git diff --cached --name-only   # must list only the prompt files; else stop and report
+git commit -m "docs(prompts): cloud prompts for <feature> phases <N, M>" -- <each prompt file>
 git push -u origin <feature branch>
 git rev-parse HEAD
 git ls-remote origin refs/heads/<feature branch>

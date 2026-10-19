@@ -369,7 +369,8 @@ def check_venv(target: Path, install: bool, dry: bool) -> list[str]:
         notes.append("venv: .venv present — ok")
     elif install and not dry:
         import subprocess
-        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=False)
+        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=False,
+                       creationflags=0x08000000 if os.name == "nt" else 0)
         notes.append("venv: created .venv (install dev deps: .venv/Scripts/pip install -e .[dev])")
     else:
         notes.append("venv: MISSING — create with `python -m venv .venv` then "

@@ -26,6 +26,14 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
 
+try:
+    import caddis_worktree_safety
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_worktree_safety":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import caddis_worktree_safety
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -467,12 +475,10 @@ def run_adhoc(
                 if branch_res.returncode != 0:
                     reason = f"branch update failed: {branch_res.stderr.strip()}"
                 else:
-                    remove_res = subprocess.run(
-                        ["git", "-C", str(repo), "worktree", "remove", "--force", str(wt_path)],
-                        capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    )
-                    if remove_res.returncode != 0 or wt_path.exists():
-                        reason = f"worktree remove failed: {remove_res.stderr.strip() or wt_path}"
+                    # An OSError from the helper (git not runnable) lands in the `except OSError` below.
+                    problem = caddis_worktree_safety.safe_remove_worktree(repo, wt_path)
+                    if problem or wt_path.exists():
+                        reason = problem or f"worktree remove failed: {wt_path}"
                     else:
                         kept_worktree = None
                         subprocess.run(["git", "-C", str(repo), "worktree", "prune"], capture_output=True)
@@ -603,12 +609,14 @@ def drop_adhoc(repo: Path) -> int:
         print(f"[mmr] Refusing to remove {kept_worktree}: not a registered lane/* worktree")
         return EXIT_FAIL
     if kept_worktree:
-        removed = subprocess.run(
-            ["git", "-C", str(repo), "worktree", "remove", "--force", kept_worktree],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
-        if removed.returncode != 0:
-            print(f"[mmr] Could not remove kept worktree: {removed.stderr.strip()}")
+        try:
+            problem = caddis_worktree_safety.safe_remove_worktree(repo, Path(kept_worktree))
+        except OSError as exc:
+            problem = f"{type(exc).__name__}: {exc}"
+        if not problem and os.path.lexists(kept_worktree):
+            problem = f"{kept_worktree} still exists after git worktree remove"
+        if problem:
+            print(f"[mmr] Could not remove kept worktree: {problem}")
             return EXIT_FAIL
         pruned = subprocess.run(
             ["git", "-C", str(repo), "worktree", "prune"],

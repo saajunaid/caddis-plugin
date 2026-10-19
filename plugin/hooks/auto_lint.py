@@ -10,6 +10,16 @@ import shutil
 import subprocess
 import sys
 
+# No child process of this hook opens a console window on Windows (scripts/no_window.py). The inline
+# fallback keeps a hook from ever dying on an import problem.
+try:
+    _nw_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _nw_dir not in sys.path:
+        sys.path.insert(0, _nw_dir)
+    from no_window import NO_WINDOW_KW  # noqa: E402
+except Exception:  # pragma: no cover - defensive
+    NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 # Linter output may contain Unicode (paths, glyphs); force UTF-8 stdout so a
 # narrow Windows console can't raise UnicodeEncodeError.
 _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -40,7 +50,7 @@ MAX_FINDINGS = 20
 def run(cmd):
     """Run a linter, tolerating a missing executable (returns None then)."""
     try:
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, capture_output=True, text=True, **NO_WINDOW_KW)
     except (FileNotFoundError, OSError):
         return None
 

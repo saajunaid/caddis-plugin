@@ -10,9 +10,31 @@ passes through `filter_diff()` first. It does two independent things, both fail-
    paths were excluded so the drop is visible, not invisible.
 2. **Content rules** — every hunk line of a file that was NOT dropped is scanned against
    `SECRET_RULES` (AWS keys, GitHub/Slack tokens, JWTs, PEM private keys, `key = "..."`-shaped
-   assignments). A hit refuses the ENTIRE review (not just that file) — a secret slipping past
-   the path denylist is exactly the case this second layer exists for, and the safe response to
-   "something here looks like a credential" is "send nothing", not "guess which part is safe".
+   assignments). A hit on an ADDED line refuses the ENTIRE review (not just that file) — a
+   secret slipping past the path denylist is exactly the case this second layer exists for, and
+   the safe response to "something here looks like a credential" is "send nothing", not "guess
+   which part is safe".
+
+What counts as a refusal (the rest is a WARN, or nothing):
+  - Added line: any rule refuses.
+  - Removed line: only the high-confidence rules refuse (`HIGH_CONFIDENCE_RULES`). The two
+    assignment heuristics do not: the text is leaving the code, and they guess.
+  - Context line: a high-confidence hit refuses too (the line would be SENT to the provider,
+    and a real key must not leave the machine). A hit of an assignment heuristic only goes to
+    `FilterResult.warnings`; the caller prints a WARN line, because the line is already in the
+    repo and the heuristic guesses.
+  - `env-assignment` (an unquoted `NAME_TOKEN=value`) runs only on env-like files (`.env*`,
+    `*.env`, shell, ini, yaml, tfvars, service, Dockerfile, files with no extension, ...). In
+    code, that shape is an ordinary assignment (`tokens = _ga_tokens(text)`). The quoted
+    `assignment` rule still runs on every file.
+  - An unquoted value in an env-like file is exempt only as a shell variable or substitution
+    (`$VAR` as the whole value, `${VAR}`, `$(cmd)`, a backtick command, or `$(...)` / `${...}`
+    anywhere in the value) or as a placeholder. Code shape proves nothing there: `SECRET=YWJj==.sig`,
+    `SAS=sv=2022-11-02&sig=abc123` and `PASS=ab#cdefgh12` are secrets. A quoted value is exempt
+    only as a placeholder, or as a CSS custom-property block (`--bg:#282a36;--fg:#f8f8f2`).
+  - A trailing `# caddis: not-secret` or `// caddis: not-secret` comment exempts that line from
+    the two assignment rules only. It is ignored inside a string and never exempts a
+    high-confidence rule.
 
 Deliberately out of scope, by design (see the plan's "Design (decided)"):
   - Removed-line hits use old-file line numbers and are marked `removed line`.
@@ -54,6 +76,7 @@ DEFAULT_DENY_GLOBS: list[str] = [
     "id_rsa*", "**/id_rsa*",
     "secrets.*", "**/secrets.*",
     "keys.env", "**/keys.env",
+    "*.env",  # prod.env, config/app.env: a leading `*` matches at any depth
 ]
 
 # `.env.example` / `.env.sample` / `.env.template` / `.env.dist` are template files with no
@@ -70,14 +93,110 @@ SECRET_RULES: list[tuple[str, re.Pattern]] = [
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("slack-token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")),
+    ("github-pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}")),
+    ("aws-session-key", re.compile(r"\bASIA[0-9A-Z]{16}\b")),
+    ("openai-key", re.compile(r"\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}")),
+    ("anthropic-key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}")),
+    ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}")),
+    ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    ("slack-webhook", re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9_/]+")),
+    # user:password@host in a URL. `value` is the password; placeholders are exempted in code.
+    ("url-credentials", re.compile(
+        r"[a-z][a-z0-9+.-]*://[^/\s:@]*:(?P<value>[^/\s@]{3,})@", re.I)),
+    # `name = "v"`, `name: "v"`, and a quoted key: `"name": "v"`, `'name': 'v'`.
     ("assignment", re.compile(
-        r"(?i)[A-Za-z0-9_]*(password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*\s*[:=]\s*['\"](?P<value>[^'\"\s]{8,})['\"]"
+        r"(?i)[A-Za-z0-9_]*(password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*['\"]?\s*[:=]\s*['\"](?P<value>[^'\"\s]{8,})['\"]"
     )),
     ("env-assignment", re.compile(
         r"^\s*(?:export\s+)?[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|TOKEN|PRIVATE_KEY)"
-        r"[A-Za-z0-9_]*\s*=\s*(?P<value>[^\s'\"#]{8,})", re.I
+        r"[A-Za-z0-9_]*\s*=\s*(?P<value>[^\s'\"]{8,})", re.I
     )),
 ]
+
+# Rules that match a fixed credential format. These refuse on added, removed AND context lines
+# and ignore the `caddis: not-secret` marker. The two assignment rules are heuristics and get none
+# of that.
+ASSIGNMENT_RULES = frozenset({"assignment", "env-assignment"})
+HIGH_CONFIDENCE_RULES = frozenset({
+    "private-key", "aws-key", "github-token", "slack-token", "jwt",
+    "github-pat", "aws-session-key", "openai-key", "anthropic-key", "google-api-key",
+    "npm-token", "slack-webhook", "url-credentials",
+})
+
+# A trailing comment only: `# caddis: not-secret` or `// caddis: not-secret` at the end of the
+# line, and not inside a string (see `_has_not_secret_marker`).
+_TRAILING_MARKER = re.compile(r"(?:#|//)\s*caddis:\s*not-secret\s*$", re.I)
+
+# `env-assignment` runs only on these files (matched on the file name, not the directory).
+_ENV_LIKE_SUFFIXES = frozenset({
+    ".sh", ".bash", ".zsh", ".ps1", ".psm1", ".bat", ".cmd", ".ini", ".cfg", ".conf", ".toml",
+    ".yaml", ".yml", ".properties", ".env", ".tfvars", ".service",
+})
+
+
+def _is_env_like(path: str) -> bool:
+    name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if name.startswith((".env", "dockerfile")):
+        return True
+    suffix = Path(name).suffix
+    return suffix == "" or suffix in _ENV_LIKE_SUFFIXES
+
+
+def _inside_string(prefix: str) -> bool:
+    """True when `prefix` ends inside an open '...' or "..." string."""
+    quote = None
+    i = 0
+    while i < len(prefix):
+        c = prefix[i]
+        if quote:
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        i += 1
+    return quote is not None
+
+
+def _has_not_secret_marker(content: str) -> bool:
+    match = _TRAILING_MARKER.search(content)
+    return bool(match) and not _inside_string(content[:match.start()])
+
+
+# `--bg:#282a36;--fg:#f8f8f2`: a CSS custom-property block held in a quoted string.
+_CSS_DECLARATIONS = re.compile(r"(?:--[A-Za-z0-9_-]+:[^;\s]+;?)+")
+# $(cmd) `cmd` ${VAR}. A bare `$VAR` is exempt only as the WHOLE value, through
+# `_is_placeholder`: a value that merely starts with `$` (`$ecretP@ss`, `$argon2id$...`) is a secret.
+_SHELL_START = re.compile(r"\$\(|`|\$\{")
+_SHELL_SUBSTITUTION = re.compile(r"\$\([^)]*\)|\$\{[^}]*\}")  # $(...) or ${...} anywhere
+
+
+def _is_not_secret_value(value: str, *, quoted: bool) -> bool:
+    """True when the value is a CSS block (quoted) or a shell variable or substitution (unquoted).
+
+    A QUOTED value is a string literal, so code shape proves nothing: `"Sec;ret(1)"` and
+    `"P@ssw0rd#2026!"` are passwords. Only a CSS custom-property block is exempt (the
+    placeholder check happens in the caller).
+
+    An UNQUOTED value reaches this rule only in an env-like file, where values are not code:
+    `SECRET=YWJj==.sig`, `SAS=sv=2022-11-02&sig=abc123`, `PASS=ab#cdefgh12` and
+    `KEY=correct_horse` are secrets. Only a shell reference is exempt: a value that starts with
+    `$(`, a backtick or `${`, or holds `$(...)` / `${...}` in any position. A bare `$name` is
+    exempt only as the whole value (a placeholder); `$argon2id$v=19$...` is a hash.
+    """
+    if quoted:
+        return bool(_CSS_DECLARATIONS.fullmatch(value))
+    return bool(_SHELL_START.match(value) or _SHELL_SUBSTITUTION.search(value))
+
+
+_URL_PASSWORD_PLACEHOLDERS = frozenset({"password", "pass", "passwd", "pwd", "secret", "token"})
+
+
+def _is_url_password_placeholder(value: str) -> bool:
+    return (_is_placeholder(value) or value.lower() in _URL_PASSWORD_PLACEHOLDERS
+            or bool(re.fullmatch(r"\{[^}]*\}|%s|%\([^)]*\)s", value)))
 
 
 def _is_placeholder(value: str) -> bool:
@@ -99,6 +218,8 @@ class FilterResult:
     kept_diff: str
     dropped_paths: list[str] = field(default_factory=list)
     hits: list[tuple[str, int, str]] = field(default_factory=list)  # (path, side's line, rule/removed marker)
+    # Context-line matches: already in the repo, so reported (WARN) but never a refusal.
+    warnings: list[tuple[str, int, str]] = field(default_factory=list)
 
 
 # A new file block starts at a line beginning "diff --git a/..." (the common, unquoted case)
@@ -213,9 +334,38 @@ def _is_denied(path: str, deny_globs: list[str], allow_globs: list[str]) -> bool
     return not any(fnmatch.fnmatchcase(path, glob) for glob in allow_globs)
 
 
-def _scan_added_lines(block: str, path: str) -> list[tuple[str, int, str]]:
-    """Scan all hunk lines; removed hits use old-file line numbers."""
+def _line_matches(content: str, env_like: bool) -> list[str]:
+    """Names of the rules that match one line of content, after every exemption.
+
+    Every match of a rule is checked, so a real secret that follows a placeholder on the same
+    line (a JSON object with a placeholder key first and a real one second) is still caught.
+    """
+    marked = _has_not_secret_marker(content)
+    names: list[str] = []
+    for rule_name, pattern in SECRET_RULES:
+        if rule_name in ASSIGNMENT_RULES and marked:
+            continue
+        if rule_name == "env-assignment" and not env_like:
+            continue
+        for match in pattern.finditer(content):
+            if rule_name in ASSIGNMENT_RULES:
+                value = match.group("value")
+                if _is_placeholder(value) or _is_not_secret_value(
+                        value, quoted=rule_name == "assignment"):
+                    continue
+            elif rule_name == "url-credentials" and _is_url_password_placeholder(
+                    match.group("value")):
+                continue
+            names.append(rule_name)
+            break
+    return names
+
+
+def _scan_block(block: str, path: str, env_like: bool) -> tuple[list[tuple[str, int, str]],
+                                                                  list[tuple[str, int, str]]]:
+    """Scan all hunk lines; return (hits, warnings). Removed hits use old-file line numbers."""
     hits: list[tuple[str, int, str]] = []
+    warnings: list[tuple[str, int, str]] = []
     new_line: int | None = None
     old_line: int | None = None
     for line in block.splitlines():
@@ -231,16 +381,18 @@ def _scan_added_lines(block: str, path: str) -> list[tuple[str, int, str]]:
             content = line[1:]
             removed = line.startswith("-")
             context = line.startswith(" ")
-            for rule_name, pattern in SECRET_RULES:
-                match = pattern.search(content)
-                if match and not (rule_name in {"assignment", "env-assignment"}
-                                  and _is_placeholder(match.group("value"))) and not (
-                                      rule_name == "env-assignment" and
-                                      re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+",
-                                                   match.group("value"))):
-                    marker = (f"{rule_name}, removed line" if removed else
-                              f"{rule_name}, context line" if context else rule_name)
-                    hits.append((path, old_line if removed else new_line, marker))
+            for rule_name in _line_matches(content, env_like):
+                if context:
+                    # A real key on a context line is still SENT to the provider.
+                    if rule_name in HIGH_CONFIDENCE_RULES:
+                        hits.append((path, new_line, f"{rule_name}, context line"))
+                    else:
+                        warnings.append((path, new_line, f"{rule_name}, context line"))
+                elif removed:
+                    if rule_name in HIGH_CONFIDENCE_RULES:
+                        hits.append((path, old_line, f"{rule_name}, removed line"))
+                else:
+                    hits.append((path, new_line, rule_name))
             if removed:
                 old_line += 1
             elif not context:
@@ -251,13 +403,25 @@ def _scan_added_lines(block: str, path: str) -> list[tuple[str, int, str]]:
         else:
             old_line += 1
             new_line += 1  # context line exists in both files
-    return hits
+    return hits, warnings
 
 
-def filter_diff(diff_text: str, deny_globs: list[str], allow_globs: list[str]) -> FilterResult:
-    """Drop denylisted-path file blocks, then scan changed lines in kept blocks."""
+def _scan_added_lines(block: str, path: str,
+                      env_assignment_everywhere: bool = False) -> list[tuple[str, int, str]]:
+    """The refusing hits of `_scan_block` (kept for callers that want only those)."""
+    return _scan_block(block, path, env_assignment_everywhere or _is_env_like(path))[0]
+
+
+def filter_diff(diff_text: str, deny_globs: list[str], allow_globs: list[str],
+                env_assignment_everywhere: bool = False) -> FilterResult:
+    """Drop denylisted-path file blocks, then scan the hunk lines in kept blocks.
+
+    `env_assignment_everywhere` runs `env-assignment` on every file type. Use it for text that
+    is not a diff of real files (the relay note is prose in a synthetic `.md` file).
+    """
     dropped_paths: list[str] = []
     hits: list[tuple[str, int, str]] = []
+    warnings: list[tuple[str, int, str]] = []
     kept_parts: list[str] = []
     for block in _split_into_file_blocks(diff_text):
         first_line = block.splitlines()[0] if block else ""
@@ -268,9 +432,13 @@ def filter_diff(diff_text: str, deny_globs: list[str], allow_globs: list[str]) -
         if denied:
             dropped_paths.append(denied)
             continue
-        hits.extend(_scan_added_lines(block, path))
+        block_hits, block_warnings = _scan_block(
+            block, path, env_assignment_everywhere or _is_env_like(path))
+        hits.extend(block_hits)
+        warnings.extend(block_warnings)
         kept_parts.append(block)
-    return FilterResult(kept_diff="".join(kept_parts), dropped_paths=dropped_paths, hits=hits)
+    return FilterResult(kept_diff="".join(kept_parts), dropped_paths=dropped_paths, hits=hits,
+                        warnings=warnings)
 
 
 def load_config(repo: Path) -> tuple[list[str], list[str]]:

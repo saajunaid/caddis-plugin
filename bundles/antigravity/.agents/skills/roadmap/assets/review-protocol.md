@@ -1,15 +1,15 @@
 ---
 type: reference
 title: Review protocol
-description: The review method one model can rely on - invariants, inputs and writers, shared state, execute what the change promises, tests, docs, then severity (only blocking stops the merge; each finding needs a reproduction), one FINDING line per finding and an END REVIEW line. caddis_review.py sends it to every review run.
+description: The review method one model can rely on - invariants, inputs and writers, shared state, check what the change promises, tests, docs, then severity (only blocking stops the merge; each finding needs a reproduction), one FINDING line per finding and an END REVIEW line. caddis_review.py sends it to every review run.
 status: current
 ---
 
 # Review protocol (generic, any diff)
 
-You review a diff. You do NOT edit, create or delete files, and you do not commit. You may read files and run commands
-(tests, dry runs, the commands that plans, cards and docs name). Work through ALL steps in order. Do not stop at the
-first finding. Include a short section per step, in order.
+You review a diff. You read only: you have Read, Grep and Glob and no shell, so you run no test and no command, and
+you do not edit, create or delete files. The diff is in the prompt. Tests are the implementer's and CI's job. Work
+through ALL steps in order. Do not stop at the first finding. Include a short section per step, in order.
 
 ## Step 1 - Purpose and invariants
 Read the card, the plan or design section it cites, and the diff. Write the list of INVARIANTS this change must keep:
@@ -26,12 +26,14 @@ accident or on purpose? This includes the agent or session the code is meant to 
 List state that two runs, two kinds of target, or two processes could share (files, locks, relays, logs, caches).
 Can they collide? Can one read the other's output as its own?
 
-## Step 4 - Execute what the change promises
-Run the tests the card names. Then run every command that the plan, its exit gates, the docs or the skill text say
-should work for this change (dry runs, the documented usage lines), exactly as written. Use the repo's OWN fixtures
-and example files, not ones you build, and run unattended scripts (hooks, runners) as they are really run (as a script,
-with a real payload). Compare risky behaviour with the parent commit when the change claims to fix or tighten
-something. Report any that fail or that cannot work as documented.
+## Step 4 - Check what the change promises
+For every command that the plan, its exit gates, the docs or the skill text say should work for this change (the
+documented usage lines, exactly as written), follow it through the code by reading: the argument parsing, the paths it
+reads and writes, the repo's OWN fixtures and example files. Read unattended scripts (hooks, runners) as they are
+really run (as a script, with a real payload). Compare risky behaviour with the code before the change (the `-` lines
+of the diff) when the change claims to fix or tighten something. Report any that would fail or that cannot work as
+documented. For a check you cannot settle by reading, write one line `not executed: <command> (reviewer has no
+shell)`.
 
 ## Step 5 - Tests
 For each new or changed test: could it pass for the wrong reason (no assertion that can fail, mocked away the thing
@@ -52,9 +54,10 @@ Severity rule. Only **blocking** stops the merge, so use it with care:
   negative test, a doc that is wrong in a way that does not make a command fail, an error message that misleads.
 - **nit** = style and wording.
 
-Every finding needs a concrete reproduction: a command, an input or a test that shows the failure, written in the
-failure scenario. A finding without a reproduction is a **nit**, whatever its severity would otherwise be. Do not
-write "might", "could in theory" or "a future change may": show it or call it a nit.
+Every finding needs a concrete reproduction: a command, an input or a test that would show the failure, written in
+the failure scenario (you do not run it; the implementer does). A finding without a reproduction is a **nit**,
+whatever its severity would otherwise be. Do not write "might", "could in theory" or "a future change may": show it
+or call it a nit.
 
 The gate exits by the findings. A **blocking** finding fails it. **should-fix** and **nit** findings do not: they are
 listed in the report under "Follow-up (not blocking)". The tool allows 3 completed review rounds for a phase; the 4th completed round

@@ -18,6 +18,16 @@ import subprocess
 import sys
 import time
 
+# No child process of this hook opens a console window on Windows (scripts/no_window.py). The inline
+# fallback keeps a hook from ever dying on an import problem.
+try:
+    _nw_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _nw_dir not in sys.path:
+        sys.path.insert(0, _nw_dir)
+    from no_window import NO_WINDOW_KW  # noqa: E402
+except Exception:  # pragma: no cover - defensive
+    NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 # relay.md may contain any Unicode; force UTF-8 so a narrow Windows console
 # (cp1252/cp437) can't raise UnicodeEncodeError or mangle the output.
 _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -103,7 +113,7 @@ def _repo_root(start: str) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
         )
         root = out.stdout.strip()
         if out.returncode == 0 and root:
@@ -243,7 +253,7 @@ def _resolve_relay(session_id: str = "") -> tuple[str, str | None]:
     try:
         branch = subprocess.run(
             ["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
         ).stdout.strip()
     except Exception:
         branch = ""

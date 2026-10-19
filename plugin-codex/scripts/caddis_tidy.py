@@ -85,6 +85,10 @@ except ModuleNotFoundError as exc:
 # caddis_todo has put its own dependencies on the path by now; this one ships beside it.
 from caddis_file_lock import atomic_write  # noqa: E402
 
+# No child process opens a console window on Windows (this runs under hooks and status lines that
+# have no console). Inline, not scripts/no_window.py: in the source tree this file does not sit beside it.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 TERMINAL_STATUSES = {"done", "superseded", "shipped", "implemented"}
 
 # Legacy prompts written before the frontmatter convention existed (2026-07-23). They were
@@ -398,7 +402,7 @@ def _run_git_mv(repo_root: Path, src: Path, dst: Path) -> bool:
     try:
         result = subprocess.run(
             ["git", "mv", "--", str(src), str(dst)],
-            cwd=str(repo_root), capture_output=True, text=True, timeout=30,
+            cwd=str(repo_root), capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW,
         )
         return result.returncode == 0
     except Exception:
@@ -509,7 +513,7 @@ def parked_resolutions(root: Path, commit_range: str) -> list[Resolution]:
             ["git", "log", "--reverse", "--date=short", f"--abbrev={_SHA_ABBREV}",
              "--format=%h%x1f%cd%x1f%(trailers:only,unfold)%x1e", commit_range, "--"],
             cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30,
+            timeout=30, creationflags=_NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ValueError(f"git log failed: {exc}") from exc
@@ -610,7 +614,7 @@ def changed_paths(root: Path, commit_range: str) -> set[str]:
             ["git", "diff", "--name-only", "--no-renames", "--relative", "-z",
              f"{base}...{head}", "--"],
             cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30,
+            timeout=30, creationflags=_NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ValueError(f"cannot read commit range {commit_range}: {exc}") from exc
@@ -624,7 +628,7 @@ def _rev(root: Path, ref: str) -> str | None:
     """The commit `ref` names, or None when git cannot resolve it."""
     try:
         done = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-                              cwd=str(root), capture_output=True, text=True, timeout=30)
+                              cwd=str(root), capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return None
     return done.stdout.strip() or None if done.returncode == 0 else None
@@ -641,7 +645,7 @@ def dirty_paths(root: Path, paths: set[str]) -> list[str]:
                 ["git", "--literal-pathspecs", "status", "--porcelain", "-z", "--no-renames",
                  "--untracked-files=all", "--", *names[at:at + 200]],
                 cwd=str(root), capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=60,
+                errors="replace", timeout=60, creationflags=_NO_WINDOW,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise ValueError(f"cannot read git status: {exc}") from exc
@@ -929,7 +933,7 @@ class PruneReport:
 def _git_run(root: Path, *args: str, stdin: bytes | None = None):
     try:
         return subprocess.run(["git", "-C", str(root), *args], input=stdin,
-                              capture_output=True, timeout=60)
+                              capture_output=True, timeout=60, creationflags=_NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return None
 

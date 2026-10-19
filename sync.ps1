@@ -765,11 +765,253 @@ function Get-AffectedReleaseTargetsFromSourcePaths {
     return @($affected | Sort-Object)
 }
 
-function Commit-RepoIfDirty {
+# --- Ship commits: an explicit file list, never a blanket stage ---------------------------------
+# Several sessions share one checkout. `git add -u` / `git add -A` stage a peer's unfinished edit and
+# ship it. A ship names the files it changed (-Files), refuses when git status shows any other
+# modified, staged or deleted path, and commits with `git commit -m <msg> -- <files>`.
+# Git runs through System.Diagnostics.Process so output is read as UTF-8 and file names reach git
+# unchanged on both PowerShell 7 and Windows PowerShell 5.1.
+
+function ConvertTo-ShipRelPath {
+    param([string]$Path)
+    $p = ([string]$Path).Trim().Replace("\", "/")
+    while ($p.StartsWith("./")) { $p = $p.Substring(2) }
+    return $p
+}
+
+function ConvertTo-ShipCommandLineArg {
+    # Quote one argument for a Windows command line (CommandLineToArgvW rules).
+    param([string]$Arg)
+    if ($Arg.Length -gt 0 -and $Arg -notmatch '[\s"]') { return $Arg }
+    $escaped = $Arg -replace '(\\*)"', '$1$1\"'
+    $escaped = $escaped -replace '(\\+)$', '$1$1'
+    return '"' + $escaped + '"'
+}
+
+function Invoke-ShipGit {
+    # Run `git -C <repo> <args>`. Returns { ExitCode; Output (UTF-8 text, NULs kept); Error }.
+    param(
+        [Parameter(Mandatory)][string]$RepoPath,
+        [Parameter(Mandatory)][string[]]$GitArgs
+    )
+
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = "git"
+    $info.Arguments = (@("-C", $RepoPath) + $GitArgs | ForEach-Object { ConvertTo-ShipCommandLineArg ([string]$_) }) -join " "
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $info.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $info
+    $null = $process.Start()
+    $errorTask = $process.StandardError.ReadToEndAsync()
+    $output = $process.StandardOutput.ReadToEnd()
+    $process.WaitForExit()
+    $errorText = $errorTask.Result
+    $exitCode = $process.ExitCode
+    $process.Dispose()
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = $output; Error = $errorText }
+}
+
+function Get-ShipStatusEntries {
+    # Parse `git status --porcelain=v1 -z --untracked-files=all` output into { Code; Paths[]; Untracked }.
+    # Entries are NUL-separated and unquoted. A rename or copy is "XY new" then a second token "old".
+    param([string]$StatusRaw = "")
+
+    $entries = @()
+    $tokens = @($StatusRaw -split [char]0)
+    $i = 0
+    while ($i -lt $tokens.Count) {
+        $text = $tokens[$i]
+        $i++
+        if ($text.Length -lt 4) { continue }
+        $code = $text.Substring(0, 2)
+        $paths = @($text.Substring(3).Replace("\", "/"))
+        if (($code.Contains("R") -or $code.Contains("C")) -and $i -lt $tokens.Count) {
+            $paths += $tokens[$i].Replace("\", "/")
+            $i++
+        }
+        $entries += [pscustomobject]@{ Code = $code; Paths = $paths; Untracked = ($code -eq "??") }
+    }
+    return $entries
+}
+
+function Get-ShipCommitPlan {
+    # Pure decision: given the status text and the named files, what may be committed?
+    # Status: clean (nothing to commit), refused (Reasons says why), ready (ToCommit, ToAdd).
+    # Names match exactly. A dirty path that differs from a named path only by case is refused.
+    # With -RepoPath, a named directory is refused too.
+    param(
+        [string]$StatusRaw = "",
+        [string[]]$Files = @(),
+        [switch]$IncludeUntracked,
+        [string]$RepoPath = ""
+    )
+
+    $named = @(@($Files) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { ConvertTo-ShipRelPath $_ } | Select-Object -Unique)
+    $reasons = New-Object System.Collections.Generic.List[string]
+    $others = New-Object System.Collections.Generic.List[string]
+    $toCommit = New-Object System.Collections.Generic.List[string]
+    $toAdd = New-Object System.Collections.Generic.List[string]
+
+    $invalid = @($named | Where-Object { $_ -match '[*?\[]' -or $_.EndsWith("/") -or $_ -eq "." -or $_.StartsWith("../") -or $_ -match '^([A-Za-z]:|/)' })
+    if ($RepoPath -ne "") {
+        $invalid += @($named | Where-Object { $invalid -cnotcontains $_ -and (Test-Path -LiteralPath (Join-Path $RepoPath $_) -PathType Container) })
+    }
+    if ($invalid.Count -gt 0) {
+        $reasons.Add("-Files must name files relative to the repo root, not directories, wildcards or outside paths: " + ($invalid -join ", "))
+    }
+
+    $inFiles = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::Ordinal)
+    foreach ($n in $named) { $null = $inFiles.Add($n) }
+
+    $entries = @(Get-ShipStatusEntries -StatusRaw $StatusRaw)
+    foreach ($entry in $entries) {
+        $allNamed = (@($entry.Paths | Where-Object { -not $inFiles.Contains($_) })).Count -eq 0
+        if ($entry.Untracked) {
+            if ($allNamed) {
+                $toAdd.Add($entry.Paths[0])
+                $toCommit.Add($entry.Paths[0])
+            }
+            continue
+        }
+        if ($allNamed) {
+            foreach ($p in $entry.Paths) { if (-not $toCommit.Contains($p)) { $toCommit.Add($p) } }
+        } else {
+            foreach ($p in $entry.Paths) { if (-not $inFiles.Contains($p) -and -not $others.Contains($p)) { $others.Add($p) } }
+        }
+    }
+
+    # A name that matches a dirty path only when case is ignored is a typo (or a peer's file). Refuse.
+    $allDirty = @($entries | ForEach-Object { $_.Paths } | Select-Object -Unique)
+    foreach ($name in $named) {
+        foreach ($dirty in $allDirty) {
+            if ($dirty -ceq $name) { continue }
+            if ($dirty -ieq $name) {
+                $reasons.Add("'$name' in -Files differs only by case from the changed path '$dirty'. Use the exact spelling git shows.")
+            }
+        }
+    }
+
+    if ($others.Count -gt 0) {
+        $hint = if ($named.Count -eq 0) {
+            "Pass -Files <the files this session changed>. Do not commit changes that are not yours."
+        } else {
+            "These changes are not in -Files. They may belong to another session. Leave them, or add them to -Files if they are yours."
+        }
+        $reasons.Add($hint)
+    }
+    if ($toAdd.Count -gt 0 -and -not $IncludeUntracked) {
+        $reasons.Add("Untracked files in -Files need -IncludeUntracked: " + ($toAdd -join ", "))
+    }
+
+    $status = if ($reasons.Count -gt 0) { "refused" } elseif ($toCommit.Count -eq 0) { "clean" } else { "ready" }
+    return [pscustomobject]@{
+        Status   = $status
+        Reasons  = @($reasons)
+        Others   = @($others)
+        ToCommit = @($toCommit)
+        ToAdd    = @($toAdd)
+        Missing  = @($named | Where-Object { -not ($allDirty -ccontains $_) })
+    }
+}
+
+function Invoke-ShipCommit {
+    # Commit exactly the named files in $RepoPath. Returns { Status = clean|refused|ready|committed|failed; Plan }.
+    # -DryRun only decides (status "ready" when a commit would happen) and prints a refusal.
     param(
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][string]$Label,
         [Parameter(Mandatory)][string]$Message,
+        [string[]]$Files = @(),
+        [switch]$IncludeUntracked,
+        [switch]$DryRun
+    )
+
+    $statusResult = Invoke-ShipGit -RepoPath $RepoPath -GitArgs @("status", "--porcelain=v1", "-z", "--untracked-files=all")
+    if ($statusResult.ExitCode -ne 0) {
+        Write-Host "  [ABORT]  $Label : git status failed. $($statusResult.Error)" -ForegroundColor Red
+        return [pscustomobject]@{ Status = "failed"; Plan = $null }
+    }
+    $plan = Get-ShipCommitPlan -StatusRaw $statusResult.Output -Files $Files -IncludeUntracked:$IncludeUntracked -RepoPath $RepoPath
+
+    if ($plan.Status -eq "refused") {
+        Write-Host "  [ABORT]  $Label commit refused. Nothing was staged or committed." -ForegroundColor Red
+        foreach ($reason in $plan.Reasons) { Write-Host "           $reason" -ForegroundColor Red }
+        if ($plan.Others.Count -gt 0) {
+            Write-Host "           Other changed paths:" -ForegroundColor Red
+            foreach ($path in ($plan.Others | Select-Object -First 20)) { Write-Host "             $path" -ForegroundColor Red }
+            if ($plan.Others.Count -gt 20) { Write-Host "             ... and $($plan.Others.Count - 20) more" -ForegroundColor Red }
+        }
+        return [pscustomobject]@{ Status = "refused"; Plan = $plan }
+    }
+    if (-not $DryRun) {
+        foreach ($path in $plan.Missing) {
+            Write-Host "  [WARN]  $Label : '$path' is named in -Files but has no change; skipped." -ForegroundColor Yellow
+        }
+    }
+    if ($plan.Status -eq "clean") {
+        if (-not $DryRun) {
+            Write-Host "  [--]  $Label has nothing to commit among the named files." -ForegroundColor DarkGray
+        }
+        return [pscustomobject]@{ Status = "clean"; Plan = $plan }
+    }
+    if ($DryRun) {
+        return [pscustomobject]@{ Status = "ready"; Plan = $plan }
+    }
+
+    if ($plan.ToAdd.Count -gt 0) {
+        $addResult = Invoke-ShipGit -RepoPath $RepoPath -GitArgs (@("add", "--") + @($plan.ToAdd))
+        if ($addResult.ExitCode -ne 0) {
+            Write-Host "  [ABORT]  $Label : git add of the named untracked files failed. $($addResult.Error)" -ForegroundColor Red
+            return [pscustomobject]@{ Status = "failed"; Plan = $plan }
+        }
+    }
+    $commitResult = Invoke-ShipGit -RepoPath $RepoPath -GitArgs (@("commit", "-m", $Message, "--") + @($plan.ToCommit))
+    if ($commitResult.ExitCode -ne 0) {
+        Write-Host "  [ABORT]  $Label commit failed. $($commitResult.Error)" -ForegroundColor Red
+        return [pscustomobject]@{ Status = "failed"; Plan = $plan }
+    }
+    return [pscustomobject]@{ Status = "committed"; Plan = $plan }
+}
+
+function Test-ShipPreflight {
+    # Decide every lane BEFORE any commit or push, so a refusal in one lane leaves nothing half-shipped.
+    # Returns $false (after printing why) when any selected lane would refuse.
+    param(
+        [string]$SourceRoot = "",
+        [string[]]$SourceFiles = @(),
+        [string]$VscodeRoot = "",
+        [string[]]$VscodeFiles = @(),
+        [switch]$RunSource,
+        [switch]$RunVscode,
+        [switch]$IncludeUntracked
+    )
+
+    if ($RunVscode -and $VscodeRoot -ne "" -and (Test-Path $VscodeRoot)) {
+        $check = Invoke-ShipCommit -RepoPath $VscodeRoot -Label "junai-vscode" -Message "preflight" -Files $VscodeFiles -IncludeUntracked:$IncludeUntracked -DryRun
+        if ($check.Status -in @("refused", "failed")) { return $false }
+    }
+    if ($RunSource) {
+        $check = Invoke-ShipCommit -RepoPath $SourceRoot -Label "Source repo" -Message "preflight" -Files $SourceFiles -IncludeUntracked:$IncludeUntracked -DryRun
+        if ($check.Status -in @("refused", "failed")) { return $false }
+    }
+    return $true
+}
+
+function Commit-RepoIfDirty {
+    # Used for junai-vscode, a repo a person edits by hand. Commits the named files only; throws when
+    # the repo holds any other change, so a hand edit is never swept into a ship.
+    param(
+        [Parameter(Mandatory)][string]$RepoPath,
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][string]$Message,
+        [string[]]$Files = @(),
+        [switch]$IncludeUntracked,
         [switch]$Push
     )
 
@@ -778,35 +1020,31 @@ function Commit-RepoIfDirty {
         return $false
     }
 
-    Push-Location $RepoPath
-    try {
-        $statusOutput = @(git status --porcelain)
-        $hasChanges = -not [string]::IsNullOrWhiteSpace(($statusOutput | Out-String).Trim())
-        if (-not $hasChanges) {
-            Write-Host "  [--]  $Label repo already clean" -ForegroundColor DarkGray
-            return $false
-        }
-
-        git add -A | Out-Null
-        git commit -m $Message | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "$Label commit failed"
-        }
-
-        if ($Push) {
-            git push | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "$Label push failed"
-            }
-            Write-Host "  [OK]  $Label committed + pushed" -ForegroundColor Green
-        } else {
-            Write-Host "  [OK]  $Label committed locally" -ForegroundColor Green
-        }
-
-        return $true
-    } finally {
-        Pop-Location
+    $result = Invoke-ShipCommit -RepoPath $RepoPath -Label $Label -Message $Message -Files $Files -IncludeUntracked:$IncludeUntracked
+    if ($result.Status -eq "clean") {
+        return $false
     }
+    if ($result.Status -ne "committed") {
+        throw "$Label commit $($result.Status)"
+    }
+
+    if ($Push) {
+        Push-Location $RepoPath
+        try {
+            git push | Out-Null
+            $pushExit = $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
+        if ($pushExit -ne 0) {
+            throw "$Label push failed"
+        }
+        Write-Host "  [OK]  $Label committed + pushed" -ForegroundColor Green
+    } else {
+        Write-Host "  [OK]  $Label committed locally" -ForegroundColor Green
+    }
+
+    return $true
 }
 
 function Test-ManagedExtensionStaging {
@@ -2303,7 +2541,13 @@ function caddis-ship {
         [switch]$PublishCaddisExtension,
         [switch]$PublishAll,
         [switch]$SkipSmokeTest,
-        # The source commit stages tracked changes only. Untracked files stop the ship unless this is typed.
+        # The files this ship commits in the source repo, relative to its root. The source checkout is
+        # shared, so a ship never stages "everything dirty": it commits exactly these files and refuses
+        # when git status shows any other modified or staged path.
+        [string[]]$Files = @(),
+        # The same, for the junai-vscode repo (the junai-vscode lane).
+        [string[]]$VscodeFiles = @(),
+        # Needed when -Files / -VscodeFiles name a file that is not tracked yet. It adds only those files.
         [switch]$IncludeUntracked
     )
 
@@ -2379,44 +2623,29 @@ function caddis-ship {
         ReleaseTriggered = $false
     }
 
+    # Check every lane before any commit or push, so a refusal leaves nothing half-shipped.
+    if (-not (Test-ShipPreflight -SourceRoot $ProjectRoot -SourceFiles $Files -VscodeRoot $CADDIS_VSCODE -VscodeFiles $VscodeFiles -RunSource:$runSourceLane -RunVscode:$runCaddisVscodeLane -IncludeUntracked:$IncludeUntracked)) {
+        return $false
+    }
+
     if ($runCaddisVscodeLane) {
-        $null = Commit-RepoIfDirty -RepoPath $CADDIS_VSCODE -Label "junai-vscode" -Message "$Message (junai-vscode)" -Push
+        try {
+            $null = Commit-RepoIfDirty -RepoPath $CADDIS_VSCODE -Label "junai-vscode" -Message "$Message (junai-vscode)" -Files $VscodeFiles -IncludeUntracked:$IncludeUntracked -Push
+        } catch {
+            Write-Host "  [ABORT]  $($_.Exception.Message)" -ForegroundColor Red
+            return $false
+        }
     }
 
     if ($runSourceLane) {
-        Push-Location $ProjectRoot
-        try {
-            $statusOutput = @(git status --porcelain)
-            $hasSourceChanges = -not [string]::IsNullOrWhiteSpace(($statusOutput | Out-String).Trim())
-            if ($hasSourceChanges) {
-                # Never `git add -A` here: it commits every untracked file nobody reviewed (a local
-                # scratch folder, a key file). Tracked changes are staged with `git add -u`. Untracked
-                # files stop the ship, listed by name, until each is `git add`-ed by name, ignored, or
-                # the owner types -IncludeUntracked.
-                $untrackedFiles = @(git ls-files --others --exclude-standard)
-                if ($untrackedFiles.Count -gt 0 -and -not $IncludeUntracked) {
-                    Write-Host "  [ABORT]  Untracked files would be left out or swept in. Stage each by name (git add <file>), ignore it, or pass -IncludeUntracked:" -ForegroundColor Red
-                    foreach ($untrackedFile in ($untrackedFiles | Select-Object -First 20)) {
-                        Write-Host "           $untrackedFile" -ForegroundColor Red
-                    }
-                    if ($untrackedFiles.Count -gt 20) {
-                        Write-Host "           ... and $($untrackedFiles.Count - 20) more" -ForegroundColor Red
-                    }
-                    return $false
-                }
-                if ($IncludeUntracked) { git add -A | Out-Null } else { git add -u | Out-Null }
-                git commit -m $Message | Out-Null
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "  [ABORT]  Source commit failed." -ForegroundColor Red
-                    return $false
-                }
-                $sourceCommitted = $true
-                Write-Host "  [OK]  Source repo committed." -ForegroundColor Green
-            } else {
-                Write-Host "  [--]  Source repo already clean; skipping source commit." -ForegroundColor DarkGray
-            }
-        } finally {
-            Pop-Location
+        $sourceCommit = Invoke-ShipCommit -RepoPath $ProjectRoot -Label "Source repo" -Message $Message -Files $Files -IncludeUntracked:$IncludeUntracked
+        if ($sourceCommit.Status -eq "committed") {
+            $sourceCommitted = $true
+            Write-Host "  [OK]  Source repo committed ($($sourceCommit.Plan.ToCommit.Count) named file(s))." -ForegroundColor Green
+        } elseif ($sourceCommit.Status -eq "clean") {
+            Write-Host "  [--]  Source repo has nothing to commit among the named files; skipping source commit." -ForegroundColor DarkGray
+        } else {
+            return $false
         }
 
         $skipProfileSync = ($sourceProfiles.Count -eq 0)

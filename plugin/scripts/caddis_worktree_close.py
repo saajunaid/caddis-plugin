@@ -28,6 +28,14 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
 
+try:
+    import caddis_worktree_safety
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_worktree_safety":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import caddis_worktree_safety
+
 
 def _is_symlink_or_reparse(p: Path | str) -> bool:
     """Return True if path is a symlink or Windows reparse point."""
@@ -262,11 +270,10 @@ def close_worktree(
         print(f"would remove {worktree}, branch {branch_name} (local and origin)")
         return caddis_exit.CLEAN
 
-    # 10. Remove
-    cmd_wt_rm = ["git", "-C", str(repo), "worktree", "remove", "--force", str(worktree)]
-    proc = subprocess.run(cmd_wt_rm, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if proc.returncode != 0:
-        print(f"failed command: {' '.join(cmd_wt_rm)}\n{proc.stderr.strip() or proc.stdout.strip()}", file=sys.stderr)
+    # 10. Remove. Step 8 checks only the top level; the helper unlinks every deeper link before git removes the tree.
+    problem = caddis_worktree_safety.safe_remove_worktree(repo, worktree)
+    if problem:
+        print(f"failed command: git -C {repo} worktree remove --force {worktree}\n{problem}", file=sys.stderr)
         return caddis_exit.ERROR
 
     cmd_br_d = ["git", "-C", str(repo), "branch", "-D", branch_name]

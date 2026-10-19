@@ -41,6 +41,10 @@ FIX_HINTS: dict[str, str] = {
 
 # Probed contract versions (docs/analysis/*-contract.md). WARN when the installed binary drifts past
 # these — the recorded schemas may be stale and want a re-probe.
+# No child process opens a console window on Windows (this runs under hooks and status lines that
+# have no console). Inline, not scripts/no_window.py: in the source tree this file does not sit beside it.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 PROBED_VERSIONS = {"codex": "0.137", "agy": "1.1.5"}
 AGENTS_MD_BUDGET = 200  # always-loaded rules file line budget (mirrors check_doc_coverage)
 
@@ -100,7 +104,7 @@ def _which(name: str) -> str | None:
 
 def _binary_version(path: str) -> str | None:
     try:
-        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=20)
+        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=20, creationflags=_NO_WINDOW)
         return (out.stdout or out.stderr).strip().splitlines()[0] if (out.stdout or out.stderr) else None
     except Exception:
         return None
@@ -461,7 +465,7 @@ def host_guard_findings(
     if sys.platform != "win32":
         return []
 
-    run = run or subprocess.run
+    run = run or (lambda *a, **k: subprocess.run(*a, creationflags=_NO_WINDOW, **k))
     out: list[tuple[str, str]] = []
 
     try:

@@ -128,7 +128,8 @@ Activate when:
    ```bash
    git status --short          # stage the files you changed, by name
    git add tests/test_<module>.py
-   git commit -m "chore: add tests before refactoring"
+   git diff --cached --name-only  # only the files you named
+   git commit -m "chore: add tests before refactoring" -- tests/test_<module>.py
    ```
 
 ---
@@ -387,7 +388,8 @@ DEPRECATED_VALUE = 5              # Not referenced
 
 2. **If tests pass, commit**
    ```bash
-   git commit -m "refactor: extract validation to separate method"
+   git add <files you changed>
+   git commit -m "refactor: extract validation to separate method" -- <files you changed>
    ```
 
 3. **If tests fail, revert**

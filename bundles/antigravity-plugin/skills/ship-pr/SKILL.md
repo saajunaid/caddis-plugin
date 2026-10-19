@@ -56,7 +56,7 @@ source checkout; skip this step if the script is missing or the repo has no `.ca
 - Exit **1** — **stop; do not open the PR.** Show each `CHECK VIOLATION` or `ERROR` line.
   - `plan <path>: tracker done, status <s>` — run
     `caddis_tidy.py --repo-root . --apply --only <path>`, `git add` the moved plan by name,
-    commit, and run this step again.
+    commit with `git commit -m "..." -- <old path> <new path>`, and run this step again.
   - `plan <path>: tracker done, but done/<name> already exists (rename one of them)` — `--apply`
     cannot fix this; it changes nothing while the name is taken. Rename the plan or the old
     `done/` copy with `git mv`, commit, and run this step again.
@@ -146,7 +146,7 @@ human-confirmed door.
 
 ## Rules
 - **Never merges, never deploys** — no merge action exists in this command, by design.
-- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies the first two).
+- Never `git add -A`, `git add .` or `git add <dir>`, even after reading `git status`: stage named files only (the guard denies all three, and `git add -u` and `git commit -a`). Commit with `git commit -m "..." -- <files>`, after `git diff --cached --name-only` shows only those files.
 - Never force-push without a `backup/*-preship` recovery ref; force pushes are `--force-with-lease` only.
 - Never edit a workflow file (`.gitea/workflows/`, `.github/workflows/`) to make a gate pass — fix the source.
 - Local-only lane: refuse + point at `/ship`. On the default branch: stop + point at `/ship`.

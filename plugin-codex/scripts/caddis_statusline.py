@@ -42,6 +42,10 @@ import datetime
 import traceback
 from pathlib import Path
 
+# No child process opens a console window on Windows. Inline (not scripts/no_window.py) because this
+# file also runs as a standalone copy with no sibling modules.
+_NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 _DEBUG_LOG = Path.home() / ".caddis" / "statusline_debug.log"
 def _debug_log(msg: str):
     if not os.environ.get("CADDIS_STATUSLINE_DEBUG"):
@@ -223,7 +227,7 @@ def git_facts(cwd: str) -> dict:
     try:
         proc = subprocess.run(
             ["git", "-C", cwd, "--no-optional-locks", "status", "--porcelain=v2", "--branch"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=0.8,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=0.8, **_NO_WINDOW_KW,
         )
         text = proc.stdout.decode("utf-8", "replace")
     except Exception:
@@ -307,8 +311,8 @@ def ram_facts():
 
         if sys.platform == "darwin":
             total = int(subprocess.run(["sysctl", "-n", "hw.memsize"], stdout=subprocess.PIPE,
-                                       timeout=1.0).stdout.strip())
-            vm = subprocess.run(["vm_stat"], stdout=subprocess.PIPE, timeout=1.0)
+                                       timeout=1.0, **_NO_WINDOW_KW).stdout.strip())
+            vm = subprocess.run(["vm_stat"], stdout=subprocess.PIPE, timeout=1.0, **_NO_WINDOW_KW)
             page = 4096
             free_pages = 0
             for line in vm.stdout.decode("utf-8", "replace").splitlines():

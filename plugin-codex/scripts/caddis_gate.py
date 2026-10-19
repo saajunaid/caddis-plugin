@@ -647,8 +647,13 @@ def _numstat(rng: str | None = None, repo_root: Path = Path(".")) -> list[tuple[
     if res.returncode != 0:
         reason = (res.stderr or "").strip().splitlines()
         raise RuntimeError(f"git diff --numstat exited {res.returncode}: {reason[0] if reason else 'no message'}")
+    return _parse_numstat(res.stdout)
+
+
+def _parse_numstat(stdout: str) -> list[tuple[str, int]]:
+    """(path, changed-lines) per file from `git diff --numstat` output; see `_numstat`."""
     files: list[tuple[str, int]] = []
-    for row in res.stdout.splitlines():
+    for row in stdout.splitlines():
         parts = row.split("\t")
         if len(parts) != 3:
             continue
