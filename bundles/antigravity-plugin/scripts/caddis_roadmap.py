@@ -148,12 +148,19 @@ OUTPUT_MASKS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"), "***"),  # secret_filter github-token
     (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"), "***"),  # secret_filter slack-token
     (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "***"),  # secret_filter jwt
-    # secret_filter assignment, widened: a quoted value may hold spaces (a passphrase of several words).
-    (re.compile(r"(?i)([A-Za-z0-9_]*(?:password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*\s*[:=]\s*)"
+    # secret_filter assignment, widened: a quoted value may hold spaces (a passphrase of several words). A match
+    # starts only at the start of a word: a match inside a word always has one from the word start too, and without
+    # the lookbehind each character of a long word started a new scan (quadratic: 50 KB of one word took 64 s).
+    (re.compile(r"(?i)(?<![A-Za-z0-9_])"
+                r"([A-Za-z0-9_]*(?:password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*\s*[:=]\s*)"
                 r"(['\"])[^'\"\n]{8,}\2"), r"\1\2***\2"),
     (re.compile(r"(?im)^(\s*(?:export\s+)?[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|TOKEN|PRIVATE_KEY)"
                 r"[A-Za-z0-9_]*\s*=\s*)[^\s'\"#]{8,}"), r"\1***"),  # secret_filter env-assignment
-    (re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1***@"),  # URL credentials
+    # URL credentials. The scheme starts at a letter after a word boundary. Every such letter in one run of scheme
+    # characters reaches the same `://`, so only the first one is tried: group 1 skips, possessively, the run's
+    # digits, `+.-` and letters that follow a word character. Without that, `a.a.a.a...` was quadratic.
+    (re.compile(r"(?<![A-Za-z0-9+.-])((?:[0-9+.-]|(?<=\w)[A-Za-z])*+)([A-Za-z][A-Za-z0-9+.-]*://)"
+                r"[^/\s:@]+:[^/\s@]+@"), r"\1\2***@"),
     # Absolute paths, which can name a user or a host. A path may hold spaces, so each one runs to the end of the
     # line or a quote; a Windows drive or UNC path also stops at `<`, `>` or `|` (never part of a Windows path).
     (re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\r\n'\"<>|]*"), "<path>"),  # a Windows drive path

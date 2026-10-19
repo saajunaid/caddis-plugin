@@ -101,11 +101,15 @@ SECRET_RULES: list[tuple[str, re.Pattern]] = [
     ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
     ("slack-webhook", re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9_/]+")),
     # user:password@host in a URL. `value` is the password; placeholders are exempted in code.
+    # Both rules below start a match only at the start of a run of the characters their first part takes (the
+    # lookbehind). A match that starts inside the run finds the same value from the run start too, and without the
+    # lookbehind each character of a long word started a new scan: quadratic, minutes on one long line.
     ("url-credentials", re.compile(
-        r"[a-z][a-z0-9+.-]*://[^/\s:@]*:(?P<value>[^/\s@]{3,})@", re.I)),
+        r"(?<![a-z0-9+.-])[0-9+.-]*[a-z][a-z0-9+.-]*://[^/\s:@]*:(?P<value>[^/\s@]{3,})@", re.I)),
     # `name = "v"`, `name: "v"`, and a quoted key: `"name": "v"`, `'name': 'v'`.
     ("assignment", re.compile(
-        r"(?i)[A-Za-z0-9_]*(password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*['\"]?\s*[:=]\s*['\"](?P<value>[^'\"\s]{8,})['\"]"
+        r"(?i)(?<![A-Za-z0-9_])[A-Za-z0-9_]*(password|passwd|secret|api[_-]?key|token)[A-Za-z0-9_]*['\"]?\s*[:=]\s*"
+        r"['\"](?P<value>[^'\"\s]{8,})['\"]"
     )),
     ("env-assignment", re.compile(
         r"^\s*(?:export\s+)?[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|TOKEN|PRIVATE_KEY)"
