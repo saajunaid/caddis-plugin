@@ -3,9 +3,11 @@
 `caddis_roadmap.py render --roadmap <slug> [--out <file>]` writes it (default `~/.caddis/roadmap-pages/<repo>/<slug>.html`,
 outside every checkout). Plan: `.caddis/plans/roadmap-page.md` (owner decisions, 17 Oct).
 
-The hub: each default render also writes `<slug>.json` (one summary row) beside the page, and rebuilds
-`~/.caddis/roadmap-pages/index.html` from every summary on this machine, one section per repo. The hub links to
-the pages by relative path, so it works as a local file and behind a static web server (Phase 4).
+The hub: each default render writes `<slug>.body.html` (the page body) and `<slug>.json` (one summary row), and
+rebuilds `~/.caddis/roadmap-pages/index.html` from every summary on this machine. `index.html` is the whole app: the
+inbox, the gates, sessions and runners views, and one view per roadmap (its body). CSS shows one view at a time from
+the URL's `#view`, so there is one nav and it is never stale. `<slug>.html` is a one-line redirect to its view. It
+works as a local file and behind a static web server.
 
 Sections, in order: Waiting for you (sessions that wait for input, and open owner-gate blockers), Plan on a page (a
 swimlane: plans as lanes, milestones as columns, one tile per phase; open by default), then collapsed sections:
@@ -13,7 +15,8 @@ summary, now / next / later, gates and blockers, every milestone with its phase 
 
 The data is `status()` (roadmap.md and each plan's Tracker on origin), the plan headers (`### Phase <n> - <name>`,
 `**Model:**`, `**Lane:**`, `**Risk:**`), the runner's local lock and last stop, and the local session-state folder
-(`<sid>.waiting` markers from the Notification hook). No script, no network: collapsing uses `<details>`. Every text
+(`<sid>.waiting` markers from the Notification hook). No network, and one script only (id theme-toggle: the light/dark
+toggle, the hub's inbox reload, the phone menu and `aria-current`): collapsing uses `<details>`. Every text
 from the files is escaped: a plan, a relay or a hook message can hold any text.
 """
 from __future__ import annotations
@@ -28,7 +31,6 @@ import re
 import subprocess
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 PHASE_HEADER = re.compile(r"^###\s+Phase\s+(\d+)[a-z]?\s*[-–—:]\s*(.+?)\s*(?:[✅⏳\U0001F532].*)?$",
@@ -213,21 +215,20 @@ def build(root: Path, slug: str, roadmap_mod, now: datetime.datetime | None = No
 
 # ---- rendering -------------------------------------------------------------------------------------------------
 
-_CSS = """
-:root{--bg:#f4f6f9;--panel:#fff;--panel2:#f8fafc;--fg:#0f172a;--muted:#475569;--line:#e2e8f0;--line2:#cbd5e1;
---accent:#2563eb;--todo-bg:#f1f5f9;--todo-fg:#334155;--prog:#2563eb;--prog-bg:#dbeafe;--prog-fg:#1d4ed8;
---done:#16a34a;--done-bg:#dcfce7;--done-fg:#15803d;--block:#d97706;--block-bg:#fef3c7;--block-fg:#92400e;
---high:#dc2626;--wait-bg:#fee2e2;--wait-fg:#b91c1c}
-@media (prefers-color-scheme:dark){:root{--bg:#0b0f17;--panel:#111827;--panel2:#161f30;--fg:#f1f5f9;--muted:#94a3b8;
---line:#1e293b;--line2:#334155;--accent:#60a5fa;--todo-bg:#1e293b;--todo-fg:#cbd5e1;--prog:#60a5fa;--prog-bg:#172554;
---prog-fg:#93c5fd;--done:#22c55e;--done-bg:#052e16;--done-fg:#86efac;--block:#f59e0b;--block-bg:#451a03;
---block-fg:#fcd34d;--high:#f87171;--wait-bg:#450a0a;--wait-fg:#fca5a5}}
+# One colour set for every page: light = slate + blue, dark = Dracula (owner, 17 Oct): https://draculatheme.com/contribute
+# Dark applies when the OS asks for it, unless the reader picked light; the toggle sets data-theme on <html>.
+_PALETTE_LIGHT = '--bg:#f4f6f9;--panel:#fff;--panel2:#f8fafc;--fg:#0f172a;--muted:#475569;--line:#e2e8f0;--line2:#cbd5e1;--accent:#2563eb;--todo-bg:#f1f5f9;--todo-fg:#334155;--prog:#2563eb;--prog-bg:#dbeafe;--prog-fg:#1d4ed8;--done:#16a34a;--done-bg:#dcfce7;--done-fg:#15803d;--block:#d97706;--block-bg:#fef3c7;--block-fg:#92400e;--high:#dc2626;--wait-bg:#fee2e2;--wait-fg:#b91c1c;--nav:#f8fafc;--nav-fg:#0f172a;--on-accent:#fff;--shadow:0 1px 3px rgba(15,23,42,.06);--title:var(--fg);--summary:var(--fg);--code:var(--fg);--sans:"Maple Mono","Segoe UI Variable","Segoe UI",system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;color-scheme:light;'
+_PALETTE_DARK = '--bg:#282a36;--panel:#21222c;--panel2:#343746;--fg:#f8f8f2;--muted:#6272a4;--line:#44475a;--line2:#6272a4;--accent:#8be9fd;--todo-bg:#44475a;--todo-fg:#f8f8f2;--prog:#bd93f9;--prog-bg:#3c3352;--prog-fg:#bd93f9;--done:#50fa7b;--done-bg:#2b4a36;--done-fg:#50fa7b;--block:#ffb86c;--block-bg:#4a3a2b;--block-fg:#ffb86c;--high:#ff5555;--wait-bg:#4a2b33;--wait-fg:#ff5555;--nav:#21222c;--nav-fg:#f8f8f2;--on-accent:#282a36;--shadow:none;--title:#bd93f9;--summary:#ff79c6;--code:#f1fa8c;color-scheme:dark;'
+_THEME_CSS = (":root{" + _PALETTE_LIGHT + "}" + '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){'
+              + _PALETTE_DARK + "}}" + ':root[data-theme="dark"]{' + _PALETTE_DARK + "}")
+
+_BASE_CSS = """
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
-font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}code{font:12px ui-monospace,Consolas,monospace}
+font:14px/1.5 var(--sans)}code{font:12px var(--mono);color:var(--code)}
 main{max-width:1360px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:16px}main>*{min-width:0}
-h1{font-size:24px;margin:0}h2{font-size:16px;margin:0}.sub{color:var(--muted);margin:4px 0 0}
+h1{font-size:24px;margin:0;color:var(--title)}h2{font-size:16px;margin:0}.sub{color:var(--muted);margin:4px 0 0}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-details.card>summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none}
+details.card>summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none;color:var(--summary)}
 details.card>summary::-webkit-details-marker{display:none}details.card>summary::before{content:"\\25B8 ";color:var(--muted)}
 details.card[open]>summary::before{content:"\\25BE "}details.card>summary span{color:var(--muted);font-weight:400;font-size:13px}
 .wait{border-color:var(--high)}.wait h2{color:var(--wait-fg)}.empty{color:var(--muted)}
@@ -242,7 +243,7 @@ padding:1px 8px;border-radius:999px;white-space:nowrap}
 padding:6px}.lanes .hd{background:var(--panel2);border-top:0;font-weight:700}.lanes .ln{position:sticky;left:0;z-index:1;
 background:var(--panel);border-left:0;border-right:1px solid var(--line2);font-weight:600;min-width:170px}
 .tile{display:flex;gap:6px;align-items:center;font-size:12px;padding:3px 6px;margin:0 0 4px;border-radius:5px;
-border:1px solid var(--line2);background:var(--panel);max-width:100%}.tile b{font:600 11px ui-monospace,Consolas,monospace}
+border:1px solid var(--line2);background:var(--panel);max-width:100%}.tile b{font:600 11px var(--mono)}
 .tile span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tile.in-progress{background:var(--prog-bg);
 border-color:var(--prog);color:var(--prog-fg)}.tile.done{background:var(--done-bg);border-color:var(--done);
 color:var(--done-fg)}.tile.moved{background:repeating-linear-gradient(135deg,var(--done-bg) 0 5px,var(--panel) 5px 10px);
@@ -252,6 +253,47 @@ border-color:var(--done)}.tile.blocked{background:var(--block-bg);border-color:v
 padding:3px 6px;margin:2px 0;white-space:normal;overflow-wrap:anywhere}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin-top:8px}
 .cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}@media (max-width:820px){.cols{grid-template-columns:1fr}}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.kpi b{font-size:22px;display:block}
+.bar{height:8px;border-radius:99px;background:var(--todo-bg);overflow:hidden;min-width:120px;margin:4px 0}
+.bar i{display:block;height:100%;background:var(--done)}a{color:var(--accent)}td.num{white-space:nowrap}
+.theme-btn{font:600 12px var(--sans);padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+"""
+
+_CSS = _THEME_CSS + _BASE_CSS
+
+# The one script on a page: the reader's theme choice; on the hub only, a reload every 60 s while the inbox shows
+# (an open roadmap view is never reset); the phone menu closes when the view changes; and the nav item of the
+# shown view gets aria-current. No network.
+_THEME_SCRIPT = ('<script id="theme-toggle">(function(){var k="caddis-roadmap-theme",d=document.documentElement;try{var t=localStorage.getItem(k);if(t==="light"||t==="dark")d.dataset.theme=t}catch(e){}window.caddisTheme=function(){var c=d.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"),n=c==="dark"?"light":"dark";d.dataset.theme=n;try{localStorage.setItem(k,n)}catch(e){}};function shown(){var h=location.hash.slice(1),e=h&&document.getElementById(h),v=e&&e.closest(".view");return v?v.id:"inbox"}function cur(){var a=document.querySelectorAll(".nav a.nav-i");for(var i=0;i<a.length;i++){if(a[i].getAttribute("href")==="#"+shown())a[i].setAttribute("aria-current","page");else a[i].removeAttribute("aria-current")}}addEventListener("DOMContentLoaded",cur);setInterval(function(){if(document.getElementById("inbox")&&document.visibilityState==="visible"&&shown()==="inbox")location.reload()},60000);addEventListener("hashchange",function(){var b=document.getElementById("nav-cb");if(b)b.checked=false;cur()})})();</script>')
+_THEME_BUTTON = '<button type="button" class="theme-btn" onclick="caddisTheme()" aria-label="Switch between light and dark theme">◐ Theme</button>'
+
+
+def _fonts_link(base: str) -> str:
+    """The one allowed <link>: bundled fonts. If it does not load, the font stacks fall back to system fonts."""
+    return f'<link rel="stylesheet" href="{_e(base)}_assets/fonts.css">'
+
+_SHELL_CSS = """
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
+.nav{background:var(--nav);color:var(--nav-fg);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.brand{display:block;font-weight:700;font-size:15px;color:var(--title);text-decoration:none;padding:4px 8px 12px}
+.nav-h{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 8px 4px}
+.nav-repo{font-size:12px;font-weight:600;color:var(--muted);margin:10px 8px 2px}
+.nav-i{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:7px;color:inherit;text-decoration:none;font-size:13px}
+.nav-i:hover,.nav-i:focus-visible{background:var(--panel2);outline:none}
+.nav-i .n{font-family:var(--mono);font-size:11px;color:var(--muted)}.nav-rm{padding-left:16px}
+.nav-sub{display:grid;padding:2px 0 6px 28px}.nav-sub a{font-size:12px;color:var(--muted);text-decoration:none;padding:3px 0}
+.main{min-width:0}.top{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+.crumbs{flex:1;min-width:0;font-size:13px;color:var(--muted)}.crumbs a{color:var(--accent);text-decoration:none}
+main [id]{scroll-margin-top:60px}main>.view{scroll-margin-top:200px}
+.view{display:none}.view:target,.view:has(:target){display:block}main:not(:has(.view:target,.view :target))>#inbox{display:block}
+.nav-sub{display:none}.view-crumbs{font-size:13px;color:var(--muted);margin:0 0 8px}
+.nav-cb{display:none}.nav-btn,.nav-close,.nav-scrim{display:none}
+.nav-cb:focus-visible~.app .nav-btn{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:900px){.app{grid-template-columns:1fr}.nav-cb{display:block;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.nav{position:fixed;left:0;top:0;z-index:20;width:260px;transform:translateX(-100%);transition:transform .2s}.nav-cb:checked~.app .nav{transform:none}.nav-btn{display:inline-block;cursor:pointer;font-size:18px;padding:0 6px}.nav-close{display:block;text-align:right;cursor:pointer;font-size:18px;padding:2px 8px}.nav-cb:checked~.app .nav-scrim{display:block;position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.4)}}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.rcard{display:grid;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:inherit;text-decoration:none;box-shadow:var(--shadow)}.rcard:hover,.rcard:focus-visible{border-color:var(--accent);outline:none}
+.dots{display:flex;flex-wrap:wrap;gap:4px}.dot{font:600 10.5px var(--mono);padding:1px 6px;border-radius:5px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
 """
 
 _LABEL = {"todo": "to do", "in-progress": "in progress", "done": "done", "moved": "moved", "blocked": "blocked"}
@@ -265,8 +307,100 @@ def _pill(status: str) -> str:
     return f'<span class="pill s-{_e(status)}">{_e(_LABEL.get(status, status))}</span>'
 
 
+def _shell(*, title: str, base: str, nav: str, crumbs: str, body: str, css: str = "") -> str:
+    """The app frame around every page: head, left nav, top bar (crumbs and the theme button) and the body.
+    `nav`, `crumbs`, `body` and `css` are text the caller has already made safe; `title` is plain text."""
+    return "".join([
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width,initial-scale=1">',
+        f"<title>{_e(title)}</title>{_fonts_link(base)}<style>{_CSS}{_SHELL_CSS}{css}</style>{_THEME_SCRIPT}</head>",
+        f'<body><input type="checkbox" id="nav-cb" class="nav-cb" aria-label="Toggle the navigation menu"><div class="app">{nav}<label for="nav-cb" class="nav-scrim" aria-hidden="true"></label><div class="main">',
+        '<header class="top"><label for="nav-cb" class="nav-btn" aria-label="Open the menu">☰</label>',
+        f'<div class="crumbs">{crumbs}</div>{_THEME_BUTTON}</header>',
+        f"<main>{body}</main></div></div></body></html>\n"])
+
+
+def _crumbs(folder: str, slug: str) -> str:
+    """`Roadmaps › <repo> › <slug>` for a roadmap page; the repo is the folder name without its `-<6hex>` tag."""
+    repo = re.sub(r"-[0-9a-f]{6}$", "", folder or "")
+    mid = f"{_e(repo)} › " if repo else ""
+    return f'<a href="../index.html">Roadmaps</a> › {mid}<strong>{_e(slug)}</strong>'
+
+
+def _sessions_of(group: list[dict]) -> list[dict]:
+    """The newest summary of a checkout has its newest session marks."""
+    return max(group, key=lambda r: str(r.get("generated_utc", ""))).get("sessions") or []
+
+
+def _group_rows(rows: list[dict]) -> tuple[list[tuple[str, list[dict]]], list[tuple[str, list, list]], int]:
+    """(order, need, count): the summaries per repo folder in repo-name order; per repo the asking sessions and the
+    owner gates (repo, asking, gates), only for repos that have any; and how many items need the owner."""
+    by_repo: dict[str, list[dict]] = {}
+    for r in rows:
+        by_repo.setdefault(r["folder"], []).append(r)
+    order = sorted(by_repo.items(), key=lambda kv: (str(kv[1][0].get("repo", "")).lower(), kv[0]))
+    need = []
+    for _folder, group in order:
+        asking = [s for s in _sessions_of(group) if s.get("asking")]
+        gates = [(r, g) for r in group for g in r.get("owner_gates") or []]
+        if asking or gates:
+            need.append((group[0].get("repo"), asking, gates))
+    count = sum(len(a) + len(g) for _, a, g in need)
+    return order, need, count
+
+
+def _nav(rows: list[dict], base: str) -> str:
+    """The left nav: Needs you (inbox, gates, sessions, runners), then every repo with its roadmaps. Every link opens a
+    view of `index.html` (`#inbox`, `#<rid>`, ...); on the hub itself (`base` "") the link is the bare `#view`. The
+    active item and its sub-links are shown by `_view_css`, so the nav needs no per-page copy."""
+    order, _need, count = _group_rows(rows)
+    counts = {"inbox": count, "gates": sum(len(r.get("blockers") or r.get("owner_gates") or []) for r in rows),
+              "sessions": sum(len(_sessions_of(group)) for _f, group in order),
+              "runners": sum(1 for r in rows if r.get("runner") == "running")}
+    hub = f"{base}index.html" if base else ""
+    out = ['<nav class="nav" aria-label="Roadmaps">'
+           '<label for="nav-cb" class="nav-close" aria-label="Close the menu">✕</label>',
+           f'<a class="brand" href="{_e(hub or "#inbox")}">caddis · Roadmaps</a>', '<p class="nav-h">Needs you</p>']
+    for key, label in (("inbox", "Inbox"), ("gates", "Gates"), ("sessions", "Sessions"), ("runners", "Runners")):
+        out.append(f'<a class="nav-i" href="{_e(hub)}#{key}">{_e(label)}<span class="n">{_e(counts[key])}</span></a>')
+    out.append('<p class="nav-h">Repos</p>')
+    for folder, group in order:
+        idle = sum(1 for s in _sessions_of(group) if not s.get("asking"))
+        idle_txt = f" · {idle} idle session(s)" if idle else ""
+        out.append(f'<p class="nav-repo">{_e(group[0].get("repo"))}{_e(idle_txt)}</p>')
+        for r in sorted(group, key=lambda r: str(r["slug"])):
+            rid = _rid(folder, r["slug"])
+            if rid is None:
+                continue
+            total = _int(r.get("phases_total"))
+            pct = int(round(100 * _int(r.get("phases_done")) / total)) if total else 0
+            out.append(f'<a class="nav-i nav-rm" href="{_e(hub)}#{rid}">{_e(r["slug"])}<span class="n">{pct}%</span></a>'
+                       f'<div class="nav-sub" data-rid="{rid}">'
+                       + "".join(f'<a href="{_e(hub)}#{rid}-{anchor}">{_e(label)}</a>' for anchor, label in _PAGE_ANCHORS)
+                       + "</div>")
+    out.append("</nav>")
+    return "".join(out)
+
+
+_ON = "{background:var(--prog-bg);color:var(--prog-fg);font-weight:600}"
+
+
+def _view_css(rids: list[str]) -> str:
+    """Marks the nav item of the view that shows, and opens its sub-links. One rule per roadmap: CSS cannot take
+    the target's id into a selector. Every rid comes from `_rid` (hex and slug characters only), so it is safe
+    in a selector."""
+    shown = ".view:target,.view :target"
+    out = [f'body:not(:has({shown})) .nav a[href="#inbox"]{_ON}']
+    for key in ("inbox", "gates", "sessions", "runners"):
+        out.append(f'body:has(#{key}:target,#{key} :target) .nav a[href="#{key}"]{_ON}')
+    for rid in rids:
+        on = f"body:has(#{rid}:target,#{rid} :target)"
+        out.append(f'{on} .nav a[href="#{rid}"]{_ON}{on} .nav-sub[data-rid="{rid}"]{{display:grid}}')
+    return "".join(out)
+
+
 def _waiting_section(model: dict) -> str:
-    out = ['<section class="card wait"><h2>Waiting for you</h2>']
+    out = ['<section id="waiting" class="card wait"><h2>Waiting for you</h2>']
     sessions, gates = model["sessions"], model["waiting"]
     if not sessions and not gates:
         out.append('<p class="empty">Nothing is waiting for you.</p></section>')
@@ -296,7 +430,7 @@ def _waiting_section(model: dict) -> str:
 def _swimlane(model: dict) -> str:
     milestones, lanes = model["milestones"], model["lanes"]
     cols = len(milestones)
-    out = ['<details class="card" open><summary>Plan on a page <span>plans as lanes, milestones as columns in '
+    out = ['<details class="card" id="timeline" open><summary>Plan on a page <span>plans as lanes, milestones as columns in '
            'roadmap order, one tile per phase</span></summary><div class="scroll">',
            f'<div class="lanes" style="grid-template-columns:170px repeat({cols},190px)">',
            '<div class="hd ln">Plan / milestone</div>']
@@ -332,7 +466,7 @@ def _summary(model: dict) -> str:
     high = sum(1 for ph in phases if "high" in ph.get("risk", "").lower())
     nxt = model.get("next") or {}
     nxt_txt = f"{nxt.get('milestone', '')} {nxt.get('plan', '')}#{nxt.get('phase', '')}" if nxt else "none ready"
-    return ('<details class="card"><summary>Summary <span>progress, current work, next batch</span></summary>'
+    return ('<details class="card" id="overview"><summary>Summary <span>progress, current work, next batch</span></summary>'
             '<div class="kpis">'
             f'<div class="kpi"><b>{_e(done)} / {_e(len(phases))}</b>phases done</div>'
             f'<div class="kpi"><b>{_e(model["done"])} / {_e(model["total"])}</b>milestones done</div>'
@@ -370,13 +504,13 @@ def _gates(model: dict) -> str:
     rows = [(ms["id"], b) for ms in model["milestones"] for b in ms["blockers"]]
     body = "".join(f"<tr><td><strong>{_e(mid)}</strong></td><td>{_e(b['type'])}</td><td>{_e(b['reason'])}</td>"
                    f"<td><code>{_e(b['check'])}</code></td></tr>" for mid, b in rows)
-    return (f'<details class="card"><summary>Gates and blockers <span>{_e(len(rows))} open</span></summary>'
+    return (f'<details class="card" id="gates"><summary>Gates and blockers <span>{_e(len(rows))} open</span></summary>'
             + (f'<div class="scroll"><table><tr><th>Milestone</th><th>Type</th><th>Reason</th><th>Check</th></tr>{body}'
                "</table></div>" if rows else '<p class="empty">No blockers.</p>') + "</details>")
 
 
 def _milestones(model: dict) -> str:
-    out = ['<details class="card"><summary>Milestones and phases <span>every phase with model, lane, risk and '
+    out = ['<details class="card" id="milestones"><summary>Milestones and phases <span>every phase with model, lane, risk and '
            'Tracker status</span></summary>']
     for ms in model["milestones"]:
         rows = "".join(
@@ -420,28 +554,62 @@ def _runner(model: dict) -> str:
     if nxt:
         parts.append(f"<p>Next batch: <code>{_e(nxt.get('milestone'))} {_e(nxt.get('plan'))}#{_e(nxt.get('phase'))}"
                      "</code></p>")
-    return ('<details class="card"><summary>Runner <span>roadmap-run state on this machine</span></summary>'
+    return ('<details class="card" id="runner"><summary>Runner <span>roadmap-run state on this machine</span></summary>'
             + "".join(parts) + "</details>")
 
 
+# In page order (Phase 4 moves the overview above the timeline and updates this list).
+_PAGE_ANCHORS = [("waiting", "Waiting"), ("timeline", "Timeline"), ("overview", "Overview"), ("gates", "Gates"),
+                 ("milestones", "Milestones"), ("runner", "Runner")]
+
+def _rid(folder, slug) -> str | None:
+    """The view id of a roadmap in `index.html`: `rm-<the folder's 6 hex>-<slug>` (the 6 hex keep two clones with
+    one repo name apart), or None when the folder has no `-<6hex>` tag or the slug breaks the
+    slug rule (such a row gets no view: its name is not safe in an id or a selector)."""
+    m = re.fullmatch(r".+-([0-9a-f]{6})", str(folder or ""))
+    if not m or not isinstance(slug, str) or not _SLUG_RE.fullmatch(slug):
+        return None
+    return f"rm-{m.group(1)}-{slug}"
+
+
+def _prefix_ids(body: str, rid: str) -> str:
+    """Every `id="x"` and `href="#x"` in a roadmap body becomes `<rid>-x`, so two roadmaps in one file never share an
+    id. Safe on rendered HTML: every value from the files is escaped, so a `"` in it is `&quot;`."""
+    body = re.sub(r' id="([A-Za-z][\w-]*)"', lambda m: f' id="{rid}-{m.group(1)}"', body)
+    return re.sub(r' href="#([A-Za-z][\w-]*)"', lambda m: f' href="#{rid}-{m.group(1)}"', body)
+
+
+def _stub(rid: str, slug: str) -> str:
+    """`<slug>.html`: one line that opens the roadmap's view in the hub, so an old link or bookmark still works."""
+    target = f"../index.html#{rid}"
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            f'<meta http-equiv="refresh" content="0;url={_e(target)}"><title>Roadmap {_e(slug)}</title></head>'
+            f'<body><p><a href="{_e(target)}">Open roadmap {_e(slug)}</a></p></body></html>\n')
+
+
 def render_html(model: dict) -> str:
-    """Self-contained HTML: no script, no network. Every value from the files is escaped."""
+    """One self-contained roadmap page (an `--out` copy): the app shell with an empty repo tree, one theme script,
+    one local font link, no network. Every value from the files is escaped."""
+    slug = model["roadmap"]
+    return _shell(title=f"Roadmap {slug}", base="../", nav=_nav([], "../"), crumbs=_crumbs("", slug),
+                  body=render_body(model))
+
+
+def render_body(model: dict) -> str:
+    """Everything inside `<main>`: the header and the sections. `write_page` keeps it as `<slug>.body.html`; the
+    hub puts it, with its ids prefixed, in `index.html` as the roadmap's view."""
     title = f"Roadmap {model['roadmap']}"
     phases = [ph for ms in model["milestones"] for ph in ms["phases"]]
     done = sum(1 for ph in phases if ph["tile"] in ("done", "moved"))
     commit = f" · origin <code>{_e(model.get('origin_commit'))}</code>" if model.get("origin_commit") else ""
     return "".join([
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width,initial-scale=1">',
-        f"<title>{_e(title)}</title><style>{_CSS}</style></head><body><main>",
-        f'<header><h1>{_e(title)}</h1><p class="sub">{_e(model["done"])} of {_e(model["total"])} milestones · '
-        f'{_e(done)} of {_e(len(phases))} phases done · branch <code>{_e(model["branch"])}</code>{commit} · '
-        f"generated {_e(model['generated'])}</p></header>",
+        f'<header class="hdr"><div><h1>{_e(title)}</h1><p class="sub">{_e(model["done"])} of {_e(model["total"])} '
+        f'milestones · {_e(done)} of {_e(len(phases))} phases done · branch <code>{_e(model["branch"])}</code>'
+        f"{commit} · generated {_e(model['generated'])}</p></div></header>",
         _waiting_section(model), _swimlane(model), _summary(model), _now_next_later(model), _gates(model),
         _milestones(model), _runner(model),
         '<p class="empty">Built from roadmap.md, the plan Trackers and headers on origin, the runner state and the '
-        "session-state folder. Re-rendered by the runner, /handoff, /pr-merge, /catchup and the waiting hooks.</p>",
-        "</main></body></html>\n"])
+        "session-state folder. Re-rendered by the runner, /handoff, /pr-merge, /catchup and the waiting hooks.</p>"])
 
 
 def default_page_path(root: Path, slug: str, home: Path | None = None) -> Path:
@@ -454,20 +622,26 @@ def default_page_path(root: Path, slug: str, home: Path | None = None) -> Path:
 
 
 def write_page(root: Path, slug: str, out: Path | None, roadmap_mod) -> Path | None:
-    """The page. At the default path it also writes `<slug>.json`, the one-row summary the hub is built from; an
-    `--out` page is a one-off copy and stays out of the hub. None: a newer caddis wrote this page, so it is kept."""
+    """At the default path: `<slug>.body.html` (the page body, which the hub shows as a view of `index.html`), a
+    one-line `<slug>.html` that opens that view, and `<slug>.json` (the one-row summary the hub is built from). An
+    `--out` page is a one-off self-contained copy and stays out of the hub. None: a newer caddis wrote this page,
+    so it is kept."""
     path = Path(out) if out else default_page_path(root, slug)
     if out is None and _owned_by_newer(slug, path.with_suffix(".json")):  # before build: a skip does no work
         return None
     model = build(root, slug, roadmap_mod)
     path.parent.mkdir(parents=True, exist_ok=True)
-    _write_atomic(path, render_html(model))
-    if out is None:
-        try:  # the summary feeds the hub only: the page is written, so a failure here never fails the render
-            _write_atomic(path.with_suffix(".json"),
-                          json.dumps(page_summary(model, main_checkout(root), path), indent=1))
-        except Exception as exc:
-            print(f"[ROADMAP] hub summary not written: {exc}", file=sys.stderr)
+    if out is not None:
+        _write_atomic(path, render_html(model))
+        return path
+    _write_atomic(path.with_suffix(".body.html"), render_body(model))
+    rid = _rid(path.parent.name, model["roadmap"])
+    _write_atomic(path, _stub(rid, model["roadmap"]) if rid else render_html(model))
+    try:  # the summary feeds the hub only: the page is written, so a failure here never fails the render
+        _write_atomic(path.with_suffix(".json"),
+                      json.dumps(page_summary(model, main_checkout(root), path), indent=1))
+    except Exception as exc:
+        print(f"[ROADMAP] hub summary not written: {exc}", file=sys.stderr)
     return path
 
 
@@ -556,6 +730,33 @@ def _write_atomic(path: Path, text: str) -> None:
             pass
 
 
+ASSET_DIR = Path(__file__).resolve().parent / "roadmap_assets"
+ASSET_FILES = ("fonts.css", "OFL-MapleMono.txt", "OFL-JetBrainsMono.txt")
+
+
+def install_assets(root_dir: Path) -> int:
+    """Copy the bundled fonts (and their licences) to `<root_dir>/_assets/` when missing or changed. Text is compared
+    as text, not bytes: `_write_atomic` writes CRLF on Windows, so a byte compare would rewrite every time. A source
+    file that is not shipped is skipped. Returns the number of files written."""
+    written = 0
+    target_dir = root_dir / "_assets"
+    for name in ASSET_FILES:
+        src = ASSET_DIR / name
+        if not src.exists():
+            continue
+        text = src.read_text(encoding="utf-8")
+        dst = target_dir / name
+        try:
+            if dst.read_text(encoding="utf-8") == text:
+                continue
+        except FileNotFoundError:
+            pass
+        target_dir.mkdir(parents=True, exist_ok=True)
+        _write_atomic(dst, text)
+        written += 1
+    return written
+
+
 def pages_root(home: Path | None = None) -> Path:
     return Path(home or Path.home()) / ".caddis" / "roadmap-pages"
 
@@ -570,7 +771,7 @@ def page_summary(model: dict, main: Path, path: Path) -> dict:
               else f"stopped: {stop.get('reason')}" if stop.get("reason") else "")
     nxt = model.get("next") or {}
     return {
-        "version": 1, "generator": generator_version(), "repo": main.name, "checkout": str(main), "folder": path.parent.name, "slug": model["roadmap"],
+        "version": 2, "generator": generator_version(), "repo": main.name, "checkout": str(main), "folder": path.parent.name, "slug": model["roadmap"],
         "branch": model["branch"], "origin_commit": model.get("origin_commit", ""),
         "generated_utc": model["generated"],
         "milestones_done": model["done"], "milestones_total": model["total"],
@@ -583,19 +784,32 @@ def page_summary(model: dict, main: Path, path: Path) -> dict:
                      for s in model["sessions"]],
         "runner": runner,
         "next": f"{nxt.get('milestone', '')} {nxt.get('plan', '')}#{nxt.get('phase', '')}" if nxt else "",
+        "milestones": [{"id": ms["id"], "status": ms["status"]} for ms in model["milestones"]],
+        "blockers": [{"milestone": ms["id"], "type": b["type"], "reason": b["reason"], "check": b["check"]}
+                     for ms in model["milestones"] for b in ms["blockers"]
+                     if ms["status"] not in ("done", "not-needed")],
+        "runner_detail": {"lock": r.get("lock"), "stale_lock": bool(r.get("stale_lock")),
+                          "last_stop": r.get("last_stop"), "errors": r.get("errors", [])},
     }
 
 
+# The roadmap slug rule, copied from caddis_roadmap.SLUG_RE_TEXT (a test keeps the two equal): this module stays
+# importable on its own, without the roadmap module and its git helpers. A slug never holds a dot, so `<slug>.body.html` can never be another
+# roadmap's `<slug>.html`; files whose name breaks the rule are never pruned or shown as a view.
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+
 def prune_folder(folder: Path, keep: set[str]) -> int:
-    """Remove the page and summary of each roadmap that is no longer on origin. Only `<slug>.json` files and their
-    `<slug>.html` pages are touched. Returns how many roadmaps were removed."""
+    """Remove the page, body and summary of each roadmap that is no longer on origin. Only `<slug>.json` files and
+    their `<slug>.html` and `<slug>.body.html` files are touched. Returns how many roadmaps were removed."""
     removed = 0
     if not folder.is_dir():
         return removed
     for js in folder.glob("*.json"):
-        if js.stem in keep or _newer_owner(js)[1]:  # a live newer caddis may know a roadmap this one cannot list
+        # a live newer caddis may know a roadmap this one cannot list
+        if js.stem in keep or not _SLUG_RE.fullmatch(js.stem) or _newer_owner(js)[1]:
             continue
-        for f in (js, js.with_suffix(".html")):
+        for f in (js, js.with_suffix(".html"), js.with_suffix(".body.html")):
             try:
                 f.unlink()
             except FileNotFoundError:
@@ -619,13 +833,37 @@ def read_summaries(root_dir: Path) -> tuple[list[dict], list[str]]:
         data["page"] = f"{js.parent.name}/{js.with_suffix('.html').name}"  # the link comes from the disk, not the file
         data["folder"] = js.parent.name
         data.setdefault("repo", js.parent.name.rsplit("-", 1)[0])
-        for key in ("sessions", "owner_gates"):  # a hand-edited summary must not stop the hub for every repo
+        for key in ("sessions", "owner_gates", "milestones", "blockers"):  # a hand-edited summary must not stop the hub for every repo
             items = data.get(key)
             data[key] = [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
         if not isinstance(data.get("in_progress"), list):
             data["in_progress"] = []
+        if not isinstance(data.get("runner_detail"), dict):
+            data["runner_detail"] = {}
         rows.append(data)
     return rows, errors
+
+
+def read_bodies(root_dir: Path, rows: list[dict]) -> dict[str, str]:
+    """{rid: body} for every row with a view id and a `<slug>.body.html`, read only. The path comes from
+    `row["page"]` (set from the disk by `read_summaries`), never from the summary's own text, and only a file
+    directly in a `<root_dir>/<folder>/` is read. One row that fails never stops the others."""
+    root = Path(root_dir).resolve()
+    bodies: dict[str, str] = {}
+    for row in rows:
+        rel, slug = row.get("page"), row.get("slug")
+        rid = _rid(row.get("folder"), slug)
+        if rid is None or not isinstance(rel, str) or slug != Path(rel).stem:
+            continue
+        try:
+            page = (root / rel).resolve()
+            body_file = page.with_suffix(".body.html")
+            if page.parent.parent != root or page.suffix != ".html" or not body_file.is_file():
+                continue
+            bodies[rid] = body_file.read_text(encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 - one bad row never stops the others (docstring)
+            print(f"[ROADMAP] {Path(rel).with_suffix('').as_posix()}: body not read: {exc}", file=sys.stderr)
+    return bodies
 
 
 def _age_h(utc_text: str, now: datetime.datetime) -> float | None:
@@ -642,19 +880,6 @@ def _bar(done: int, total: int) -> str:
             f'<span class="empty">{_e(done)}/{_e(total)} phases · {pct}%</span>')
 
 
-# The hub's dark theme is Dracula (owner, 17 Oct): https://draculatheme.com/contribute - background #282a36,
-# current line #44475a, foreground #f8f8f2, comment #6272a4, cyan, green, orange, pink, purple, red, yellow.
-_HUB_CSS = _CSS + """
-@media (prefers-color-scheme:dark){:root{--bg:#282a36;--panel:#21222c;--panel2:#343746;--fg:#f8f8f2;--muted:#6272a4;
---line:#44475a;--line2:#6272a4;--accent:#8be9fd;--todo-bg:#44475a;--todo-fg:#f8f8f2;--prog:#bd93f9;--prog-bg:#3c3352;
---prog-fg:#bd93f9;--done:#50fa7b;--done-bg:#2b4a36;--done-fg:#50fa7b;--block:#ffb86c;--block-bg:#4a3a2b;
---block-fg:#ffb86c;--high:#ff5555;--wait-bg:#4a2b33;--wait-fg:#ff5555}
-h1{color:#bd93f9}.card summary{color:#ff79c6}code{color:#f1fa8c}}
-.bar{height:8px;border-radius:99px;background:var(--todo-bg);overflow:hidden;min-width:120px;margin:4px 0}
-.bar i{display:block;height:100%;background:var(--done)}a{color:var(--accent)}td.num{white-space:nowrap}
-"""
-
-
 def _int(value) -> int:
     try:
         return int(value)
@@ -662,30 +887,27 @@ def _int(value) -> int:
         return 0
 
 
-def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime) -> str:
-    """Self-contained HTML, no script. It reloads itself every 60 s, so an open tab follows the renders."""
-    by_repo: dict[str, list[dict]] = {}
-    for r in rows:
-        by_repo.setdefault(r["folder"], []).append(r)
-
-    def sessions_of(group):  # the newest summary of a checkout has its newest session marks
-        return max(group, key=lambda r: str(r.get("generated_utc", ""))).get("sessions") or []
-
-    order = sorted(by_repo.items(), key=lambda kv: (str(kv[1][0].get("repo", "")).lower(), kv[0]))
-    need = []
-    for _folder, group in order:
-        asking = [s for s in sessions_of(group) if s.get("asking")]
-        gates = [(r, g) for r in group for g in r.get("owner_gates") or []]
-        if asking or gates:
-            need.append((group[0].get("repo"), asking, gates))
-    count = sum(len(a) + len(g) for _, a, g in need)
-    out = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
-           '<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60">',
-           f"<title>Roadmaps</title><style>{_HUB_CSS}</style></head><body><main>",
-           f'<header><h1>Roadmaps</h1><p class="sub">{_e(len(by_repo))} repos · {_e(len(rows))} roadmaps · '
-           f'{_e(count)} item(s) need you · generated {_e(now.strftime("%Y-%m-%d %H:%M UTC"))} · '
-           "reloads every minute</p></header>",
-           '<section class="card wait"><h2>Needs you</h2>']
+def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
+               bodies: dict[str, str] | None = None) -> str:
+    """The whole app in one file: the inbox and overview view, then one view per roadmap (its body from `bodies`,
+    ids prefixed). CSS shows one view at a time, so the nav is the same for every view and is never stale. While the
+    inbox shows, the page reloads itself every 60 s (the script), so an open tab follows the renders."""
+    bodies = bodies or {}
+    errors = list(errors)
+    order, need, count = _group_rows(rows)
+    phases_done = sum(_int(r.get("phases_done")) for r in rows)
+    phases_total = sum(_int(r.get("phases_total")) for r in rows)
+    live = sum(1 for r in rows if r.get("runner") == "running")
+    blocked = sum(_int(r.get("blocked")) for r in rows)
+    out = ['<section class="view" id="inbox"><section class="kpis">',
+           f'<div class="kpi"><b>{_e(count)}</b>Needs you</div>',
+           f'<div class="kpi"><b>{_e(phases_done)} / {_e(phases_total)}</b>Phases done'
+           f'{_bar(phases_done, phases_total)}</div>',
+           f'<div class="kpi"><b>{_e(blocked)}</b>Blocked phases</div>',
+           f'<div class="kpi"><b>{_e(live)}</b>Runners live</div></section>',
+           f'<p class="sub">{_e(len(order))} repos · {_e(len(rows))} roadmaps · {_e(count)} item(s) need you · '
+           f'generated {_e(now.strftime("%Y-%m-%d %H:%M UTC"))} · the inbox reloads every minute</p>',
+           '<section id="needs" class="card wait"><h2>Needs you</h2>']
     if not need:
         out.append('<p class="empty">Nothing is waiting for you.</p>')
     else:
@@ -699,35 +921,51 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime) -> s
                 out.append(f"<tr><td><strong>{_e(repo)}</strong></td><td>owner gate {_e(r.get('slug'))} "
                            f"{_e(g.get('milestone'))}</td><td>{_e(g.get('reason'))}</td></tr>")
         out.append("</table></div>")
-    out.append("</section>")
+    out.append("</section><h2>Roadmaps</h2>")
     if not rows:
         out.append('<p class="card empty">No roadmap page has been rendered on this machine yet. Run '
                    "<code>caddis_roadmap.py render --all</code> in a repo that has <code>.caddis/roadmaps/</code>.</p>")
-    for _folder, group in order:
-        first = group[0]
-        idle = sum(1 for s in sessions_of(group) if not s.get("asking"))
-        idle_txt = f" · {idle} idle session(s)" if idle else ""
-        out.append(f'<details class="card" open><summary>{_e(first.get("repo"))} <span>{_e(len(group))} roadmap(s)'
-                   f'{_e(idle_txt)} · <code>{_e(first.get("checkout", ""))}</code></span></summary>'
-                   '<div class="scroll"><table><tr><th>Roadmap</th><th>Progress</th><th>Milestones</th>'
-                   "<th>In progress</th><th>Blocked</th><th>Runner</th><th>Next</th><th>Updated</th></tr>")
-        for r in sorted(group, key=lambda r: str(r["slug"])):
-            age = _age_h(str(r.get("generated_utc", "")), now)
-            old = " (not refreshed)" if age is not None and age > HUB_STALE_H else ""
-            href = _e(urllib.parse.quote(r["page"]))
-            out.append(f'<tr><td><a href="{href}"><strong>{_e(r["slug"])}</strong></a></td>'
-                       f'<td>{_bar(_int(r.get("phases_done")), _int(r.get("phases_total")))}</td>'
-                       f'<td class="num">{_e(r.get("milestones_done"))} / {_e(r.get("milestones_total"))}</td>'
-                       f'<td>{_e(", ".join(map(str, r.get("in_progress") or [])) or "-")}</td>'
-                       f'<td class="num">{_e(_int(r.get("blocked")))}</td><td>{_e(r.get("runner") or "-")}</td>'
-                       f'<td><code>{_e(r.get("next") or "-")}</code></td>'
-                       f'<td class="num">{_e(r.get("generated_utc"))}{_e(old)}</td></tr>')
-        out.append("</table></div></details>")
+    out.append('<div class="cards">')
+    for r in sorted(rows, key=lambda r: (str(r.get("repo", "")).lower(), str(r["folder"]), str(r["slug"]))):
+        age = _age_h(str(r.get("generated_utc", "")), now)
+        old = " (not refreshed)" if age is not None and age > HUB_STALE_H else ""
+        dots = "".join(f'<span class="dot s-{_e(m.get("status"))}">{_e(m.get("id"))}</span>'
+                       for m in r.get("milestones") or [])
+        rid = _rid(r.get("folder"), r.get("slug"))
+        if rid is None:
+            errors.append(f"{r.get('folder')}/{r.get('slug')}: the folder or slug name breaks the naming rule")
+            continue
+        out.append(f'<a class="rcard" href="#{rid}">'
+                   f'<div><strong>{_e(r["slug"])}</strong> <span class="empty">{_e(r.get("repo"))} · '
+                   f'{_e(r.get("branch"))} · {_e(r.get("origin_commit"))}</span></div>'
+                   f'<div>{_bar(_int(r.get("phases_done")), _int(r.get("phases_total")))} '
+                   f'{_e(r.get("milestones_done"))}/{_e(r.get("milestones_total"))} milestones</div>'
+                   f'<div class="dots">{dots}</div>'
+                   f'<div class="empty">next: {_e(r.get("next") or "-")} · runner: {_e(r.get("runner") or "idle")}'
+                   f'{_e(old)}</div></a>')
+    out.append("</div>")
     for err in errors:
         out.append(f'<p class="empty">Could not read {_e(err)}.</p>')
     out.append('<p class="empty">Built from the page summaries in this folder. Every roadmap page render rebuilds it.'
-               "</p></main></body></html>\n")
-    return "".join(out)
+               "</p></section>")
+    rids = []
+    for r in sorted(rows, key=lambda r: (str(r.get("repo", "")).lower(), str(r["folder"]), str(r["slug"]))):
+        rid = _rid(r.get("folder"), r.get("slug"))
+        if rid is None:
+            continue
+        rids.append(rid)
+        body = bodies.get(rid)
+        inner = (_prefix_ids(body, rid) if body is not None else
+                 f'<p class="card empty">No page body yet for {_e(r["slug"])}: run <code>caddis_roadmap.py render</code> '
+                 "in its repo.</p>")
+        out.append(f'<section class="view" id="{rid}"><p class="view-crumbs"><a href="#inbox">Roadmaps</a> › '
+                   f'{_e(r.get("repo"))} › <strong>{_e(r["slug"])}</strong></p>{inner}</section>')
+    for key, label in (("gates", "Gates"), ("sessions", "Sessions"), ("runners", "Runners")):  # Phase 6 fills these
+        out.append(f'<section class="view" id="{key}"><h2>{label}</h2><p class="card empty">The cross-repo {key} '
+                   'view comes in a later update. For now, see <a href="#needs">Needs you</a> on the inbox and each '
+                   "roadmap's own page.</p></section>")
+    return _shell(title="Roadmaps", base="", nav=_nav(rows, ""), crumbs="Roadmaps", body="".join(out),
+                  css=_view_css(rids))
 
 
 def write_hub(home: Path | None = None, now: datetime.datetime | None = None) -> Path | None:
@@ -743,8 +981,17 @@ def write_hub(home: Path | None = None, now: datetime.datetime | None = None) ->
         theirs, live = "", False
     if _gate("hub", theirs if is_newer(theirs, generator_version()) else "", live):
         return None
+    try:
+        install_assets(root_dir)
+    except Exception as exc:  # a missing font file must never stop the hub
+        print(f"[ROADMAP] assets not installed: {exc}", file=sys.stderr)
     rows, errors = read_summaries(root_dir)
+    try:  # a hub without the roadmap bodies is better than no hub
+        bodies = read_bodies(root_dir, rows)
+    except Exception as exc:
+        print(f"[ROADMAP] page bodies not read: {exc}", file=sys.stderr)
+        bodies = {}
     path = root_dir / "index.html"
-    _write_atomic(path, render_hub(rows, errors, now or datetime.datetime.now(datetime.timezone.utc)))
+    _write_atomic(path, render_hub(rows, errors, now or datetime.datetime.now(datetime.timezone.utc), bodies))
     _write_atomic(stamp, generator_version() + "\n")
     return path

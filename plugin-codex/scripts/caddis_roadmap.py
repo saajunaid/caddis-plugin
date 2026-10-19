@@ -103,6 +103,9 @@ except ModuleNotFoundError as exc:
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+# This module object, taken while it loads. `render` hands it to the page builder. A lookup by name at call time
+# (`sys.modules[__name__]`) can return a different copy when the file was loaded twice in one process.
+_THIS_MODULE = sys.modules[__name__]
 STATUSES = ("todo", "in-progress", "code-done/data-pending", "done", "not-needed")
 FINISHED = ("done", "not-needed")
 OPEN = ("todo", "in-progress")
@@ -2292,7 +2295,7 @@ def _render(root: Path, args: argparse.Namespace) -> int:
     for slug in slugs:  # --all: one bad roadmap must not stop the others
         try:
             path = caddis_roadmap_page.write_page(root, slug, Path(args.out) if args.out else None,
-                                                  sys.modules[__name__])
+                                                  _THIS_MODULE)
             if path is None:  # a newer caddis owns this page: kept, and neither written nor failed
                 continue
             written += 1
