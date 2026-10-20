@@ -217,8 +217,8 @@ def build(root: Path, slug: str, roadmap_mod, now: datetime.datetime | None = No
 
 # One colour set for every page: light = slate + blue, dark = Dracula (owner, 17 Oct): https://draculatheme.com/contribute
 # Dark applies when the OS asks for it, unless the reader picked light; the toggle sets data-theme on <html>.
-_PALETTE_LIGHT = '--bg:#f4f6f9;--panel:#fff;--panel2:#f8fafc;--fg:#0f172a;--muted:#475569;--line:#e2e8f0;--line2:#cbd5e1;--accent:#2563eb;--todo-bg:#f1f5f9;--todo-fg:#334155;--prog:#2563eb;--prog-bg:#dbeafe;--prog-fg:#1d4ed8;--done:#16a34a;--done-bg:#dcfce7;--done-fg:#15803d;--block:#d97706;--block-bg:#fef3c7;--block-fg:#92400e;--high:#dc2626;--wait-bg:#fee2e2;--wait-fg:#b91c1c;--nav:#f8fafc;--nav-fg:#0f172a;--on-accent:#fff;--shadow:0 1px 3px rgba(15,23,42,.06);--title:var(--fg);--summary:var(--fg);--code:var(--fg);--sans:"Maple Mono","Segoe UI Variable","Segoe UI",system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;color-scheme:light;'
-_PALETTE_DARK = '--bg:#282a36;--panel:#21222c;--panel2:#343746;--fg:#f8f8f2;--muted:#6272a4;--line:#44475a;--line2:#6272a4;--accent:#8be9fd;--todo-bg:#44475a;--todo-fg:#f8f8f2;--prog:#bd93f9;--prog-bg:#3c3352;--prog-fg:#bd93f9;--done:#50fa7b;--done-bg:#2b4a36;--done-fg:#50fa7b;--block:#ffb86c;--block-bg:#4a3a2b;--block-fg:#ffb86c;--high:#ff5555;--wait-bg:#4a2b33;--wait-fg:#ff5555;--nav:#21222c;--nav-fg:#f8f8f2;--on-accent:#282a36;--shadow:none;--title:#bd93f9;--summary:#ff79c6;--code:#f1fa8c;color-scheme:dark;'
+_PALETTE_LIGHT = '--bg:#f4f6f9;--panel:#fff;--panel2:#f8fafc;--fg:#0f172a;--muted:#475569;--line:#e2e8f0;--line2:#cbd5e1;--accent:#2563eb;--todo-bg:#f1f5f9;--todo-fg:#334155;--prog:#2563eb;--prog-bg:#dbeafe;--prog-fg:#1d4ed8;--done:#16a34a;--done-bg:#dcfce7;--done-fg:#15803d;--block:#d97706;--block-bg:#fef3c7;--block-fg:#92400e;--high:#dc2626;--wait-bg:#fee2e2;--wait-fg:#b91c1c;--nav:#f8fafc;--nav-fg:#0f172a;--on-accent:#fff;--shadow:0 1px 3px rgba(15,23,42,.06);--title:var(--fg);--summary:var(--fg);--code:var(--fg);--c0:#2563eb;--c1:#7c3aed;--c2:#0d9488;--c3:#ea580c;--c4:#db2777;--c5:#475569;--sans:"Maple Mono","Segoe UI Variable","Segoe UI",system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;color-scheme:light;'
+_PALETTE_DARK = '--bg:#282a36;--panel:#21222c;--panel2:#343746;--fg:#f8f8f2;--muted:#6272a4;--line:#44475a;--line2:#6272a4;--accent:#8be9fd;--todo-bg:#44475a;--todo-fg:#f8f8f2;--prog:#bd93f9;--prog-bg:#3c3352;--prog-fg:#bd93f9;--done:#50fa7b;--done-bg:#2b4a36;--done-fg:#50fa7b;--block:#ffb86c;--block-bg:#4a3a2b;--block-fg:#ffb86c;--high:#ff5555;--wait-bg:#4a2b33;--wait-fg:#ff5555;--nav:#21222c;--nav-fg:#f8f8f2;--on-accent:#282a36;--shadow:none;--title:#bd93f9;--summary:#ff79c6;--code:#f1fa8c;--c0:#8be9fd;--c1:#bd93f9;--c2:#50fa7b;--c3:#ffb86c;--c4:#ff79c6;--c5:#6272a4;color-scheme:dark;'
 _THEME_CSS = (":root{" + _PALETTE_LIGHT + "}" + '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){'
               + _PALETTE_DARK + "}}" + ':root[data-theme="dark"]{' + _PALETTE_DARK + "}")
 
@@ -230,7 +230,7 @@ h1{font-size:24px;margin:0;color:var(--title)}h2{font-size:16px;margin:0}.sub{co
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 details.card>summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none;color:var(--summary)}
 details.card>summary::-webkit-details-marker{display:none}details.card>summary::before{content:"\\25B8 ";color:var(--muted)}
-details.card[open]>summary::before{content:"\\25BE "}details.card>summary span{color:var(--muted);font-weight:400;font-size:13px}
+details.card[open]>summary::before{content:"\\25BE "}details.card+details.card{margin-top:8px}
 .wait{border-color:var(--high)}.wait h2{color:var(--wait-fg)}.empty{color:var(--muted)}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:7px 9px;border-top:1px solid var(--line);
 vertical-align:top}th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-top:0}
@@ -239,15 +239,21 @@ padding:1px 8px;border-radius:999px;white-space:nowrap}
 .s-todo{background:var(--todo-bg);color:var(--todo-fg)}.s-in-progress{background:var(--prog-bg);color:var(--prog-fg)}
 .s-done,.s-moved,.s-not-needed{background:var(--done-bg);color:var(--done-fg)}.s-blocked{background:var(--block-bg);color:var(--block-fg)}
 .s-code-done\\/data-pending{background:var(--block-bg);color:var(--block-fg)}
-.lanes{display:grid;width:max-content}.lanes>div{border-top:1px solid var(--line);border-left:1px dashed var(--line);
+.lanes{display:grid}.lanes>div{border-top:1px solid var(--line);border-left:1px dashed var(--line);
 padding:6px}.lanes .hd{background:var(--panel2);border-top:0;font-weight:700}.lanes .ln{position:sticky;left:0;z-index:1;
-background:var(--panel);border-left:0;border-right:1px solid var(--line2);font-weight:600;min-width:170px}
-.tile{display:flex;gap:6px;align-items:center;font-size:12px;padding:3px 6px;margin:0 0 4px;border-radius:5px;
+background:var(--panel);border-left:4px solid var(--lc,var(--line2));border-right:1px solid var(--line2);font-weight:600;overflow-wrap:anywhere}
+.tile{display:flex;gap:5px;align-items:center;font-size:12px;padding:3px 5px;position:relative;margin:0 0 4px;border-radius:5px;
 border:1px solid var(--line2);background:var(--panel);max-width:100%}.tile b{font:600 11px var(--mono)}
-.tile span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tile.in-progress{background:var(--prog-bg);
+.tile span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;overflow-wrap:anywhere}.tile.in-progress{background:var(--prog-bg);
 border-color:var(--prog);color:var(--prog-fg)}.tile.done{background:var(--done-bg);border-color:var(--done);
 color:var(--done-fg)}.tile.moved{background:repeating-linear-gradient(135deg,var(--done-bg) 0 5px,var(--panel) 5px 10px);
 border-color:var(--done)}.tile.blocked{background:var(--block-bg);border-color:var(--block);color:var(--block-fg)}
+.tile.hi::after{position:absolute;top:3px;right:3px;margin:0}
+.ltile{display:flex;gap:8px;align-items:baseline;font-size:13px;padding:5px 8px;margin:0 0 4px;border-radius:6px;border:1px solid var(--line2);background:var(--panel)}.ltile b{font:600 11px var(--mono);white-space:nowrap}
+.ltile.in-progress{background:var(--prog-bg);border-color:var(--prog);color:var(--prog-fg)}.ltile.done{background:var(--done-bg);border-color:var(--done);color:var(--done-fg)}
+.ltile.moved{background:repeating-linear-gradient(135deg,var(--done-bg) 0 5px,var(--panel) 5px 10px);border-color:var(--done)}.ltile.blocked{background:var(--block-bg);border-color:var(--block);color:var(--block-fg)}
+.bcount{display:inline-block;font-size:11px;font-weight:700;color:var(--block-fg);background:var(--block-bg);border:1px dashed var(--block);border-radius:6px;padding:0 6px;margin-top:3px}
+.lane-list{display:none}.lane-list h3{margin:10px 0 6px}@media (max-width:900px){.timeline .scroll{display:none}.lane-list{display:block}}
 .hi::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--high);flex:none;margin-left:auto}
 .gate{font-size:11px;color:var(--block-fg);background:var(--block-bg);border:1px dashed var(--block);border-radius:6px;
 padding:3px 6px;margin:2px 0;white-space:normal;overflow-wrap:anywhere}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin-top:8px}
@@ -257,6 +263,11 @@ padding:3px 6px;margin:2px 0;white-space:normal;overflow-wrap:anywhere}.legend{d
 .bar i{display:block;height:100%;background:var(--done)}a{color:var(--accent)}td.num{white-space:nowrap}
 .theme-btn{font:600 12px var(--sans);padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.chip{border:1px solid var(--line);border-left:4px solid var(--lc);border-radius:8px;padding:5px 10px;background:var(--panel2);font-size:12.5px}.chip span{color:var(--muted);font-family:var(--mono)}
+.flow{display:flex;gap:6px;align-items:stretch;min-width:max-content}.fnode{display:grid;gap:3px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);text-decoration:none;color:inherit;min-width:120px}.fnode span{font:11px var(--mono);color:var(--muted)}.fnode span.pill{font:700 11px var(--sans);justify-self:start}.arrow{align-self:center;color:var(--muted)}
+.kind{font-size:10.5px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:var(--block-bg);color:var(--block-fg)}.k-owner-gate{background:var(--wait-bg);color:var(--wait-fg)}
+.note{color:var(--muted);font-weight:400;font-size:13px}.sec-h{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin-bottom:8px}h3{font-size:14px;margin:0 0 8px}
+.cols .rcard{margin-bottom:8px}.cols .rcard .bar{margin:0}
 """
 
 _CSS = _THEME_CSS + _BASE_CSS
@@ -285,7 +296,7 @@ _SHELL_CSS = """
 .main{min-width:0}.top{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
 .crumbs{flex:1;min-width:0;font-size:13px;color:var(--muted)}.crumbs a{color:var(--accent);text-decoration:none}
 main [id]{scroll-margin-top:60px}main>.view{scroll-margin-top:200px}
-.view{display:none}.view:target,.view:has(:target){display:block}main:not(:has(.view:target,.view :target))>#inbox{display:block}
+.view>*+*{margin-top:16px}.view{display:none}.view:target,.view:has(:target){display:block}main:not(:has(.view:target,.view :target))>#inbox{display:block}
 .nav-sub{display:none}.view-crumbs{font-size:13px;color:var(--muted);margin:0 0 8px}
 .nav-cb{display:none}.nav-btn,.nav-close,.nav-scrim{display:none}
 .nav-cb:focus-visible~.app .nav-btn{outline:2px solid var(--accent);outline-offset:2px}
@@ -430,20 +441,24 @@ def _waiting_section(model: dict) -> str:
 def _swimlane(model: dict) -> str:
     milestones, lanes = model["milestones"], model["lanes"]
     cols = len(milestones)
-    out = ['<details class="card" id="timeline" open><summary>Plan on a page <span>plans as lanes, milestones as columns in '
-           'roadmap order, one tile per phase</span></summary><div class="scroll">',
-           f'<div class="lanes" style="grid-template-columns:170px repeat({cols},190px)">',
+    # The section has the class `timeline` as well as the id: the hub prefixes every id, so the phone CSS selects by class.
+    out = ['<section class="card timeline" id="timeline"><div class="sec-h"><h2>Timeline</h2><span class="note">plans as '
+           'lanes, milestones as columns in roadmap order, one tile per phase</span></div><div class="scroll">',
+           f'<div class="lanes" style="grid-template-columns:150px repeat({cols},minmax(110px,1fr));width:100%;'
+           f'min-width:{150 + cols * 110}px">',
            '<div class="hd ln">Plan / milestone</div>']
     for ms in milestones:
         dep = f"after {', '.join(ms['depends'])}" if ms["depends"] else "starts first"
-        gates = "".join(f'<div class="gate">{_e(b["type"])}: {_e(b["reason"])}</div>' for b in ms["blockers"])
+        n = len(ms["blockers"])
+        count = f' <span class="bcount">{n} gate(s)</span>' if n else ""
         out.append(f'<div class="hd">{_e(ms["id"])} {_pill(ms["status"])}<div class="empty" style="font-weight:400;'
-                   f'font-size:11px">{_e(dep)} · {_e(ms["owner"])}</div>{gates}</div>')
-    for lane in lanes or ["-"]:
+                   f'font-size:11px">{_e(dep)}</div>{count}</div>')
+    plan_lanes = lanes or ["-"]
+    for i, lane in enumerate(plan_lanes):
         done = sum(1 for ms in milestones for ph in ms["phases"] if ph["plan"] == lane and ph["tile"] in ("done", "moved"))
         total = sum(1 for ms in milestones for ph in ms["phases"] if ph["plan"] == lane)
-        out.append(f'<div class="ln">{_e(lane)}<div class="empty" style="font-weight:400;font-size:11px">'
-                   f'{done}/{total} done</div></div>')
+        out.append(f'<div class="ln" style="--lc:var(--c{i % 6})">{_e(lane)}<div class="empty" '
+                   f'style="font-weight:400;font-size:11px">{done}/{total} done</div></div>')
         for ms in milestones:
             tiles = []
             for ph in ms["phases"]:
@@ -454,8 +469,24 @@ def _swimlane(model: dict) -> str:
                 tiles.append(f'<div class="tile {_e(ph["tile"])}{hi}" title="{_e(title)}"><b>{_e(ph["num"])}</b>'
                              f'<span>{_e(ph["name"] or ph["ref"])}</span></div>')
             out.append(f"<div>{''.join(tiles)}</div>")
-    out.append('</div></div><div class="legend"><span>colour: to do · <b>in progress</b> · done · striped = moved · '
-               'amber = blocked</span><span>red dot = Risk high (stops for review)</span></div></details>')
+    if any(ms["blockers"] for ms in milestones):  # the blockers get their own lane, so the column headers stay short
+        out.append('<div class="ln">Owner and outside</div>')
+        for ms in milestones:
+            cells = []
+            for b in ms["blockers"]:
+                reason = str(b["reason"])
+                short = reason if len(reason) <= 60 else reason[:60] + "…"
+                cells.append(f'<div class="gate" title="{_e(reason)}">{_e(b["type"])}: {_e(short)}</div>')
+            out.append(f"<div>{''.join(cells)}</div>")
+    out.append('</div></div><div class="lane-list">')
+    for ms in milestones:  # the phone list: the grid is hidden on a narrow screen
+        out.append(f'<h3>{_e(ms["id"])} {_pill(ms["status"])}</h3>')
+        for ph in ms["phases"]:
+            hi = " hi" if "high" in ph.get("risk", "").lower() else ""
+            out.append(f'<div class="ltile {_e(ph["tile"])}{hi}"><b>{_e(ph["plan"])} {_e(ph["num"])}</b>'
+                       f'<span>{_e(ph["name"] or ph["ref"])}</span></div>')
+    out.append('</div><div class="legend"><span>colour: to do · <b>in progress</b> · done · striped = moved · '
+               'amber = blocked</span><span>red dot = Risk high (stops for review)</span></div></section>')
     return "".join(out)
 
 
@@ -466,14 +497,29 @@ def _summary(model: dict) -> str:
     high = sum(1 for ph in phases if "high" in ph.get("risk", "").lower())
     nxt = model.get("next") or {}
     nxt_txt = f"{nxt.get('milestone', '')} {nxt.get('plan', '')}#{nxt.get('phase', '')}" if nxt else "none ready"
-    return ('<details class="card" id="overview"><summary>Summary <span>progress, current work, next batch</span></summary>'
-            '<div class="kpis">'
+    return ('<section class="kpis" id="overview" aria-label="Summary">'
             f'<div class="kpi"><b>{_e(done)} / {_e(len(phases))}</b>phases done</div>'
             f'<div class="kpi"><b>{_e(model["done"])} / {_e(model["total"])}</b>milestones done</div>'
             f'<div class="kpi"><b>{_e(len(building))}</b>in progress: {_e(", ".join(building) or "none")}</div>'
             f'<div class="kpi"><b>{_e(high)}</b>high-risk phases</div>'
             f'<div class="kpi"><b>{_e(nxt_txt)}</b>next batch for the runner</div>'
-            "</div></details>")
+            "</section>")
+
+
+def _done_phases(ms: dict) -> int:
+    return sum(1 for ph in ms["phases"] if ph["tile"] in ("done", "moved"))
+
+
+def _flow(model: dict) -> str:
+    """The milestones as a left-to-right chain in roadmap order; each node links to its milestone below."""
+    nodes = []
+    for ms in model["milestones"]:
+        dep = f"after {', '.join(ms['depends'])}" if ms["depends"] else "starts first"
+        nodes.append(f'<a class="fnode s-{_e(ms["status"])}" href="#ms-{_e(ms["id"])}"><b>{_e(ms["id"])}</b> '
+                     f'{_pill(ms["status"])}<span>{_e(dep)} · {_e(_done_phases(ms))}/{_e(len(ms["phases"]))} ph</span></a>')
+    chain = '<span class="arrow" aria-hidden="true">→</span>'.join(nodes)
+    return (f'<section id="flow"><div class="sec-h"><h2>Flow</h2><span class="note">milestones in roadmap order</span></div>'
+            f'<div class="card scroll"><div class="flow">{chain}</div></div></section>')
 
 
 def _now_next_later(model: dict) -> str:
@@ -492,26 +538,30 @@ def _now_next_later(model: dict) -> str:
             groups["Later"].append(ms)
     cols = []
     for title, items in groups.items():
-        body = "".join(f'<p><strong>{_e(m["id"])}</strong> {_pill(m["status"])} '
-                       f'{_e(sum(1 for p in m["phases"] if p["tile"] in ("done", "moved")))}/{_e(len(m["phases"]))}'
-                       f' phases{"".join(" · " + _e(b["type"]) for b in m["blockers"])}</p>' for m in items)
-        cols.append(f'<div><h2>{_e(title)}</h2>{body or "<p class=empty>none</p>"}</div>')
-    return ('<details class="card"><summary>Now, next, later <span>which milestones can start</span></summary>'
-            f'<div class="cols">{"".join(cols)}</div></details>')
+        body = "".join(f'<a class="rcard" href="#ms-{_e(m["id"])}"><span><strong>{_e(m["id"])}</strong> {_pill(m["status"])}</span>'
+                       f'{_bar(_done_phases(m), len(m["phases"]))}'
+                       + "".join(f'<span class="note">{_e(b["type"])}</span>' for b in m["blockers"])
+                       + "</a>" for m in items)
+        cols.append(f'<div><h3>{_e(title)}</h3>{body or "<p class=empty>none</p>"}</div>')
+    return ('<section id="board"><div class="sec-h"><h2>Now, next, later</h2>'
+            '<span class="note">which milestones can start</span></div>'
+            f'<div class="cols">{"".join(cols)}</div></section>')
 
 
 def _gates(model: dict) -> str:
     rows = [(ms["id"], b) for ms in model["milestones"] for b in ms["blockers"]]
-    body = "".join(f"<tr><td><strong>{_e(mid)}</strong></td><td>{_e(b['type'])}</td><td>{_e(b['reason'])}</td>"
+    body = "".join(f"<tr><td><strong>{_e(mid)}</strong></td>"
+                   f"<td><span class=\"kind k-{_e(b['type'])}\">{_e(b['type'])}</span></td><td>{_e(b['reason'])}</td>"
                    f"<td><code>{_e(b['check'])}</code></td></tr>" for mid, b in rows)
-    return (f'<details class="card" id="gates"><summary>Gates and blockers <span>{_e(len(rows))} open</span></summary>'
+    return (f'<section class="card" id="gates"><div class="sec-h"><h2>Gates and blockers</h2>'
+            f'<span class="note">{_e(len(rows))} open</span></div>'
             + (f'<div class="scroll"><table><tr><th>Milestone</th><th>Type</th><th>Reason</th><th>Check</th></tr>{body}'
-               "</table></div>" if rows else '<p class="empty">No blockers.</p>') + "</details>")
+               "</table></div>" if rows else '<p class="empty">No blockers.</p>') + "</section>")
 
 
 def _milestones(model: dict) -> str:
-    out = ['<details class="card" id="milestones"><summary>Milestones and phases <span>every phase with model, lane, risk and '
-           'Tracker status</span></summary>']
+    out = ['<section id="milestones"><div class="sec-h"><h2>Milestones and phases</h2><span class="note">every phase with '
+           'model, lane, risk and Tracker status</span></div>']
     for ms in model["milestones"]:
         rows = "".join(
             f"<tr><td><code>{_e(ph['ref'])}</code></td><td>{_e(ph['name'])}</td><td>{_e(_short_model(ph['model']))}</td>"
@@ -519,13 +569,13 @@ def _milestones(model: dict) -> str:
             f"<td>{_e(ph['risk'] or '-')}</td><td>{_pill(ph['tile'])} {_e(ph['tracker'])}</td></tr>"
             for ph in ms["phases"])
         target = f" · target {_e(ms['target'])}" if ms.get("target") else ""
-        out.append(f"<h2 style=\"margin-top:12px\">{_e(ms['id'])} {_pill(ms['status'])} "
-                   f"<span class=\"empty\" style=\"font-weight:400;font-size:13px\">owner {_e(ms['owner'])}{target} · "
-                   f"after {_e(', '.join(ms['depends']) or '-')}</span></h2>")
-        out.append('<div class="scroll"><table><tr><th>Phase</th><th>Name</th><th>Model</th><th>Lane</th><th>Risk</th>'
+        out.append(f'<details class="card" id="ms-{_e(ms["id"])}"><summary>{_e(ms["id"])} '
+                   f'{_pill(ms["status"])} <span class="note">owner {_e(ms["owner"])}{target} · '
+                   f'after {_e(", ".join(ms["depends"]) or "-")}</span></summary>'
+                   '<div class="scroll"><table><tr><th>Phase</th><th>Name</th><th>Model</th><th>Lane</th><th>Risk</th>'
                    f'<th>Tracker</th></tr>{rows or "<tr><td colspan=6 class=empty>no build phases</td></tr>"}'
-                   "</table></div>")
-    out.append("</details>")
+                   "</table></div></details>")
+    out.append("</section>")
     return "".join(out)
 
 
@@ -554,13 +604,13 @@ def _runner(model: dict) -> str:
     if nxt:
         parts.append(f"<p>Next batch: <code>{_e(nxt.get('milestone'))} {_e(nxt.get('plan'))}#{_e(nxt.get('phase'))}"
                      "</code></p>")
-    return ('<details class="card" id="runner"><summary>Runner <span>roadmap-run state on this machine</span></summary>'
-            + "".join(parts) + "</details>")
+    return ('<section class="card" id="runner"><div class="sec-h"><h2>Runner</h2>'
+            '<span class="note">roadmap-run state on this machine</span></div>' + "".join(parts) + "</section>")
 
 
-# In page order (Phase 4 moves the overview above the timeline and updates this list).
-_PAGE_ANCHORS = [("waiting", "Waiting"), ("timeline", "Timeline"), ("overview", "Overview"), ("gates", "Gates"),
-                 ("milestones", "Milestones"), ("runner", "Runner")]
+# The sections of a roadmap view, in page order: the nav sub-links. `render_body` writes them in this order.
+_PAGE_ANCHORS = [("waiting", "Waiting"), ("overview", "Overview"), ("flow", "Flow"), ("board", "Board"),
+                 ("timeline", "Timeline"), ("gates", "Gates"), ("milestones", "Milestones"), ("runner", "Runner")]
 
 def _rid(folder, slug) -> str | None:
     """The view id of a roadmap in `index.html`: `rm-<the folder's 6 hex>-<slug>` (the 6 hex keep two clones with
@@ -602,12 +652,18 @@ def render_body(model: dict) -> str:
     phases = [ph for ms in model["milestones"] for ph in ms["phases"]]
     done = sum(1 for ph in phases if ph["tile"] in ("done", "moved"))
     commit = f" · origin <code>{_e(model.get('origin_commit'))}</code>" if model.get("origin_commit") else ""
+    chips = "".join(
+        f'<span class="chip" style="--lc:var(--c{i % 6})"><b>{_e(plan)}</b> <span>'
+        f'{_e(sum(1 for ph in phases if ph["plan"] == plan and ph["tile"] in ("done", "moved")))}/'
+        f'{_e(sum(1 for ph in phases if ph["plan"] == plan))} phases</span></span>'
+        for i, plan in enumerate(model["lanes"]))
     return "".join([
         f'<header class="hdr"><div><h1>{_e(title)}</h1><p class="sub">{_e(model["done"])} of {_e(model["total"])} '
         f'milestones · {_e(done)} of {_e(len(phases))} phases done · branch <code>{_e(model["branch"])}</code>'
-        f"{commit} · generated {_e(model['generated'])}</p></div></header>",
-        _waiting_section(model), _swimlane(model), _summary(model), _now_next_later(model), _gates(model),
-        _milestones(model), _runner(model),
+        f'{commit} · generated {_e(model["generated"])}</p>'
+        + (f'<div class="chips">{chips}</div>' if chips else "") + "</div></header>",
+        _waiting_section(model), _summary(model), _flow(model), _now_next_later(model), _swimlane(model),
+        _gates(model), _milestones(model), _runner(model),
         '<p class="empty">Built from roadmap.md, the plan Trackers and headers on origin, the runner state and the '
         "session-state folder. Re-rendered by the runner, /handoff, /pr-merge, /catchup and the waiting hooks.</p>"])
 
