@@ -28,6 +28,8 @@ import html
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -276,6 +278,8 @@ _CSS = _THEME_CSS + _BASE_CSS
 # (an open roadmap view is never reset); the phone menu closes when the view changes; and the nav item of the
 # shown view gets aria-current. No network.
 _THEME_SCRIPT = ('<script id="theme-toggle">(function(){var k="caddis-roadmap-theme",d=document.documentElement;try{var t=localStorage.getItem(k);if(t==="light"||t==="dark")d.dataset.theme=t}catch(e){}window.caddisTheme=function(){var c=d.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"),n=c==="dark"?"light":"dark";d.dataset.theme=n;try{localStorage.setItem(k,n)}catch(e){}};function shown(){var h=location.hash.slice(1),e=h&&document.getElementById(h),v=e&&e.closest(".view");return v?v.id:"inbox"}function cur(){var a=document.querySelectorAll(".nav a.nav-i");for(var i=0;i<a.length;i++){if(a[i].getAttribute("href")==="#"+shown())a[i].setAttribute("aria-current","page");else a[i].removeAttribute("aria-current")}}addEventListener("DOMContentLoaded",cur);setInterval(function(){if(document.getElementById("inbox")&&document.visibilityState==="visible"&&shown()==="inbox")location.reload()},60000);addEventListener("hashchange",function(){var b=document.getElementById("nav-cb");if(b)b.checked=false;cur()})})();</script>')
+# The shared copy is a static page: the inbox reload would only re-request it every minute, so it has no timer.
+_SITE_THEME_SCRIPT = re.sub(r"setInterval\(function\(\)\{.*?\},60000\);", "", _THEME_SCRIPT)
 _THEME_BUTTON = '<button type="button" class="theme-btn" onclick="caddisTheme()" aria-label="Switch between light and dark theme">◐ Theme</button>'
 
 
@@ -318,13 +322,14 @@ def _pill(status: str) -> str:
     return f'<span class="pill s-{_e(status)}">{_e(_LABEL.get(status, status))}</span>'
 
 
-def _shell(*, title: str, base: str, nav: str, crumbs: str, body: str, css: str = "") -> str:
+def _shell(*, title: str, base: str, nav: str, crumbs: str, body: str, css: str = "",
+           script: str | None = None) -> str:
     """The app frame around every page: head, left nav, top bar (crumbs and the theme button) and the body.
     `nav`, `crumbs`, `body` and `css` are text the caller has already made safe; `title` is plain text."""
     return "".join([
         '<!doctype html><html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
-        f"<title>{_e(title)}</title>{_fonts_link(base)}<style>{_CSS}{_SHELL_CSS}{css}</style>{_THEME_SCRIPT}</head>",
+        f"<title>{_e(title)}</title>{_fonts_link(base)}<style>{_CSS}{_SHELL_CSS}{css}</style>{script or _THEME_SCRIPT}</head>",
         f'<body><input type="checkbox" id="nav-cb" class="nav-cb" aria-label="Toggle the navigation menu"><div class="app">{nav}<label for="nav-cb" class="nav-scrim" aria-hidden="true"></label><div class="main">',
         '<header class="top"><label for="nav-cb" class="nav-btn" aria-label="Open the menu">☰</label>',
         f'<div class="crumbs">{crumbs}</div>{_THEME_BUTTON}</header>',
@@ -360,10 +365,12 @@ def _group_rows(rows: list[dict]) -> tuple[list[tuple[str, list[dict]]], list[tu
     return order, need, count
 
 
-def _nav(rows: list[dict], base: str) -> str:
+def _nav(rows: list[dict], base: str, site: bool = False) -> str:
     """The left nav: Needs you (inbox, gates, sessions, runners), then every repo with its roadmaps. Every link opens a
     view of `index.html` (`#inbox`, `#<rid>`, ...); on the hub itself (`base` "") the link is the bare `#view`. The
-    active item and its sub-links are shown by `_view_css`, so the nav needs no per-page copy."""
+    active item and its sub-links are shown by `_view_css`, so the nav needs no per-page copy. A `site` (shared copy)
+    nav has no Sessions or Runners item, no idle-session note and no Runner sub-link: those show only on the owner's
+    machine."""
     order, _need, count = _group_rows(rows)
     counts = {"inbox": count, "gates": sum(len(r.get("blockers") or r.get("owner_gates") or []) for r in rows),
               "sessions": sum(len(_sessions_of(group)) for _f, group in order),
@@ -372,11 +379,13 @@ def _nav(rows: list[dict], base: str) -> str:
     out = ['<nav class="nav" aria-label="Roadmaps">'
            '<label for="nav-cb" class="nav-close" aria-label="Close the menu">✕</label>',
            f'<a class="brand" href="{_e(hub or "#inbox")}">caddis · Roadmaps</a>', '<p class="nav-h">Needs you</p>']
-    for key, label in (("inbox", "Inbox"), ("gates", "Gates"), ("sessions", "Sessions"), ("runners", "Runners")):
+    for key, label in _NAV_ITEMS:
+        if site and key in _LOCAL_VIEWS:
+            continue
         out.append(f'<a class="nav-i" href="{_e(hub)}#{key}">{_e(label)}<span class="n">{_e(counts[key])}</span></a>')
     out.append('<p class="nav-h">Repos</p>')
     for folder, group in order:
-        idle = sum(1 for s in _sessions_of(group) if not s.get("asking"))
+        idle = 0 if site else sum(1 for s in _sessions_of(group) if not s.get("asking"))
         idle_txt = f" · {idle} idle session(s)" if idle else ""
         out.append(f'<p class="nav-repo">{_e(group[0].get("repo"))}{_e(idle_txt)}</p>')
         for r in sorted(group, key=lambda r: str(r["slug"])):
@@ -387,22 +396,29 @@ def _nav(rows: list[dict], base: str) -> str:
             pct = int(round(100 * _int(r.get("phases_done")) / total)) if total else 0
             out.append(f'<a class="nav-i nav-rm" href="{_e(hub)}#{rid}">{_e(r["slug"])}<span class="n">{pct}%</span></a>'
                        f'<div class="nav-sub" data-rid="{rid}">'
-                       + "".join(f'<a href="{_e(hub)}#{rid}-{anchor}">{_e(label)}</a>' for anchor, label in _PAGE_ANCHORS)
+                       + "".join(f'<a href="{_e(hub)}#{rid}-{anchor}">{_e(label)}</a>' for anchor, label in _PAGE_ANCHORS
+                                 if not (site and anchor in _LOCAL_ANCHORS))
                        + "</div>")
     out.append("</nav>")
     return "".join(out)
 
 
+_NAV_ITEMS = (("inbox", "Inbox"), ("gates", "Gates"), ("sessions", "Sessions"), ("runners", "Runners"))
+_LOCAL_VIEWS = ("sessions", "runners")  # views of this machine's live state: a shared copy has neither
+_LOCAL_ANCHORS = ("runner",)  # the section of a roadmap view that shows this machine's runner
+
 _ON = "{background:var(--prog-bg);color:var(--prog-fg);font-weight:600}"
 
 
-def _view_css(rids: list[str]) -> str:
+def _view_css(rids: list[str], site: bool = False) -> str:
     """Marks the nav item of the view that shows, and opens its sub-links. One rule per roadmap: CSS cannot take
     the target's id into a selector. Every rid comes from `_rid` (hex and slug characters only), so it is safe
     in a selector."""
     shown = ".view:target,.view :target"
     out = [f'body:not(:has({shown})) .nav a[href="#inbox"]{_ON}']
-    for key in ("inbox", "gates", "sessions", "runners"):
+    for key, _label in _NAV_ITEMS:
+        if site and key in _LOCAL_VIEWS:
+            continue
         out.append(f'body:has(#{key}:target,#{key} :target) .nav a[href="#{key}"]{_ON}')
     for rid in rids:
         on = f"body:has(#{rid}:target,#{rid} :target)"
@@ -410,11 +426,14 @@ def _view_css(rids: list[str]) -> str:
     return "".join(out)
 
 
-def _waiting_section(model: dict) -> str:
+def _waiting_section(model: dict, site: bool = False) -> str:
+    """Sessions that wait for input, then the open owner gates. A shared copy (`site`) has the owner gates only: its
+    sessions are not on the reader's machine, so a table of them would be empty for a wrong reason."""
     out = ['<section id="waiting" class="card wait"><h2>Waiting for you</h2>']
-    sessions, gates = model["sessions"], model["waiting"]
+    sessions, gates = ([] if site else model["sessions"]), model["waiting"]
     if not sessions and not gates:
-        out.append('<p class="empty">Nothing is waiting for you.</p></section>')
+        out.append('<p class="empty">' + ("No owner gate is waiting." if site else "Nothing is waiting for you.")
+                   + "</p></section>")
         return "".join(out)
     # A question or a permission first; a session that only finished its turn and sits idle comes after it.
     asking = [s for s in sessions if not str(s.get("kind", "")).startswith("idle")]
@@ -645,9 +664,10 @@ def render_html(model: dict) -> str:
                   body=render_body(model))
 
 
-def render_body(model: dict) -> str:
+def render_body(model: dict, site: bool = False) -> str:
     """Everything inside `<main>`: the header and the sections. `write_page` keeps it as `<slug>.body.html`; the
-    hub puts it, with its ids prefixed, in `index.html` as the roadmap's view."""
+    hub puts it, with its ids prefixed, in `index.html` as the roadmap's view. A shared copy (`site`) leaves out the
+    session tables and the Runner section."""
     title = f"Roadmap {model['roadmap']}"
     phases = [ph for ms in model["milestones"] for ph in ms["phases"]]
     done = sum(1 for ph in phases if ph["tile"] in ("done", "moved"))
@@ -662,35 +682,41 @@ def render_body(model: dict) -> str:
         f'milestones · {_e(done)} of {_e(len(phases))} phases done · branch <code>{_e(model["branch"])}</code>'
         f'{commit} · generated {_e(model["generated"])}</p>'
         + (f'<div class="chips">{chips}</div>' if chips else "") + "</div></header>",
-        _waiting_section(model), _summary(model), _flow(model), _now_next_later(model), _swimlane(model),
-        _gates(model), _milestones(model), _runner(model),
+        _waiting_section(model, site), _summary(model), _flow(model), _now_next_later(model), _swimlane(model),
+        _gates(model), _milestones(model), "" if site else _runner(model),
+        '<p class="empty">Built from roadmap.md and the plan Trackers and headers on origin.</p>' if site else
         '<p class="empty">Built from roadmap.md, the plan Trackers and headers on origin, the runner state and the '
         "session-state folder. Re-rendered by the runner, /handoff, /pr-merge, /catchup and the waiting hooks.</p>"])
 
 
-def default_page_path(root: Path, slug: str, home: Path | None = None) -> Path:
+def default_page_path(root: Path, slug: str, home: Path | None = None, base: Path | None = None) -> Path:
     """`~/.caddis/roadmap-pages/<repo folder>-<6 hex>/<slug>.html`: outside every checkout, so a render never makes a
     repo dirty (17 Oct: the in-repo `.local/` folder is not gitignored in every repo). The folder is the MAIN
-    checkout (a worktree shares its page); the 6 hex of its path keep two clones with one name apart."""
+    checkout (a worktree shares its page); the 6 hex of its path keep two clones with one name apart. `base` (the
+    shared copy's build folder) stands in for the pages root."""
     main = main_checkout(root)
     tag = hashlib.sha1(str(main).lower().encode("utf-8")).hexdigest()[:6]
-    return pages_root(home) / f"{main.name}-{tag}" / f"{slug}.html"
+    return (base if base is not None else pages_root(home)) / f"{main.name}-{tag}" / f"{slug}.html"
 
 
-def write_page(root: Path, slug: str, out: Path | None, roadmap_mod) -> Path | None:
+def write_page(root: Path, slug: str, out: Path | None, roadmap_mod, *, site_dir: Path | None = None) -> Path | None:
     """At the default path: `<slug>.body.html` (the page body, which the hub shows as a view of `index.html`), a
     one-line `<slug>.html` that opens that view, and `<slug>.json` (the one-row summary the hub is built from). An
     `--out` page is a one-off self-contained copy and stays out of the hub. None: a newer caddis wrote this page,
-    so it is kept."""
-    path = Path(out) if out else default_page_path(root, slug)
-    if out is None and _owned_by_newer(slug, path.with_suffix(".json")):  # before build: a skip does no work
+    so it is kept. `site_dir` (the shared copy's build folder) writes there instead, with no version gate, and
+    leaves this machine's waiting sessions and runner out of the model before anything is rendered."""
+    path = Path(out) if out else default_page_path(root, slug, base=site_dir)
+    if out is None and site_dir is None and _owned_by_newer(slug, path.with_suffix(".json")):  # a skip does no work
         return None
     model = build(root, slug, roadmap_mod)
+    if site_dir is not None:  # a CI run has no session marks and no runner: hide them, never show them as empty
+        model["sessions"] = []
+        model["runner"] = {"lock": None, "stale_lock": None, "last_stop": None, "errors": []}
     path.parent.mkdir(parents=True, exist_ok=True)
     if out is not None:
         _write_atomic(path, render_html(model))
         return path
-    _write_atomic(path.with_suffix(".body.html"), render_body(model))
+    _write_atomic(path.with_suffix(".body.html"), render_body(model, site=site_dir is not None))
     rid = _rid(path.parent.name, model["roadmap"])
     _write_atomic(path, _stub(rid, model["roadmap"]) if rid else render_html(model))
     try:  # the summary feeds the hub only: the page is written, so a failure here never fails the render
@@ -733,17 +759,45 @@ def is_newer(theirs, mine) -> bool:
 
 
 GENERATOR_OWNERSHIP_S = 1800  # a newer caddis owns a page only while it keeps writing it (review of #71)
+# While the newer version is still INSTALLED on this machine, it owns the page much longer: an older session that is
+# still open must not undo a release (20 Oct 2026: a 1.3.145 session re-rendered the 1.3.147 hub in the old layout
+# 30 minutes after the release). A real downgrade removes the newer version, and the 30 minutes apply again.
+INSTALLED_OWNERSHIP_S = 24 * 3600
+
+
+def installed_versions(home: Path | None = None) -> set[str]:
+    """The caddis versions installed on this machine: the Claude Code plugin cache folders and agy's plugin
+    manifest. Empty when none can be read."""
+    base = Path(home or Path.home())
+    found: set[str] = set()
+    try:
+        for d in (base / ".claude" / "plugins" / "cache" / "caddis" / "caddis").iterdir():
+            if d.is_dir() and _version_key(d.name) is not None:
+                found.add(d.name)
+    except OSError:
+        pass
+    data, _ = _read_json(base / ".gemini" / "config" / "plugins" / "caddis" / "plugin.json")
+    if isinstance(data, dict) and _version_key(data.get("version")) is not None:
+        found.add(str(data["version"]))
+    return found
+
+
+def _ownership_s(theirs: str, home: Path | None = None) -> int:
+    """How long a newer caddis owns what it wrote: a day while it is installed under `home`, else
+    GENERATOR_OWNERSHIP_S."""
+    return INSTALLED_OWNERSHIP_S if theirs in installed_versions(home) else GENERATOR_OWNERSHIP_S
 
 
 def _newer_owner(summary: Path) -> tuple[str, bool]:
-    """(version, live): the newer caddis that wrote `summary` ("" when it is not newer), and whether it wrote it in
-    the last GENERATOR_OWNERSHIP_S. An unreadable time is not live: a downgrade must never freeze a page."""
+    """(version, live): the newer caddis that wrote `summary` ("" when it is not newer), and whether it wrote it
+    within its ownership window (`_ownership_s`). An unreadable time is not live: a downgrade must never freeze a
+    page."""
     data, _ = _read_json(summary)
     theirs = str((data or {}).get("generator") or "")
     if not is_newer(theirs, generator_version()):
         return "", False
     age_h = _age_h(str((data or {}).get("generated_utc") or ""), datetime.datetime.now(datetime.timezone.utc))
-    return theirs, age_h is not None and age_h * 3600 <= GENERATOR_OWNERSHIP_S
+    return theirs, age_h is not None and age_h * 3600 <= _ownership_s(theirs)
 
 
 def _gate(label: str, theirs: str, live: bool) -> bool:
@@ -753,7 +807,7 @@ def _gate(label: str, theirs: str, live: bool) -> bool:
         return True
     if theirs:
         print(f"[ROADMAP] {label}: taking over from caddis {theirs} (it has not written for "
-              f"{GENERATOR_OWNERSHIP_S // 60} min)")
+              f"{_ownership_s(theirs) // 60} min)")
     return False
 
 
@@ -943,26 +997,121 @@ def _int(value) -> int:
         return 0
 
 
+def _roadmap_link(r: dict, label=None) -> str:
+    """The roadmap's name linked to its view; plain text for a row that has no view."""
+    rid = _rid(r.get("folder"), r.get("slug"))
+    text = _e(r.get("slug") if label is None else label)
+    return f'<a href="#{rid}">{text}</a>' if rid else text
+
+
+def _repo_slug_key(r: dict) -> tuple[str, str, str]:
+    return (str(r.get("repo", "")).lower(), str(r.get("folder", "")), str(r.get("slug", "")))
+
+
+def _table(head: list[str], body: list[str]) -> str:
+    return ('<div class="scroll"><table><tr>' + "".join(f"<th>{_e(h)}</th>" for h in head) + "</tr>"
+            + "".join(body) + "</table></div>")
+
+
+def _gates_view(rows: list[dict]) -> str:
+    items = []
+    for r in rows:
+        for b in r.get("blockers") or r.get("owner_gates") or []:  # a v1 summary has owner_gates only
+            items.append((r, b))
+    items.sort(key=lambda rb: (str(rb[1].get("type") or "owner-gate") != "owner-gate", *_repo_slug_key(rb[0]),
+                               str(rb[1].get("milestone", ""))))
+    body = []
+    for r, b in items:
+        rid, ms = _rid(r.get("folder"), r.get("slug")), str(b.get("milestone", ""))
+        ms_text = _e(ms)
+        if rid and re.fullmatch(r"[A-Za-z][\w-]*", ms):  # the id is prefixed by `_prefix_ids` only when it is plain
+            ms_text = f'<a href="#{rid}-ms-{ms_text}">{ms_text}</a>'
+        kind = str(b.get("type") or "owner-gate")
+        body.append(f'<tr><td><strong>{_e(r.get("repo"))}</strong></td><td>{_roadmap_link(r)}</td><td>{ms_text}</td>'
+                    f'<td><span class="kind k-{_e(kind)}">{_e(kind)}</span></td><td>{_e(b.get("reason"))}</td>'
+                    f'<td><code>{_e(b.get("check") or "-")}</code></td></tr>')
+    if not body:
+        return '<p class="empty">No open gates or blockers.</p>'
+    return _table(["Repo", "Roadmap", "Milestone", "Type", "Reason", "Check"], body)
+
+
+def _sessions_view(rows: list[dict]) -> str:
+    out = []
+    for _folder, group in _group_rows(rows)[0]:
+        sessions = sorted(_sessions_of(group), key=lambda s: not s.get("asking"))  # asking first, then by mark order
+        if not sessions:
+            continue
+        body = []
+        for s in sessions:
+            stale = " (stale?)" if s.get("stale") else ""
+            body.append(f'<tr><td><code>{_e(s.get("session"))}</code></td>'
+                        f'<td>{"asking" if s.get("asking") else "idle"}</td><td>{_e(s.get("message"))}</td>'
+                        f'<td>{_e(s.get("since"))}{_e(stale)}</td></tr>')
+        out.append(f'<div class="card"><h3>{_e(group[0].get("repo"))}</h3>'
+                   + _table(["Session", "Asking or idle", "Message", "Since"], body) + "</div>")
+    return "".join(out) or '<p class="empty">No session is waiting.</p>'
+
+
+def _runners_view(rows: list[dict]) -> str:
+    body = []
+    for r in sorted(rows, key=lambda r: (r.get("runner") != "running", *_repo_slug_key(r))):
+        detail = r.get("runner_detail") if isinstance(r.get("runner_detail"), dict) else {}
+        lock, stop = detail.get("lock"), detail.get("last_stop")
+        batch = lock.get("batch") if isinstance(lock, dict) else None
+        stop_text = " · ".join(str(v) for v in ((stop or {}).get("reason"), (stop or {}).get("utc")) if v)             if isinstance(stop, dict) else ""
+        runner = str(r.get("runner") or "")
+        pill = ("s-in-progress" if runner == "running" else "s-blocked" if runner else "s-todo")
+        body.append(f'<tr><td><strong>{_e(r.get("repo"))}</strong></td><td>{_roadmap_link(r)}</td>'
+                    f'<td><span class="pill {pill}">{_e(runner or "idle")}</span></td><td>{_e(batch or "-")}</td>'
+                    f'<td>{_e(stop_text or "-")}</td><td>{_e(r.get("next") or "-")}</td></tr>')
+    if not body:
+        return '<p class="empty">No roadmap pages yet.</p>'
+    return _table(["Repo", "Roadmap", "Runner", "Batch", "Last stop", "Next"], body)
+
+
+_VIEWS = {"gates": ("Gates", "Every open owner gate and blocker, across all repos. Owner gates come first.", _gates_view),
+          "sessions": ("Sessions", "The newest session marks of each repo.", _sessions_view),
+          "runners": ("Runners", "The roadmap runner of every roadmap on this machine.", _runners_view)}
+
+
+def render_view(kind: str, rows: list[dict]) -> str:
+    """`<section class="view" id="gates|sessions|runners">`: a cross-repo table over the page summaries. These sections
+    sit outside any roadmap body, so their ids are not prefixed; links into a roadmap use its prefixed ids."""
+    title, note, fn = _VIEWS[kind]
+    return f'<section class="view" id="{kind}"><h2>{_e(title)}</h2><p class="sub">{_e(note)}</p>{fn(rows)}</section>'
+
+
+_SITE_NOTE = "Shared copy — built by CI. Live sessions and runners show only on the owner's machine."
+_SITE_CSS = (".site-banner{margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;"
+             "border-left:4px solid var(--accent);background:var(--panel2);color:var(--fg);font-size:13px}")
+
+
 def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
-               bodies: dict[str, str] | None = None) -> str:
+               bodies: dict[str, str] | None = None, *, site: bool = False, banner: str = "") -> str:
     """The whole app in one file: the inbox and overview view, then one view per roadmap (its body from `bodies`,
     ids prefixed). CSS shows one view at a time, so the nav is the same for every view and is never stale. While the
-    inbox shows, the page reloads itself every 60 s (the script), so an open tab follows the renders."""
+    inbox shows, the page reloads itself every 60 s (the script), so an open tab follows the renders. A shared copy
+    (`site`, built by CI) shows `banner` and leaves out everything of this machine: the sessions and the runners,
+    in the nav, the inbox and the views. Owner gates stay: they come from git."""
     bodies = bodies or {}
     errors = list(errors)
+    if site:  # whatever a summary holds of live state is dropped here too, not only at the writer
+        rows = [{**r, "sessions": [], "runner": "", "runner_detail": {}} for r in rows]
     order, need, count = _group_rows(rows)
     phases_done = sum(_int(r.get("phases_done")) for r in rows)
     phases_total = sum(_int(r.get("phases_total")) for r in rows)
     live = sum(1 for r in rows if r.get("runner") == "running")
     blocked = sum(_int(r.get("blocked")) for r in rows)
-    out = ['<section class="view" id="inbox"><section class="kpis">',
+    out = [f'<p class="site-banner" role="note">{_e(banner or _SITE_NOTE)}</p>' if site else "",
+           '<section class="view" id="inbox"><section class="kpis">',
            f'<div class="kpi"><b>{_e(count)}</b>Needs you</div>',
            f'<div class="kpi"><b>{_e(phases_done)} / {_e(phases_total)}</b>Phases done'
            f'{_bar(phases_done, phases_total)}</div>',
            f'<div class="kpi"><b>{_e(blocked)}</b>Blocked phases</div>',
-           f'<div class="kpi"><b>{_e(live)}</b>Runners live</div></section>',
+           "" if site else f'<div class="kpi"><b>{_e(live)}</b>Runners live</div>', "</section>",
            f'<p class="sub">{_e(len(order))} repos · {_e(len(rows))} roadmaps · {_e(count)} item(s) need you · '
-           f'generated {_e(now.strftime("%Y-%m-%d %H:%M UTC"))} · the inbox reloads every minute</p>',
+           f'generated {_e(now.strftime("%Y-%m-%d %H:%M UTC"))}'
+           + ("" if site else " · the inbox reloads every minute") + "</p>",
            '<section id="needs" class="card wait"><h2>Needs you</h2>']
     if not need:
         out.append('<p class="empty">Nothing is waiting for you.</p>')
@@ -997,13 +1146,13 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
                    f'<div>{_bar(_int(r.get("phases_done")), _int(r.get("phases_total")))} '
                    f'{_e(r.get("milestones_done"))}/{_e(r.get("milestones_total"))} milestones</div>'
                    f'<div class="dots">{dots}</div>'
-                   f'<div class="empty">next: {_e(r.get("next") or "-")} · runner: {_e(r.get("runner") or "idle")}'
-                   f'{_e(old)}</div></a>')
+                   f'<div class="empty">next: {_e(r.get("next") or "-")}'
+                   + ("" if site else f' · runner: {_e(r.get("runner") or "idle")}') + f'{_e(old)}</div></a>')
     out.append("</div>")
     for err in errors:
         out.append(f'<p class="empty">Could not read {_e(err)}.</p>')
-    out.append('<p class="empty">Built from the page summaries in this folder. Every roadmap page render rebuilds it.'
-               "</p></section>")
+    out.append('<p class="empty">' + ("Built by CI from the roadmaps on origin." if site else
+               "Built from the page summaries in this folder. Every roadmap page render rebuilds it.") + "</p></section>")
     rids = []
     for r in sorted(rows, key=lambda r: (str(r.get("repo", "")).lower(), str(r["folder"]), str(r["slug"]))):
         rid = _rid(r.get("folder"), r.get("slug"))
@@ -1016,27 +1165,33 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
                  "in its repo.</p>")
         out.append(f'<section class="view" id="{rid}"><p class="view-crumbs"><a href="#inbox">Roadmaps</a> › '
                    f'{_e(r.get("repo"))} › <strong>{_e(r["slug"])}</strong></p>{inner}</section>')
-    for key, label in (("gates", "Gates"), ("sessions", "Sessions"), ("runners", "Runners")):  # Phase 6 fills these
-        out.append(f'<section class="view" id="{key}"><h2>{label}</h2><p class="card empty">The cross-repo {key} '
-                   'view comes in a later update. For now, see <a href="#needs">Needs you</a> on the inbox and each '
-                   "roadmap's own page.</p></section>")
-    return _shell(title="Roadmaps", base="", nav=_nav(rows, ""), crumbs="Roadmaps", body="".join(out),
-                  css=_view_css(rids))
+    for kind in _VIEWS:
+        if not (site and kind in _LOCAL_VIEWS):
+            out.append(render_view(kind, rows))
+    return _shell(title="Roadmaps", base="", nav=_nav(rows, "", site), crumbs="Roadmaps", body="".join(out),
+                  css=_view_css(rids, site) + (_SITE_CSS if site else ""),
+                  script=_SITE_THEME_SCRIPT if site else None)
 
 
-def write_hub(home: Path | None = None, now: datetime.datetime | None = None) -> Path | None:
+def write_hub(home: Path | None = None, now: datetime.datetime | None = None, *,
+              site_dir: Path | None = None, banner: str = "") -> Path | None:
     """`~/.caddis/roadmap-pages/index.html`: every roadmap page on this machine, grouped per repo. None: a newer
-    caddis wrote the hub (its version is in `.hub-generator`), so it is kept."""
-    root_dir = pages_root(home)
+    caddis wrote the hub (its version is in `.hub-generator`), so it is kept. `site_dir` (the shared copy's build
+    folder) is written instead, with `banner`, with no live sessions or runners, and with no version gate and no
+    stamp: CI is the only writer of that folder."""
+    root_dir = pages_root(home) if site_dir is None else Path(site_dir)
     root_dir.mkdir(parents=True, exist_ok=True)
     stamp = root_dir / ".hub-generator"
-    try:
-        theirs = stamp.read_text(encoding="utf-8").strip()
-        live = time.time() - stamp.stat().st_mtime <= GENERATOR_OWNERSHIP_S
-    except (OSError, UnicodeDecodeError):
-        theirs, live = "", False
-    if _gate("hub", theirs if is_newer(theirs, generator_version()) else "", live):
-        return None
+    if site_dir is None:
+        try:
+            theirs = stamp.read_text(encoding="utf-8").strip()
+            if not is_newer(theirs, generator_version()):
+                theirs = ""
+            live = bool(theirs) and time.time() - stamp.stat().st_mtime <= _ownership_s(theirs, home)
+        except (OSError, UnicodeDecodeError):
+            theirs, live = "", False
+        if _gate("hub", theirs, live):
+            return None
     try:
         install_assets(root_dir)
     except Exception as exc:  # a missing font file must never stop the hub
@@ -1048,6 +1203,103 @@ def write_hub(home: Path | None = None, now: datetime.datetime | None = None) ->
         print(f"[ROADMAP] page bodies not read: {exc}", file=sys.stderr)
         bodies = {}
     path = root_dir / "index.html"
-    _write_atomic(path, render_hub(rows, errors, now or datetime.datetime.now(datetime.timezone.utc), bodies))
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if site_dir is not None:
+        _write_atomic(path, render_hub(rows, errors, now, bodies, site=True, banner=banner))
+        return path
+    _write_atomic(path, render_hub(rows, errors, now, bodies))
     _write_atomic(stamp, generator_version() + "\n")
     return path
+
+
+# ---- the shared copy: `render --site <dir>` builds in <dir>/build and publishes an allow-list to <dir>/public -----
+
+def _short_sha(root: Path) -> str:
+    try:
+        done = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=15,
+                              creationflags=0x08000000 if os.name == "nt" else 0)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return done.stdout.strip() or "unknown" if done.returncode == 0 else "unknown"
+
+
+def site_banner(root: Path, now: datetime.datetime | None = None, env=None) -> str:
+    """The shared copy's banner (plain text; `render_hub` escapes it). CI names the repo and commit in
+    `GITHUB_REPOSITORY` and `GITHUB_SHA`; on a local run they are the checkout's folder name and `git rev-parse`."""
+    env = os.environ if env is None else env
+    repo = (env.get("GITHUB_REPOSITORY") or "").strip() or main_checkout(Path(root)).name
+    sha = (env.get("GITHUB_SHA") or "").strip()[:7] or _short_sha(Path(root))
+    when = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%d %H:%M UTC")
+    return (f"Shared copy — built by CI from {repo} at {sha}, {when}. "
+            "Live sessions and runners show only on the owner's machine.")
+
+
+def _is_link(path: Path) -> bool:
+    """A symlink or a Windows junction: never followed by the export."""
+    if path.is_symlink():
+        return True
+    try:
+        return bool(os.lstat(path).st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)  # Windows only
+    except (AttributeError, OSError):
+        return False
+
+
+def _plain_file(path: Path) -> bool:
+    return path.is_file() and not _is_link(path)
+
+
+def export_site(build: Path, public: Path) -> list[str]:
+    """Copy the allow-list of `build` to a fresh `public` and return the published paths (sorted, `/` separated):
+    `index.html`, every file under `_assets/` except `*.json`, `*.body.html` and dot files, and each
+    `<folder>/<slug>.html` whose `<slug>.json` sits beside it and whose slug passes the slug rule. Nothing else is
+    published: not a `*.json` (the local checkout path and session data), not a `*.body.html`, not `.locks/`, not
+    `.hub-generator`, not a dot file or folder, and not a link. `public` is wiped first, but only a folder this
+    function made (a marker beside it says so), or an empty one; a link, a file, `build` itself and a folder that
+    holds `build` or sits in it are refused (ValueError)."""
+    build, public = Path(build), Path(public)
+    if public.name in ("", ".", ".."):
+        raise ValueError(f"the public folder needs a plain folder name, not {str(public)!r}")
+    if not build.is_dir() or _is_link(build):
+        raise ValueError(f"the build folder is not a plain folder: {build}")
+    b = build.resolve()
+    p = public.parent.resolve() / public.name
+    if _is_link(public) or (public.exists() and not public.is_dir()):
+        raise ValueError(f"the public folder is a link or a file: {public}")
+    if p == b or b in p.parents or p in b.parents:
+        raise ValueError(f"the public folder and the build folder overlap: {public}")
+    marker = public.parent / f".{public.name}.created-by-caddis"
+    if public.exists():
+        if not marker.exists() and any(public.iterdir()):
+            raise ValueError(f"{public} exists and was not made by this command; remove it or choose another folder")
+        shutil.rmtree(public)
+    public.mkdir(parents=True)
+    marker.write_text("made by caddis_roadmap.py render --site; wiped on each run\n", encoding="utf-8")
+    out: list[str] = []
+
+    def put(src: Path, rel: str) -> None:
+        dst = public / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+        out.append(rel)
+
+    if _plain_file(build / "index.html"):
+        put(build / "index.html", "index.html")
+    assets = build / "_assets"
+    if assets.is_dir() and not _is_link(assets):
+        for dirpath, dirnames, filenames in os.walk(assets, followlinks=False):
+            here = Path(dirpath)
+            dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and not _is_link(here / d))
+            for name in sorted(filenames):
+                if name.startswith(".") or name.endswith((".json", ".body.html")) or not _plain_file(here / name):
+                    continue
+                put(here / name, (here / name).relative_to(build).as_posix())
+    for folder in sorted(build.iterdir()):
+        if folder.name.startswith(".") or folder.name == "_assets" or not folder.is_dir() or _is_link(folder):
+            continue
+        for page_file in sorted(folder.glob("*.html")):
+            slug = page_file.stem
+            if (page_file.suffix == ".html" and _SLUG_RE.fullmatch(slug) and _plain_file(page_file)
+                    and _plain_file(folder / f"{slug}.json")):
+                put(page_file, f"{folder.name}/{page_file.name}")
+    return sorted(out)

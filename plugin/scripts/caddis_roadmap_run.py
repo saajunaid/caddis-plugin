@@ -899,6 +899,9 @@ def _one_session(ctx: _Ctx, prompt: str, relay_slug: str, n: int, spent: float, 
     cmd = build_command(ctx.engine, ctx.model, prompt, usd=usd, timeout_min=remaining_s / 60, governor=ctx.governor,
                         engine_cmd=ctx.engine_cmd, worktree=cwd)
     rid = _spend_reserve(ctx.home, spend_slug, ctx.now(), n > 1) if ctx.engine == "agy" else None
+    if ctx.engine == "agy":  # agy's tool consoles open on a hidden desktop, not on the owner's screen
+        g = len(ctx.governor)
+        cmd = [*cmd[:g], *caddis_spend.hidden_argv(cmd[g:], session_env())]
     launched, outcome = ctx.clock(), None
     try:
         _, hash_before = _read_relay(cwd, relay_slug)

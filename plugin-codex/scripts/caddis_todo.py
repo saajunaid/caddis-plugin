@@ -43,7 +43,10 @@ def _path(root: Path, workstream: str | None) -> tuple[Path, Path]:
     artifact = _artifact(root)
     name = _name(workstream) if workstream is not None else "inbox"
     folder = artifact / "todo-list"
-    if folder.is_symlink() or not folder.resolve().is_relative_to(artifact.resolve()):
+    # Only a folder that EXISTS can point elsewhere. Resolving one that does not exist yet raced a concurrent
+    # writer creating it: on Windows the two paths could resolve differently (a short 8.3 name on one side), and a
+    # safe add failed with this error (main CI, 20 Oct 2026, test_concurrent_inbox_add_loses_no_item).
+    if folder.is_symlink() or (folder.exists() and not folder.resolve().is_relative_to(artifact.resolve())):
         raise ValueError("todo-list path escapes artifact root")
     path = folder / f"{name}.md"
     # Reads are unlocked, so refuse here as well as in locked_path. On Windows a writer replacing the file

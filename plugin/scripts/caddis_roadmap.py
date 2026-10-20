@@ -2231,6 +2231,9 @@ def _build_parser() -> argparse.ArgumentParser:
     which.add_argument("--all", action="store_true", help="every roadmap on origin (used by hooks and commands)")
     p.add_argument("--root", default=".")
     p.add_argument("--out", default=None, help="the HTML file (default ~/.caddis/roadmap-pages/<repo>/<slug>.html)")
+    p.add_argument("--site", default=None, metavar="DIR",
+                   help="with --all: build the shared copy (no live sessions or runners, a banner) in DIR/build and "
+                        "publish only the safe files to DIR/public (for GitHub Pages)")
     p.add_argument("--no-fetch", action="store_true",
                    help="use the origin refs this checkout has; no git fetch (the waiting hook's background render)")
     p.add_argument("--delay", type=int, default=0,
@@ -2287,15 +2290,17 @@ def _take_render_lock(lock: Path) -> bool:
     return False
 
 
-def _render(root: Path, args: argparse.Namespace) -> int:
-    """`render`: the pages, the prune and the hub. The caller holds the repo's render lock."""
+def _render(root: Path, args: argparse.Namespace, site_dir: Path | None = None) -> int:
+    """`render`: the pages, the prune and the hub. The caller holds the repo's render lock. `site_dir` (the shared
+    copy's build folder, `render --site`) replaces the pages root and takes no lock."""
     import caddis_roadmap_page
     slugs, on_origin = list_roadmaps_checked(root) if args.all else ([args.roadmap], None)
     failed = written = pruned = 0
+    site_kw = {} if site_dir is None else {"site_dir": site_dir}  # the normal calls stay exactly as they were
     for slug in slugs:  # --all: one bad roadmap must not stop the others
         try:
             path = caddis_roadmap_page.write_page(root, slug, Path(args.out) if args.out else None,
-                                                  _THIS_MODULE)
+                                                  _THIS_MODULE, **site_kw)
             if path is None:  # a newer caddis owns this page: kept, and neither written nor failed
                 continue
             written += 1
@@ -2309,13 +2314,55 @@ def _render(root: Path, args: argparse.Namespace) -> int:
         if args.all and on_origin is not None:  # a roadmap removed from origin leaves the hub too; a listing
             # that failed removes nothing, and a folder still on origin keeps its page even if its render failed
             pruned = caddis_roadmap_page.prune_folder(
-                caddis_roadmap_page.default_page_path(root, "_").parent, on_origin | set(slugs))
-        hub = caddis_roadmap_page.write_hub() if not args.out and (written or pruned) else None
+                caddis_roadmap_page.default_page_path(root, "_", base=site_dir).parent, on_origin | set(slugs))
+        if site_dir is not None:
+            site_kw["banner"] = caddis_roadmap_page.site_banner(root)
+        hub = caddis_roadmap_page.write_hub(**site_kw) if not args.out and (written or pruned) else None
         if hub is not None:  # None: a newer caddis owns the hub (write_hub said so)
             print(f"[ROADMAP] hub written: {hub.resolve()}")
     except Exception as exc:
         print(f"[ROADMAP] hub not written: {exc}", file=sys.stderr)
+        if site_dir is not None:  # the shared copy is published, so a hub that failed is a failed render
+            failed += 1
+    if site_dir is not None and not failed and not written:
+        print("[ROADMAP] site not rendered: no roadmap was rendered (none on origin, or the listing failed)",
+              file=sys.stderr)
+        return caddis_exit.BLOCKED
     return caddis_exit.BLOCKED if failed else caddis_exit.CLEAN
+
+
+def _render_site(root: Path, args: argparse.Namespace) -> int:
+    """`render --all --site DIR`: build the shared copy in DIR/build (no render lock, no version gate, no stamp: CI is
+    the only writer), then publish its allow-list to DIR/public. A render that failed publishes nothing."""
+    import caddis_roadmap_page
+    site = Path(args.site)
+    build, public = site / "build", site / "public"
+    global FETCH
+    FETCH = not args.no_fetch
+    try:  # a reused DIR keeps the last run's index.html: only one written by THIS run may be published
+        (build / "index.html").unlink(missing_ok=True)
+    except OSError as exc:
+        raise RoadmapError(f"site not published: the old {build / 'index.html'} cannot be removed: {exc}",
+                           caddis_exit.ERROR) from exc
+    try:
+        code = _render(root, args, site_dir=build)
+    finally:
+        FETCH = True
+    if code != caddis_exit.CLEAN:
+        print("[ROADMAP] site not published: the render did not finish clean (see above); the last public/ is kept",
+              file=sys.stderr)
+        return code
+    if not (build / "index.html").is_file():
+        print("[ROADMAP] site not published: the hub (index.html) was not written", file=sys.stderr)
+        return caddis_exit.BLOCKED
+    try:
+        paths = caddis_roadmap_page.export_site(build, public)
+    except ValueError as exc:
+        raise RoadmapError(f"site not published: {exc}", caddis_exit.ERROR) from exc
+    for rel in paths:
+        print(f"[ROADMAP] site file: {rel}")
+    print(f"[ROADMAP] site published: {len(paths)} file(s) in {public.resolve()}")
+    return caddis_exit.CLEAN
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -2361,6 +2408,16 @@ def _dispatch(args: argparse.Namespace) -> int:
         return recheck(root, args.roadmap, args.dry_run)
     if args.cmd == "render":
         import caddis_roadmap_page  # the page is separate; only `render` needs it
+        if args.site is not None:
+            if args.out:
+                raise RoadmapError("--site and --out cannot be used together: --out is one self-contained page, "
+                                   "--site is the shared copy of every roadmap", caddis_exit.ERROR)
+            if not args.all:
+                raise RoadmapError("--site works with --all, not with --roadmap", caddis_exit.ERROR)
+            if args.delay > 0:
+                raise RoadmapError("--site and --delay cannot be used together: a CI render does not wait",
+                                   caddis_exit.ERROR)
+            return _render_site(root, args)
         if args.all and args.out:
             raise RoadmapError("--out works with one --roadmap, not with --all", caddis_exit.ERROR)
         if args.delay > 0:

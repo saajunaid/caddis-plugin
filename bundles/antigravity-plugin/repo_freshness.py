@@ -31,6 +31,7 @@ Ported into caddis 2026-09-12 from a personal hook that existed on one machine o
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import signal
@@ -366,10 +367,21 @@ def _fetch(cwd: str) -> "bool | None":
         return False
 
 
+def _budget_s() -> float:
+    """TOTAL_BUDGET_S, or a larger budget from CADDIS_FRESHNESS_BUDGET_S. Only the tests set it: on a busy CI runner
+    the git calls before the fetch can use up 18 s, and the hook then rightly skips the fetch, which made tests about
+    the fetch fail at random (20 Oct 2026). An unset, empty or bad value means TOTAL_BUDGET_S."""
+    try:
+        value = float(os.environ.get("CADDIS_FRESHNESS_BUDGET_S", ""))
+    except ValueError:
+        return TOTAL_BUDGET_S
+    return value if math.isfinite(value) and value > 0 else TOTAL_BUDGET_S
+
+
 def report(cwd: str, own_session_id: str = "") -> list[str]:
     """The lines to print. Empty when there is nothing worth saying."""
     global _deadline
-    _deadline = time.monotonic() + TOTAL_BUDGET_S
+    _deadline = time.monotonic() + _budget_s()
     try:
         return _report(cwd, own_session_id)
     finally:

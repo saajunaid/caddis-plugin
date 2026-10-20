@@ -58,7 +58,9 @@ def _plain_name(value: str) -> str:
 def _artifact(root: Path) -> Path:
     project = Path(root).resolve()
     artifact = Path(root) / ".caddis"
-    if not artifact.resolve().is_relative_to(project) or artifact.is_symlink():
+    # Only an existing .caddis can point elsewhere; resolving one that does not exist yet raced a concurrent writer
+    # creating it (see caddis_todo._path, 20 Oct 2026).
+    if artifact.is_symlink() or (artifact.exists() and not artifact.resolve().is_relative_to(project)):
         raise ValueError("artifact root escapes project")
     return artifact
 

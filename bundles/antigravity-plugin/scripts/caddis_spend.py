@@ -42,6 +42,8 @@ CLI:
         CADDIS_SPEND_RUN_TIMEOUT_S, else 3600 s) and its process tree was killed. 75 and 78 are never
         agy's own codes for a refusal, so a caller can tell "the cap refused" from "agy failed". Each
         refusal also prints a `caddis_spend:` line.
+        On Windows the command runs on a hidden desktop (caddis_hidden_desktop.py), so the console windows agy opens
+        for its tools never show; CADDIS_AGY_VISIBLE=1 runs it on the normal desktop.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -385,11 +388,30 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
+HIDDEN_DESKTOP_SCRIPT = Path(__file__).with_name("caddis_hidden_desktop.py")
+AGY_VISIBLE_VAR = "CADDIS_AGY_VISIBLE"
+
+
+def hidden_argv(argv: list[str], env: dict | None = None) -> list[str]:
+    """`argv` wrapped to run on the hidden desktop (caddis_hidden_desktop.py), so the console windows agy opens for
+    its tools never show on the owner's screen. Unchanged when: not Windows, env CADDIS_AGY_VISIBLE=1, the launcher
+    is not beside this file, or the program is not found. In the last case the caller's own start raises
+    FileNotFoundError as before; the program is resolved here, so the launcher never has to report it."""
+    env = os.environ if env is None else env
+    if os.name != "nt" or not argv or env.get(AGY_VISIBLE_VAR) == "1" or not HIDDEN_DESKTOP_SCRIPT.is_file():
+        return list(argv)
+    program = shutil.which(argv[0], path=env.get("PATH"))
+    if program is None:
+        return list(argv)
+    return [sys.executable, str(HIDDEN_DESKTOP_SCRIPT), "--", program, *argv[1:]]
+
+
 def _run_child(argv: list[str], env: dict, timeout_s: float) -> tuple[int | None, str, str]:
-    """Run `argv` with a time limit. Returns (returncode, stdout, stderr); returncode is None on a timeout, after
-    the whole process tree was killed. Raises FileNotFoundError when the program does not exist."""
+    """Run `argv` with a time limit, on the hidden desktop on Windows (hidden_argv). Returns (returncode, stdout,
+    stderr); returncode is None on a timeout, after the whole process tree was killed. Raises FileNotFoundError when
+    the program does not exist."""
     group = {} if os.name == "nt" else {"start_new_session": True}
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+    proc = subprocess.Popen(hidden_argv(argv, env), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                             errors="replace", env=env, **_NO_WINDOW_KW, **group)
     try:
         out, err = proc.communicate(timeout=timeout_s)

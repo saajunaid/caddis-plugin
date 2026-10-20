@@ -612,6 +612,7 @@ def run_lane(
         if spend_id is None:
             return _refused_run(1, "caddis_spend: over cap: agy refused ("
                                 + caddis_spend.status_line(spend_home, datetime.now(timezone.utc)) + ")")
+        argv = caddis_spend.hidden_argv(argv, env)  # agy's tool consoles open on a hidden desktop, not on screen
     job_name = f"Local\\caddis-governor-{os.getpid()}-{secrets.token_hex(8)}" if sys.platform == "win32" else None
     full = governed_argv(argv, job_name)
     if not stdin_prompt:
@@ -1081,7 +1082,7 @@ def _probe_agy_models() -> str:
         return ""
     try:
         proc = subprocess.run(
-            [agy, "models"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+            caddis_spend.hidden_argv([agy, "models"]), capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=AGY_PROBE_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError):

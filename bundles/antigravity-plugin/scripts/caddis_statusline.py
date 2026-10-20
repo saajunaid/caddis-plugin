@@ -71,8 +71,9 @@ DEFAULT_CONFIG = {
     "bar_width": 8,
     "token_counts": True,   # ◉ 412k/1M  — off falls back to a bare ctx:41%
     "cached_tokens": True,  # ⚡38k cached — rendered LOUD, see render_claude()
-    "ram": True,            # 💻 69% (44 GB)
-    "clock": True,          # ◷ 03:41
+    "ram": False,           # 💻 69% (44 GB) - off by default (owner, 20 Oct 2026)
+    "thinking": False,      # Claude's "thinking" flag, agy's "thinking" state - off by default (20 Oct 2026)
+    "clock": False,         # ◷ 03:41 - off by default (owner, 20 Oct 2026)
     "relay": True,          # ⏺ relay  (a parked resume pointer exists)
     "rate_limits": True,    # 5h:12% 7d:40%
     "session_id": False,    # #a1b2c3d4
@@ -468,7 +469,7 @@ def cached_segment(c: C, cfg: dict, cached: int) -> str:
 
 
 def ram_segment(c: C, cfg: dict) -> str:
-    if not cfg.get("ram", True):
+    if not cfg.get("ram", False):
         return ""
     min_w = as_int(cfg.get("ram_min_width"), 0)
     if min_w and term_width() < min_w:
@@ -482,7 +483,7 @@ def ram_segment(c: C, cfg: dict) -> str:
 
 
 def clock_segment(c: C, cfg: dict) -> str:
-    if not cfg.get("clock", True):
+    if not cfg.get("clock", False):
         return ""
     return c.dim + icon(cfg, "clock") + time.strftime("%H:%M") + c.reset
 
@@ -549,7 +550,7 @@ def render_claude(data: dict, cfg: dict) -> str:
     if style and str(style).lower() != "default":
         parts.append(c.blue + "style:" + str(style) + c.reset)
 
-    if dig(data, "thinking", "enabled") is True:
+    if cfg.get("thinking", False) and dig(data, "thinking", "enabled") is True:
         parts.append(c.magenta + "thinking" + c.reset)
 
     if cfg.get("rate_limits", True):
@@ -581,7 +582,7 @@ def render_claude(data: dict, cfg: dict) -> str:
 
     session_name = dig(data, "session_name")
     if session_name:
-        parts.append(c.dim + '"' + str(session_name) + '"' + c.reset)
+        parts.append(c.bold + c.magenta + str(session_name) + c.reset)  # bright, so the session is easy to spot
 
     if cfg.get("session_id", False):
         sid = str(dig(data, "session_id") or "")
@@ -616,6 +617,8 @@ def render_agy(data: dict, cfg: dict) -> str:
         parts.append(c.white + c.bold + "agy" + c.reset)
 
     state = str(dig(data, "agent_state") or dig(data, "execution_mode") or "").lower()
+    if state == "thinking" and not cfg.get("thinking", False):
+        state = ""  # working and idle still show
     if state:
         label, col = {
             "working": (icon(cfg, "bolt") + "working", c.green),
@@ -704,6 +707,61 @@ HOST_SETTINGS = {
 }
 
 
+VERSION_STAMP = INSTALL_DIR / "statusline.version"
+
+
+def plugin_version(here: Path | None = None) -> str:
+    """The caddis version of the plugin this file ships in: `.claude-plugin/plugin.json` or a root `plugin.json`
+    one folder above `scripts/`. "" in a source checkout or when unreadable."""
+    base = Path(here or Path(__file__).resolve().parent).parent
+    for manifest in (base / ".claude-plugin" / "plugin.json", base / "plugin.json"):
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict) and str(data.get("name", "")).startswith("caddis") and data.get("version"):
+            return str(data["version"])
+    return ""
+
+
+def _version_key(text: str):
+    parts = str(text or "").strip().split(".")
+    return tuple(int(x) for x in parts) if parts and all(x.isdigit() for x in parts) else None
+
+
+def refresh_installed(src: Path | None = None, version: str | None = None) -> bool:
+    """Bring the installed renderer (`~/.caddis/statusline.py`) up to this plugin's copy.
+
+    Why (20 Oct 2026): only `--install` copied the renderer, so a caddis update never reached it. This machine
+    kept a copy whose `git` calls opened a console window each time agy drew its status line.
+    Rules: nothing happens unless the status line was installed; the copy happens only when this plugin's version
+    is newer than the one stamped at the last copy (an older session never downgrades it); a source checkout
+    (no plugin version) never copies. Returns True when it copied."""
+    src = Path(src or Path(__file__).resolve())
+    version = plugin_version() if version is None else version
+    if not INSTALLED_SCRIPT.is_file() or _version_key(version) is None:
+        return False
+    try:
+        stamped = VERSION_STAMP.read_text(encoding="utf-8").strip()
+    except OSError:
+        stamped = ""
+    old = _version_key(stamped)
+    if old is not None and old >= _version_key(version):
+        return False
+    try:
+        if src.resolve() != INSTALLED_SCRIPT.resolve() and src.read_bytes() != INSTALLED_SCRIPT.read_bytes():
+            tmp = INSTALLED_SCRIPT.with_name("%s.%d.tmp" % (INSTALLED_SCRIPT.name, os.getpid()))
+            shutil.copyfile(str(src), str(tmp))
+            os.replace(str(tmp), str(INSTALLED_SCRIPT))
+            copied = True
+        else:
+            copied = False
+        VERSION_STAMP.write_text(version + "\n", encoding="utf-8")
+        return copied
+    except OSError:
+        return False  # a session start must never fail over the status line
+
+
 def python_command() -> str:
     """The interpreter NAME to write into settings — not an absolute path.
 
@@ -726,6 +784,14 @@ def install(hosts, dry_run: bool = False) -> int:
     # because the version is in the path.
     if not dry_run and src != INSTALLED_SCRIPT.resolve():
         shutil.copyfile(str(src), str(INSTALLED_SCRIPT))
+    if not dry_run:
+        # Stamp the version, so a later --refresh from an OLDER plugin session cannot replace this copy.
+        version = plugin_version()
+        if _version_key(version) is not None:
+            try:
+                VERSION_STAMP.write_text(version + "\n", encoding="utf-8")
+            except OSError:
+                pass
     print("renderer -> %s" % INSTALLED_SCRIPT)
 
     if not CONFIG_PATH.exists():
@@ -903,7 +969,13 @@ def main(argv=None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="with --install: print, write nothing")
     parser.add_argument("--no-color", action="store_true", help="render without ANSI colour")
     parser.add_argument("--title", action="store_true", help="render terminal title (agy)")
+    parser.add_argument("--refresh", action="store_true",
+                        help="copy this plugin's renderer over an older installed one (session-start hook)")
     args = parser.parse_args(argv)
+
+    if args.refresh:
+        refresh_installed()
+        return 0  # silent and never failing: it runs at every session start
 
     # The line is Unicode. On Windows the default cp1252 stdout raises on ◆/⎇/█.
     try:
