@@ -782,7 +782,8 @@ def shared_checkout_reason(command: str, root: str | None) -> str:
         if _moves_tree(sub, args, cwd) and _declares_shared(cwd):
             return (f"`git {sub.lower()}` moves the tree of a shared checkout (AGENTS.md says Shared checkout: yes; "
                     "a dev service or a peer uses it). Work in your own worktree instead: "
-                    "`git worktree add \"$TEMP/<name>\" -b <branch> origin/<default>`, and remove it when done")
+                    "`git worktree add <worktree root>/<repo>/<name> -b <branch> origin/<default>` (never under %TEMP%: "
+                    "`caddis_worktree_root.py <name>` prints the path), and remove it when done")
     return ""
 
 

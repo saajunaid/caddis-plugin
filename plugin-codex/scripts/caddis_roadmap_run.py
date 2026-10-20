@@ -30,7 +30,8 @@ with new commits on that branch (still checked out, nothing under `.caddis/roadm
 persistent claim for the phase, pushes the branch, opens a PR (`gh api`) and stops `BLOCKED waiting for merge
 <plan>#<phase> <url>` (exit 1); `--last-stop` lets the recheck task restart it once the PR merged; the restart checks
 the merged origin roadmap against the hash taken at publish time, removes the claim, rolls that milestone up and goes
-on. Every roadmap runs its sessions in ONE dedicated worktree, `%TEMP%/caddis-roadmap-<slug>-<repo tag>` (made with
+on. Every roadmap runs its sessions in ONE dedicated worktree, `<worktree root>/<repo>/caddis-roadmap-<slug>-<repo tag>`
+(`$CADDIS_WORKTREE_ROOT`, else `<parent of the main checkout>/.worktrees`, never %TEMP%; `caddis_worktree_root.py`; made with
 `git worktree add --detach` from origin/<default> on the first session, reused on restart, recorded in the runner
 folder, never the `--repo` checkout); when the roadmap is finished the runner removes it if it is clean, and keeps it
 (saying so in the stop line) if not. The caps (hours, sessions, USD per session and in total) are per run, in memory. CONTINUE with the phase already merged on
@@ -111,7 +112,6 @@ import re
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 from collections import Counter
@@ -135,6 +135,7 @@ import caddis_redact  # noqa: E402
 import caddis_review  # noqa: E402
 import caddis_roadmap  # noqa: E402
 import caddis_spend  # noqa: E402
+import caddis_worktree_root  # noqa: E402
 import caddis_worktree_safety  # noqa: E402
 import caddis_workstreams  # noqa: E402
 
@@ -1545,11 +1546,13 @@ def _registered_worktrees(repo: Path) -> set[Path]:
 
 
 def worktree_path(repo: Path, slug: str, root: Path | None = None) -> Path:
-    """The roadmap's session worktree: the recorded path, else `<root or %TEMP%>/caddis-roadmap-<slug>-<repo tag>`."""
+    """The roadmap's session worktree: the recorded path, else (a NEW one) `caddis-roadmap-<slug>-<repo tag>` under
+    `<worktree root>/<repo>/` (`caddis_worktree_root`: `root`, `$CADDIS_WORKTREE_ROOT`, else `<parent of the main
+    checkout>/.worktrees`; never %TEMP%)."""
     recorded = _read_record(_state_file(repo, slug, "worktree")).get("path")
     if isinstance(recorded, str) and recorded:
         return Path(recorded)
-    return Path(root or tempfile.gettempdir()) / f"{WORKTREE_PREFIX}{slug}-{_repo_tag(repo)}"
+    return caddis_worktree_root.worktree_path(repo, f"{WORKTREE_PREFIX}{slug}-{_repo_tag(repo)}", root)
 
 
 def _repo_tag(repo: Path) -> str:

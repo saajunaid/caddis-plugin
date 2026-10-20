@@ -31,13 +31,20 @@ If none is true, stop here and use `git switch -c`.
 1. Fetch: `git fetch origin`.
 2. Find the default branch (`main` in most repos): `git symbolic-ref --short refs/remotes/origin/HEAD`.
    It prints `origin/main`. Use the part after `origin/` as `<default>`.
-3. Create the worktree from `origin/<default>`, never from the local HEAD, under `%TEMP%`:
+3. Create the worktree from `origin/<default>`, never from the local HEAD, at
+   `<worktree root>\<repo>\<short-name>`. Never under `%TEMP%`: Windows cleanup (Storage Sense) can empty it
+   and delete a worktree that holds unmerged work. The worktree root is `$env:CADDIS_WORKTREE_ROOT` when set,
+   else the `.worktrees` folder beside the main checkout (for `E:\Projects\<repo>` that is
+   `E:\Projects\.worktrees\<repo>\<short-name>`). `<repo>` is the main checkout's folder name. The caddis
+   script `caddis_worktree_root.py` prints the path; use it so the rule lives in one place:
 
 ```powershell
-git worktree add -b <branch> "$env:TEMP\<repo>-<short-name>" origin/<default>
+$wt = python "<caddis scripts>\caddis_worktree_root.py" <short-name>   # run in the repo; prints the path
+git worktree add -b <branch> $wt origin/<default>
 ```
 
-   Do not create worktrees inside the repo (no `.worktrees/`).
+   `<caddis scripts>` is the `scripts` folder of the installed caddis plugin. Do not create worktrees inside the
+   repo. An existing worktree stays where it is: moving it breaks a venv, which keeps absolute paths.
 4. State the full path of the worktree. Work only there, and do not switch branches in it.
 
 ## Install dependencies fresh

@@ -41,10 +41,10 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
 
 - **On `SHARED: no`,** do the steps as written, in this checkout.
 - **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
-  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+  - **Rebase:** `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" rebase-<name>)" <branch>`, then
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
-    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" test-<name>)" origin/<branch>` (for the default branch,
     `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
@@ -52,7 +52,9 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
     checkout has it out.
   - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
 
-`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`<name>` is the branch name with each `/` written as `-`. `caddis_worktree_root.py` prints the path of a new worktree:
+`$CADDIS_WORKTREE_ROOT/<repo>/<short-name>`, else `<parent of the main checkout>/.worktrees/<repo>/<short-name>`. Never `%TEMP%`: Windows
+cleanup can empty it. The caddis guard checks only the `Shared checkout: yes` line in
 `AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
 <!-- /checkout-safety -->
 

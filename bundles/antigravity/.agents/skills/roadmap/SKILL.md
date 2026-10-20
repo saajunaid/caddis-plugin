@@ -154,7 +154,7 @@ unattended; `-Plan <slug>` runs one plain plan instead (the two are exclusive). 
    or the owner, or that has **no Lane line**, is not run (fail closed): the runner adds
    `block --type owner-gate --reason "phase <n> lane: <lane>"` (`lane: none` when there is no line) and goes on.
 3. A `todo` milestone is set `in-progress` (a docs PR). Every session of a roadmap runs in ONE dedicated worktree,
-   `%TEMP%/caddis-roadmap-<slug>-<8 hex of the repo's git common dir>`: made with `git worktree add --detach` from `origin/<default>` on the first
+   `<worktree root>/<repo>/caddis-roadmap-<slug>-<8 hex of the repo's git common dir>` (`$CADDIS_WORKTREE_ROOT`, else the `.worktrees` folder beside the main checkout, never `%TEMP%`; an existing recorded worktree stays where it is): made with `git worktree add --detach` from `origin/<default>` on the first
    session, reused on restart, recorded in the runner folder, never the `-Repo` checkout (plan mode keeps working in
    the given checkout). In that worktree the runner makes a fresh branch `caddis/roadmap/<slug>/<plan>-p<n>` from
    `origin/<default>` (it refuses a branch of that name already on origin that it did not make) and ONE session runs

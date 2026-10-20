@@ -33,7 +33,7 @@ branch, and merge conventions — never assume `main`, never assume job names.
 Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
 `stash`, `reset --hard`). Before the first of them, run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_checkout_guard.py" shared --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_checkout_guard.py" shared --root .
 ```
 It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
 `Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
@@ -41,10 +41,10 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
 
 - **On `SHARED: no`,** do the steps as written, in this checkout.
 - **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
-  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+  - **Rebase:** `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_worktree_root.py" rebase-<name>)" <branch>`, then
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
-    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_worktree_root.py" test-<name>)" origin/<branch>` (for the default branch,
     `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
@@ -52,7 +52,9 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
     checkout has it out.
   - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
 
-`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`<name>` is the branch name with each `/` written as `-`. `caddis_worktree_root.py` prints the path of a new worktree:
+`$CADDIS_WORKTREE_ROOT/<repo>/<short-name>`, else `<parent of the main checkout>/.worktrees/<repo>/<short-name>`. Never `%TEMP%`: Windows
+cleanup can empty it. The caddis guard checks only the `Shared checkout: yes` line in
 `AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
 <!-- /checkout-safety -->
 
@@ -82,7 +84,7 @@ Finished plans close in the PR that finishes them (`/caddis:implement` step 4b).
 PR did, on the files it touches only:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
 ```
 
 (`<default>` is the default branch from Step 0. Falls back to `scripts/caddis_tidy.py` from a
@@ -120,7 +122,7 @@ source checkout; skip this step if the script is missing or the repo has no `.ca
 ## Step 3b — Cross-review trigger (before anything is pushed)
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
@@ -162,7 +164,7 @@ scope-guard check when present:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
 - GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   `RESULT: pass` means every check of the PR's head commit is complete and green; `HEAD:` names that commit.
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → run `ci-watch` again; if it stays 3, stop and report, do not merge.

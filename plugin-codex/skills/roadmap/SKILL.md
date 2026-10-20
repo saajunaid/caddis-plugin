@@ -9,7 +9,7 @@ description: "Track milestones across plans in .caddis/roadmaps/<slug>/: next ba
 small docs PR, so it is ordered and recorded in git history. The tool's PRs are merged automatically on green checks
 by `caddis_merge_chain.py --docs-only`; a repo that wants a human to review them protects its default branch.
 
-`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts` in an installed plugin, `scripts/` in
+`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts` in an installed plugin, `scripts/` in
 the caddis source repo.
 
 ## The folder
@@ -154,7 +154,7 @@ unattended; `-Plan <slug>` runs one plain plan instead (the two are exclusive). 
    or the owner, or that has **no Lane line**, is not run (fail closed): the runner adds
    `block --type owner-gate --reason "phase <n> lane: <lane>"` (`lane: none` when there is no line) and goes on.
 3. A `todo` milestone is set `in-progress` (a docs PR). Every session of a roadmap runs in ONE dedicated worktree,
-   `%TEMP%/caddis-roadmap-<slug>-<8 hex of the repo's git common dir>`: made with `git worktree add --detach` from `origin/<default>` on the first
+   `<worktree root>/<repo>/caddis-roadmap-<slug>-<8 hex of the repo's git common dir>` (`$CADDIS_WORKTREE_ROOT`, else the `.worktrees` folder beside the main checkout, never `%TEMP%`; an existing recorded worktree stays where it is): made with `git worktree add --detach` from `origin/<default>` on the first
    session, reused on restart, recorded in the runner folder, never the `-Repo` checkout (plan mode keeps working in
    the given checkout). In that worktree the runner makes a fresh branch `caddis/roadmap/<slug>/<plan>-p<n>` from
    `origin/<default>` (it refuses a branch of that name already on origin that it did not make) and ONE session runs

@@ -2250,7 +2250,7 @@ def _accept_command(
     unsafe = shared_checkout_reason(repo)
     if unsafe and not getattr(args, "allow_shared", False):
         print(f"refusing: the session checkout is not safe to fast-forward ({_printable(unsafe)}). "
-              "Run the programme from a worktree of origin/<default> under %TEMP% (git worktree add), "
+              "Run the programme from a worktree of origin/<default> (git worktree add; `caddis_worktree_root.py` prints the path, never %TEMP%), "
               "or pass --allow-shared to fast-forward here anyway")
         return EXIT_USAGE
     if unsafe:

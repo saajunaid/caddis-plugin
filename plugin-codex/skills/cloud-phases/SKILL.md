@@ -20,7 +20,7 @@ Two modes:
 - `/caddis:cloud-phases [plan] [phases]` — **dispatch**: Steps 1–6.
 - `/caddis:cloud-phases intake` — **intake**: Step 7, after the owner has run the sessions.
 
-With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_todo.py" active-plan`,
+With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_todo.py" active-plan`,
 or the one `status: current` plan in `.caddis/plans/`). If there is none, or more than one, ask.
 
 ## Step 0 — Is this checkout safe to move?
@@ -29,7 +29,7 @@ or the one `status: current` plan in `.caddis/plans/`). If there is none, or mor
 Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
 `stash`, `reset --hard`). Before the first of them, run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_checkout_guard.py" shared --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_checkout_guard.py" shared --root .
 ```
 It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
 `Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
@@ -37,10 +37,10 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
 
 - **On `SHARED: no`,** do the steps as written, in this checkout.
 - **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
-  - **Rebase:** `git worktree add --detach "$TEMP/<repo>-rebase" <branch>`, then
+  - **Rebase:** `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_worktree_root.py" rebase-<name>)" <branch>`, then
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
-    `git worktree add --detach "$TEMP/<repo>-<branch>" origin/<branch>` (for the default branch,
+    `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_worktree_root.py" test-<name>)" origin/<branch>` (for the default branch,
     `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
@@ -48,7 +48,9 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
     checkout has it out.
   - Remove each worktree you made when its step ends: `git worktree remove <worktree>`.
 
-`$TEMP` is `%TEMP%` (`$env:TEMP` in PowerShell). The caddis guard checks only the `Shared checkout: yes` line in
+`<name>` is the branch name with each `/` written as `-`. `caddis_worktree_root.py` prints the path of a new worktree:
+`$CADDIS_WORKTREE_ROOT/<repo>/<short-name>`, else `<parent of the main checkout>/.worktrees/<repo>/<short-name>`. Never `%TEMP%`: Windows
+cleanup can empty it. The caddis guard checks only the `Shared checkout: yes` line in
 `AGENTS.md`, not a dirty tree: with that line, it asks before a tree move, and denies it in a headless session.
 <!-- /checkout-safety -->
 
@@ -186,7 +188,7 @@ For each PR from a `<prefix>/phase-<NN>` branch, one at a time:
 1. Read the whole diff (`gh pr diff <N>`). Check it against the phase's Design and Touches. A file
    outside Touches is a finding.
 2. Wait for CI outside the session:
-   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.148/scripts/caddis_lanes.py" ci-watch --pr <N>`. Only `RESULT: pass`
+   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_lanes.py" ci-watch --pr <N>`. Only `RESULT: pass`
    counts; `HEAD:` names the watched head. A `gh pr checks` table is not proof: it can show an older
    head's checks.
 3. Review under the three rules (rule 3, review by tier): stop at the first CLEAN; after 3 rounds,
