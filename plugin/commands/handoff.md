@@ -73,12 +73,12 @@ move for a fleet that mixes caddis versions, and each always reports
 | 9 | `usage-record` | Step 6b: `session_state.py usage` | runs |
 | 10 | `tidy-apply` | Step 4: `caddis_tidy.py --apply` | `skipped: shared checkout` |
 | 11 | `state-prune` | Step 6b: `session_state.py prune` | `skipped: shared checkout` |
-| 12 | `prune-list` | Step 6b: `caddis_tidy.py --prune`, list only | runs (lists, never applies) |
+| 12 | `prune-list` | Step 6b: `caddis_tidy.py --prune --temp`, list only | runs (lists, never applies) |
 | 13 | `handover-check` | Step 5 | runs |
 | 14 | `own-cleanup` | Step 6d: `caddis_created.py cleanup --apply` removes this session's merged, clean worktrees and scratch folders; lists the rest with a reason | runs (only this session's recorded worktrees and scratch) |
 
 `tidy-apply` and `state-prune` run only on `SHARED: no`. Handoff never runs
-`caddis_tidy.py --prune --apply` on its own, in any checkout; only the user can ask for it (Step 6b). In a
+`caddis_tidy.py --prune --apply` on its own, in any checkout (nor `--prune --temp --apply`); only the user can ask for it (Step 6b). In a
 shared checkout the report also lists every tracked file Step 1 changed, under `Docs PR needed:`.
 
 ## Step 1 — capture learnings FIRST (knowledge-transfer)
@@ -317,11 +317,14 @@ shared checkout (Step 0). Include the
 
 Then list old local state (falls back to `scripts/caddis_tidy.py`; skip if missing):
 ```
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --prune
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --prune --temp
 ```
 It only lists: session-state files older than 7 days, logs over 5 MB to rotate, and (report
-only, never deleted) orphan `.lock` files and lane worktrees older than 7 days. Include its report. **Never
-add `--apply` yourself**; deleting is the user's choice. If they ask, run `--prune --apply`.
+only, never deleted) orphan `.lock` files and lane worktrees older than 7 days. `--temp` adds the temp
+folder: scratchpads under `<temp>/claude/` of ended sessions older than 7 days, and old folders that start
+with a prefix caddis itself makes (each with its size and age). A folder with a link or a `.git` in it, or one a
+live session may use, is kept and listed with the reason. Include its report. **Never add `--apply`
+yourself**; deleting is the user's choice. If they ask, run `--prune --temp --apply`.
 
 ## Step 6c — KB index and standing violations
 Both scripts fall back to `claude-harness/scripts/check_doc_coverage.py` and `scripts/caddis_tidy.py` in a
@@ -424,11 +427,18 @@ Session: <session name> (<session id>)
 Workstream: <name>
 <the resume prompt, in a fenced block>
 Start line:
-claude --name <role>-<MMDD>-<HH> '<the resume prompt on one line>'
+claude --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
 ```
+- **The announce sentence.** In a normal handoff the one-line start line also ends with a sentence that tells
+  the new session to run `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send
+  each named live peer in the same repo (the checkout and its worktrees) one `SendMessage`:
+  `<name> started in <folder>: <next action>. No reply needed.` The fenced block stays the relay's text. A
+  session that pastes the block, not the start line, announces nothing. The script path is written out in the
+  sentence, because a new session cannot expand `${CLAUDE_PLUGIN_ROOT}`.
 - **Fleet close.** When this handoff runs because a peer sent `FLEET CLOSE from <coordinator>`, add
   `--fleet`. The Start line is then `Start line: from the restart sheet`: the restart sheet is the only
-  start line in a fleet close. The `FLEET-ACK` reply is a separate message and does not change.
+  start line in a fleet close, and `/caddis:fleet-open` already greets the peers, so it has no announce
+  sentence. The `FLEET-ACK` reply is a separate message and does not change.
 - **Exit 1** (no `## Resume prompt` block, or no relay) prints nothing on stdout. The handoff is not
   complete: fix the relay (Step 3, point 5) and run the command again. Never write the block by hand.
 - Workstream with no `whoami` record: the new name uses the workstream name as its role. Pass

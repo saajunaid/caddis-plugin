@@ -53,6 +53,8 @@ Usage:
                                                  # this range changed (what /ship-pr runs)
   python scripts/caddis_tidy.py --prune          # list old local state that could be deleted
   python scripts/caddis_tidy.py --prune --apply  # delete it (the user's choice, never automatic)
+  python scripts/caddis_tidy.py --prune --temp   # also list old scratchpads and caddis test folders in the
+                                                 # temp folder (scripts/caddis_temp_prune.py); --apply deletes
 """
 
 from __future__ import annotations
@@ -1097,13 +1099,14 @@ def prune(root: Path, *, apply: bool = False, now: float | None = None) -> Prune
     return report
 
 
-def _print_prune(root: Path, report: PruneReport, apply: bool) -> int:
+def _print_prune(root: Path, report: PruneReport, apply: bool, temp: bool = False) -> int:
     def rel(p: Path) -> str:
         return p.relative_to(root).as_posix()
 
     print(f"[caddis_tidy] mode=PRUNE-{'APPLY' if apply else 'LIST'} root={root}")
     if report.refused:
-        print(f"  REFUSED: {report.refused} Nothing was listed or deleted.")
+        # With --temp the repo part is only one half; the caller still runs the temp part.
+        print(f"  REFUSED: {report.refused} Nothing was listed or deleted" + (" under .caddis." if temp else "."))
         return 1
     for p in (report.deleted if apply else report.delete):
         print(f"  {'deleted' if apply else 'would delete'} (session state older than 7 days): "
@@ -1120,11 +1123,12 @@ def _print_prune(root: Path, report: PruneReport, apply: bool) -> int:
         print(f"  NOTE: {note}")
     for msg in report.errors:
         print(f"  ERROR: {msg}")
+    flags = "--prune --temp --apply" if temp else "--prune --apply"
     if not apply and (report.delete or report.rotate):
-        print("  Run `caddis_tidy.py --prune --apply` to delete these. That is the user's choice.")
+        print(f"  Run `caddis_tidy.py {flags}` to delete these. That is the user's choice.")
     elif not (report.delete or report.rotate or report.old_worktrees or report.orphan_locks
               or report.notes or report.errors):
-        print("  nothing to prune.")
+        print("  nothing to prune" + (" under .caddis." if temp else "."))
     return 1 if report.errors else 0
 
 
@@ -1145,6 +1149,12 @@ def main(argv: list[str] | None = None) -> int:
                          "else is moved or stamped")
     ap.add_argument("--prune", action="store_true",
                     help="list old local state under .caddis/ (with --apply: delete it)")
+    ap.add_argument("--temp", action="store_true",
+                    help="with --prune: also list scratchpads of ended sessions and caddis test folders "
+                         "in the temp folder, older than 7 days (with --apply: delete them)")
+    ap.add_argument("--verbose", action="store_true",
+                    help="with --temp: list every folder and note (default: totals, the 10 largest, "
+                         "kept notes grouped by reason)")
     args = ap.parse_args(argv)
     # A status or path the console cannot encode prints as `?`, never a crash (a cp1252 pipe).
     for stream in (sys.stdout, sys.stderr):
@@ -1154,10 +1164,27 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     repo_root = Path(args.repo_root).resolve()
+    if args.temp and not args.prune:
+        ap.error("--temp only works together with --prune")
+    if args.verbose and not args.temp:
+        ap.error("--verbose only works together with --temp")
     if args.prune:
         if args.check or args.commit_range or args.only:
             ap.error("--prune runs alone: not with --check, --commit-range or --only")
-        return _print_prune(repo_root, prune(repo_root, apply=args.apply), args.apply)
+        repo_part = prune(repo_root, apply=args.apply)
+        code = _print_prune(repo_root, repo_part, args.apply, temp=args.temp)
+        if not args.temp:
+            return code
+        # The temp folder has nothing to do with the repo: a repo that prune refuses (not a git work tree)
+        # or one with no .caddis must not block it, and a refusal here is not a failure of the temp part.
+        if repo_part.refused:
+            code = 0
+        import caddis_temp_prune  # ships beside this file
+        temp_part = caddis_temp_prune.prune_temp(apply=args.apply, max_age_s=PRUNE_MAX_AGE_S)
+        print(f"[caddis_tidy] mode=PRUNE-TEMP-{'APPLY' if args.apply else 'LIST'}")
+        for line in caddis_temp_prune.format_report(temp_part, args.apply, args.verbose):
+            print(line)
+        return 1 if (code or temp_part.errors) else 0
     if args.only and args.check:
         ap.error("--only is for --apply (or its dry run), not --check")
     report = tidy(repo_root, apply=args.apply, check=args.check, commit_range=args.commit_range,

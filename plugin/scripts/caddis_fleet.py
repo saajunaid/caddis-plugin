@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -332,6 +333,78 @@ def whoami(session_id: str, name: str, root: Path) -> Path:
     return out
 
 
+# ---- live peers -------------------------------------------------------------------------------
+
+# The same rule as `inject_relay._live_peers` (the SessionStart hook cannot be imported: it runs at import).
+# test_peers_apply_the_same_liveness_rule_as_the_session_start_hook runs the hook's own source to keep them equal.
+PEER_FRESH_S = 1800
+
+
+def _slug(session_id: str) -> str:
+    return "".join(c for c in session_id if c.isalnum() or c in "-_")[:64]
+
+
+def _worktree_roots(root: Path) -> list[Path]:
+    """`root` plus every worktree of its repo: a session in a linked worktree writes its state there, not in the main
+    checkout, so a repo-wide scan reads each one. Not a git repo (or no git): just `root`."""
+    roots = [root]
+    proc = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"], capture_output=True,
+                          text=True, encoding="utf-8", errors="replace")
+    if proc.returncode == 0:
+        for line in proc.stdout.splitlines():
+            if line.startswith("worktree "):
+                path = Path(line[len("worktree "):].strip())
+                if path not in roots and path.resolve() != root:
+                    roots.append(path)
+    return roots
+
+
+def _peer_name(base: Path, sid: str) -> str:
+    try:
+        return (base / f"{sid}.name").read_text(encoding="utf-8").split("\n", 1)[0].split("\t")[0].strip() or "-"
+    except (OSError, UnicodeDecodeError):
+        return "-"
+
+
+def live_peers(session_id: str, root: Path, now: float | None = None) -> list[tuple[str, str, int]]:
+    """[(name, session id, seconds since its state file was written)] for the OTHER live local sessions in this repo
+    (the checkout and its worktrees), freshest first. The name is `-` when that session never ran `whoami`.
+
+    Live: a `<sid>.md` state file written within PEER_FRESH_S, with no newer `<sid>.ended` marker (a resumed session
+    rewrites its state, which is newer than the marker). A cloud or offline session writes no state here.
+    """
+    now = time.time() if now is None else now
+    own = _slug(session_id)
+    found: dict[str, tuple[str, int]] = {}
+    for wt in _worktree_roots(root):
+        try:
+            from claudster_config import artifact_root
+            base = Path(artifact_root(str(wt))) / "session-state"
+        except Exception:
+            base = wt / ".caddis" / "session-state"
+        try:
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for fname in names:
+            sid = fname[:-3]
+            if not fname.endswith(".md") or (own and sid == own):
+                continue
+            try:
+                mtime = (base / fname).stat().st_mtime
+            except OSError:
+                continue
+            age = int(now - mtime)
+            try:
+                if (base / f"{sid}.ended").stat().st_mtime >= mtime:
+                    continue
+            except OSError:
+                pass
+            if 0 <= age <= PEER_FRESH_S and (sid not in found or age < found[sid][1]):
+                found[sid] = (_peer_name(base, sid), age)
+    return sorted(((name, sid, age) for sid, (name, age) in found.items()), key=lambda p: p[2])
+
+
 # ---- resume block -----------------------------------------------------------------------------
 
 class ResumeError(ValueError):
@@ -375,15 +448,39 @@ def shell_arg(text: str) -> str:
     return "'" + one_line.replace("'", "’").replace('"', "”") + "'"
 
 
+ANNOUNCE_ID = "<your session id>"
+
+
+def announce_text(script: Path, name: str, folder: str) -> str:
+    """The sentence the start line adds, so the resumed session names itself and tells its live peers once.
+
+    A new session cannot expand `${CLAUDE_PLUGIN_ROOT}`, so the script path is this script's own, written out. It
+    holds no quote or double quote (`shell_arg` would change them). A peer without a name (`-`) is not messaged."""
+    py = f"python {script.as_posix()}"
+    return (f"Then announce yourself once. Run `{py} whoami --session-id {ANNOUNCE_ID} --name {name} --root .` and "
+            f"`{py} peers --session-id {ANNOUNCE_ID} --root .` (your session id is printed at session start). "
+            f"Send each peer that has a name (not `-`) one SendMessage: "
+            f"`{name} started in {folder}: <next action>. No reply needed.` Send nothing else, and do not answer "
+            f"a reply. If the script is missing or lists no peer, skip this.")
+
+
 def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
-                  fleet_mode: bool = False) -> str:
-    """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line."""
+                  fleet_mode: bool = False, announce_script: Path | None = None, folder: str = "") -> str:
+    """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line.
+
+    With `announce_script`, the start line (not the fenced block, which stays the relay's text) ends with the
+    whoami + announce sentence: the start line is what the new session receives with its name."""
+    shown = prompt  # the fenced block stays the relay text
     if fleet_mode:
         start = "Start line: from the restart sheet"
     else:
-        start = f"Start line:\nclaude --name {new_name(role, stamp)} {shell_arg(prompt)}"
+        name = new_name(role, stamp)
+        if announce_script is not None:
+            prompt = f"{prompt}\n{announce_text(announce_script, name, folder)}"
+        start = f"Start line:\nclaude --name {name} {shell_arg(prompt)}"
     return (f"=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
-            f"{_fenced(prompt)}\n{start}\n")
+            f"{_fenced(shown)}\n{start}\n")
+
 
 # ---- CLI --------------------------------------------------------------------------------------
 
@@ -416,7 +513,8 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
     if not _SAFE_NAME.match(role):  # the role goes unquoted into the start line
         sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
         return caddis_exit.BLOCKED
-    print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet), end="")
+    print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet,
+                        Path(__file__).resolve(), root.name), end="")
     return caddis_exit.CLEAN
 
 
@@ -445,6 +543,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("whoami", help="record this session's name, repo root and branch")
     p.add_argument("--session-id", required=True)
     p.add_argument("--name", required=True)
+    p.add_argument("--root", default=".", type=Path)
+    p = sub.add_parser("peers", help="the other live local sessions in this repo: <name> TAB <session id> TAB <age s>")
+    p.add_argument("--session-id", required=True, help="this session's id (never listed)")
     p.add_argument("--root", default=".", type=Path)
     p = sub.add_parser("resume-block", help="print the session name and the relay's resume prompt (last step of handoff)")
     p.add_argument("--name", required=True, help="the relay's workstream name")
@@ -520,6 +621,10 @@ def main(argv: list[str] | None = None) -> int:
         return caddis_exit.CLEAN
     if args.cmd == "resume-block":
         return _resume_block_cli(args)
+    if args.cmd == "peers":
+        for peer_name, sid, age in live_peers(args.session_id, args.root.resolve()):
+            print(f"{peer_name}	{sid}	{age}")
+        return caddis_exit.CLEAN
     # whoami
     try:
         out = whoami(args.session_id, args.name, args.root.resolve())
