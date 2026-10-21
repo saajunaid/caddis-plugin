@@ -47,7 +47,7 @@ Keep it short enough to read at a glance. Roughly:
 - **Uncommitted work**, if `git status` is dirty — this is the thing most likely to be lost, and
   the state file does not track it. Check it; do not assume clean.
 - **The roadmap page**, when the repo has a roadmap (`.caddis/roadmaps/`): re-render it with
-  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_roadmap.py" render --all` (best effort) and give the path it prints
+  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_roadmap.py" render --all` (best effort) and give the path it prints
   (`~/.caddis/roadmap-pages/<repo>/<slug>.html`); it shows every session waiting for the owner. The hub of every
   repo on this machine is `~/.caddis/roadmap-pages/index.html`.
 
@@ -70,34 +70,40 @@ on is worse than one sentence admitting there is nothing to recap.
 
 ## Workstreams and open work
 
+Open items live in three stores (the 3-store model): this session's tasks (saved at handoff to
+`.caddis/relay/<name>.tasks.md`), the open parking-lot items (`/caddis:park`), and the roadmap and the plan
+Tracker for the order of work. Catchup reads those three and nothing else.
+
 **No argument:** this is the last step of the catchup procedure above, not a separate one.
 After the list, add the workstream index and the open work:
 0. The roadmap on origin is the order of work. List the roadmaps, then show each one's status line:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_roadmap.py" list
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_roadmap.py" status --roadmap <slug>
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_roadmap.py" list
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_roadmap.py" status --roadmap <slug>
    ```
    Run `caddis_roadmap.py list`, then `caddis_roadmap.py status --roadmap <slug>` for each slug it prints, and
    show the `line`. If `list` prints nothing (exit 1), the repo has no roadmap: go on to step 1.
-1. Refresh and show the index: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" render-index`,
+1. Refresh and show the index: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" render-index`,
    then display `.caddis/relay.md`. If it refuses a legacy `.caddis/relay.md`, display that file
    as it is and suggest `/handoff`, which migrates it.
-2. Show open work for the current workstream:
-   ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_todo.py" open-work
-   ```
+2. Show the open parking-lot items, the durable backlog: follow `/caddis:park list` (List mode). Print its table
+   and its counts; if the repo has no `.caddis/parking-lot/`, say `No parking-lot items.` and go on.
 Before saying `Nothing is parked.`, check for an old `/digress` stack: if `.caddis/workstreams.json`
 exists, run `caddis_workstreams.py migrate-legacy` (it keeps a backup and reports conflicts
 instead of overwriting), then show the index again. Only with no relays and no old stack, state:
 `Nothing is parked.`
 
 **Named load** (`/catchup <name>`):
-1. Load it: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" read <name>`.
+1. Load it: `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" read <name>`.
 2. If it prints nothing, the relay may be on another machine. Ask before fetching, then run
-   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_relay_git.py" fetch <name>`. It reads only
+   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_relay_git.py" fetch <name>`. It reads only
    `refs/caddis/relay/<name>`, never checks out or merges, and refuses to replace a different local
    relay. Pass `--replace` only if the user confirms the local one may be overwritten.
-3. Restate where you were and resume the workstream.
+3. Load the saved tasks, the same way `/caddis:fleet-open` does: if `.caddis/relay/<name>.tasks.md` exists (table
+   `| Old # | Status | Subject |`), make one `TaskCreate` per row with the Subject as its subject, then a
+   `TaskUpdate` to `in_progress` for each row with Status `in_progress`. No file means 0 tasks. If this session
+   already holds tasks (`TaskList`), do not create a row whose subject is already there. Count them.
+4. Restate where you were and resume the workstream; name the number of tasks you loaded.
 
 ## Rules
 - **Never** run a destructive or history-rewriting git action (no `git checkout`, `git reset`, `git stash`,

@@ -375,7 +375,7 @@ A `risk: high` phase gets two independent review runs: run by the roadmap/plan r
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always.** Add one open-work row for the plan in `.caddis/open-work.md`. Set its cells with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_rows.py" set --file <open-work.md> --id <row id> --col Status=todo`, never with a regex edit.
+**Trigger: Always.** The plan's own Tracker is its row of record: give every phase one Tracker row, and when the repo has a roadmap (`caddis_roadmap.py list` prints a slug), name the plan in a roadmap milestone through `/caddis:roadmap` (a docs PR). Work the plan defers on purpose goes to a parking-lot item with `/caddis:park`, and its Tracker row names the file. Open items live in three stores (the 3-store model): the session task list, parking-lot items, and the roadmap and Tracker. The older to-do and repo-backlog stores are retired: do not create them.
 
 **Trigger: The plan records a decision.** Record it with `/caddis:decide`.
 

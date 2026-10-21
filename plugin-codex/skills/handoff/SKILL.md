@@ -20,30 +20,29 @@ them into its commit, so check first, before Step 1.
    No state file or no list means an empty file.
 2. Run:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_checkout_guard.py" shared --root . --own-files <temp-file>
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_checkout_guard.py" shared --root . --own-files <temp-file>
    ```
    It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the root `AGENTS.md`
    has a line `Shared checkout: yes`, or when `git status` lists a path this session did not change.
 3. **On `SHARED: no`,** do the steps below as written.
 4. **On `SHARED: yes`,** write NO tracked file in this checkout. Run:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_docs_pr.py" start --repo .
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_docs_pr.py" start --repo .
    ```
    It makes a new worktree from `origin/<default>` on a `docs/handoff-<utc>` branch and prints
    `WORKTREE: <path>`. That worktree is this session's only; no other session's edits can enter it.
    Then, in the steps below:
    - Step 1: tell the `knowledge-transfer` subagent to edit files ONLY under the `WORKTREE:` path.
-   - Step 3, point 4: run `caddis_rows.py set --file <worktree>/.caddis/open-work.md ...`, and make the
-     plan's Tracker edit in `<worktree>/.caddis/plans/<feature>.md`, not in this checkout.
+   - Step 3, point 4: make the plan's Tracker edit in `<worktree>/.caddis/plans/<feature>.md`, and write
+     any new parking-lot item under `<worktree>/.caddis/parking-lot/`, not in this checkout.
    - Step 4: skip `caddis_tidy.py --apply` (report `skipped: shared checkout`).
-   - Step 6: skip `caddis_todo.py reconcile` (report `skipped: shared checkout`; it writes tracked
-     `.caddis/todo-list/` files and has no worktree option).
+   - Step 6: retired; nothing to skip (row 8 reports `skipped: retired (see the 3-store model)`).
    - Step 6b: skip `session_state.py prune` (report `skipped: shared checkout`).
    - Step 6c: run `--reindex` in the worktree (it edits the tracked `DOC-MAP.md`).
    - The relay stays in this checkout: `.caddis/relay/` is local and gitignored.
    After Step 6c, run:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_docs_pr.py" finish --worktree <path> --title "docs(handoff): <name> session notes" --body "Handoff doc edits from a shared checkout."
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_docs_pr.py" finish --worktree <path> --title "docs(handoff): <name> session notes" --body "Handoff doc edits from a shared checkout."
    ```
    It commits only the worktree's changed files, pushes, opens a PR, and prints `PR: <url>` and one
    `FILE: <path>` line per file (or `PR: none` when nothing changed). It always removes the worktree, and
@@ -53,24 +52,27 @@ them into its commit, so check first, before Step 1.
 ## Checklist
 The handoff is a fixed checklist. Every row ends as `done`, `skipped: <reason>` or `failed: <error>`, and
 Step 8 prints all 13 in this order. Never drop a row from the report, even when its step did not apply.
+Rows 3 and 8 are retired (the 3-store model, 21 Oct 2026): they stay in the list so the row numbers and the
+13-row report do not move for a fleet that mixes caddis versions, and each always reports
+`skipped: retired (see the 3-store model)`. A later release removes them with their scripts.
 
 | # | Row | What it is | Shared checkout (Step 0) |
 |---|---|---|---|
 | 1 | `knowledge-transfer` | Step 1 | edits only in the Step 0 worktree |
 | 2 | `plan-tracker` | the plan's Tracker row (Rules) | edit in the Step 0 worktree |
-| 3 | `open-work-row` | Step 3, point 4: `caddis_rows.py set` | `--file <worktree>/...` |
+| 3 | `open-work-row` | retired: always `skipped: retired (see the 3-store model)` | never runs |
 | 4 | `relay` | Step 3: the relay, written from scratch with current state only | the relay is local; runs |
 | 5 | `tasks-file` | Step 3c | runs |
 | 6 | `kb-index` | Step 6c: refresh the KB index | in the Step 0 worktree |
 | 7 | `violations-report` | Step 6c: report standing violations, each with a one-line fix command | runs (report only) |
-| 8 | `todo-reconcile` | Step 6: `caddis_todo.py reconcile` | `skipped: shared checkout` |
+| 8 | `todo-reconcile` | retired: always `skipped: retired (see the 3-store model)` | never runs |
 | 9 | `usage-record` | Step 6b: `session_state.py usage` | runs |
 | 10 | `tidy-apply` | Step 4: `caddis_tidy.py --apply` | `skipped: shared checkout` |
 | 11 | `state-prune` | Step 6b: `session_state.py prune` | `skipped: shared checkout` |
 | 12 | `prune-list` | Step 6b: `caddis_tidy.py --prune`, list only | runs (lists, never applies) |
 | 13 | `handover-check` | Step 5 | runs |
 
-`tidy-apply`, `state-prune` and `todo-reconcile` run only on `SHARED: no`. Handoff never runs
+`tidy-apply` and `state-prune` run only on `SHARED: no`. Handoff never runs
 `caddis_tidy.py --prune --apply` on its own, in any checkout; only the user can ask for it (Step 6b). In a
 shared checkout the report also lists every tracked file Step 1 changed, under `Docs PR needed:`.
 
@@ -92,7 +94,7 @@ is to run it.
 git status --short
 git branch --show-current
 git log --oneline -5
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_inventory.py"          # what EXISTS — do not compose this from memory
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_inventory.py"          # what EXISTS — do not compose this from memory
 ```
 Then read the active plan in `.caddis/plans/` (falling back to legacy `.github/plans/` if present) and its tracker.
 
@@ -148,8 +150,8 @@ history, and the relay has a 4,000-character budget (`caddis_budget.py`).
 > `session_id` and `--session-id`. Never guess one: a wrong id disables session matching.
 >
 > 1. **Name the workstream** (active plan's `feature`, else the branch; the script prints nothing
->    on the default branch with no plan — run `caddis_workstreams.py list` (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" list`) to show existing workstreams, then ask the user which one to use or for a short name):
->    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
+>    on the default branch with no plan — run `caddis_workstreams.py list` (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" list`) to show existing workstreams, then ask the user which one to use or for a short name):
+>    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
 > 2. **Legacy repo:** if `.caddis/relay.md` exists and does not start with
 >    `<!-- caddis-workstream-index-v1 -->`, or an old `/digress` stack `.caddis/workstreams.json`
 >    exists, run `caddis_workstreams.py migrate-legacy` once first.
@@ -157,21 +159,25 @@ history, and the relay has a 4,000-character budget (`caddis_budget.py`).
 >    to the user and stop.
 > 3. **Read the stored version's hash** before you compose: `caddis_workstreams.py hash <name>`
 >    (prints `none` for a new workstream).
-> 4. **Open-work rows** (only when `.caddis/open-work.md` exists and its frontmatter says
->    `type: open-work`): first set each row this session
->    finished, by id and column name, never by hand:
->    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_rows.py" set --file .caddis/open-work.md --id <row id> --col Status=done --col Evidence=<evidence>`.
->    In a shared checkout (Step 0), use `--file <worktree>/.caddis/open-work.md` instead.
->    When the file is missing or has no `type: open-work` frontmatter, report row 3 exactly as
->    `skipped: no open-work.md with type: open-work (session tasks are saved by row 5)`, or, for a
->    file without the frontmatter, `skipped: open-work.md has no type: open-work frontmatter (session
->    tasks are saved by row 5)`. open-work.md is a repo backlog; this session's own tasks go to row 5.
+> 4. **Place every open item in its store (the 3-store model).** An open item lives in the store that
+>    matches how long it lives:
+>    - **This session's own tasks:** the native task list. Step 3c saves it to
+>      `.caddis/relay/<name>.tasks.md`, a snapshot that the next handoff replaces. It is never a backlog.
+>    - **An item that must outlive the next handoff** (an owner decision, deferred work, a watch item):
+>      file it with `/caddis:park`, once, and name its slug in the relay's `## Open questions / blockers`.
+>      Park only work we will do later (`park.md` Step 1). A parking-lot file is tracked, so in a shared
+>      checkout (Step 0) write it in the Step 0 worktree.
+>    - **The order of work:** the plan Tracker and the roadmap (below). Set the Tracker row of each phase this
+>      session finished (Rules).
+>    Row 3 (`open-work-row`) is retired: report it exactly as `skipped: retired (see the 3-store model)`.
+>    The `.caddis/open-work.md` and `.caddis/todo-list/` stores are retired. Never write them. A repo that
+>    still holds an old file keeps it as its own document; caddis no longer reads or writes it.
 >    **Order of work:** when the repo has a roadmap (`caddis_roadmap.py list` prints a slug), the
 >    roadmap on origin is the order of work. Write the relay's "Next step (exact)" as
 >    `next: top open item of roadmap <slug> (caddis_roadmap.py status --roadmap <slug>)`. Never copy a
 >    list of open items into the relay.
 > 5. **Write** the relay below to a temp file, then
->    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" put <name> <temp-file> --require-status --expected-hash <hash>`.
+>    `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" put <name> <temp-file> --require-status --expected-hash <hash>`.
 >    It refuses a relay whose last line is not a valid status line (see "Programme triggers" below).
 >    Exit 1 also means another session changed the relay since step 3: it prints the diff and writes
 >    nothing. Show the diff, merge by hand, and retry with the new hash. Never force it.
@@ -213,7 +219,8 @@ Paths are relative to the repo root.
 <Commands run this session and their result: pass / fail / not-run. Be honest.>
 
 ## Open questions / blockers
-<Decisions needed, ambiguities, anything unverified. "None" if truly none.>
+<Decisions needed, ambiguities, anything unverified. "None" if truly none. An item that must outlive the
+next handoff is filed with `/caddis:park`: name its slug here, never copy its text.>
 
 ## Learnings captured
 knowledge-transfer: <✓ ran → files written | ✗ skipped → reason>
@@ -232,13 +239,13 @@ STATUS: <CONTINUE | OWNER-GATE <P>-OG<n> | BLOCKED <owner> | FAILED <reason>>
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always.** The relay ends with a status line, the last non-empty line, and it is exactly one of `STATUS: CONTINUE`, `STATUS: OWNER-GATE <P>-OG<n>`, `STATUS: BLOCKED <owner>` or `STATUS: FAILED <reason>`. In Step 3, point 5, write the relay with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" put <name> <temp-file> --require-status --expected-hash <hash>` instead of `write` (in short: put --require-status), with the same hash Step 3 read, so a peer's newer relay is never overwritten. It rejects a relay with no valid status line, and renders the index. When the repo has `.caddis/open-work.md` with `type: open-work` in its frontmatter, also set each open-work row's status with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_rows.py" set --file <open-work.md> --id <row id> --col Status=<status>` (in a shared checkout, the copy in the Step 0 worktree). When the status is `done`, also pass `--col Evidence=<commit, PR or test>`: caddis_rows.py refuses `done` with no Evidence.
+**Trigger: Always.** The relay ends with a status line, the last non-empty line, and it is exactly one of `STATUS: CONTINUE`, `STATUS: OWNER-GATE <P>-OG<n>`, `STATUS: BLOCKED <owner>` or `STATUS: FAILED <reason>`. In Step 3, point 5, write the relay with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" put <name> <temp-file> --require-status --expected-hash <hash>` instead of `write` (in short: put --require-status), with the same hash Step 3 read, so a peer's newer relay is never overwritten. It rejects a relay with no valid status line, and renders the index.
 
 ## Step 3c - Save the open tasks
 The task list dies with the session unless it is saved. Write this session's open tasks beside
 the relay:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/session_state.py" tasks-file --session-id <session-id> --relay <name> --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/session_state.py" tasks-file --session-id <session-id> --relay <name> --root .
 ```
 It reads the `## Tasks` table of `.caddis/session-state/<session-id>.md`, keeps the rows that are
 not `done` or `deleted`, and prints `[TASKS] <n> open task(s) -> <path>` or `[TASKS] none open`
@@ -254,7 +261,7 @@ finished it — that is your judgment call; the script below never makes it and 
 status. In a shared checkout (Step 0), make the `status:` flip in the Step 0 worktree copy of the plan,
 never in this checkout. Then run (skip it in a shared checkout, Step 0: it moves tracked files):
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_tidy.py" --apply
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_tidy.py" --apply
 ```
 (falls back to `scripts/caddis_tidy.py` from a source checkout). **If the script is missing,
 skip this step** — it degrades open, same as the other machine gates; an older install must not
@@ -262,16 +269,16 @@ be blocked by a script it does not have. Include its report in your output. A **
 (`done/<name>` already exists) is reported by the script, not fatal — surface it, do not fail the
 handoff over it. Exit 2 means a plan is held because its Tracker still has open rows (`held (open Tracker rows): ...` lines, from Phase 3): show those lines; finish, park (`.caddis/parking-lot/<file>.md` in the row) or mark the rows `dropped: <reason>`, or set the plan status back. Do not fail the handoff over it.
 
-After step 4, for each item this session closed (a phase `<plan>#<n>`, a plan slug, or an open-work row id), run `mentions` to check whether another relay's Next step still names it:
+After step 4, for each item this session closed (a phase `<plan>#<n>`, a plan slug, or a parking-lot slug), run `mentions` to check whether another relay's Next step still names it:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_workstreams.py" mentions --item "<item>" --except <name>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_workstreams.py" mentions --item "<item>" --except <name>
 ```
 Print a `WARNING:` line per hit (`WARNING: relay <other> still names closed item <item> in its Next step`). Never edit another workstream's relay (`caddis_workstreams.py mentions` only reads).
 
 ## Step 5 — check the handover you just wrote
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_gate.py" handover-check --doc .caddis/relay/<name>.md --max-chars 4000
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_gate.py" handover-check --doc .caddis/relay/<name>.md --max-chars 4000
 ```
 (falls back to `scripts/caddis_gate.py` in a source checkout; degrades open when the script is
 missing.) **Run it in the repo the handover is about** — a handover describing another repo will
@@ -284,19 +291,17 @@ incoming session looking for a prompt that was never written. Fix what it lists,
 It also notes any generated artefact committed before its generator last changed. That is advisory,
 not blocking — but do not quote a report the note names without rebuilding it first.
 
-## Step 6 — reconcile task rows from session-state
-Run task reconciliation against the newest session-state file:
-```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_todo.py" reconcile --session-state .caddis/session-state/<session-id>.md
-```
-This marks ad-hoc to-do items done by metadata ID; it never edits the Tracker and ignores phase rows.
+## Step 6 — retired (task reconcile)
+This step is retired. It used to reconcile the `todo-list/` store, which is retired too (the 3-store model),
+so the step does nothing: do not run any script for it. Report row 8 (`todo-reconcile`) as
+`skipped: retired (see the 3-store model)`. The script stays in place for older installs only.
 
 ## Step 6b — record usage and tidy session state
 The Stop hook only writes the session-state file. These two used to run on every turn; they run
 here, once:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/session_state.py" usage --session-id <session-id>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/session_state.py" prune
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/session_state.py" usage --session-id <session-id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/session_state.py" prune
 ```
 `usage` finds this session's transcript by its id and appends one token-and-skill record to
 `.caddis/usage-log.jsonl`, which `/usage-review` reads. Pass `--transcript <path>` if you know the
@@ -307,7 +312,7 @@ shared checkout (Step 0). Include the
 
 Then list old local state (falls back to `scripts/caddis_tidy.py`; skip if missing):
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_tidy.py" --prune
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_tidy.py" --prune
 ```
 It only lists: session-state files older than 7 days, logs over 5 MB to rotate, and (report
 only, never deleted) orphan `.lock` files and lane worktrees older than 7 days. Include its report. **Never
@@ -320,13 +325,13 @@ source checkout; a script that is missing is `skipped: <script> not installed`.
 Checklist row 6, `kb-index` (in a shared checkout, run it in the Step 0 worktree, before the Step 0
 `finish`; it edits `DOC-MAP.md`):
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/check_doc_coverage.py" --reindex
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/check_doc_coverage.py" --reindex
 ```
 Checklist row 7, `violations-report` (all three only report; never fix files here):
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_tidy.py" --check
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/check_doc_coverage.py"
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_budget.py" check --root . --report
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_tidy.py" --check
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/check_doc_coverage.py"
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_budget.py" check --root . --report
 ```
 `caddis_budget.py` lists each handoff-grown file over its size budget (`OVER <path>: ...; fix: <rule>`); the
 `fix:` text is the one-line fix for that row.
@@ -338,7 +343,7 @@ not a failure of the handoff: the row is `done` when all three ran. If a script 
 Then, when the repo has a roadmap (`.caddis/roadmaps/`), re-render its page so phases built by hand show too
 (best effort, not a checklist row; it writes only under `~/.caddis/roadmap-pages/`, never in this checkout):
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_roadmap.py" render --all
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_roadmap.py" render --all
 ```
 
 ## Step 7 — push prompt (interactive only)
@@ -346,7 +351,7 @@ If this is an interactive session, ask the user every time — never reuse an ea
 `Push this note for another machine? (y/N)`
 Only on an explicit `y` in this session, run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_relay_git.py" push <name> --user-said-yes
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_relay_git.py" push <name> --user-said-yes
 ```
 It publishes only `.caddis/relay/<name>.md` to `refs/caddis/relay/<name>` — never the branch, the
 index or staged files — after the secret filter passes. Report its one-line result. Anything but
@@ -360,12 +365,12 @@ Print this block, every row filled with `done`, `skipped: <reason>` or `failed: 
 === HANDOFF CHECKLIST ===
 1 knowledge-transfer   done | skipped: <reason> | failed: <error>
 2 plan-tracker         <same three forms>
-3 open-work-row        <same three forms>
+3 open-work-row        skipped: retired (see the 3-store model)
 4 relay                <same three forms>
 5 tasks-file           <same three forms>
 6 kb-index             <same three forms>
 7 violations-report    <same three forms>
-8 todo-reconcile       <same three forms>
+8 todo-reconcile       skipped: retired (see the 3-store model)
 9 usage-record         <same three forms>
 10 tidy-apply          <same three forms>
 11 state-prune         <same three forms>
@@ -381,7 +386,7 @@ Step 9 prints after this report. It is the last output of the handoff.
 ## Step 9 — print the resume prompt (always the last output)
 The owner should never have to ask for the resume prompt. After the checklist report, run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" resume-block --name <name> --session-id <session-id> --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.152/scripts/caddis_fleet.py" resume-block --name <name> --session-id <session-id> --root .
 ```
 `<name>` is the workstream name from Step 3. It reads the relay's `## Resume prompt` block verbatim, and
 the session name (`session-state/<session-id>.name` when `whoami` wrote it, else the first 8 characters of

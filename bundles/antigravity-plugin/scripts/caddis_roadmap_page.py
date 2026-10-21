@@ -16,7 +16,8 @@ summary, now / next / later, gates and blockers, every milestone with its phase 
 The data is `status()` (roadmap.md and each plan's Tracker on origin), the plan headers (`### Phase <n> - <name>`,
 `**Model:**`, `**Lane:**`, `**Risk:**`), the runner's local lock and last stop, and the local session-state folder
 (`<sid>.waiting` markers from the Notification hook). No network, and one script only (id theme-toggle: the light/dark
-toggle, the hub's inbox reload, the phone menu and `aria-current`): collapsing uses `<details>`. Every text
+toggle, the hub's inbox reload, the phone menu, `aria-current`, the app bar crumbs and the search box): collapsing uses
+`<details>`. Icons are Lucide line icons from one inline sprite (`roadmap_assets/icons.svg`). Every text
 from the files is escaped: a plan, a relay or a hook message can hold any text.
 """
 from __future__ import annotations
@@ -218,9 +219,12 @@ def build(root: Path, slug: str, roadmap_mod, now: datetime.datetime | None = No
 # ---- rendering -------------------------------------------------------------------------------------------------
 
 # One colour set for every page: light = slate + blue, dark = Dracula (owner, 17 Oct): https://draculatheme.com/contribute
+# Dark uses the full official palette for text, borders, links, focus and status (owner, 21 Oct). Two tones are not
+# Dracula's own: --muted (#a4acd4, a lighter comment: #6272a4 is only ~3:1 on the background) and the tinted chip
+# backgrounds. A test checks every text/background pair the CSS uses against WCAG AA (CONTRAST_PAIRS).
 # Dark applies when the OS asks for it, unless the reader picked light; the toggle sets data-theme on <html>.
-_PALETTE_LIGHT = '--bg:#f4f6f9;--panel:#fff;--panel2:#f8fafc;--fg:#0f172a;--muted:#475569;--line:#e2e8f0;--line2:#cbd5e1;--accent:#2563eb;--todo-bg:#f1f5f9;--todo-fg:#334155;--prog:#2563eb;--prog-bg:#dbeafe;--prog-fg:#1d4ed8;--done:#16a34a;--done-bg:#dcfce7;--done-fg:#15803d;--block:#d97706;--block-bg:#fef3c7;--block-fg:#92400e;--high:#dc2626;--wait-bg:#fee2e2;--wait-fg:#b91c1c;--nav:#f8fafc;--nav-fg:#0f172a;--on-accent:#fff;--shadow:0 1px 3px rgba(15,23,42,.06);--title:var(--fg);--summary:var(--fg);--code:var(--fg);--c0:#2563eb;--c1:#7c3aed;--c2:#0d9488;--c3:#ea580c;--c4:#db2777;--c5:#475569;--sans:"Maple Mono","Segoe UI Variable","Segoe UI",system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;color-scheme:light;'
-_PALETTE_DARK = '--bg:#282a36;--panel:#21222c;--panel2:#343746;--fg:#f8f8f2;--muted:#6272a4;--line:#44475a;--line2:#6272a4;--accent:#8be9fd;--todo-bg:#44475a;--todo-fg:#f8f8f2;--prog:#bd93f9;--prog-bg:#3c3352;--prog-fg:#bd93f9;--done:#50fa7b;--done-bg:#2b4a36;--done-fg:#50fa7b;--block:#ffb86c;--block-bg:#4a3a2b;--block-fg:#ffb86c;--high:#ff5555;--wait-bg:#4a2b33;--wait-fg:#ff5555;--nav:#21222c;--nav-fg:#f8f8f2;--on-accent:#282a36;--shadow:none;--title:#bd93f9;--summary:#ff79c6;--code:#f1fa8c;--c0:#8be9fd;--c1:#bd93f9;--c2:#50fa7b;--c3:#ffb86c;--c4:#ff79c6;--c5:#6272a4;color-scheme:dark;'
+_PALETTE_LIGHT = '--bg:#f4f6f9;--panel:#fff;--panel2:#f8fafc;--fg:#0f172a;--muted:#475569;--line:#e2e8f0;--line2:#cbd5e1;--accent:#2563eb;--todo-bg:#f1f5f9;--todo-fg:#334155;--prog:#2563eb;--prog-bg:#dbeafe;--prog-fg:#1d4ed8;--done:#16a34a;--done-bg:#dcfce7;--done-fg:#15803d;--block:#d97706;--block-bg:#fef3c7;--block-fg:#92400e;--high:#dc2626;--wait-bg:#fee2e2;--wait-fg:#b91c1c;--wait-h:#b91c1c;--nav:#f8fafc;--nav-fg:#0f172a;--on-accent:#ffffff;--focus:#2563eb;--field:#64748b;--shadow:0 1px 3px rgba(15,23,42,.06);--elev:0 8px 20px rgba(15,23,42,.10);--ico-sun:none;--ico-moon:inline-block;--title:var(--fg);--summary:var(--fg);--code:var(--fg);--c0:#2563eb;--c1:#7c3aed;--c2:#0d9488;--c3:#ea580c;--c4:#db2777;--c5:#475569;--sans:"Atkinson Hyperlegible Next","Segoe UI Variable","Segoe UI",system-ui,sans-serif;--mono:"Maple Mono","Cascadia Mono",Consolas,ui-monospace,monospace;--head:"Maple Mono","Cascadia Mono",Consolas,ui-monospace,monospace;color-scheme:light;'
+_PALETTE_DARK = '--bg:#282a36;--panel:#21222c;--panel2:#343746;--fg:#f8f8f2;--muted:#a4acd4;--line:#44475a;--line2:#6272a4;--accent:#8be9fd;--todo-bg:#44475a;--todo-fg:#f8f8f2;--prog:#bd93f9;--prog-bg:#3c3352;--prog-fg:#bd93f9;--done:#50fa7b;--done-bg:#2b4a36;--done-fg:#50fa7b;--block:#ffb86c;--block-bg:#4a3a2b;--block-fg:#ffb86c;--high:#ff5555;--wait-bg:#3a2028;--wait-fg:#ff5555;--wait-h:#ff5555;--nav:#21222c;--nav-fg:#f8f8f2;--on-accent:#282a36;--focus:#ff79c6;--field:#6272a4;--shadow:none;--elev:0 8px 22px rgba(0,0,0,.45);--ico-sun:inline-block;--ico-moon:none;--title:#bd93f9;--summary:#ff79c6;--code:#f1fa8c;--c0:#8be9fd;--c1:#bd93f9;--c2:#50fa7b;--c3:#ffb86c;--c4:#ff79c6;--c5:#6272a4;color-scheme:dark;'
 _THEME_CSS = (":root{" + _PALETTE_LIGHT + "}" + '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){'
               + _PALETTE_DARK + "}}" + ':root[data-theme="dark"]{' + _PALETTE_DARK + "}")
 
@@ -228,12 +232,12 @@ _BASE_CSS = """
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.5 var(--sans)}code{font:12px var(--mono);color:var(--code)}
 main{max-width:1360px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:16px}main>*{min-width:0}
-h1{font-size:24px;margin:0;color:var(--title)}h2{font-size:16px;margin:0}.sub{color:var(--muted);margin:4px 0 0}
+h1,h2,h3,details.card>summary,.kpi b{font-family:var(--head)}h1{font-size:24px;margin:0;color:var(--title)}h2{font-size:16px;margin:0}.sub{color:var(--muted);margin:4px 0 0}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 details.card>summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none;color:var(--summary)}
 details.card>summary::-webkit-details-marker{display:none}details.card>summary::before{content:"\\25B8 ";color:var(--muted)}
 details.card[open]>summary::before{content:"\\25BE "}details.card+details.card{margin-top:8px}
-.wait{border-color:var(--high)}.wait h2{color:var(--wait-fg)}.empty{color:var(--muted)}
+.wait{border-color:var(--high)}.wait h2{color:var(--wait-h)}.empty{color:var(--muted)}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:7px 9px;border-top:1px solid var(--line);
 vertical-align:top}th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-top:0}
 .scroll{overflow-x:auto}.pill{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;
@@ -263,7 +267,8 @@ padding:3px 6px;margin:2px 0;white-space:normal;overflow-wrap:anywhere}.legend{d
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.kpi b{font-size:22px;display:block}
 .bar{height:8px;border-radius:99px;background:var(--todo-bg);overflow:hidden;min-width:120px;margin:4px 0}
 .bar i{display:block;height:100%;background:var(--done)}a{color:var(--accent)}td.num{white-space:nowrap}
-.theme-btn{font:600 12px var(--sans);padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
+.theme-btn{display:inline-grid;place-items:center;flex:none;width:36px;height:36px;padding:0;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent)}.theme-btn .ic{width:18px;height:18px;vertical-align:0}.theme-btn .t-sun{display:var(--ico-sun)}.theme-btn .t-moon{display:var(--ico-moon)}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.chip{border:1px solid var(--line);border-left:4px solid var(--lc);border-radius:8px;padding:5px 10px;background:var(--panel2);font-size:12.5px}.chip span{color:var(--muted);font-family:var(--mono)}
 .flow{display:flex;gap:6px;align-items:stretch;min-width:max-content}.fnode{display:grid;gap:3px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);text-decoration:none;color:inherit;min-width:120px}.fnode span{font:11px var(--mono);color:var(--muted)}.fnode span.pill{font:700 11px var(--sans);justify-self:start}.arrow{align-self:center;color:var(--muted)}
@@ -277,10 +282,17 @@ _CSS = _THEME_CSS + _BASE_CSS
 # The one script on a page: the reader's theme choice; on the hub only, a reload every 60 s while the inbox shows
 # (an open roadmap view is never reset); the phone menu closes when the view changes; and the nav item of the
 # shown view gets aria-current. No network.
-_THEME_SCRIPT = ('<script id="theme-toggle">(function(){var k="caddis-roadmap-theme",d=document.documentElement;try{var t=localStorage.getItem(k);if(t==="light"||t==="dark")d.dataset.theme=t}catch(e){}window.caddisTheme=function(){var c=d.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"),n=c==="dark"?"light":"dark";d.dataset.theme=n;try{localStorage.setItem(k,n)}catch(e){}};function shown(){var h=location.hash.slice(1),e=h&&document.getElementById(h),v=e&&e.closest(".view");return v?v.id:"inbox"}function cur(){var a=document.querySelectorAll(".nav a.nav-i");for(var i=0;i<a.length;i++){if(a[i].getAttribute("href")==="#"+shown())a[i].setAttribute("aria-current","page");else a[i].removeAttribute("aria-current")}}addEventListener("DOMContentLoaded",cur);setInterval(function(){if(document.getElementById("inbox")&&document.visibilityState==="visible"&&shown()==="inbox")location.reload()},60000);addEventListener("hashchange",function(){var b=document.getElementById("nav-cb");if(b)b.checked=false;cur()})})();</script>')
+_THEME_SCRIPT = ('<script id="theme-toggle">(function(){var k="caddis-roadmap-theme",d=document.documentElement;d.classList.add("js");try{var t=localStorage.getItem(k);if(t==="light"||t==="dark")d.dataset.theme=t}catch(e){}window.caddisTheme=function(){var c=d.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"),n=c==="dark"?"light":"dark";d.dataset.theme=n;try{localStorage.setItem(k,n)}catch(e){}};function shown(){var h=location.hash.slice(1),e=h&&document.getElementById(h),v=e&&e.closest(".view");return v?v.id:"inbox"}function cur(){var a=document.querySelectorAll(".nav a.nav-i");for(var i=0;i<a.length;i++){if(a[i].getAttribute("href")==="#"+shown())a[i].setAttribute("aria-current","page");else a[i].removeAttribute("aria-current")}}'
+                 # The app bar crumbs follow the shown view (a roadmap view brings its own, its .view-crumbs).
+                 'function bar(){var c=document.getElementById("ab-crumbs");if(!c||!document.getElementById("inbox"))return;var id=shown(),v=document.getElementById(id),p=v&&v.querySelector(".view-crumbs"),a=document.querySelector(\'.nav a.nav-i[href="#\'+id+\'"]\');if(p){c.innerHTML=p.innerHTML}else{c.innerHTML=\'<a href="#inbox">Roadmaps</a> \u203a <strong></strong>\';c.lastChild.textContent=a?a.getAttribute("data-label"):"Inbox"}}'
+                 # Search: hide every [data-q] element that does not hold the text; open a matching milestone; count
+                 # the [data-qn] hits of the shown view.
+                 'function find(){var s=document.getElementById("q");if(!s)return;var v=s.value.trim().toLowerCase(),n=0,id=shown(),e=document.querySelectorAll("[data-q]");for(var i=0;i<e.length;i++){var x=e[i],hit=!v||(x.getAttribute("data-q")+" "+x.textContent).toLowerCase().indexOf(v)>=0;x.classList.toggle("q-miss",!hit);if(x.tagName==="DETAILS"){if(v&&hit){if(!x.hasAttribute("data-o"))x.setAttribute("data-o",x.open?"1":"0");x.open=true}else if(x.hasAttribute("data-o")){x.open=x.getAttribute("data-o")==="1";x.removeAttribute("data-o")}}var w=x.closest(".view");if(v&&hit&&x.hasAttribute("data-qn")&&(!w||w.id===id))n++}var o=document.getElementById("q-n");if(o)o.textContent=v?n+(n===1?" match":" matches"):""}'
+                 'addEventListener("DOMContentLoaded",cur);addEventListener("DOMContentLoaded",function(){bar();var s=document.getElementById("q");if(s){s.addEventListener("input",find);s.addEventListener("keydown",function(ev){if(ev.key==="Escape"){s.value="";find()}})}});'
+                 'addEventListener("keydown",function(ev){var s=document.getElementById("q"),f=document.activeElement;if(ev.key==="/"&&s&&f!==s&&!(f&&/^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName))){ev.preventDefault();s.focus()}});'
+                 'setInterval(function(){var s=document.getElementById("q");if(document.getElementById("inbox")&&document.visibilityState==="visible"&&shown()==="inbox"&&!(s&&s.value))location.reload()},60000);addEventListener("hashchange",function(){var b=document.getElementById("nav-cb");if(b)b.checked=false;cur();bar();find()})})();</script>')
 # The shared copy is a static page: the inbox reload would only re-request it every minute, so it has no timer.
 _SITE_THEME_SCRIPT = re.sub(r"setInterval\(function\(\)\{.*?\},60000\);", "", _THEME_SCRIPT)
-_THEME_BUTTON = '<button type="button" class="theme-btn" onclick="caddisTheme()" aria-label="Switch between light and dark theme">◐ Theme</button>'
 
 
 def _fonts_link(base: str) -> str:
@@ -288,27 +300,47 @@ def _fonts_link(base: str) -> str:
     return f'<link rel="stylesheet" href="{_e(base)}_assets/fonts.css">'
 
 _SHELL_CSS = """
-.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
-.nav{background:var(--nav);color:var(--nav-fg);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
-.brand{display:block;font-weight:700;font-size:15px;color:var(--title);text-decoration:none;padding:4px 8px 12px}
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);grid-template-rows:auto 1fr;min-height:100vh}
+.nav{background:var(--nav);color:var(--nav-fg);border-right:1px solid var(--line);padding:6px 10px 14px;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
 .nav-h{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 8px 4px}
-.nav-repo{font-size:12px;font-weight:600;color:var(--muted);margin:10px 8px 2px}
-.nav-i{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:7px;color:inherit;text-decoration:none;font-size:13px}
-.nav-i:hover,.nav-i:focus-visible{background:var(--panel2);outline:none}
-.nav-i .n{font-family:var(--mono);font-size:11px;color:var(--muted)}.nav-rm{padding-left:16px}
+.nav-repo{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted);margin:10px 8px 2px}.nav-repo .ic{width:14px;height:14px}
+.nav-i{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;color:inherit;text-decoration:none;font-size:13px;transition:background .15s}
+.nav-i:hover,.nav-i:focus-visible{background:var(--panel2)}.nav-i .ic{color:var(--muted)}.nav-i[aria-current] .ic{color:var(--prog-fg)}
+.nav-i .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}.nav-rm{padding-left:16px}.nav-rm .ic{width:14px;height:14px}
 .nav-sub{display:grid;padding:2px 0 6px 28px}.nav-sub a{font-size:12px;color:var(--muted);text-decoration:none;padding:3px 0}
-.main{min-width:0}.top{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
-.crumbs{flex:1;min-width:0;font-size:13px;color:var(--muted)}.crumbs a{color:var(--accent);text-decoration:none}
+.main{min-width:0}.top{grid-column:1/-1;display:flex;align-items:center;gap:14px;height:56px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:10;box-shadow:var(--shadow)}
+.ab-brand{display:flex;align-items:center;gap:9px;flex:none;width:208px;font:700 15px var(--head);color:var(--title);text-decoration:none;white-space:nowrap}
+.logo{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:9px;background:var(--accent);color:var(--on-accent)}.logo .ic{width:18px;height:18px;vertical-align:0}
+.crumbs{flex:1;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.crumbs a{color:var(--accent);text-decoration:none}.crumbs strong{color:var(--fg)}
+.search{position:relative;flex:0 1 300px;min-width:0}.search .ic{position:absolute;left:10px;top:50%;margin-top:-8px;color:var(--muted);pointer-events:none}
+.search input{width:100%;height:36px;padding:0 10px 0 34px;border-radius:10px;border:1px solid var(--field);background:var(--panel2);color:var(--fg);font:13px var(--sans)}
+.search input::placeholder{color:var(--muted);opacity:1}.q-n{font:11px var(--mono);color:var(--muted);white-space:nowrap}.q-n:empty{display:none}
+.gen{display:flex;align-items:center;gap:5px;font:11px var(--mono);color:var(--muted);white-space:nowrap}.gen .ic{width:13px;height:13px}
+.js .view-crumbs{display:none}
 main [id]{scroll-margin-top:60px}main>.view{scroll-margin-top:200px}
 .view>*+*{margin-top:16px}.view{display:none}.view:target,.view:has(:target){display:block}main:not(:has(.view:target,.view :target))>#inbox{display:block}
 .nav-sub{display:none}.view-crumbs{font-size:13px;color:var(--muted);margin:0 0 8px}
 .nav-cb{display:none}.nav-btn,.nav-close,.nav-scrim{display:none}
 .nav-cb:focus-visible~.app .nav-btn{outline:2px solid var(--accent);outline-offset:2px}
-@media (max-width:900px){.app{grid-template-columns:1fr}.nav-cb{display:block;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.nav{position:fixed;left:0;top:0;z-index:20;width:260px;transform:translateX(-100%);transition:transform .2s}.nav-cb:checked~.app .nav{transform:none}.nav-btn{display:inline-block;cursor:pointer;font-size:18px;padding:0 6px}.nav-close{display:block;text-align:right;cursor:pointer;font-size:18px;padding:2px 8px}.nav-cb:checked~.app .nav-scrim{display:block;position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.4)}}
+@media (max-width:900px){.app{grid-template-columns:1fr}.nav-cb{display:block;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.nav{position:fixed;left:0;top:0;z-index:20;width:260px;height:100vh;transform:translateX(-100%);transition:transform .2s}.nav-cb:checked~.app .nav{transform:none}.nav-btn{display:inline-grid;place-items:center;cursor:pointer;width:32px;height:32px;color:var(--fg)}.nav-btn .ic,.nav-close .ic{width:20px;height:20px;vertical-align:0}.nav-close{display:block;text-align:right;cursor:pointer;padding:6px 8px;color:var(--fg)}.nav-cb:checked~.app .nav-scrim{display:block;position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.4)}
+.top{flex-wrap:wrap;height:auto;gap:6px 8px;padding:8px 10px}.ab-brand{width:auto}.ab-name,.gen{display:none}.search{flex:1 1 120px}.crumbs{order:5;flex-basis:100%}main [id]{scroll-margin-top:100px}}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-.rcard{display:grid;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:inherit;text-decoration:none;box-shadow:var(--shadow)}.rcard:hover,.rcard:focus-visible{border-color:var(--accent);outline:none}
+.rcard{display:grid;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:inherit;text-decoration:none;box-shadow:var(--shadow)}
 .dots{display:flex;flex-wrap:wrap;gap:4px}.dot{font:600 10.5px var(--mono);padding:1px 6px;border-radius:5px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+h2 .ic,h3 .ic{color:var(--accent);margin-right:7px}.wait h2 .ic{color:var(--wait-h)}
+.pill .ic,.kind .ic{width:12px;height:12px;margin-right:4px;vertical-align:-2px}.rcard .ic{margin-right:4px}.rcard strong .ic{color:var(--accent)}.tile .ic,.ltile .ic{width:13px;height:13px;align-self:center}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.rcard,.kpi,.fnode{transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+.rcard:hover,.rcard:focus-visible,.fnode:hover,.fnode:focus-visible{transform:translateY(-2px);box-shadow:var(--elev);border-color:var(--accent)}
+.rcard[data-st]{border-left:4px solid var(--line2)}.rcard[data-st=done]{border-left-color:var(--done)}.rcard[data-st=prog]{border-left-color:var(--prog)}.rcard[data-st=block]{border-left-color:var(--block)}.rcard[data-st=wait]{border-left-color:var(--high)}
+.kpi{position:relative;padding-right:56px}.kpi-ic{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--prog-bg);color:var(--prog-fg)}.kpi-ic .ic{width:18px;height:18px;vertical-align:0}
+.kpi-ic.k-done{background:var(--done-bg);color:var(--done-fg)}.kpi-ic.k-block{background:var(--block-bg);color:var(--block-fg)}.kpi-ic.k-wait{background:var(--wait-bg);color:var(--wait-fg)}
+.bar i{transform-origin:left;animation:fill .9s cubic-bezier(.2,.7,.2,1) both}@keyframes fill{from{transform:scaleX(0)}}
+.q-miss,.nav-rm.q-miss+.nav-sub{display:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.rcard:hover,.rcard:focus-visible,.fnode:hover,.fnode:focus-visible{transform:none}}
 """
 
 _LABEL = {"todo": "to do", "in-progress": "in progress", "done": "done", "moved": "moved", "blocked": "blocked"}
@@ -318,21 +350,83 @@ def _e(value) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+@functools.lru_cache(maxsize=1)
+def _sprite() -> str:
+    """The Lucide sprite (`roadmap_assets/icons.svg`, made by build_roadmap_icons.py, with its licence comment), put
+    inline once per page: Chrome and Edge do not let a `file://` page `<use>` a symbol from another file. Empty when
+    the file is not shipped: the page then shows no icons, and nothing else changes."""
+    try:
+        return (ASSET_DIR / "icons.svg").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _icon(name: str, label: str | None = None, cls: str = "") -> str:
+    """One Lucide icon from the inline sprite, tinted by `currentColor`. Decorative by default (hidden from screen
+    readers); with `label` it is an image with that name, for an icon whose meaning no text beside it gives."""
+    attrs = f'role="img" aria-label="{_e(label)}"' if label else 'aria-hidden="true" focusable="false"'
+    return f'<svg class="ic{" " + cls if cls else ""}" {attrs}><use href="#ic-{name}"/></svg>'
+
+
+_STATUS_ICON = {"done": "circle-check", "todo": "circle", "in-progress": "circle-dot", "blocked": "octagon-alert",
+                "moved": "arrow-right-left", "not-needed": "circle-minus", "code-done/data-pending": "hourglass",
+                "running": "play", "owner-gate": "user-check"}
+
+
 def _pill(status: str) -> str:
-    return f'<span class="pill s-{_e(status)}">{_e(_LABEL.get(status, status))}</span>'
+    return (f'<span class="pill s-{_e(status)}">{_icon(_STATUS_ICON.get(status, "circle"))}'
+            f'{_e(_LABEL.get(status, status))}</span>')
+
+
+def _kind(kind: str) -> str:
+    """A blocker type chip: owner gates get their own colour and icon."""
+    icon = "user-check" if kind == "owner-gate" else "shield-alert"
+    return f'<span class="kind k-{_e(kind)}">{_icon(icon)}{_e(kind)}</span>'
+
+
+def _h2(icon: str, text: str) -> str:
+    return f"<h2>{_icon(icon)}{_e(text)}</h2>"
+
+
+def _kpi(icon: str, tone: str, value: str, label: str) -> str:
+    """A KPI tile: `value` and `label` are already safe text."""
+    return f'<div class="kpi"><span class="{f"kpi-ic {tone}".strip()}">{_icon(icon)}</span><b>{value}</b>{label}</div>'
+
+
+def _theme_button() -> str:
+    return ('<button type="button" class="theme-btn" onclick="caddisTheme()" aria-label="Switch between light and dark '
+            'theme" title="Switch between light and dark theme">' + _icon("moon", cls="t-moon") + _icon("sun", cls="t-sun")
+            + "</button>")
+
+
+def _app_bar(base: str, crumbs: str, generated: str) -> str:
+    """The top bar of every page: the phone menu button, the logo and name (a link to the inbox), the crumbs of the
+    shown view (the script keeps them current on the hub), the search box, the generated time and the theme button."""
+    home = f"{base}index.html#inbox" if base else "#inbox"
+    gen = f'<span class="gen">{_icon("clock")}generated {_e(generated)}</span>' if generated else ""
+    return ('<header class="top"><label for="nav-cb" class="nav-btn" aria-label="Open the menu">' + _icon("menu")
+            + f'</label><a class="ab-brand" href="{_e(home)}"><span class="logo">{_icon("route")}</span>'
+            '<span class="ab-name">caddis Roadmaps</span></a>'
+            f'<div class="crumbs" id="ab-crumbs" role="navigation" aria-label="Breadcrumb">{crumbs}</div>'
+            f'<div class="search" role="search">{_icon("search")}<input type="search" id="q" '
+            'placeholder="Search roadmaps, milestones, phases" title="Press / to search" '
+            'aria-label="Search roadmaps, milestones and phases" '
+            'autocomplete="off" spellcheck="false"></div><span class="q-n" id="q-n" role="status" aria-live="polite"></span>'
+            f"{gen}{_theme_button()}</header>")
 
 
 def _shell(*, title: str, base: str, nav: str, crumbs: str, body: str, css: str = "",
-           script: str | None = None) -> str:
-    """The app frame around every page: head, left nav, top bar (crumbs and the theme button) and the body.
-    `nav`, `crumbs`, `body` and `css` are text the caller has already made safe; `title` is plain text."""
+           script: str | None = None, generated: str = "") -> str:
+    """The app frame around every page: head, the icon sprite, the app bar, the left nav and the body.
+    `nav`, `crumbs`, `body` and `css` are text the caller has already made safe; `title` and `generated` are plain
+    text."""
     return "".join([
         '<!doctype html><html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
         f"<title>{_e(title)}</title>{_fonts_link(base)}<style>{_CSS}{_SHELL_CSS}{css}</style>{script or _THEME_SCRIPT}</head>",
-        f'<body><input type="checkbox" id="nav-cb" class="nav-cb" aria-label="Toggle the navigation menu"><div class="app">{nav}<label for="nav-cb" class="nav-scrim" aria-hidden="true"></label><div class="main">',
-        '<header class="top"><label for="nav-cb" class="nav-btn" aria-label="Open the menu">☰</label>',
-        f'<div class="crumbs">{crumbs}</div>{_THEME_BUTTON}</header>',
+        f'<body>{_sprite()}<input type="checkbox" id="nav-cb" class="nav-cb" aria-label="Toggle the navigation menu"><div class="app">',
+        _app_bar(base, crumbs, generated),
+        f'{nav}<label for="nav-cb" class="nav-scrim" aria-hidden="true"></label><div class="main">',
         f"<main>{body}</main></div></div></body></html>\n"])
 
 
@@ -377,24 +471,26 @@ def _nav(rows: list[dict], base: str, site: bool = False) -> str:
               "runners": sum(1 for r in rows if r.get("runner") == "running")}
     hub = f"{base}index.html" if base else ""
     out = ['<nav class="nav" aria-label="Roadmaps">'
-           '<label for="nav-cb" class="nav-close" aria-label="Close the menu">✕</label>',
-           f'<a class="brand" href="{_e(hub or "#inbox")}">caddis · Roadmaps</a>', '<p class="nav-h">Needs you</p>']
+           f'<label for="nav-cb" class="nav-close" aria-label="Close the menu">{_icon("x")}</label>',
+           '<p class="nav-h">Needs you</p>']
     for key, label in _NAV_ITEMS:
         if site and key in _LOCAL_VIEWS:
             continue
-        out.append(f'<a class="nav-i" href="{_e(hub)}#{key}">{_e(label)}<span class="n">{_e(counts[key])}</span></a>')
+        out.append(f'<a class="nav-i" href="{_e(hub)}#{key}" data-label="{_e(label)}">{_icon(_NAV_ICON[key])}{_e(label)}'
+                   f'<span class="n">{_e(counts[key])}</span></a>')
     out.append('<p class="nav-h">Repos</p>')
     for folder, group in order:
         idle = 0 if site else sum(1 for s in _sessions_of(group) if not s.get("asking"))
         idle_txt = f" · {idle} idle session(s)" if idle else ""
-        out.append(f'<p class="nav-repo">{_e(group[0].get("repo"))}{_e(idle_txt)}</p>')
+        out.append(f'<p class="nav-repo">{_icon("folder-git-2")}{_e(group[0].get("repo"))}{_e(idle_txt)}</p>')
         for r in sorted(group, key=lambda r: str(r["slug"])):
             rid = _rid(folder, r["slug"])
             if rid is None:
                 continue
             total = _int(r.get("phases_total"))
             pct = int(round(100 * _int(r.get("phases_done")) / total)) if total else 0
-            out.append(f'<a class="nav-i nav-rm" href="{_e(hub)}#{rid}">{_e(r["slug"])}<span class="n">{pct}%</span></a>'
+            out.append(f'<a class="nav-i nav-rm" href="{_e(hub)}#{rid}" data-q="{_e(group[0].get("repo"))}" '
+                       f'data-label="{_e(r["slug"])}">{_icon("map")}{_e(r["slug"])}<span class="n">{pct}%</span></a>'
                        f'<div class="nav-sub" data-rid="{rid}">'
                        + "".join(f'<a href="{_e(hub)}#{rid}-{anchor}">{_e(label)}</a>' for anchor, label in _PAGE_ANCHORS
                                  if not (site and anchor in _LOCAL_ANCHORS))
@@ -404,6 +500,7 @@ def _nav(rows: list[dict], base: str, site: bool = False) -> str:
 
 
 _NAV_ITEMS = (("inbox", "Inbox"), ("gates", "Gates"), ("sessions", "Sessions"), ("runners", "Runners"))
+_NAV_ICON = {"inbox": "inbox", "gates": "shield-alert", "sessions": "messages-square", "runners": "activity"}
 _LOCAL_VIEWS = ("sessions", "runners")  # views of this machine's live state: a shared copy has neither
 _LOCAL_ANCHORS = ("runner",)  # the section of a roadmap view that shows this machine's runner
 
@@ -429,7 +526,7 @@ def _view_css(rids: list[str], site: bool = False) -> str:
 def _waiting_section(model: dict, site: bool = False) -> str:
     """Sessions that wait for input, then the open owner gates. A shared copy (`site`) has the owner gates only: its
     sessions are not on the reader's machine, so a table of them would be empty for a wrong reason."""
-    out = ['<section id="waiting" class="card wait"><h2>Waiting for you</h2>']
+    out = [f'<section id="waiting" class="card wait">{_h2("bell-ring", "Waiting for you")}']
     sessions, gates = ([] if site else model["sessions"]), model["waiting"]
     if not sessions and not gates:
         out.append('<p class="empty">' + ("No owner gate is waiting." if site else "Nothing is waiting for you.")
@@ -461,7 +558,7 @@ def _swimlane(model: dict) -> str:
     milestones, lanes = model["milestones"], model["lanes"]
     cols = len(milestones)
     # The section has the class `timeline` as well as the id: the hub prefixes every id, so the phone CSS selects by class.
-    out = ['<section class="card timeline" id="timeline"><div class="sec-h"><h2>Timeline</h2><span class="note">plans as '
+    out = ['<section class="card timeline" id="timeline"><div class="sec-h">' + _h2("chart-gantt", "Timeline") + '<span class="note">plans as '
            'lanes, milestones as columns in roadmap order, one tile per phase</span></div><div class="scroll">',
            f'<div class="lanes" style="grid-template-columns:150px repeat({cols},minmax(110px,1fr));width:100%;'
            f'min-width:{150 + cols * 110}px">',
@@ -485,7 +582,8 @@ def _swimlane(model: dict) -> str:
                     continue
                 hi = " hi" if "high" in ph.get("risk", "").lower() else ""
                 title = f"{ph['ref']} {ph['name']} | {ph['tracker'] or ph['state']}"
-                tiles.append(f'<div class="tile {_e(ph["tile"])}{hi}" title="{_e(title)}"><b>{_e(ph["num"])}</b>'
+                tiles.append(f'<div class="tile {_e(ph["tile"])}{hi}" data-q="{_e(ms["id"])} {_e(ph["ref"])}" title="{_e(title)}">'
+                             f'{_tile_icon(ph["tile"])}<b>{_e(ph["num"])}</b>'
                              f'<span>{_e(ph["name"] or ph["ref"])}</span></div>')
             out.append(f"<div>{''.join(tiles)}</div>")
     if any(ms["blockers"] for ms in milestones):  # the blockers get their own lane, so the column headers stay short
@@ -502,7 +600,8 @@ def _swimlane(model: dict) -> str:
         out.append(f'<h3>{_e(ms["id"])} {_pill(ms["status"])}</h3>')
         for ph in ms["phases"]:
             hi = " hi" if "high" in ph.get("risk", "").lower() else ""
-            out.append(f'<div class="ltile {_e(ph["tile"])}{hi}"><b>{_e(ph["plan"])} {_e(ph["num"])}</b>'
+            out.append(f'<div class="ltile {_e(ph["tile"])}{hi}" data-q="{_e(ms["id"])} {_e(ph["ref"])}">{_tile_icon(ph["tile"])}'
+                       f'<b>{_e(ph["plan"])} {_e(ph["num"])}</b>'
                        f'<span>{_e(ph["name"] or ph["ref"])}</span></div>')
     out.append('</div><div class="legend"><span>colour: to do · <b>in progress</b> · done · striped = moved · '
                'amber = blocked</span><span>red dot = Risk high (stops for review)</span></div></section>')
@@ -517,12 +616,28 @@ def _summary(model: dict) -> str:
     nxt = model.get("next") or {}
     nxt_txt = f"{nxt.get('milestone', '')} {nxt.get('plan', '')}#{nxt.get('phase', '')}" if nxt else "none ready"
     return ('<section class="kpis" id="overview" aria-label="Summary">'
-            f'<div class="kpi"><b>{_e(done)} / {_e(len(phases))}</b>phases done</div>'
-            f'<div class="kpi"><b>{_e(model["done"])} / {_e(model["total"])}</b>milestones done</div>'
-            f'<div class="kpi"><b>{_e(len(building))}</b>in progress: {_e(", ".join(building) or "none")}</div>'
-            f'<div class="kpi"><b>{_e(high)}</b>high-risk phases</div>'
-            f'<div class="kpi"><b>{_e(nxt_txt)}</b>next batch for the runner</div>'
-            "</section>")
+            + _kpi("circle-check-big", "k-done", f"{_e(done)} / {_e(len(phases))}", "phases done")
+            + _kpi("milestone", "k-done", f'{_e(model["done"])} / {_e(model["total"])}', "milestones done")
+            + _kpi("loader-circle", "", _e(len(building)), f'in progress: {_e(", ".join(building) or "none")}')
+            + _kpi("triangle-alert", "k-block" if high else "", _e(high), "high-risk phases")
+            + _kpi("skip-forward", "", _e(nxt_txt), "next batch for the runner")
+            + "</section>")
+
+
+def _tile_icon(state: str) -> str:
+    """The state of a timeline tile as a named icon: the tile's colour is not the only cue."""
+    return _icon(_STATUS_ICON.get(state, "circle"), _LABEL.get(state, state))
+
+
+def _ms_tone(ms: dict) -> str:
+    """The accent of a milestone card: done, wait (an owner gate), block, prog or todo."""
+    if ms["status"] in ("done", "not-needed"):
+        return "done"
+    if any(b.get("type") == "owner-gate" for b in ms["blockers"]):
+        return "wait"
+    if ms["blockers"] or ms["status"] == "blocked":
+        return "block"
+    return "prog" if ms["status"] == "in-progress" else "todo"
 
 
 def _done_phases(ms: dict) -> int:
@@ -534,10 +649,10 @@ def _flow(model: dict) -> str:
     nodes = []
     for ms in model["milestones"]:
         dep = f"after {', '.join(ms['depends'])}" if ms["depends"] else "starts first"
-        nodes.append(f'<a class="fnode s-{_e(ms["status"])}" href="#ms-{_e(ms["id"])}"><b>{_e(ms["id"])}</b> '
+        nodes.append(f'<a class="fnode s-{_e(ms["status"])}" data-q="{_e(ms["id"])}" href="#ms-{_e(ms["id"])}"><b>{_e(ms["id"])}</b> '
                      f'{_pill(ms["status"])}<span>{_e(dep)} · {_e(_done_phases(ms))}/{_e(len(ms["phases"]))} ph</span></a>')
     chain = '<span class="arrow" aria-hidden="true">→</span>'.join(nodes)
-    return (f'<section id="flow"><div class="sec-h"><h2>Flow</h2><span class="note">milestones in roadmap order</span></div>'
+    return (f'<section id="flow"><div class="sec-h">{_h2("workflow", "Flow")}<span class="note">milestones in roadmap order</span></div>'
             f'<div class="card scroll"><div class="flow">{chain}</div></div></section>')
 
 
@@ -557,12 +672,13 @@ def _now_next_later(model: dict) -> str:
             groups["Later"].append(ms)
     cols = []
     for title, items in groups.items():
-        body = "".join(f'<a class="rcard" href="#ms-{_e(m["id"])}"><span><strong>{_e(m["id"])}</strong> {_pill(m["status"])}</span>'
+        body = "".join(f'<a class="rcard" href="#ms-{_e(m["id"])}" data-q="{_e(m["id"])}" data-st="{_ms_tone(m)}">'
+                       f'<span><strong>{_e(m["id"])}</strong> {_pill(m["status"])}</span>'
                        f'{_bar(_done_phases(m), len(m["phases"]))}'
                        + "".join(f'<span class="note">{_e(b["type"])}</span>' for b in m["blockers"])
                        + "</a>" for m in items)
         cols.append(f'<div><h3>{_e(title)}</h3>{body or "<p class=empty>none</p>"}</div>')
-    return ('<section id="board"><div class="sec-h"><h2>Now, next, later</h2>'
+    return ('<section id="board"><div class="sec-h">' + _h2("square-kanban", "Now, next, later") +
             '<span class="note">which milestones can start</span></div>'
             f'<div class="cols">{"".join(cols)}</div></section>')
 
@@ -570,25 +686,26 @@ def _now_next_later(model: dict) -> str:
 def _gates(model: dict) -> str:
     rows = [(ms["id"], b) for ms in model["milestones"] for b in ms["blockers"]]
     body = "".join(f"<tr><td><strong>{_e(mid)}</strong></td>"
-                   f"<td><span class=\"kind k-{_e(b['type'])}\">{_e(b['type'])}</span></td><td>{_e(b['reason'])}</td>"
+                   f"<td>{_kind(str(b['type']))}</td><td>{_e(b['reason'])}</td>"
                    f"<td><code>{_e(b['check'])}</code></td></tr>" for mid, b in rows)
-    return (f'<section class="card" id="gates"><div class="sec-h"><h2>Gates and blockers</h2>'
+    return (f'<section class="card" id="gates"><div class="sec-h">{_h2("shield-alert", "Gates and blockers")}'
             f'<span class="note">{_e(len(rows))} open</span></div>'
             + (f'<div class="scroll"><table><tr><th>Milestone</th><th>Type</th><th>Reason</th><th>Check</th></tr>{body}'
                "</table></div>" if rows else '<p class="empty">No blockers.</p>') + "</section>")
 
 
 def _milestones(model: dict) -> str:
-    out = ['<section id="milestones"><div class="sec-h"><h2>Milestones and phases</h2><span class="note">every phase with '
+    out = ['<section id="milestones"><div class="sec-h">' + _h2("milestone", "Milestones and phases") + '<span class="note">every phase with '
            'model, lane, risk and Tracker status</span></div>']
     for ms in model["milestones"]:
         rows = "".join(
-            f"<tr><td><code>{_e(ph['ref'])}</code></td><td>{_e(ph['name'])}</td><td>{_e(_short_model(ph['model']))}</td>"
+            f"<tr data-q=\"{_e(ms['id'])} {_e(ph['ref'])}\" data-qn=\"1\"><td><code>{_e(ph['ref'])}</code></td><td>{_e(ph['name'])}</td>"
+            f"<td>{_e(_short_model(ph['model']))}</td>"
             f"<td>{_e(ph['lane'].split(' ', 1)[0] if ph['lane'] else '-')}</td>"
             f"<td>{_e(ph['risk'] or '-')}</td><td>{_pill(ph['tile'])} {_e(ph['tracker'])}</td></tr>"
             for ph in ms["phases"])
         target = f" · target {_e(ms['target'])}" if ms.get("target") else ""
-        out.append(f'<details class="card" id="ms-{_e(ms["id"])}"><summary>{_e(ms["id"])} '
+        out.append(f'<details class="card" id="ms-{_e(ms["id"])}" data-q="{_e(ms["id"])}" data-qn="1"><summary>{_e(ms["id"])} '
                    f'{_pill(ms["status"])} <span class="note">owner {_e(ms["owner"])}{target} · '
                    f'after {_e(", ".join(ms["depends"]) or "-")}</span></summary>'
                    '<div class="scroll"><table><tr><th>Phase</th><th>Name</th><th>Model</th><th>Lane</th><th>Risk</th>'
@@ -623,7 +740,7 @@ def _runner(model: dict) -> str:
     if nxt:
         parts.append(f"<p>Next batch: <code>{_e(nxt.get('milestone'))} {_e(nxt.get('plan'))}#{_e(nxt.get('phase'))}"
                      "</code></p>")
-    return ('<section class="card" id="runner"><div class="sec-h"><h2>Runner</h2>'
+    return ('<section class="card" id="runner"><div class="sec-h">' + _h2("cpu", "Runner") +
             '<span class="note">roadmap-run state on this machine</span></div>' + "".join(parts) + "</section>")
 
 
@@ -645,7 +762,7 @@ def _prefix_ids(body: str, rid: str) -> str:
     """Every `id="x"` and `href="#x"` in a roadmap body becomes `<rid>-x`, so two roadmaps in one file never share an
     id. Safe on rendered HTML: every value from the files is escaped, so a `"` in it is `&quot;`."""
     body = re.sub(r' id="([A-Za-z][\w-]*)"', lambda m: f' id="{rid}-{m.group(1)}"', body)
-    return re.sub(r' href="#([A-Za-z][\w-]*)"', lambda m: f' href="#{rid}-{m.group(1)}"', body)
+    return re.sub(r' href="#(?!ic-)([A-Za-z][\w-]*)"', lambda m: f' href="#{rid}-{m.group(1)}"', body)
 
 
 def _stub(rid: str, slug: str) -> str:
@@ -661,7 +778,7 @@ def render_html(model: dict) -> str:
     one local font link, no network. Every value from the files is escaped."""
     slug = model["roadmap"]
     return _shell(title=f"Roadmap {slug}", base="../", nav=_nav([], "../"), crumbs=_crumbs("", slug),
-                  body=render_body(model))
+                  body=render_body(model), generated=model.get("generated", ""))
 
 
 def render_body(model: dict, site: bool = False) -> str:
@@ -841,7 +958,8 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "roadmap_assets"
-ASSET_FILES = ("fonts.css", "OFL-MapleMono.txt", "OFL-JetBrainsMono.txt")
+ASSET_FILES = ("fonts.css", "OFL-MapleMono.txt", "OFL-Atkinson.txt", "LICENSE-Lucide.txt")
+# icons.svg is shipped beside them but not copied: the sprite goes inline into each page (`_sprite`).
 
 
 def install_assets(root_dir: Path) -> int:
@@ -997,6 +1115,18 @@ def _int(value) -> int:
         return 0
 
 
+def _row_tone(r: dict) -> str:
+    """The accent of a roadmap card on the inbox: wait (an owner gate), block, done, prog or todo."""
+    total, done = _int(r.get("phases_total")), _int(r.get("phases_done"))
+    if r.get("owner_gates"):
+        return "wait"
+    if _int(r.get("blocked")):
+        return "block"
+    if total and done >= total:
+        return "done"
+    return "prog" if r.get("in_progress") or done else "todo"
+
+
 def _roadmap_link(r: dict, label=None) -> str:
     """The roadmap's name linked to its view; plain text for a row that has no view."""
     rid = _rid(r.get("folder"), r.get("slug"))
@@ -1028,7 +1158,7 @@ def _gates_view(rows: list[dict]) -> str:
             ms_text = f'<a href="#{rid}-ms-{ms_text}">{ms_text}</a>'
         kind = str(b.get("type") or "owner-gate")
         body.append(f'<tr><td><strong>{_e(r.get("repo"))}</strong></td><td>{_roadmap_link(r)}</td><td>{ms_text}</td>'
-                    f'<td><span class="kind k-{_e(kind)}">{_e(kind)}</span></td><td>{_e(b.get("reason"))}</td>'
+                    f'<td>{_kind(kind)}</td><td>{_e(b.get("reason"))}</td>'
                     f'<td><code>{_e(b.get("check") or "-")}</code></td></tr>')
     if not body:
         return '<p class="empty">No open gates or blockers.</p>'
@@ -1047,7 +1177,7 @@ def _sessions_view(rows: list[dict]) -> str:
             body.append(f'<tr><td><code>{_e(s.get("session"))}</code></td>'
                         f'<td>{"asking" if s.get("asking") else "idle"}</td><td>{_e(s.get("message"))}</td>'
                         f'<td>{_e(s.get("since"))}{_e(stale)}</td></tr>')
-        out.append(f'<div class="card"><h3>{_e(group[0].get("repo"))}</h3>'
+        out.append(f'<div class="card"><h3>{_icon("folder-git-2")}{_e(group[0].get("repo"))}</h3>'
                    + _table(["Session", "Asking or idle", "Message", "Since"], body) + "</div>")
     return "".join(out) or '<p class="empty">No session is waiting.</p>'
 
@@ -1060,9 +1190,10 @@ def _runners_view(rows: list[dict]) -> str:
         batch = lock.get("batch") if isinstance(lock, dict) else None
         stop_text = " · ".join(str(v) for v in ((stop or {}).get("reason"), (stop or {}).get("utc")) if v)             if isinstance(stop, dict) else ""
         runner = str(r.get("runner") or "")
-        pill = ("s-in-progress" if runner == "running" else "s-blocked" if runner else "s-todo")
+        pill, icon = (("s-in-progress", "play") if runner == "running" else ("s-blocked", "octagon-alert") if runner
+                      else ("s-todo", "circle"))
         body.append(f'<tr><td><strong>{_e(r.get("repo"))}</strong></td><td>{_roadmap_link(r)}</td>'
-                    f'<td><span class="pill {pill}">{_e(runner or "idle")}</span></td><td>{_e(batch or "-")}</td>'
+                    f'<td><span class="pill {pill}">{_icon(icon)}{_e(runner or "idle")}</span></td><td>{_e(batch or "-")}</td>'
                     f'<td>{_e(stop_text or "-")}</td><td>{_e(r.get("next") or "-")}</td></tr>')
     if not body:
         return '<p class="empty">No roadmap pages yet.</p>'
@@ -1078,7 +1209,7 @@ def render_view(kind: str, rows: list[dict]) -> str:
     """`<section class="view" id="gates|sessions|runners">`: a cross-repo table over the page summaries. These sections
     sit outside any roadmap body, so their ids are not prefixed; links into a roadmap use its prefixed ids."""
     title, note, fn = _VIEWS[kind]
-    return f'<section class="view" id="{kind}"><h2>{_e(title)}</h2><p class="sub">{_e(note)}</p>{fn(rows)}</section>'
+    return f'<section class="view" id="{kind}">{_h2(_NAV_ICON[kind], title)}<p class="sub">{_e(note)}</p>{fn(rows)}</section>'
 
 
 _SITE_NOTE = "Shared copy — built by CI. Live sessions and runners show only on the owner's machine."
@@ -1104,15 +1235,15 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
     blocked = sum(_int(r.get("blocked")) for r in rows)
     out = [f'<p class="site-banner" role="note">{_e(banner or _SITE_NOTE)}</p>' if site else "",
            '<section class="view" id="inbox"><section class="kpis">',
-           f'<div class="kpi"><b>{_e(count)}</b>Needs you</div>',
-           f'<div class="kpi"><b>{_e(phases_done)} / {_e(phases_total)}</b>Phases done'
-           f'{_bar(phases_done, phases_total)}</div>',
-           f'<div class="kpi"><b>{_e(blocked)}</b>Blocked phases</div>',
-           "" if site else f'<div class="kpi"><b>{_e(live)}</b>Runners live</div>', "</section>",
+           _kpi("bell-ring", "k-wait" if count else "", _e(count), "Needs you"),
+           _kpi("circle-check-big", "k-done", f"{_e(phases_done)} / {_e(phases_total)}",
+                "Phases done" + _bar(phases_done, phases_total)),
+           _kpi("octagon-alert", "k-block" if blocked else "", _e(blocked), "Blocked phases"),
+           "" if site else _kpi("activity", "", _e(live), "Runners live"), "</section>",
            f'<p class="sub">{_e(len(order))} repos · {_e(len(rows))} roadmaps · {_e(count)} item(s) need you · '
            f'generated {_e(now.strftime("%Y-%m-%d %H:%M UTC"))}'
            + ("" if site else " · the inbox reloads every minute") + "</p>",
-           '<section id="needs" class="card wait"><h2>Needs you</h2>']
+           f'<section id="needs" class="card wait">{_h2("bell-ring", "Needs you")}']
     if not need:
         out.append('<p class="empty">Nothing is waiting for you.</p>')
     else:
@@ -1126,7 +1257,7 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
                 out.append(f"<tr><td><strong>{_e(repo)}</strong></td><td>owner gate {_e(r.get('slug'))} "
                            f"{_e(g.get('milestone'))}</td><td>{_e(g.get('reason'))}</td></tr>")
         out.append("</table></div>")
-    out.append("</section><h2>Roadmaps</h2>")
+    out.append("</section>" + _h2("map", "Roadmaps"))
     if not rows:
         out.append('<p class="card empty">No roadmap page has been rendered on this machine yet. Run '
                    "<code>caddis_roadmap.py render --all</code> in a repo that has <code>.caddis/roadmaps/</code>.</p>")
@@ -1140,9 +1271,11 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
         if rid is None:
             errors.append(f"{r.get('folder')}/{r.get('slug')}: the folder or slug name breaks the naming rule")
             continue
-        out.append(f'<a class="rcard" href="#{rid}">'
-                   f'<div><strong>{_e(r["slug"])}</strong> <span class="empty">{_e(r.get("repo"))} · '
-                   f'{_e(r.get("branch"))} · {_e(r.get("origin_commit"))}</span></div>'
+        ids = " ".join(str(m.get("id")) for m in r.get("milestones") or [])
+        out.append(f'<a class="rcard" href="#{rid}" data-q="{_e(r["slug"])} {_e(r.get("repo"))} {_e(ids)}" data-qn="1" '
+                   f'data-st="{_row_tone(r)}">'
+                   f'<div><strong>{_icon("map")}{_e(r["slug"])}</strong> <span class="empty">{_e(r.get("repo"))} · '
+                   f'{_icon("git-branch")}{_e(r.get("branch"))} · {_e(r.get("origin_commit"))}</span></div>'
                    f'<div>{_bar(_int(r.get("phases_done")), _int(r.get("phases_total")))} '
                    f'{_e(r.get("milestones_done"))}/{_e(r.get("milestones_total"))} milestones</div>'
                    f'<div class="dots">{dots}</div>'
@@ -1168,7 +1301,9 @@ def render_hub(rows: list[dict], errors: list[str], now: datetime.datetime,
     for kind in _VIEWS:
         if not (site and kind in _LOCAL_VIEWS):
             out.append(render_view(kind, rows))
-    return _shell(title="Roadmaps", base="", nav=_nav(rows, "", site), crumbs="Roadmaps", body="".join(out),
+    return _shell(title="Roadmaps", base="", nav=_nav(rows, "", site), body="".join(out),
+                  crumbs='<a href="#inbox">Roadmaps</a> › <strong>Inbox</strong>',
+                  generated=now.strftime("%Y-%m-%d %H:%M UTC"),
                   css=_view_css(rids, site) + (_SITE_CSS if site else ""),
                   script=_SITE_THEME_SCRIPT if site else None)
 

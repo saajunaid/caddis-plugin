@@ -15,7 +15,7 @@ Use the scripts in that folder; do not look for them in another caddis install.
 
 1. The plan `.caddis/plans/{{slug}}.md`: its goal, its decisions, its tracker. Every decision binds you.
 2. The relay `.caddis/relay/{{slug}}.md`. Its "Next step" says where to start.
-3. The open-work list `.caddis/open-work.md`, when it exists.
+3. The open parking-lot items (`.caddis/parking-lot/*.md` with `status: open`) that name this plan, when any.
 
 ## 2. Step 0: reconcile
 
@@ -47,8 +47,8 @@ publish a branch that does). Commit the phase there, with its tracker row set to
 - The runner reviews `risk: high` phases. A phase marked `**Risk:** high`: do not halt for it and do not run the
   review yourself. When its exit gate is green, set its row `done` and end with `STATUS: CONTINUE`. The runner then
   reviews it twice and, on findings, starts one fix session.
-- Set the tracker row of the batch to `done` (with its evidence) when its exit gate is green. Set open-work rows with
-  `python <scripts>/caddis_rows.py set` (by row id and column name).
+- Set the tracker row of the batch to `done` (with its evidence) when its exit gate is green. Work you defer on
+  purpose is filed once with `/caddis:park` (a parking-lot item); never write a to-do or backlog file.
 
 ## 5. Write the relay
 
