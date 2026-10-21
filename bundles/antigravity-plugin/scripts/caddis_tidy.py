@@ -38,6 +38,10 @@ DESIGN (locked, see the plan doc — do not re-litigate here)
   already in a repo never block an unrelated PR. It first refuses when any of those files has an
   uncommitted change (the check would read a file that is not what the PR ships), and a range git
   cannot read prints only that error, never an unfiltered list.
+- `--check` also reports three things it never fixes (tidy v2 Phase 4), each with a one-line fix: untracked
+  crash/scratch files at the repo root (`*.stackdump`, `run*.ps1`, `nul`, ...); a `.caddis/` file whose
+  `type:` belongs to another folder; a plan `status: current` with no commit for 14 days. The first is
+  repo-wide and so never appears under `--commit-range`; the other two follow the range like any file.
 - `--only <plan> [<plan> ...]` limits a run to those top-level plans: nothing else is moved or
   stamped. `/implement` closes the plan it finished with it, so another session's finished work
   is never swept into this PR.
@@ -60,6 +64,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import re
 import stat
@@ -735,6 +740,116 @@ def _check_parking_lot_item(item: Item, report: Report) -> None:
                                 "into its own file and move the resolved history to done/.")
 
 
+# ── wider --check (tidy v2 Phase 4): report only, nothing here moves or deletes a file ──────────
+# Names that crash tools and one-off scripts leave at a repo root. Each one is a file nobody chose to
+# keep, so an untracked, un-ignored match is a stray. Matched case-insensitively (Windows).
+_STRAY_PATTERNS = (
+    ("*.stackdump", "a Git Bash/Cygwin crash dump"),
+    ("*.tmp", "an editor or tool temp file"),
+    ("*.bak", "a hand-made or tool backup copy"),
+    ("*.orig", "a merge or patch tool's pre-change copy"),
+    ("*.rej", "a rejected patch hunk"),
+    ("run*.ps1", "a one-off launcher script written during a session"),
+    ("tmp*.py", "a throwaway probe script"),
+    ("scratch*", "a scratch file or folder note"),
+    ("nul", "a Windows device name that a bad redirect (`> nul` run from a bash shell) wrote as a real file"),
+)
+STRAY_FIX = "delete it, or add it to .gitignore if it is meant to stay"
+
+# Folder-defining `type:` values -> the `.caddis/` folder that holds them (None: no folder, the file is
+# a root-level one such as relay.md). Only these can be misfiled. Generic types (note, reference, design,
+# analysis, handoff, ...) are legitimately spread over plans/, kb/ and reviews/ in real repos, so they
+# are never flagged. parking-lot/ is left to `_check_parking_lot_item`, which already enforces its type.
+_TYPE_HOME = {
+    "plan": "plans", "prd": "prd", "prompt": "prompts", "review": "reviews", "rca": "rca",
+    "adr": "decisions", "decision": "decisions", "parking-lot": "parking-lot",
+    "relay": None, "session-state": None,
+}
+# The types each known folder accepts of those above. `relay/` holds relays; kb/ accepts none of them.
+_FOLDER_TYPES = {
+    "plans": {"plan"}, "prd": {"prd"}, "prompts": {"prompt"}, "reviews": {"review"}, "rca": {"rca"},
+    "decisions": {"adr", "decision"}, "relay": {"relay"}, "kb": set(),
+}
+STALE_PLAN_DAYS = 14
+
+
+def is_stray_name(name: str) -> bool:
+    """True when a root-level file name matches a crash/scratch pattern."""
+    low = name.lower()
+    return any(fnmatch.fnmatchcase(low, pat) for pat, _ in _STRAY_PATTERNS)
+
+
+def _check_root_strays(repo_root: Path, report: Report) -> None:
+    """Untracked, un-ignored files directly at the repo root whose name looks like crash/scratch debris.
+    Repo-wide: a stray is local, so a `--commit-range` filter drops it (no commit can contain it).
+    Untracked files in subfolders are out of scope (too noisy). `--directory` collapses an untracked
+    folder to one `name/` entry, which has a slash and is skipped."""
+    if not _is_git_repo(repo_root):
+        return
+    done = _git_run(repo_root, "ls-files", "--others", "--exclude-standard", "--directory",
+                    "--no-empty-directory", "-z")
+    if done is None or done.returncode != 0:
+        return
+    for name in sorted(done.stdout.decode("utf-8", "replace").split("\0")):
+        if name and "/" not in name and is_stray_name(name):
+            report._flag(repo_root / name, f"untracked stray file at the repo root; fix: {STRAY_FIX}")
+
+
+def _doc_type(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+    return str(_parse_frontmatter(text).get("type") or "").split("#")[0].strip().lower()
+
+
+def _check_wrong_folder(repo_root: Path, report: Report) -> None:
+    """A `.caddis/` file whose `type:` names another folder's kind. Looks at the files directly in
+    `.caddis/` and in each known folder; `done/` and other subfolders are history and are skipped, and
+    so is a file with no frontmatter (most folders never require it). Under `--commit-range` it
+    applies to the files the range changed, like every other per-file check."""
+    caddis = repo_root / ".caddis"
+    if not caddis.is_dir():
+        return
+    for folder in ("", *_FOLDER_TYPES):
+        d = caddis / folder if folder else caddis
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.md")):
+            kind = _doc_type(f) if f.name.lower() != "readme.md" and f.is_file() else ""
+            if kind not in _TYPE_HOME or kind in _FOLDER_TYPES.get(folder, ()):
+                continue
+            home = _TYPE_HOME[kind]
+            if not folder and home is None:
+                continue  # relay.md and session-state*.md live at the `.caddis/` root
+            where = f".caddis/{folder}" if folder else ".caddis"
+            fix = f"git mv {f.relative_to(repo_root).as_posix()} .caddis/{home}/" if home else "move it"
+            report._flag(f, f"type is `{kind}`, which does not belong in {where}/; fix: {fix}")
+
+
+def _check_stale_current_plans(repo_root: Path, report: Report) -> None:
+    """Plans `status: current` with no commit in 14 days. Reuses caddis_inventory.stale_plans, which
+    ships beside this file in every runtime. A plan a `--commit-range` changed has a fresh commit,
+    so a range check drops these naturally."""
+    try:
+        import caddis_inventory
+    except ModuleNotFoundError as exc:
+        if exc.name != "caddis_inventory":
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_inventory
+    for entry in caddis_inventory.stale_plans(repo_root, days=STALE_PLAN_DAYS, statuses=("current",)):
+        report._flag(repo_root / entry["file"],
+                     f"status current, but no commit for {entry['days']} days; fix: set status: "
+                     "done/superseded/draft in its frontmatter, or commit progress to it")
+
+
+def _check_wider(repo_root: Path, report: Report) -> None:
+    _check_root_strays(repo_root, report)
+    _check_wrong_folder(repo_root, report)
+    _check_stale_current_plans(repo_root, report)
+
+
 def tidy(repo_root: Path, apply: bool = False, check: bool = False,
           kinds: tuple[str, ...] = _KINDS, commit_range: str | None = None,
           only: list[str] | None = None) -> Report:
@@ -829,6 +944,8 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
                 report.stale_suspects.append(item.path)
     if commit_range is not None and PARKING_LOT_DIR in kinds:
         _plan_parked(repo_root, commit_range, report, moves, rewrites)
+    if check:
+        _check_wider(repo_root, report)
     if check and report.in_range is not None:
         _limit_check_to(repo_root, report, report.in_range)
     if only_set is not None:
@@ -1139,7 +1256,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true", help="actually move files (default: dry-run report)")
     ap.add_argument("--check", action="store_true",
                      help="conformance check - exit 1 if any top-level artifact lacks a known "
-                          "status, or a plan's Tracker is all done while its status is active")
+                          "status, a plan's Tracker is all done while its status is active, a stray "
+                          "crash/scratch file sits at the repo root, a .caddis file is in the wrong "
+                          "folder, or a `current` plan has no commit for 14 days (report only)")
     ap.add_argument("--commit-range", default=None,
                      help="also read Resolves-Parked / Partly-Resolves-Parked trailers in these "
                           "commits only, e.g. origin/main..HEAD (default: read no trailers); "

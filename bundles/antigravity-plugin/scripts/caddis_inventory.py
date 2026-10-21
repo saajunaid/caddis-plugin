@@ -56,9 +56,6 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_frontmatter
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
 ART = ".caddis"
 
 # Artefact kinds worth enumerating, and what a reader needs from each. Order matters: it is the
@@ -277,9 +274,10 @@ def stale_artifacts(root: Path) -> list[dict]:
     return out
 
 
-def stale_plans(root: Path, days: int = 14) -> list[dict]:
-    """Top-level plans in `status: doing` or `status: current` whose last git commit is older
-    than `days` days."""
+def stale_plans(root: Path, days: int = 14,
+                statuses: tuple[str, ...] = ("doing", "current")) -> list[dict]:
+    """Top-level plans whose `status:` is one of `statuses` (default `doing` or `current`) and whose
+    last git commit is older than `days` days. `caddis_tidy.py --check` calls it with `current` only."""
     d = root / ART / "plans"
     if not d.is_dir() or not (root / ".git").exists():
         return []
@@ -291,7 +289,7 @@ def stale_plans(root: Path, days: int = 14) -> list[dict]:
             continue
         fm = frontmatter(f)
         status = (fm.get("status") or "").strip()
-        if status.lower() not in ("doing", "current"):
+        if status.lower() not in statuses:
             continue
         rel = f"{ART}/plans/{f.name}"
         ts = _run(["git", "log", "-1", "--format=%ct", "--", rel], root)
@@ -464,6 +462,10 @@ def render_md(inv: Inventory) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Only when run as a command: importing this module (caddis_tidy and caddis_gate do) must not
+    # change the importer's stdout encoding.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo-root", default=".")
     ap.add_argument("--format", choices=("md", "json"), default="md")

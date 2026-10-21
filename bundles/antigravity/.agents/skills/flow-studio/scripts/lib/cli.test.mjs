@@ -1,7 +1,7 @@
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,7 @@ const good = {
   links: [{ id: "a-b", from: "a", to: "b", state: "ok" }],
 };
 const dir = mkdtempSync(join(tmpdir(), "flow-studio-"));
+after(() => rmSync(dir, { recursive: true, force: true })); // a test run leaves nothing in the temp folder (tidy v2 Phase 5)
 const write = (name, value) => { const p = join(dir, name); writeFileSync(p, typeof value === "string" ? value : JSON.stringify(value)); return p; };
 
 test("validate: a good model exits 0 and prints OK", () => {

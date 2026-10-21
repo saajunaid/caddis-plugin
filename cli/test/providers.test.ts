@@ -4,11 +4,11 @@
  * asserts they agree. A renamed model id or a moved endpoint now fails here instead of
  * failing at the moment someone tries to use a lane.
  */
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
   ConfigError,
   PROVIDERS,
@@ -59,8 +59,15 @@ const FIXTURE_FROM_FILE = 'from-file';
 const FIXTURE_FROM_ENV = 'from-env';
 const FIXTURE_SECRET = 'secret-value';
 
+// Every folder tmpFile makes goes in afterAll: a test run leaves nothing in %TEMP% (tidy v2 Phase 5).
+const scratches: string[] = [];
+afterAll(() => {
+  for (const dir of scratches) rmSync(dir, { recursive: true, force: true });
+});
+
 function tmpFile(contents: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'caddis-keys-'));
+  scratches.push(dir);
   const path = join(dir, 'keys.env');
   writeFileSync(path, contents, 'utf8');
   return path;

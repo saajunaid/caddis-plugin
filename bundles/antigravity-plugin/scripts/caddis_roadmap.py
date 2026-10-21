@@ -1081,8 +1081,10 @@ def merged_checkout(root: Path, branch: str):
         _git(root, "worktree", "add", "--quiet", "--detach", str(worktree), f"origin/{branch}")
         yield worktree
     finally:
-        caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
-        caddis_worktree_safety.remove_tree(tmp)     # links first: a junction's target survives
+        try:
+            caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
+        finally:   # the temp folder goes even when git fails or is missing (tidy v2 Phase 5)
+            caddis_worktree_safety.remove_tree(tmp)     # links first: a junction's target survives
 
 
 def _kill_tree(proc: subprocess.Popen) -> None:
@@ -1849,9 +1851,11 @@ def write_change(root: Path, slug: str, mid: str, change: str, edit, dry_run: bo
             else:
                 rc = caddis_exit.NOT_RUN if rc == caddis_exit.NOT_RUN else caddis_exit.BLOCKED
         finally:
-            caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
-            _git(root, "branch", "-D", branch, check=False)
-            caddis_worktree_safety.remove_tree(tmp)
+            try:
+                caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
+                _git(root, "branch", "-D", branch, check=False)
+            finally:   # the temp folder goes even when git fails or is missing (tidy v2 Phase 5)
+                caddis_worktree_safety.remove_tree(tmp)
             _audit(root, slug, {"utc": _utc(), "roadmap": slug, "id": mid, "change": change, "branch": branch,
                                 "pr": pr, "merge_exit": merge_exit if merge_exit is not None
                                 else (rc if pr is not None else None)})

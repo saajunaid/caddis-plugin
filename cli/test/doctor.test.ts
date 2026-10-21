@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The Python doctor script is "present" unless a test says otherwise.
 vi.mock('node:fs', async (importOriginal) => {
@@ -19,7 +19,7 @@ vi.mock('../src/util/exec.js', async (importOriginal) => {
   return { ...actual, run: vi.fn() };
 });
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { doctor } from '../src/commands/doctor.js';
@@ -39,6 +39,11 @@ const mockRun = vi.mocked(run);
 
 // No test reads the real ~/.caddis/sessions/: this machine's live sessions are not test data.
 const emptyHome = mkdtempSync(path.join(tmpdir(), 'caddis-doctor-home-'));
+// Every temp folder this file makes goes in afterAll: a test run leaves nothing in %TEMP% (tidy v2 Phase 5).
+const scratches: string[] = [emptyHome];
+afterAll(() => {
+  for (const dir of scratches) rmSync(dir, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   vi.stubEnv('CADDIS_HOME', emptyHome);
@@ -179,6 +184,7 @@ describe('caddis doctor project health check', () => {
 describe('caddis doctor live sessions on an older caddis', () => {
   function homeWith(entries: object[]): string {
     const home = mkdtempSync(path.join(tmpdir(), 'caddis-doctor-sessions-'));
+    scratches.push(home);
     const dir = path.join(home, '.caddis', 'sessions');
     mkdirSync(dir, { recursive: true });
     entries.forEach((entry, i) => writeFileSync(path.join(dir, `s${i}.json`), JSON.stringify(entry)));

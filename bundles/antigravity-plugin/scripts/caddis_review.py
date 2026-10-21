@@ -999,7 +999,12 @@ def _prune_stale_review_worktrees(root: Path) -> None:
 
 def _add_worktree(root: Path, head: str, phase: int | str, run: int) -> Path:
     path = Path(tempfile.gettempdir()) / f"caddis-review-{phase}-{run}-{uuid.uuid4().hex[:8]}"
-    _git_out(root, "worktree", "add", "--detach", str(path), head)
+    try:
+        _git_out(root, "worktree", "add", "--detach", str(path), head)
+    except BaseException:
+        # A failed `worktree add` can leave the half-made folder: the caller has no path to remove (tidy v2 Phase 5).
+        caddis_worktree_safety.remove_tree(path)
+        raise
     return path
 
 
