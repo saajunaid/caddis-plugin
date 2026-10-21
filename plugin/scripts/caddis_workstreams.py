@@ -118,7 +118,9 @@ def _hash(text: str) -> str:
 
 def read_relay(root: Path, name: str) -> tuple[str, str | None]:
     artifact, path = _path(root, name)
-    if not path.resolve().is_relative_to(artifact.resolve()) or path.is_symlink():
+    # Only a relay that EXISTS can point elsewhere; resolving one that does not exist yet raced a concurrent writer
+    # creating its folder (see caddis_todo._path, #103).
+    if path.is_symlink() or (path.exists() and not path.resolve().is_relative_to(artifact.resolve())):
         raise ValueError("relay path escapes artifact root")
     try:
         text = path.read_bytes().decode("utf-8")

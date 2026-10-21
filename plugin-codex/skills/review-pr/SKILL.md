@@ -96,7 +96,7 @@ default branch is in progress.
 # approve
 gh pr review <n> --repo <owner/repo> --approve
 # wait for CI; merge only on RESULT: pass. HEAD: is the watched head
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.149/scripts/caddis_lanes.py" ci-watch --pr <n> --repo <owner/repo>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_lanes.py" ci-watch --pr <n> --repo <owner/repo>
 # no in_progress or queued run may be listed
 gh run list --repo <owner/repo> --branch <default branch> --json status
 gh pr merge  <n> --repo <owner/repo> --squash --delete-branch --match-head-commit <watched head>

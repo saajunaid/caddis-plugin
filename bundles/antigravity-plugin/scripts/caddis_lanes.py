@@ -37,6 +37,7 @@ import caddis_checkout_guard
 import caddis_routing
 import caddis_redact
 import caddis_spend
+import caddis_worktree_root
 import caddis_worktree_safety
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -61,7 +62,15 @@ DEFAULT_IDLE_TIMEOUT_S = 900
 IDLE_SAMPLE_S = 15
 LANE_IDS = ("claude", "glm", "codex-sol", "codex-astra", "agy")
 TASK_TYPES = ("backend", "hard", "ui", "tests", "docs")
+# Where lane git WORKTREES live.
+# New lane worktrees go to `<worktree root>/<repo>/caddis-lane-<hash>-<plan>-p<NN>-a<K>` (`lane_worktree_path`, which asks
+# `caddis_worktree_root`: $CADDIS_WORKTREE_ROOT, else `<parent of the main checkout>/.worktrees`). Never %TEMP%: Windows
+# cleanup (Storage Sense) can empty it and delete a lane worktree that holds unmerged work (owner decision, 20 Oct 2026).
+# LANES_TMP is the OLD place, kept ONLY so lanes made before that decision keep working where they are: it is read to
+# accept, finish and abandon an old record, and is never written to. Nothing else lives under it. Lane scratch that is not
+# a worktree (packets, locks) is under `<repo>/.caddis/orchestrator/lane-runs/` (`run_dir`); it never used LANES_TMP.
 LANES_TMP = Path(tempfile.gettempdir()) / "caddis-lanes"
+LANE_WORKTREE_PREFIX = "caddis-lane-"
 DEFAULT_MODELS = {
     "claude": "claude-opus-5",
     "glm": "glm-5.3[1m]",
@@ -227,6 +236,32 @@ def _git_output(repo_root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def lane_worktree_path(repo_root: Path, plan_stem: str, phase: int, attempt: int) -> Path:
+    """The path of a NEW lane worktree: `<worktree root>/<repo>/caddis-lane-<repo hash>-<plan>-p<NN>-a<K>`.
+    Creates nothing. The hash keeps two repos with the same folder name apart."""
+    repo_hash = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:8]
+    short_name = f"{LANE_WORKTREE_PREFIX}{repo_hash}-{plan_stem}-p{phase:02d}-a{attempt}"
+    try:
+        return caddis_worktree_root.worktree_path(repo_root, short_name)
+    except (ValueError, caddis_worktree_root.NotARepoError) as exc:
+        raise LaneConfigError(str(exc)) from exc
+
+
+def is_lane_worktree_path(repo_root: Path, path: Path) -> bool:
+    """True for a folder that a lane may remove: an OLD one under LANES_TMP (any depth, as before), or a NEW one named
+    `caddis-lane-*` directly inside this repo's folder under the current worktree root."""
+    resolved = path.resolve()
+    if LANES_TMP.resolve() in resolved.parents:
+        return True
+    if not resolved.name.startswith(LANE_WORKTREE_PREFIX):
+        return False
+    try:
+        lane_dir = caddis_worktree_root.worktree_path(repo_root, resolved.name).parent
+    except (ValueError, caddis_worktree_root.NotARepoError):
+        return False
+    return resolved.parent == lane_dir.resolve()
+
+
 def create_phase_worktree(
     repo_root: Path,
     plan_stem: str,
@@ -235,14 +270,11 @@ def create_phase_worktree(
 ) -> Worktree:
     base_sha = _git_output(repo_root, "rev-parse", "HEAD")
     branch = f"lane/{plan_stem}/phase-{phase:02d}-a{attempt}"
-    repo_hash = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:8]
-    path = LANES_TMP / (
-        f"{repo_root.name}-{repo_hash}-{plan_stem}-p{phase:02d}-a{attempt}"
-    )
+    path = lane_worktree_path(repo_root, plan_stem, phase, attempt)
     if path.exists():
         raise LaneConfigError(f"worktree already exists: {path} — run abandon first")
 
-    LANES_TMP.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     _git_output(
         repo_root,
         "worktree",
@@ -262,8 +294,8 @@ def remove_phase_worktree(
     delete_branch: bool,
 ) -> None:
     resolved = wt.path.resolve()
-    if LANES_TMP.resolve() not in resolved.parents:
-        raise LaneConfigError(f"refusing to remove {resolved}: not under {LANES_TMP}")
+    if not is_lane_worktree_path(repo_root, resolved):
+        raise LaneConfigError(f"refusing to remove {resolved}: not a lane worktree (a caddis-lane-* folder under the worktree root, or an old one under {LANES_TMP})")
     if delete_branch and not wt.branch.startswith("lane/"):
         raise LaneConfigError(f"refusing to delete non-lane branch: {wt.branch}")
 
@@ -2342,8 +2374,8 @@ def _validate_packet_worktree(
 ) -> None:
     resolved = wt.path.resolve()
     expected_branch = f"lane/{plan.stem}/phase-{phase:02d}-a{attempt}"
-    if LANES_TMP.resolve() not in resolved.parents:
-        raise LaneConfigError(f"refusing packet worktree outside {LANES_TMP}: {resolved}")
+    if not is_lane_worktree_path(repo, resolved):
+        raise LaneConfigError(f"refusing packet worktree that is not a lane worktree: {resolved}")
     if wt.branch != expected_branch:
         raise LaneConfigError(
             f"refusing packet branch {wt.branch}: expected {expected_branch}"
@@ -2392,8 +2424,7 @@ def _finish_command(args) -> int:
         resolved = path.resolve()
         if resolved == main_path:
             continue
-        in_lanes_tmp = LANES_TMP.resolve() in resolved.parents
-        if not branch.startswith(prefix) or not in_lanes_tmp:
+        if not branch.startswith(prefix) or not is_lane_worktree_path(repo, resolved):
             print(f"OTHER {path} {branch or 'HEAD'}")
             continue
         if branch_is_locked(branch):
