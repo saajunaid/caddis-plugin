@@ -295,8 +295,8 @@ def check_sheet(sheet_text: str, roster_text: str) -> list[str]:
 
 # ---- session presence -------------------------------------------------------------------------
 
-def whoami(session_id: str, name: str, root: Path) -> Path:
-    """Write `<artifacts>/session-state/<sid>.name`: one tab-separated line `name  repo root  branch`."""
+def _name_file(session_id: str, root: Path) -> Path:
+    """`<artifacts>/session-state/<sid>.name`, the file `whoami` writes."""
     slug = "".join(c for c in session_id if c.isalnum() or c in "-_")[:64]
     if not slug:
         raise ValueError("empty session id")
@@ -305,6 +305,21 @@ def whoami(session_id: str, name: str, root: Path) -> Path:
         art = Path(artifact_root(str(root)))
     except Exception:
         art = root / ".caddis"
+    return art / "session-state" / f"{slug}.name"
+
+
+def session_name(session_id: str, root: Path) -> tuple[str, bool]:
+    """The session's display name and whether `whoami` recorded it; else the first 8 characters of the id."""
+    try:
+        line = _name_file(session_id, root).read_text(encoding="utf-8").split("\n", 1)[0].split("\t")[0].strip()
+    except (OSError, UnicodeDecodeError, ValueError):
+        line = ""
+    return (line, True) if line else (session_id[:8], False)
+
+
+def whoami(session_id: str, name: str, root: Path) -> Path:
+    """Write `<artifacts>/session-state/<sid>.name`: one tab-separated line `name  repo root  branch`."""
+    out = _name_file(session_id, root)
     branch = "-"
     for cmd in (["symbolic-ref", "--short", "-q", "HEAD"], ["rev-parse", "--short", "HEAD"]):  # branch, else detached
         proc = subprocess.run(["git", "-C", str(root), *cmd], capture_output=True, text=True,
@@ -312,11 +327,63 @@ def whoami(session_id: str, name: str, root: Path) -> Path:
         if proc.returncode == 0 and proc.stdout.strip():
             branch = proc.stdout.strip()
             break
-    out = art / "session-state" / f"{slug}.name"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(f"{name}\t{root}\t{branch}\n", encoding="utf-8")
     return out
 
+
+# ---- resume block -----------------------------------------------------------------------------
+
+class ResumeError(ValueError):
+    """The relay has no usable `## Resume prompt`."""
+
+
+_RESUME_SECTION = re.compile(r"^## Resume prompt[^\n]*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+_FENCE_OPEN = re.compile(r"^(`{3,}|~{3,})[^\n`]*$")
+
+
+def resume_prompt(relay_text: str) -> str:
+    """The text inside the first fenced block of the relay's `## Resume prompt` section, verbatim."""
+    m = _RESUME_SECTION.search(relay_text)
+    if not m:
+        raise ResumeError("relay has no ## Resume prompt section")
+    body: list[str] = []
+    fence: str | None = None
+    for line in m.group(1).splitlines():
+        if fence is None:
+            opened = _FENCE_OPEN.match(line.strip())
+            if opened:
+                fence = opened.group(1)
+            continue
+        if line.strip().startswith(fence) and not line.strip().strip(fence[0]):
+            break  # the closing fence
+        body.append(line)
+    else:
+        if fence is None:
+            raise ResumeError("## Resume prompt section has no fenced block")
+        raise ResumeError("## Resume prompt fenced block is not closed")
+    prompt = "\n".join(body).strip("\n")
+    if not prompt.strip():
+        raise ResumeError("## Resume prompt fenced block is empty")
+    return prompt
+
+
+def shell_arg(text: str) -> str:
+    """One word that PowerShell and bash read the same: one line, inside single quotes (no expansion in either).
+    A `'` would end the word in bash and a `"` is dropped by Windows PowerShell 5.1, so both become typographic."""
+    one_line = " ".join(text.split())
+    return "'" + one_line.replace("'", "’").replace('"', "”") + "'"
+
+
+def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
+                  fleet_mode: bool = False) -> str:
+    """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line."""
+    if fleet_mode:
+        start = "Start line: from the restart sheet"
+    else:
+        start = f"Start line:\nclaude --name {new_name(role, stamp)} {shell_arg(prompt)}"
+    return (f"=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
+            f"{_fenced(prompt)}\n{start}\n")
 
 # ---- CLI --------------------------------------------------------------------------------------
 
@@ -325,6 +392,32 @@ def _load_acks(fleet_dir: Path) -> list[Ack]:
     if not acks_dir.is_dir():
         return []
     return [parse_ack(p.read_text(encoding="utf-8")) for p in sorted(acks_dir.glob("*.md"))]
+
+
+def _resume_block_cli(args: argparse.Namespace) -> int:
+    try:
+        import caddis_workstreams
+    except ModuleNotFoundError as exc:
+        if exc.name != "caddis_workstreams":
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_workstreams
+    root = args.root.resolve()
+    try:
+        text, digest = caddis_workstreams.read_relay(root, args.name)
+        if digest is None:
+            raise ResumeError(f"relay {args.name!r} not found")
+        prompt = resume_prompt(text)
+    except (ValueError, OSError) as exc:  # ResumeError is a ValueError; a bad relay name is one too
+        sys.stderr.write(f"resume-block failed: {exc}\n")
+        return caddis_exit.BLOCKED
+    session, known = session_name(args.session_id, root)
+    role = args.role or (role_of(session) if known else args.name)
+    if not _SAFE_NAME.match(role):  # the role goes unquoted into the start line
+        sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
+        return caddis_exit.BLOCKED
+    print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet), end="")
+    return caddis_exit.CLEAN
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -353,6 +446,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--session-id", required=True)
     p.add_argument("--name", required=True)
     p.add_argument("--root", default=".", type=Path)
+    p = sub.add_parser("resume-block", help="print the session name and the relay's resume prompt (last step of handoff)")
+    p.add_argument("--name", required=True, help="the relay's workstream name")
+    p.add_argument("--session-id", required=True)
+    p.add_argument("--root", default=".", type=Path)
+    p.add_argument("--role", help="role for the new session's name (default: the session name's role, else the relay name)")
+    p.add_argument("--fleet", action="store_true", help="fleet close: print no start line (the restart sheet has it)")
     args = parser.parse_args(argv)
 
     if args.cmd == "role-of":
@@ -419,6 +518,8 @@ def main(argv: list[str] | None = None) -> int:
             return caddis_exit.BLOCKED
         print("[FLEET] sheet ok")
         return caddis_exit.CLEAN
+    if args.cmd == "resume-block":
+        return _resume_block_cli(args)
     # whoami
     try:
         out = whoami(args.session_id, args.name, args.root.resolve())

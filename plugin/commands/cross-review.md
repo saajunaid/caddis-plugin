@@ -1,5 +1,5 @@
 ---
-description: Cross-vendor code review of the current diff — a second-vendor model (DeepSeek/GLM/any OpenAI-compatible endpoint) reviews your changes to catch bugs a same-vendor reviewer misses
+description: Cross-vendor code review of the current diff — a second-vendor model (agy Argon by default; DeepSeek, GLM or any OpenAI-compatible endpoint) reviews your changes to catch bugs a same-vendor reviewer misses
 argument-hint: [git range, e.g. origin/main..HEAD]
 stage: review
 ---
@@ -7,7 +7,7 @@ stage: review
 # /caddis:cross-review — a second-vendor set of eyes on your diff
 
 Run a cross-vendor review of the current changes with a DIFFERENT model family than the one that wrote them
-(default **DeepSeek** — the cheapest + most architecturally distinct-from-Claude option). Use after a phase
+(default **agy Argon** since 2026-10-21 — it needs no key; DeepSeek and GLM are fallbacks). Use after a phase
 is green and before you commit, or for a second opinion on a risky diff. This is the *cross-vendor*
 complement to `/caddis:code-review`, not a replacement.
 
@@ -17,7 +17,7 @@ complement to `/caddis:code-review`, not a replacement.
 python "$TOOL" --check-config      # resolve $TOOL first, see "Run it" below
 ```
 
-Exit 0 means ready; it prints which providers have a key. **Exit 3 means nothing is configured —
+Exit 0 means ready; it prints which providers are available (agy-argon needs no key, only agy on PATH and caddis_spend.py). **Exit 3 means nothing is configured —
 STOP and ask the user now.** Do not proceed to the review, and do not silently skip it.
 
 Ask with `AskUserQuestion`: which provider to set up (DeepSeek, GLM, or another OpenAI-compatible
@@ -66,7 +66,7 @@ fi
 > copied weeks earlier silently won. `caddis_gate.py vendor-drift` now fails on the same condition.
 ```
 python "$TOOL" $ARGUMENTS                                # pass the user's flags THROUGH, raw
-python "$TOOL"                                           # no arguments: DeepSeek eyes on the working tree
+python "$TOOL"                                           # no arguments: agy Argon eyes on the working tree
 ```
 
 **`$ARGUMENTS` goes through raw, and must not be re-prefixed.** Callers are told to type the flag
@@ -75,7 +75,7 @@ writes. This line used to prefix the flag itself, which turned that into a doubl
 `--range --range main..HEAD` and made every plan-emitted call fail. Whatever the user typed is already a complete flag list:
 
 ```
-/caddis:cross-review                          -> the working tree, DeepSeek
+/caddis:cross-review                          -> the working tree, agy Argon
 /caddis:cross-review --range main..HEAD       -> that range
 /caddis:cross-review --provider glm           -> GLM eyes
 ```
@@ -87,14 +87,17 @@ now means the narrower case — a **single file** too big to split, or more batc
 see it, the fix is usually to review that one file separately, not to narrow `--range`; don't raise
 `--max-diff-chars` blind.
 
-**Do not alternate providers on a schedule.** The order is the owner policy: **DeepSeek, then agy Argon,
-then GLM** (`REVIEW_ORDER` in `oss_review.py`). A named `--provider` goes first; on a provider failure
+**Do not alternate providers on a schedule.** The order is the owner policy (21 Oct 2026): **agy Argon,
+then DeepSeek, then GLM** (`REVIEW_ORDER` in `oss_review.py`). A named `--provider` goes first; on a provider failure
 (HTTP 429, any 5xx, a timeout, a connection error, an empty reply) the tool moves to the next one in
 that order and prints which provider gave the verdict. A provider with no key is skipped. agy runs
 through `caddis_spend.py run` (the spend cap); if the cap refuses, agy is skipped. On a 429 the tool
 waits for `Retry-After` once (at most 60 s); it never splits the diff because of a 429 or an empty
 reply. A custom endpoint (`--base-url`/`--model`) never falls back. Name a provider only when you have
 a reason.
+
+**Change the default.** The first provider comes from `--provider`, then the process env `REVIEW_PROVIDER`, then
+`REVIEW_PROVIDER` in `~/.caddis/keys.env`, then agy Argon. The others follow in `REVIEW_ORDER`. To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.

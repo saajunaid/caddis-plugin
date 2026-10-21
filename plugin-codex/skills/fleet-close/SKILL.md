@@ -12,7 +12,7 @@ writes its own handoff last, and prints a restart sheet. The owner starts each n
 sheet, and each new session runs `/caddis:fleet-open <role>`.
 
 Every fleet rule (names, ack format, order, checks) lives in
-`${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py`; this command only calls it. Run the steps in order.
+`${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py`; this command only calls it. Run the steps in order.
 
 **Safety rules for the whole command** (a wrong close loses another session's relay or tasks):
 - Never write, edit or move another session's relay, tasks file or watcher files. Each session writes
@@ -42,7 +42,7 @@ coordinator. Candidates:
 - `offline` rows and your own row are not candidates.
 
 For each candidate, and for yourself, get the role:
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py" role-of <name>`. **Two sessions with the same role**
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" role-of <name>`. **Two sessions with the same role**
 would get one start line and one new name, and one of them would be lost. So when roles repeat, keep the
 role for the first name (sorted), and give each other one a distinct role `<role>-b`, `<role>-c`, ...; tell
 that session its role in Step 3 (rule 5).
@@ -55,7 +55,7 @@ say so, run `/caddis:handoff` for this session only, and **stop**.
 The fleet dir is `.caddis/relay/fleet/<MMDD>-<HH>/` in this repo, at the coordinator's local time:
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py" new-name fleet
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" new-name fleet
 ```
 
 prints `fleet-<MMDD>-<HH>`; the dir name is the `<MMDD>-<HH>` part. Create it. It is local and
@@ -72,7 +72,10 @@ FLEET CLOSE from <coordinator>: write your handoff and ack.
 Then these close rules, in the message:
 1. Run `/caddis:handoff` for **your own** relay only. Never touch another session's files. Skip its
    Step 7 (the `Push this note for another machine?` question): the restart sheet carries your prompt,
-   and a question nobody answers would stop you before you ack.
+   and a question nobody answers would stop you before you ack. Run the handoff's Step 9 as
+   `resume-block ... --fleet`: it prints your Session, Workstream and prompt, and
+   `Start line: from the restart sheet`. The restart sheet holds the only start line. The ack stays a
+   separate reply (rule 5).
 2. In a shared checkout (its `AGENTS.md` says `Shared checkout: yes`, or `git status` shows changes you
    did not make), skip the steps the handoff checklist skips there.
 3. If you run watchers: copy each watcher script to `.caddis/relay/<your name>-files/watchers/`, and fill
@@ -109,7 +112,7 @@ with `run_in_background`. Each ack arrives as a cross-session message. For each 
 1. Write the message text (from the `FLEET-ACK` line to the end) to a temp file in your scratchpad.
 2. Save it:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py" ack add --dir <fleet dir> --text-file <temp file>
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" ack add --dir <fleet dir> --text-file <temp file>
    ```
 3. Exit 0 → acked. An error names the missing or bad field: send that session **one** reply that
    quotes the error and asks for a corrected ack. Do not fix the ack yourself.
@@ -132,20 +135,20 @@ remove that session from the `--no-ack` list before the next `write`.
 
 ## Step 6 — your own handoff and ack
 
-Run `/caddis:handoff` for this session (the coordinator's own relay). Then write your own ack (the
+Run `/caddis:handoff` for this session (the coordinator's own relay), with Step 9 as `resume-block ... --fleet`. Then write your own ack (the
 `FLEET-ACK` block with your fields and your resume prompt) to a temp file and save it with
 `ack add`, as in Step 4. The coordinator's ack is never skipped. Then record this session's presence
 (your session id is printed at session start as `[caddis] this session's id: <id>`; never guess one):
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py" whoami --session-id <id> --name <your name> --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" whoami --session-id <id> --name <your name> --root .
 ```
 
 ## Step 7 — write and check the sheet
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py" write --dir <fleet dir> --coordinator <your name> --no-ack <name> [--no-ack <name> ...]
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.150/scripts/caddis_fleet.py" check --dir <fleet dir>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" write --dir <fleet dir> --coordinator <your name> --no-ack <name> [--no-ack <name> ...]
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.151/scripts/caddis_fleet.py" check --dir <fleet dir>
 ```
 
 Pass `--no-ack <name>` once for each silent session from Step 5, **on every `write`**, and leave it out

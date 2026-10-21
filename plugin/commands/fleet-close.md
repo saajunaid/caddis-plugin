@@ -73,7 +73,10 @@ FLEET CLOSE from <coordinator>: write your handoff and ack.
 Then these close rules, in the message:
 1. Run `/caddis:handoff` for **your own** relay only. Never touch another session's files. Skip its
    Step 7 (the `Push this note for another machine?` question): the restart sheet carries your prompt,
-   and a question nobody answers would stop you before you ack.
+   and a question nobody answers would stop you before you ack. Run the handoff's Step 9 as
+   `resume-block ... --fleet`: it prints your Session, Workstream and prompt, and
+   `Start line: from the restart sheet`. The restart sheet holds the only start line. The ack stays a
+   separate reply (rule 5).
 2. In a shared checkout (its `AGENTS.md` says `Shared checkout: yes`, or `git status` shows changes you
    did not make), skip the steps the handoff checklist skips there.
 3. If you run watchers: copy each watcher script to `.caddis/relay/<your name>-files/watchers/`, and fill
@@ -133,7 +136,7 @@ remove that session from the `--no-ack` list before the next `write`.
 
 ## Step 6 — your own handoff and ack
 
-Run `/caddis:handoff` for this session (the coordinator's own relay). Then write your own ack (the
+Run `/caddis:handoff` for this session (the coordinator's own relay), with Step 9 as `resume-block ... --fleet`. Then write your own ack (the
 `FLEET-ACK` block with your fields and your resume prompt) to a temp file and save it with
 `ack add`, as in Step 4. The coordinator's ack is never skipped. Then record this session's presence
 (your session id is printed at session start as `[caddis] this session's id: <id>`; never guess one):

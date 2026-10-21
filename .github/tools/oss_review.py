@@ -3,14 +3,15 @@
 
 A different vendor's model has different blind spots, so a second model reviewing your diff
 catches bugs a same-vendor reviewer misses. This tool is provider-agnostic: point it at
-DeepSeek (default — cheapest + most architecturally distinct from Claude), GLM, OpenRouter,
-or any OpenAI-compatible `/chat/completions` endpoint via three env vars.
+agy Argon (default since 2026-10-21; needs no key), DeepSeek (cheap, architecturally distinct from
+Claude), GLM, OpenRouter, or any OpenAI-compatible `/chat/completions` endpoint via three env vars.
 
 Config precedence (highest wins): explicit CLI flag  >  env var  >  provider preset.
-  REVIEW_PROVIDER   preset name: deepseek | glm | openrouter   (default deepseek)
+  REVIEW_PROVIDER   preset name: agy-argon | deepseek | glm | openrouter   (default agy-argon)
+                    precedence: --provider flag, process env, then REVIEW_PROVIDER in ~/.caddis/keys.env
   REVIEW_BASE_URL   base URL, no trailing /chat/completions    (overrides the preset's URL)
   REVIEW_MODEL      model id                                   (overrides the preset's model)
-  REVIEW_API_KEY    bearer token                               (REQUIRED — no key ⇒ exit 3)
+  REVIEW_API_KEY    bearer token                               (REQUIRED for an HTTP provider; agy-argon needs none)
 
 Future-proofing: model ids and endpoints churn. Two layers protect against that — (1) the PROVIDERS
 table below is the ONE place a renamed model/URL is edited; (2) REVIEW_MODEL / REVIEW_BASE_URL env
@@ -37,8 +38,9 @@ Exit codes (fail-closed):
   4  error              — no diff verdict parsed, git failure, other endpoint/parse failure, or the diff
                           exceeds REVIEW_MAX_DIFF_CHARS (see below — never silently downgraded to CLEAN)
 
-Provider chain (owner policy, 2026-10-16): deepseek -> agy-argon -> glm. A named --provider goes first,
-then the rest in policy order; a provider with no key (or no agy on PATH) is skipped. A provider failure
+Provider chain (owner policy, 2026-10-21; was deepseek first from 2026-10-16): agy-argon -> deepseek -> glm.
+A named --provider goes first, then the rest in policy order; a provider with no key (or no agy on PATH)
+is skipped. With no provider named, the chain starts at the first provider that is available. A provider failure
 moves to the next provider and never splits the diff. On HTTP 429 a `Retry-After` is honoured ONCE per
 provider (capped at 60 s), then the next provider is tried. A provider that failed gets no more calls in
 the same run. agy runs through `caddis_spend.py run` (the EUR spend cap), in plan mode, with the diff in
@@ -99,9 +101,12 @@ PROVIDERS: dict[str, dict[str, str]] = {
     "glm":        {"base_url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5.3"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1",        "model": "deepseek/deepseek-v4-flash"},
 }
-DEFAULT_PROVIDER = "deepseek"
+# The HTTP preset used when nobody names a provider but an HTTP endpoint is still needed: a custom
+# endpoint (REVIEW_BASE_URL / REVIEW_MODEL) with no --provider, and resolve_config's own default. It is
+# a key-lookup and label default only; it is NOT the review order (see REVIEW_ORDER).
+HTTP_DEFAULT_PROVIDER = "deepseek"
 
-# The review chain, in owner-policy order (2026-10-16): DeepSeek, then agy Argon, then GLM. A named
+# The review chain, in owner-policy order (2026-10-21): agy Argon, then DeepSeek, then GLM. A named
 # provider goes first and the rest follow in this order; a custom endpoint (REVIEW_BASE_URL /
 # REVIEW_MODEL) never falls back, because its owner named exactly who reviews.
 #
@@ -112,12 +117,14 @@ DEFAULT_PROVIDER = "deepseek"
 # sessions recorded "cross-review inconclusive" and moved on. A review that silently does not
 # happen is the same failure class as a diff that silently is not read.
 #
-# Order matters: DeepSeek leads because it has actually found real bugs (a date-boundary bug
-# two same-vendor passes missed, an anchor bug, an orphaned-permission-rows bug). GLM is the
-# spare tyre, not a co-equal — an alternation policy that sends half the phases to a provider
-# that times out buys variety it never actually collects.
+# Order matters: agy Argon leads since 2026-10-21 (owner decision) because DeepSeek ran out of credit,
+# so every unnamed review tried DeepSeek first and failed before it reached Argon. DeepSeek stays
+# second: it has actually found real bugs (a date-boundary bug two same-vendor passes missed, an
+# anchor bug, an orphaned-permission-rows bug). GLM is the spare tyre, not a co-equal — an alternation
+# policy that sends half the phases to a provider that times out buys variety it never actually collects.
 AGY_PROVIDER = "agy-argon"
-REVIEW_ORDER: tuple[str, ...] = ("deepseek", AGY_PROVIDER, "glm")
+DEFAULT_PROVIDER = AGY_PROVIDER
+REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 
 # agy runs headless through the spend cap: plan mode (it needs no tools, the diff is in the prompt).
 AGY_MODEL = "gemini-4-argon-high"
@@ -239,14 +246,29 @@ def _parse_keys_file(path: str) -> dict[str, str]:
     p = Path(path).expanduser()
     if not p.is_file():
         return {}
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # Unreadable or not UTF-8 (PowerShell writes UTF-16). agy needs no key, so this file must not
+        # stop a review; a provider that needs a key then reports "no API key" as usual.
+        return {}
     out: dict[str, str] = {}
-    for raw in p.read_text(encoding="utf-8").splitlines():
+    for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, val = line.split("=", 1)
         out[key.strip()] = val.strip().strip('"').strip("'")
     return out
+
+
+def named_provider(args: argparse.Namespace, env: dict[str, str]) -> str:
+    """The provider the caller chose, or "". Order: --provider flag, process env REVIEW_PROVIDER,
+    REVIEW_PROVIDER in the keys file (~/.caddis/keys.env), so a default is switched with one line there."""
+    chosen = args.provider or env.get("REVIEW_PROVIDER")
+    if not chosen:
+        chosen = _parse_keys_file(env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE).get("REVIEW_PROVIDER")
+    return (chosen or "").strip().lower()
 
 
 def resolve_config(
@@ -265,9 +287,7 @@ def resolve_config(
     provider: pointing DeepSeek's model id at GLM's endpoint would turn a clean fallback into
     a confusing 404.
     """
-    provider = (
-        provider or args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
-    ).strip().lower()
+    provider = (provider or named_provider(args, env) or HTTP_DEFAULT_PROVIDER).strip().lower()
     preset = PROVIDERS.get(provider, {})
     if use_overrides:
         base_url = (args.base_url or env.get("REVIEW_BASE_URL") or preset.get("base_url") or "").rstrip("/")
@@ -735,15 +755,16 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     parser.add_argument("--cwd", default=".", help="repo directory (default: cwd)")
     parser.add_argument("--provider", default=None,
                         help=f"preset: {', '.join(sorted(PROVIDERS))} or {AGY_PROVIDER} (default "
-                             f"{DEFAULT_PROVIDER}); env REVIEW_PROVIDER. A provider failure falls back in "
-                             f"the order {' -> '.join(REVIEW_ORDER)}")
+                             f"{DEFAULT_PROVIDER}, then the next available provider); env REVIEW_PROVIDER "
+                             f"or REVIEW_PROVIDER in the keys file. "
+                             f"A provider failure falls back in the order {' -> '.join(REVIEW_ORDER)}")
     parser.add_argument("--base-url", dest="base_url", default=None, help="override REVIEW_BASE_URL / the preset")
     parser.add_argument("--model", default=None, help="override REVIEW_MODEL / the preset")
     parser.add_argument("--max-diff-chars", type=int, default=None,
                         help=f"override REVIEW_MAX_DIFF_CHARS (default {DEFAULT_MAX_DIFF_CHARS})")
     parser.add_argument("--check-config", action="store_true",
-                        help="report whether a usable key exists and exit — no diff, no LLM call. "
-                             "Exit 0 = ready, 3 = nothing configured.")
+                        help="report whether a usable reviewer exists (agy on PATH, or an API key) and "
+                             "exit — no diff, no LLM call. Exit 0 = ready, 3 = nothing configured.")
     parser.add_argument("--allow-path", dest="allow_path", action="append", default=[],
                         metavar="GLOB",
                         help="re-admit a file the secret-filter deny list would otherwise drop "
@@ -756,16 +777,18 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     # that can actually talk to a human. This half just answers "is it configured?" cheaply enough
     # to call before you need it, instead of finding out mid-commit.
     if args.check_config:
-        available = configured_providers(env)
+        # agy Argon is the default reviewer and needs no key: agy on PATH plus caddis_spend.py is enough.
+        available = ([AGY_PROVIDER] if agy_launcher() is not None else []) + configured_providers(env)
         if not available:
             sys.stderr.write(
-                "no second-vendor API key is configured anywhere.\n"
+                "no second-vendor reviewer is configured: no API key anywhere, and no agy on PATH\n"
+                "  (with caddis_spend.py) for the default agy-argon reviewer.\n"
                 "  Cross-review needs one — the whole point is a reviewer that does not share this\n"
                 "  model's blind spots, so a same-vendor fallback would be no review at all.\n"
                 f"  Add a key to {env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, e.g.\n"
-                "    DEEPSEEK_API_KEY=<your-key>\n")
+                "    GLM_API_KEY=<your-key>\n")
             return EXIT_CONFIG
-        print(f"cross-review is ready. Providers with a key: {', '.join(available)}")
+        print(f"cross-review is ready. Providers available: {', '.join(available)}")
         return EXIT_CLEAN
 
     try:
@@ -804,13 +827,14 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         return EXIT_CONFIG
     diff_text = filter_result.kept_diff
 
-    primary_provider = (
-        args.provider or env.get("REVIEW_PROVIDER") or DEFAULT_PROVIDER
-    ).strip().lower()
+    named = named_provider(args, env)
     # A custom ENDPOINT names exactly who reviews (REVIEW_BASE_URL/REVIEW_MODEL, the documented
     # future-proofing path): it never falls back. A named preset falls back on a provider failure,
     # and the switch is printed, so the reviewer is never misreported.
     custom = bool(args.base_url or env.get("REVIEW_BASE_URL") or args.model or env.get("REVIEW_MODEL"))
+    # With nothing named, the default is agy Argon. A custom endpoint with no provider named is an HTTP
+    # call (never agy), keyed and labelled as before.
+    primary_provider = named or (HTTP_DEFAULT_PROVIDER if custom else DEFAULT_PROVIDER)
     agy_cmd = agy_launcher()
 
     def _http_entry(name: str, url: str, key: str, mdl: str):
@@ -821,12 +845,35 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
 
     try:
         if primary_provider == AGY_PROVIDER and not custom:
-            if agy_cmd is None:
+            if agy_cmd is not None:
+                chain = [_agy_entry(agy_cmd)]
+            elif named:
                 raise ConfigError(f"provider {AGY_PROVIDER!r} needs agy on PATH and caddis_spend.py "
                                   "(beside this script or in the repo's scripts/ folder).")
-            chain = [_agy_entry(agy_cmd)]
+            else:
+                # The default degrades: no agy here, so the chain starts at the next provider with a key.
+                chain = []
         else:
             chain = [_http_entry(primary_provider, *resolve_config(args, env))]
+        # The rest of the chain in policy order (agy Argon -> DeepSeek -> GLM). A provider with no key, or
+        # agy with no agy on PATH, is skipped: not an error, just nothing to fall back to.
+        if not custom:
+            for name in REVIEW_ORDER:
+                if chain and name == chain[0][0]:
+                    continue
+                if name == AGY_PROVIDER:
+                    if agy_cmd is not None:
+                        chain.append(_agy_entry(agy_cmd))
+                    continue
+                try:
+                    chain.append(_http_entry(name, *resolve_config(args, env, provider=name, use_overrides=False)))
+                except ConfigError:
+                    continue
+        if not chain:
+            raise ConfigError(
+                "no reviewer is available: agy is not on PATH (with caddis_spend.py) and no provider has an "
+                "API key. Set $REVIEW_API_KEY, or add a key such as DEEPSEEK_API_KEY or GLM_API_KEY to "
+                f"{env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, or install agy.")
     except ConfigError as exc:
         sys.stderr.write(f"{exc}\n")
         return EXIT_CONFIG
@@ -896,21 +943,6 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         )
 
     branch = current_branch(args.cwd)
-
-    # The rest of the chain in policy order (DeepSeek -> agy Argon -> GLM). A provider with no key, or
-    # agy with no agy on PATH, is skipped: not an error, just nothing to fall back to.
-    if not custom:
-        for name in REVIEW_ORDER:
-            if name == chain[0][0]:
-                continue
-            if name == AGY_PROVIDER:
-                if agy_cmd is not None:
-                    chain.append(_agy_entry(agy_cmd))
-                continue
-            try:
-                chain.append(_http_entry(name, *resolve_config(args, env, provider=name, use_overrides=False)))
-            except ConfigError:
-                continue
 
     # Per run: a provider that failed (429, 5xx, timeout, empty reply, cap refusal) gets no more calls,
     # and each provider waits for a 429 Retry-After at most once. Hammering a throttled provider with

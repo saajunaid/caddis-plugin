@@ -30,7 +30,7 @@
 | Caching Patterns | `caching-patterns/` | Caching strategies for Streamlit and FastAPI applications |
 | Case Management | `case-management/` | >- |
 | Code Explainer | `code-explainer/` | Explain code with diagrams, analogies and step-by-step walkthroughs. Use when teaching a codebase or answering "how does this work?" |
-| Cross Review | `cross-review/` | Have a different vendor's model (DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff. |
+| Cross Review | `cross-review/` | Have a different vendor's model (agy Argon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff. |
 | Llm Application Dev | `llm-application-dev/` | LLM applications: prompt engineering, RAG and LLM integration. Use for AI-powered features, chatbots or LLM automation. |
 | Mcp Builder | `mcp-builder/` | Build high-quality MCP (Model Context Protocol) servers that let LLMs use external APIs and services, in Python (FastMCP) or Node/TypeScript (MCP SDK). |
 | Observability | `observability/` | Structured logging, correlation IDs, PII redaction, OpenTelemetry tracing, metrics (RED), SLO alerting, health probes and Sentry, in Python and TypeScript. Use when adding logs, traces, metrics or error tracking. |

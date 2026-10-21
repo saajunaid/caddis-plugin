@@ -1,12 +1,12 @@
 ---
 name: cross-review
-description: Have a different vendor's model (DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.
+description: Have a different vendor's model (agy Argon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.
 ---
 
 # Cross-Review — a second-vendor set of eyes on your diff
 
 A different vendor's model has different blind spots. Claude reviewing Claude's diff shares those
-blind spots; a **DeepSeek** (or GLM, or any OpenAI-compatible) reviewer catches a different class of
+blind spots; an **agy Argon** (default), DeepSeek, GLM or other OpenAI-compatible reviewer catches a different class of
 issue. This skill runs that second reviewer over the current changes and acts on its verdict.
 
 ## When to use
@@ -20,7 +20,7 @@ issue. This skill runs that second reviewer over the current changes and acts on
 python "$TOOL" --check-config
 ```
 
-Exit 0 prints which providers have a key. **Exit 3 means nothing is configured — stop and ask the
+Exit 0 prints which providers are available (agy-argon needs no key, only agy on PATH and caddis_spend.py). **Exit 3 means nothing is configured — stop and ask the
 user before reading any diff.** Do not proceed, and do not silently skip the review.
 
 Ask with `AskUserQuestion` which provider to set up, then write the key to `~/.caddis/keys.env` as
@@ -36,15 +36,16 @@ If a key exists for a *different* provider than the one requested, the error nam
 exact flag (`--provider glm`). Read the message before concluding anything is missing.
 
 ## Prerequisites (one-time)
-Only the key is mandatory — the tool ships **provider presets** (default `deepseek`, the cheapest + most
-architecturally distinct-from-Claude option; a review costs well under a cent):
+The default reviewer is **agy Argon** (since 2026-10-21; no key, but agy and `caddis_spend.py` must be present). For an HTTP
+provider only the key is mandatory — the tool ships **provider presets** (`deepseek`, `glm`, `openrouter`):
 ```
 REVIEW_API_KEY   = <your provider key>     # REQUIRED (exit 3 without it)
-REVIEW_PROVIDER  = deepseek                 # optional: deepseek | glm | openrouter (default deepseek)
+REVIEW_PROVIDER  = deepseek                 # optional: agy-argon | deepseek | glm | openrouter (default agy-argon)
 REVIEW_BASE_URL  = ...                      # optional: overrides the preset's URL
 REVIEW_MODEL     = ...                      # optional: overrides the preset's model id
 ```
-Switch provider with one flag: `--provider glm` (or `REVIEW_PROVIDER=glm`). **Future-proofing:** model ids
+Switch provider with one flag: `--provider glm` (or `REVIEW_PROVIDER=glm`, in the env or in `~/.caddis/keys.env`; flag, then env,
+then keys file, then agy Argon). To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env. **Future-proofing:** model ids
 churn — the preset table in `oss_review.py` is the one place to edit a rename, and `REVIEW_MODEL` /
 `REVIEW_BASE_URL` always win, so you can point at any new id without touching code.
 
@@ -91,7 +92,7 @@ smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint
   Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, a git failure, or an endpoint/parse failure. Read stderr; do not
   treat this as CLEAN — investigate.
-- **3 — misconfigured** → `REVIEW_API_KEY` is unset. Set it (see Prerequisites) and re-run.
+- **3 — could not run** → no reviewer is available (no agy on PATH and no API key), or every provider failed. Fix it (see Prerequisites) and re-run.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).

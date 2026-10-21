@@ -458,7 +458,7 @@ LiteLLM cutover. **This table is the single place the intent→model mapping liv
 | **deepest** | Subtle correctness, security invariants, novel architecture, judgment-heavy seams | `opus` | `/model opus`; `Agent(model: "opus")` | **High** — Anthropic plan quota |
 | **broad** | Wide parallel coverage of a large but not-subtle surface; the workhorse | `sonnet` | `/model sonnet`; `Agent(model: "sonnet")` | Medium — the default; budget for several |
 | **mechanical** | Fully-specced, repeat-of-a-known-pattern, no judgment required | `haiku` | `/model haiku`; `Agent(model: "haiku")` | Low |
-| **cross-vendor-reviewer** | A *different vendor's* blind spots on a diff — **code review only** | `deepseek` (default), `glm` | `/caddis:cross-review`, `/glm`, `/deepseek` | **Scarce** — separate starter-tier subscription, NOT Anthropic quota. Ration it. |
+| **cross-vendor-reviewer** | A *different vendor's* blind spots on a diff — **code review only** | `agy-argon` (default), `deepseek`, `glm` | `/caddis:cross-review`, `/glm`, `/deepseek` | **Scarce** — separate starter-tier subscription, NOT Anthropic quota. Ration it. |
 | **synthesis / long-horizon** | Orchestrating many lanes, or work that can't self-verify across a large codebase | `fable` | `/model fable` | **Very high** — ~2× opus's rate-limit burn. RARE. |
 
 **Update this table, not the callers**, when a model is added, retired, or re-tiered. A plan that says
@@ -512,7 +512,7 @@ Invent no new machinery. Everything needed already ships:
 | Per-phase model + lane assignment in a plan | `/caddis:feature-plan` — every phase already carries **Model**, **Lane**, and a cross-review provider |
 
 **Reviewer rule (standing):** the reviewer is always a different vendor than whoever wrote the code.
-Claude or GLM implemented → DeepSeek reviews (or swap). Never same-vendor.
+Claude or GLM implemented → agy Argon reviews by default (DeepSeek, then GLM, as fallbacks). Never same-vendor.
 
 Full command/billing decision table: `docs/guide/multi-model-workflow.md`.
 

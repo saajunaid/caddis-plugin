@@ -162,6 +162,10 @@ history, and the relay has a 4,000-character budget (`caddis_budget.py`).
 >    finished, by id and column name, never by hand:
 >    `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_rows.py" set --file .caddis/open-work.md --id <row id> --col Status=done --col Evidence=<evidence>`.
 >    In a shared checkout (Step 0), use `--file <worktree>/.caddis/open-work.md` instead.
+>    When the file is missing or has no `type: open-work` frontmatter, report row 3 exactly as
+>    `skipped: no open-work.md with type: open-work (session tasks are saved by row 5)`, or, for a
+>    file without the frontmatter, `skipped: open-work.md has no type: open-work frontmatter (session
+>    tasks are saved by row 5)`. open-work.md is a repo backlog; this session's own tasks go to row 5.
 >    **Order of work:** when the repo has a roadmap (`caddis_roadmap.py list` prints a slug), the
 >    roadmap on origin is the order of work. Write the relay's "Next step (exact)" as
 >    `next: top open item of roadmap <slug> (caddis_roadmap.py status --roadmap <slug>)`. Never copy a
@@ -350,7 +354,7 @@ index or staged files — after the secret filter passes. Report its one-line re
 On the other machine, `/catchup <name>` fetches it.
 
 ## Step 8 — the checklist report
-End the handoff with this block, every row filled with `done`, `skipped: <reason>` or `failed: <error>`:
+Print this block, every row filled with `done`, `skipped: <reason>` or `failed: <error>`:
 
 ```
 === HANDOFF CHECKLIST ===
@@ -371,6 +375,32 @@ Shared checkout: yes|no <reason>
 ```
 
 Then, in a shared checkout, `Docs PR needed:` with the `PR:` line and the file list from Step 0.
+
+Step 9 prints after this report. It is the last output of the handoff.
+
+## Step 9 — print the resume prompt (always the last output)
+The owner should never have to ask for the resume prompt. After the checklist report, run:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_fleet.py" resume-block --name <name> --session-id <session-id> --root .
+```
+`<name>` is the workstream name from Step 3. It reads the relay's `## Resume prompt` block verbatim, and
+the session name (`session-state/<session-id>.name` when `whoami` wrote it, else the first 8 characters of
+the id). It prints, and you print its output as it is, with nothing after it:
+```
+=== RESUME ===
+Session: <session name> (<session id>)
+Workstream: <name>
+<the resume prompt, in a fenced block>
+Start line:
+claude --name <role>-<MMDD>-<HH> '<the resume prompt on one line>'
+```
+- **Fleet close.** When this handoff runs because a peer sent `FLEET CLOSE from <coordinator>`, add
+  `--fleet`. The Start line is then `Start line: from the restart sheet`: the restart sheet is the only
+  start line in a fleet close. The `FLEET-ACK` reply is a separate message and does not change.
+- **Exit 1** (no `## Resume prompt` block, or no relay) prints nothing on stdout. The handoff is not
+  complete: fix the relay (Step 3, point 5) and run the command again. Never write the block by hand.
+- Workstream with no `whoami` record: the new name uses the workstream name as its role. Pass
+  `--role <role>` to set another.
 
 ## Rules
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in
