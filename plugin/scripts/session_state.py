@@ -34,6 +34,12 @@ metadata id and the few other facts a tail can miss in one hidden line above `**
 the next Stop starts from it. inject_relay.py drops everything above `**Updated:**`, so the
 carry never reaches a model's context.
 
+WORKTREES THE SESSION MADE (tidy v2). The same forward pass notices a successful `git worktree add` in a Bash or
+PowerShell tool call. `record_worktrees` appends each new one to the session's created list
+(`~/.caddis/sessions/<id>.created.jsonl`, written by `caddis_created.py`), and `render` shows that list under
+`## Created`. The list is the store, so it is not in the carry line. Agents run in a separate transcript that this
+hook does not read: they record their own worktrees with `caddis_created.py record`.
+
 Every function here is defensive to the point of dullness. This runs on every turn of every
 session; a traceback out of it would be worse than the problem it solves.
 
@@ -48,6 +54,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -104,6 +111,169 @@ STATE_KEEP = 8
 _CARRY_RE = re.compile(r"^<!-- caddis-carry: (\{.*\}) -->$", re.M)
 _CARRY_TASKS = 200
 _CARRY_SUBJECT = 200
+
+
+_MAX_CREATED = 20
+_CREATED_PURPOSE = "git worktree add (transcript)"
+_created_cache: list = []
+
+
+def _created_module():
+    """`caddis_created`, or None. In the plugin it sits beside this file; in the source tree it is in `scripts/`
+    (found from this file's place and tried last, so it can never shadow anything)."""
+    if _created_cache:
+        return _created_cache[0]
+    module = None
+    try:
+        try:
+            import caddis_created as module
+        except ImportError:
+            sources = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                   "scripts")
+            if os.path.isdir(sources) and sources not in sys.path:
+                sys.path.append(sources)
+            import caddis_created as module
+    except Exception:
+        module = None
+    _created_cache.append(module)
+    return module
+
+
+_PUNCT_ONLY = re.compile(r"^[();<>|&]+$")
+_CD_WORDS = {"cd", "chdir", "pushd", "set-location", "sl"}
+_WRAPPERS = {"&", "command", "time", "env", "sudo"}
+_MSYS_DRIVE = re.compile(r"^/([A-Za-z])(?:/|$)")
+
+
+def _unquote(token: str) -> str:
+    token = token.strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
+def _unsafe_path(text: str) -> bool:
+    """A path this reader cannot know: a variable, a command substitution or a home shortcut."""
+    return not text or any(ch in text for ch in "$%`") or text.startswith("~")
+
+
+def _to_abs(path: str, base: str | None) -> str | None:
+    """`path` made absolute against `base` (None when it is relative and there is no base)."""
+    if _unsafe_path(path):
+        return None
+    if os.name == "nt":
+        drive = _MSYS_DRIVE.match(path)
+        if drive:  # Git Bash writes E:\x as /e/x
+            path = drive.group(1).upper() + ":" + path[2:]
+    if os.path.isabs(path):
+        return os.path.abspath(path)
+    return os.path.abspath(os.path.join(base, path)) if base else None
+
+
+def _segments(command: str):
+    """The command split into simple commands, each a list of tokens. A line that does not parse is skipped."""
+    for line in command.splitlines():
+        try:
+            lexer = shlex.shlex(line, posix=False, punctuation_chars=True)
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError:
+            continue
+        segment: list[str] = []
+        for token in tokens:
+            if _PUNCT_ONLY.match(token):
+                if segment:
+                    yield segment
+                segment = []
+            else:
+                segment.append(token)
+        if segment:
+            yield segment
+
+
+def _worktree_add(segment: list[str], base: str | None) -> dict | None:
+    """{"path", "branch"} when the simple command is `git [-C dir] worktree add ...` with a path this reader can
+    resolve, else None."""
+    words = [_unquote(t) for t in segment]
+    start = 0
+    while start < len(words) and words[start].lower() in _WRAPPERS:
+        start += 1
+    if start >= len(words) or os.path.basename(words[start]).lower() not in ("git", "git.exe"):
+        return None
+    i, where = start + 1, base
+    while i < len(words) and words[i].startswith("-"):  # git's own options, before the sub-command
+        if words[i] == "-C" and i + 1 < len(words):
+            where = _to_abs(words[i + 1], where)
+            i += 2
+        elif words[i] in ("-c", "--git-dir", "--work-tree", "--namespace"):
+            i += 2
+        else:
+            i += 1
+    if words[i:i + 2] != ["worktree", "add"]:
+        return None
+    branch, path, i = "", None, i + 2
+    while i < len(words):
+        word = words[i]
+        if word in ("-b", "-B") and i + 1 < len(words):
+            branch, i = words[i + 1], i + 2
+        elif word == "--reason" and i + 1 < len(words):
+            i += 2
+        elif word.startswith(("-b", "-B")) and not word.startswith("--") and len(word) > 2:
+            branch, i = word[2:], i + 1
+        elif word.startswith("-"):
+            i += 1  # --detach -f -q --quiet --lock --no-checkout --track --orphan ...: no value
+        else:
+            path = path or word  # the first positional is the path; a second one is the commit-ish
+            i += 1  # options may follow the path: keep reading for -b / -B
+    resolved = _to_abs(path, where) if path else None
+    return {"path": resolved, "branch": branch} if resolved else None
+
+
+def _worktree_adds(command: str, cwd: str | None) -> list[dict]:
+    """Every `git worktree add` in a shell command line, in order. A `cd` earlier in the line moves the base."""
+    found: list[dict] = []
+    base = cwd if isinstance(cwd, str) and cwd else None
+    for segment in _segments(command):
+        head = _unquote(segment[0]).lower()
+        if head in _CD_WORDS:
+            args = [_unquote(t) for t in segment[1:] if not t.startswith("-") and t.lower() != "/d"]
+            base = _to_abs(args[0], base) if args else base
+            continue
+        added = _worktree_add(segment, base)
+        if added:
+            found.append(added)
+    return found
+
+
+def record_worktrees(state: dict, session_id: str, home: str | None = None) -> int:
+    """Append the worktrees the transcript shows to the session's created list, except those already in it.
+    Returns how many were added. Never raises: this runs in the Stop hook."""
+    try:
+        created = _created_module()
+        found = state.get("worktrees") or []
+        if created is None or not found or not created.session_id(session_id):
+            return 0
+        known = {os.path.normcase(e["path"]) for e in created.read(session_id, home=home)}
+        added = 0
+        for wt in found:
+            key = os.path.normcase(os.path.abspath(wt["path"]))
+            if key in known:
+                continue
+            if created.record(wt["path"], "worktree", _CREATED_PURPOSE, branch=wt.get("branch") or None,
+                              by="transcript", session_id=session_id, home=home):
+                known.add(key)
+                added += 1
+        return added
+    except Exception:
+        return 0
+
+
+def _created_entries(session_id: str) -> list[dict]:
+    try:
+        created = _created_module()
+        return created.read(session_id) if created is not None and session_id else []
+    except Exception:
+        return []
 
 
 def _is_scratch(path: str) -> bool:
@@ -236,13 +406,15 @@ def extract_state(transcript_path: str, max_bytes: int = TAIL_BYTES, carry=None)
     the order matters. A create that fell out of the tail is recovered from `carry`, the map
     the previous Stop wrote into the state file (see `read_carry`).
     """
-    empty: dict = {"tasks": [], "todos": [], "last_request": "", "files": [], "branch": ""}
+    empty: dict = {"tasks": [], "todos": [], "last_request": "", "files": [], "branch": "", "worktrees": []}
     if not transcript_path or not os.path.isfile(transcript_path):
         # Nothing new to say. Writing the carry alone would replace a fuller previous file.
         return empty
 
     tasks, order, todos, files, branch = _from_carry(carry)
     pending_creates: dict[str, dict] = {}   # tool_use id -> task, awaiting its result
+    pending_adds: dict[str, list] = {}      # tool_use id -> `git worktree add` calls, awaiting a good result
+    worktrees: list[dict] = []
     last_request = ""
 
     try:
@@ -310,6 +482,14 @@ def extract_state(transcript_path: str, max_bytes: int = TAIL_BYTES, carry=None)
                         if isinstance(items, list):
                             todos = [t for t in items if isinstance(t, dict)]
 
+                    elif name in ("Bash", "PowerShell"):
+                        command = args.get("command")
+                        if isinstance(command, str) and "worktree" in command:
+                            cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
+                            adds = _worktree_adds(command, cwd)
+                            if adds:
+                                pending_adds[str(block.get("id"))] = adds
+
                     elif name in ("Edit", "Write", "NotebookEdit"):
                         path = args.get("file_path") or args.get("notebook_path")
                         if isinstance(path, str) and path and not _is_scratch(path):
@@ -318,6 +498,11 @@ def extract_state(transcript_path: str, max_bytes: int = TAIL_BYTES, carry=None)
                             files.append(path)
 
                 elif kind == "tool_result":
+                    adds = pending_adds.pop(str(block.get("tool_use_id")), None)
+                    if adds and not block.get("is_error") and "fatal:" not in _text_of(block).lower():
+                        for add in adds:
+                            if all(os.path.normcase(w["path"]) != os.path.normcase(add["path"]) for w in worktrees):
+                                worktrees.append(add)
                     created = pending_creates.pop(str(block.get("tool_use_id")), None)
                     if created:
                         match = _TASK_ID_RE.search(_text_of(block))
@@ -335,6 +520,7 @@ def extract_state(transcript_path: str, max_bytes: int = TAIL_BYTES, carry=None)
         "last_request": last_request,
         "files": files,
         "branch": branch,
+        "worktrees": worktrees,
     }
 
 
@@ -451,6 +637,20 @@ def render(state: dict, meta: dict) -> str:
             if root and _norm(path).startswith(root + "/"):
                 shown = shown[len(root) + 1:]
             lines.append("- `%s`" % shown)
+        lines.append("")
+
+    created = _created_entries(session)
+    if created:
+        lines += ["## Created", "", "Worktrees and scratch folders this session made "
+                  "(`~/.caddis/sessions/<session>.created.jsonl`).", ""]
+        if len(created) > _MAX_CREATED:
+            lines += ["(%d older not shown)" % (len(created) - _MAX_CREATED), ""]
+        for entry in created[-_MAX_CREATED:]:
+            parts = [str(entry.get("kind") or ""), str(entry.get("status") or ""), _trim(entry.get("purpose"), 100)]
+            if entry.get("pr"):
+                parts.append("PR %s" % entry["pr"])
+            lines.append("- `%s` - %s" % (str(entry.get("path") or "").replace("\\", "/"),
+                                          ", ".join(part for part in parts if part)))
         lines.append("")
 
     if len(lines) <= 8:

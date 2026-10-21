@@ -130,6 +130,7 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(_HERE.parent / "claude-harness" / "scripts"))
     import caddis_exit
 
+import caddis_created  # noqa: E402
 import caddis_notify  # noqa: E402
 import caddis_redact  # noqa: E402
 import caddis_review  # noqa: E402
@@ -1577,6 +1578,7 @@ def ensure_worktree(repo: Path, slug: str, default: str, root: Path | None = Non
     path.parent.mkdir(parents=True, exist_ok=True)
     if _git_out(repo, "worktree", "add", "--quiet", "--detach", str(path), f"origin/{default}") is None:
         raise _Stop(f"FAILED cannot make the roadmap worktree {path}", caddis_exit.BLOCKED)
+    caddis_created.record(path, "worktree", f"roadmap {slug} runner worktree", repo=repo, by="roadmap-run")
     _write_record(_state_file(repo, slug, "worktree"), {"path": str(path), "utc": _iso(datetime.now(timezone.utc))})
     return path
 
@@ -1606,6 +1608,7 @@ def remove_worktree_if_clean(repo: Path, slug: str, root: Path | None = None) ->
     if caddis_worktree_safety.safe_remove_worktree(repo, path) is not None:
         return f"worktree kept (remove failed): {path}"
     _state_file(repo, slug, "worktree").unlink(missing_ok=True)
+    caddis_created.record(path, "worktree", "", repo=repo, status="removed", by="roadmap-run")
     return f"worktree removed: {path}"
 
 

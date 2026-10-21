@@ -21,8 +21,13 @@ stays where it is: moving it breaks a venv, which keeps absolute paths.
     worktree_path(repo, short_name, root=None) -> the path for a new worktree (nothing is created)
     main_checkout(repo)                       -> the main checkout's folder
 
-CLI: `python caddis_worktree_root.py [--repo PATH] [--root PATH] <short-name>` prints the path. Exit 2 on a bad name
-or a folder that is not in a git repo.
+CLI: `python caddis_worktree_root.py [--repo PATH] [--root PATH] [--record --purpose TEXT] <short-name>` prints the path.
+Exit 2 on a bad name or a folder that is not in a git repo.
+
+`--record` also appends the path to this session's created list (`caddis_created.py`, by="helper"), so `/handoff` can
+remove the worktree later. The helper creates nothing, so the path is recorded as INTENDED: run `git worktree add` on the
+path it printed. A session with no session id, or a record that cannot be written, only prints a warning on stderr: the
+path is still printed and the exit code is still 0.
 """
 
 from __future__ import annotations
@@ -96,13 +101,31 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("short_name", help="one folder name, e.g. fix-login")
     ap.add_argument("--repo", default=".", help="any folder of the repo or of one of its worktrees (default: .)")
     ap.add_argument("--root", default=None, help=f"override the root (default: ${ENV_VAR}, then <repo parent>/.worktrees)")
+    ap.add_argument("--record", action="store_true", help="also record the path in this session's created list")
+    ap.add_argument("--purpose", default="", help="with --record: why the worktree is made")
     args = ap.parse_args(argv)
     try:
-        print(worktree_path(args.repo, args.short_name, args.root))
+        path = worktree_path(args.repo, args.short_name, args.root)
+        repo = main_checkout(args.repo) if args.record else None
     except (ValueError, NotARepoError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    print(path)
+    if args.record:
+        _record(path, repo, args.purpose)
     return 0
+
+
+def _record(path: Path, repo: Path | None, purpose: str) -> None:
+    """Append `path` to the session's created list. A failure only warns: the caller still has its path."""
+    try:
+        import caddis_created
+        done = caddis_created.record(path, "worktree", purpose, repo=repo, by="helper")
+    except Exception:  # noqa: BLE001 - recording must never break a command that only wants the path
+        done = False
+    if not done:
+        print(f"caddis_worktree_root: not recorded (no usable session id, or the record could not be written): {path}",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -37,15 +37,18 @@ import tempfile
 from pathlib import Path
 
 try:
+    import caddis_created
     import caddis_exit
     import caddis_checkout_guard
     import caddis_roadmap as roadmap
     import caddis_worktree_safety
 except ModuleNotFoundError as exc:
-    if exc.name not in {"caddis_exit", "caddis_checkout_guard", "caddis_roadmap", "caddis_worktree_safety"}:
+    if exc.name not in {"caddis_created", "caddis_exit", "caddis_checkout_guard", "caddis_roadmap",
+                        "caddis_worktree_safety"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_created
     import caddis_exit
     import caddis_checkout_guard
     import caddis_roadmap as roadmap
@@ -87,6 +90,7 @@ def start(repo: Path, out=print) -> int:
     worktree = tmp_root / f"{DIR_PREFIX}{stamp}{suffix}"
     branch = f"{BRANCH_PREFIX}{stamp}{suffix}"
     _git(repo, "worktree", "add", "--quiet", "-b", branch, str(worktree), f"origin/{base}")
+    caddis_created.record(worktree, "worktree", "handoff docs PR", repo=repo, branch=branch, by="docs-pr")
     out(f"WORKTREE: {worktree}")
     return caddis_exit.CLEAN
 
@@ -199,7 +203,7 @@ def _save_patch(worktree: Path) -> Path:
     return Path(name)
 
 
-def _remove(main: Path, worktree: Path, branch: str) -> None:
+def _remove(main: Path, worktree: Path, branch: str, pr: str | None = None) -> None:
     """Remove the worktree (links first, so a junction's target survives), prune, delete the branch.
 
     Best effort, as before: the result of each step is not checked. Every caller has already saved the session's
@@ -215,6 +219,9 @@ def _remove(main: Path, worktree: Path, branch: str) -> None:
         pass
     if worktree.exists():
         caddis_worktree_safety.remove_tree(worktree)
+    if not worktree.exists():  # only a folder that is really gone is recorded as removed
+        caddis_created.record(worktree, "worktree", "", pr=pr, repo=main, branch=branch, status="removed",
+                              by="docs-pr")
 
 
 def finish(worktree: Path, title: str, body: str, out=print) -> int:
@@ -257,7 +264,8 @@ def finish(worktree: Path, title: str, body: str, out=print) -> int:
     out(f"PR: {url}")
     for path in files:
         out(f"FILE: {path}")
-    _remove(main, worktree, branch)
+    pr_number = re.search(r"/pull/(\d+)\s*$", url)
+    _remove(main, worktree, branch, pr=pr_number.group(1) if pr_number else None)
     try:
         patch.unlink()
     except OSError:

@@ -39,9 +39,15 @@ If none is true, stop here and use `git switch -c`.
    script `caddis_worktree_root.py` prints the path; use it so the rule lives in one place:
 
 ```powershell
-$wt = python "<caddis scripts>\caddis_worktree_root.py" <short-name>   # run in the repo; prints the path
+$wt = python "<caddis scripts>\caddis_worktree_root.py" <short-name> --record --purpose "<why>"   # run in the repo; prints the path
 git worktree add -b <branch> $wt origin/<default>
 ```
+
+   `--record` also writes the path to this session's created list (`caddis_created.py`), so `/handoff` can remove the
+   worktree later. Always record it, subagents most of all: their tool calls are in a separate transcript that the
+   Stop hook does not read. If you create a worktree without the helper, run
+   `python "<caddis scripts>\caddis_created.py" record --path <path> --kind worktree --purpose "<why>"` right after
+   `git worktree add`.
 
    `<caddis scripts>` is the `scripts` folder of the installed caddis plugin. Do not create worktrees inside the
    repo. An existing worktree stays where it is: moving it breaks a venv, which keeps absolute paths.

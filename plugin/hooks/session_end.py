@@ -45,7 +45,7 @@ except Exception:  # pragma: no cover — defensive
 # the sessions it saves.
 try:
     from session_state import (  # noqa: E402
-        extract_state, read_carry, render, repo_root_or_none, write_state,
+        extract_state, read_carry, record_worktrees, render, repo_root_or_none, write_state,
     )
 except Exception:  # pragma: no cover — defensive
     extract_state = None
@@ -100,6 +100,7 @@ def main() -> None:
             target = os.path.join(art_dir, "session-state.md")
             carry = None
         state = extract_state(str(data.get("transcript_path", "") or ""), carry=carry)
+        record_worktrees(state, sid)  # new `git worktree add` calls go to the created list; render reads it by the same id
         text = render(state, {
             "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "session": sid,

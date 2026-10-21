@@ -41,6 +41,8 @@ them into its commit, so check first, before Step 1.
    - Step 6: retired; nothing to skip (row 8 reports `skipped: retired (see the 3-store model)`).
    - Step 6b: skip `session_state.py prune` (report `skipped: shared checkout`).
    - Step 6c: run `--reindex` in the worktree (it edits the tracked `DOC-MAP.md`).
+   - Step 6d: runs as written. It never writes a file in this checkout; it only removes worktrees and
+     scratch folders this session recorded.
    - The relay stays in this checkout: `.caddis/relay/` is local and gitignored.
    After Step 6c, run:
    ```
@@ -53,9 +55,9 @@ them into its commit, so check first, before Step 1.
 
 ## Checklist
 The handoff is a fixed checklist. Every row ends as `done`, `skipped: <reason>` or `failed: <error>`, and
-Step 8 prints all 13 in this order. Never drop a row from the report, even when its step did not apply.
-Rows 3 and 8 are retired (the 3-store model, 21 Oct 2026): they stay in the list so the row numbers and the
-13-row report do not move for a fleet that mixes caddis versions, and each always reports
+Step 8 prints all 14 in this order. Never drop a row from the report, even when its step did not apply.
+Rows 3 and 8 are retired (the 3-store model, 21 Oct 2026): they stay in the list so the row numbers do not
+move for a fleet that mixes caddis versions, and each always reports
 `skipped: retired (see the 3-store model)`. A later release removes them with their scripts.
 
 | # | Row | What it is | Shared checkout (Step 0) |
@@ -73,6 +75,7 @@ Rows 3 and 8 are retired (the 3-store model, 21 Oct 2026): they stay in the list
 | 11 | `state-prune` | Step 6b: `session_state.py prune` | `skipped: shared checkout` |
 | 12 | `prune-list` | Step 6b: `caddis_tidy.py --prune`, list only | runs (lists, never applies) |
 | 13 | `handover-check` | Step 5 | runs |
+| 14 | `own-cleanup` | Step 6d: `caddis_created.py cleanup --apply` removes this session's merged, clean worktrees and scratch folders; lists the rest with a reason | runs (only this session's recorded worktrees and scratch) |
 
 `tidy-apply` and `state-prune` run only on `SHARED: no`. Handoff never runs
 `caddis_tidy.py --prune --apply` on its own, in any checkout; only the user can ask for it (Step 6b). In a
@@ -348,6 +351,27 @@ Then, when the repo has a roadmap (`.caddis/roadmaps/`), re-render its page so p
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" render --all
 ```
 
+## Step 6d — remove this session's own worktrees and scratch folders
+Checklist row 14, `own-cleanup`. It runs in every checkout, a shared one too, after the Step 0 `finish`
+(falls back to `scripts/caddis_created.py` in a source checkout; if the script is missing, or exits 2 because
+it has no `cleanup`, the row is `skipped: not installed`):
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_created.py" cleanup --session-id <session-id> --apply
+```
+It reads only this session's record (`~/.caddis/sessions/<session-id>.created.jsonl`). A worktree goes only
+when its PR is merged, `git status` is clean, it has no commits after the PR head, and every file its branch
+changed equals `origin/<default>` (so a squash merge counts). Then its local and remote branch go too: each
+only while its tip is still the merged work. A scratch folder goes after a full scan, links first.
+
+It never removes: another session's worktree (it is not in this record), a roadmap runner's worktree, the
+worktree this session is working in, one with uncommitted changes (untracked files count), one whose PR is
+not merged or not found, one whose tree differs from `origin/<default>`, or anything through a
+junction or symlink (a link is removed as a link; its target stays). It prints one line per entry (`REMOVED`, `KEPT
+<path>: <reason>`, `GONE` or `FAILED <path>: <problem>`) and ends with
+`[OWN-CLEANUP] removed <n>, kept <n>, gone <n>, failed <n>`. Include that summary line and each `KEPT` and
+`FAILED` line in your report. It always exits 0: a kept or failed entry is not a failure of the row, which is
+`done` when the script ran.
+
 ## Step 7 — push prompt (interactive only)
 If this is an interactive session, ask the user every time — never reuse an earlier answer:
 `Push this note for another machine? (y/N)`
@@ -378,6 +402,7 @@ Print this block, every row filled with `done`, `skipped: <reason>` or `failed: 
 11 state-prune         <same three forms>
 12 prune-list          <same three forms>
 13 handover-check      <same three forms>
+14 own-cleanup         <same three forms>
 Shared checkout: yes|no <reason>
 ```
 

@@ -34,6 +34,7 @@ except ModuleNotFoundError as exc:
     from caddis_heavy_slot import HeavySlotBusy, heavy_slot
 
 import caddis_checkout_guard
+import caddis_created
 import caddis_routing
 import caddis_redact
 import caddis_spend
@@ -284,6 +285,8 @@ def create_phase_worktree(
         str(path),
         base_sha,
     )
+    caddis_created.record(path, "worktree", f"lane {plan_stem} phase {phase:02d} attempt {attempt}", repo=repo_root,
+                          branch=branch, by="lanes")
     print(f"[caddis-lanes] worktree: {path}", file=sys.stderr)
     return Worktree(path=path, branch=branch, base_sha=base_sha)
 
@@ -307,6 +310,7 @@ def remove_phase_worktree(
         problem = f"worktree remove left {resolved} on disk"
     if problem:
         raise LaneConfigError(problem)
+    caddis_created.record(resolved, "worktree", "", repo=repo_root, branch=wt.branch, status="removed", by="lanes")
     if delete_branch:
         _git_output(repo_root, "branch", "-D", "--", wt.branch)
 
