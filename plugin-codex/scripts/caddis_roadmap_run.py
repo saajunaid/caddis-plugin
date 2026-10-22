@@ -11,7 +11,7 @@ line; decide. CONTINUE with an unchanged relay is `FAILED no progress`; three se
 row is `BLOCKED stuck`.
 
 Plan mode (`--plan <slug>`, decision D-I, design section 8.5) runs `.caddis/plans/<slug>.md`. A closed row in its
-tracker or in `.caddis/open-work.md` is progress; the relay is `.caddis/relay/<slug>.md`; the log and STOP file are in
+tracker is progress (`.caddis/open-work.md` is retired with the 3-store model, 21 Oct 2026); the relay is `.caddis/relay/<slug>.md`; the log and STOP file are in
 `.caddis/plans/.local/<slug>/`; the lock is `<git common dir>/caddis-runner/plan-<slug>/runner.lock`. The loop goes on only
 at CONTINUE. Its lock holds the whole plan (`batch` `<slug>#*`). A plan that another live runner lock names is refused
 (exit 3 at start, 1 at any later iteration: the check runs before every session).
@@ -322,8 +322,7 @@ def resolve_target(repo: Path, plan: str | None) -> Target:
     plan_file = repo / ".caddis" / "plans" / f"{slug}.md"
     if not plan_file.is_file():
         raise ValueError(f"no plan {slug!r}: {plan_file} does not exist")
-    return Target("plan", slug, _local_dir(repo, "plan", slug), (plan_file, repo / ".caddis" / "open-work.md"),
-                  PLAN_PROMPT_NAME)
+    return Target("plan", slug, _local_dir(repo, "plan", slug), (plan_file,), PLAN_PROMPT_NAME)
 
 
 def render_prompt(template: Path, slug: str, phase: int | None = None) -> str:
@@ -337,13 +336,13 @@ def render_prompt(template: Path, slug: str, phase: int | None = None) -> str:
     return body.strip() + "\n"
 
 
-# -- open work: closed rows -------------------------------------------------------------------------------------------
+# -- closed rows ------------------------------------------------------------------------------------------------------
 
 
-def closed_rows(open_work: Path) -> int:
+def closed_rows(path: Path) -> int:
     """Rows whose `Status` column (by name) is done or not-needed, over every table of the file."""
     try:
-        lines = open_work.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return 0
     count, status_col = 0, None

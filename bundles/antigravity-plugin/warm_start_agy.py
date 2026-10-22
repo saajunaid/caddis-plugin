@@ -351,11 +351,10 @@ def main() -> None:
         conversation = str(data.get("conversationId") or "").strip()
 
         blocks = []
-        open_work_blocks = []
         for root in roots:
             if conversation and _already_injected(root, conversation):
                 continue
-            relay, matched_ws = resolve_relay(root, conversation)
+            relay, _ws = resolve_relay(root, conversation)
             text = ""
             if relay:
                 try:
@@ -370,41 +369,7 @@ def main() -> None:
                     blocks.append("relay for " + os.path.basename(root.rstrip("/\\")) + ":")
                 blocks.append(truncate_relay(text))
 
-            # Open-work rows as plain text without seeding instruction. Shown with or without a
-            # relay: to-dos and plan phases exist before the first handoff writes one.
-            shown_open_work = False
-            try:
-                from pathlib import Path as _Path
-                # agy plugin: warm_start_agy.py sits at the plugin root, scripts in <plugin>/scripts.
-                # Source tree: claude-harness/agy -> <repo>/scripts, where caddis_todo.py is authored.
-                _here = os.path.dirname(os.path.abspath(__file__))
-                for _sc in (os.path.join(os.path.dirname(os.path.dirname(_here)), "scripts"),
-                            os.path.join(_here, "scripts")):
-                    if os.path.isdir(_sc) and _sc not in sys.path:
-                        sys.path.insert(0, _sc)
-                import caddis_todo
-                open_items = caddis_todo.open_work(_Path(root), matched_ws)
-                if open_items:
-                    # Same budget as the Claude Code hook: next 5 phases, 5 ad-hoc items.
-                    phases = [r for r in open_items if r.get("kind") == "phase"][:5]
-                    todos = [r for r in open_items if r.get("kind") != "phase"][:5]
-                    shown = phases + todos
-                    ow_lines = ["## Open work"]
-                    if len(open_items) > len(shown):
-                        ow_lines.append(f"(+{len(open_items) - len(shown)} more open items — run /catchup to see them.)")
-                    for row in shown:
-                        ow_lines.append(f"- {row['id']} [{row['kind']}] {' '.join(str(row['title']).split())[:100]}")
-                    if len(roots) > 1:
-                        open_work_blocks.append("open work for " + os.path.basename(root.rstrip("/\\")) + ":\n" + "\n".join(ow_lines))
-                    else:
-                        open_work_blocks.append("\n".join(ow_lines))
-                    shown_open_work = True
-            except Exception as _exc:
-                _hook_note("agy open work injection", _exc, root)
-
-            # A relay that exists but failed to read must not be marked injected just because
-            # open work was shown: the next invocation retries the relay.
-            if conversation and (text or (not relay and shown_open_work)):
+            if conversation and text:
                 _mark_injected(root, conversation)
 
         # agy has no SessionStart event, so this first invocation is also where the freshness
@@ -414,14 +379,12 @@ def main() -> None:
         for root in roots:
             fresh.extend(freshness_lines(root))
 
-        if not blocks and not fresh and not open_work_blocks:
+        if not blocks and not fresh:
             return
         parts = []
         if blocks:
             parts.append(RELAY_FRAME_HEADER + "\n" + "\n\n".join(blocks)
                          + "\n\n" + RELAY_FRAME_FOOTER)
-        if open_work_blocks:
-            parts.append("\n\n".join(open_work_blocks))
         if fresh:
             parts.append("\n".join(fresh))
         payload = json.dumps({"injectSteps": [{"ephemeralMessage": "\n\n".join(parts)}]})

@@ -89,7 +89,7 @@ except ModuleNotFoundError as exc:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import caddis_todo
-# caddis_todo has put its own dependencies on the path by now; this one ships beside it.
+# caddis_todo (through caddis_workstreams) has put its own dependencies on the path by now; this one ships beside it.
 from caddis_file_lock import atomic_write  # noqa: E402
 
 # No child process opens a console window on Windows (this runs under hooks and status lines that
@@ -160,9 +160,8 @@ def _parse_frontmatter(text: str) -> dict:
 def tracker_complete(text: str) -> bool:
     """True only when the `## Tracker` heading line has phase rows, all unique, all done.
 
-    The table is read by caddis_todo.tracker_table, the same reader the open-work view uses, and
-    a status cell is judged by the same `_is_done`. Stricter here on purpose: that view skips a
-    row it cannot read, while a row this cannot read BLOCKS completion. Wrongly moving a live plan
+    The table is read by caddis_todo.tracker_table, and a status cell is judged by its `_is_done`.
+    Strict on purpose: a row this cannot read BLOCKS completion. Wrongly moving a live plan
     hides it; wrongly keeping a finished one costs a look.
     """
     table = caddis_todo.tracker_table(text)
@@ -476,9 +475,9 @@ class Resolution:
 def _parked_target(root: Path, name: str) -> tuple[Path | None, str | None]:
     """Where a trailer value points: (open item, None), (None, None) when it is already in done/,
     or (None, reason) when it is refused or missing. Only a top-level item of this repo's
-    `.caddis/parking-lot/` is ever a target, named bare, as `parking-lot/<file>` (what
-    `caddis_todo.py done` prints) or by its repo-relative path. The last word is
-    caddis_todo._resolves_path, the check `caddis_todo add --resolves` already applies."""
+    `.caddis/parking-lot/` is ever a target, named bare, as `parking-lot/<file>` (what the
+    retired `caddis_todo.py done` printed) or by its repo-relative path. The last word is
+    caddis_todo._resolves_path."""
     lot = root / ".caddis" / PARKING_LOT_DIR
     posix = name.replace("\\", "/")
     if not posix:

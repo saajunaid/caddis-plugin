@@ -325,6 +325,51 @@ def _truncate_relay(text: str) -> str:
     return "\n".join(truncated)
 
 
+# Saved-task counts on the workstream index. Handoff saves a session's open tasks beside its relay
+# (`session_state.py tasks-file` -> .caddis/relay/<name>.tasks.md). Session start does not seed them as
+# tasks (3-store model, 21 Oct 2026): the resume prompt, /catchup <name> and fleet-open load them. The
+# index only says they exist, so a human sees them. Cheap: one small file read per index row.
+_INDEX_MARKER = "<!-- caddis-workstream-index-v1 -->"
+_INDEX_NAME_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789_-.+")
+_TASKS_FILE_MAX = 64 * 1024
+
+
+def _saved_task_count(path: str) -> int:
+    """Rows of the `| Old # | Status | Subject |` table in a tasks file; 0 when absent or unreadable."""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > _TASKS_FILE_MAX:
+            return 0
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return 0
+    count = 0
+    for line in lines:
+        row = line.strip()
+        if not row.startswith("|") or row.startswith("| Old #") or set(row) <= set("|-: "):
+            continue
+        count += 1
+    return count
+
+
+def _with_task_counts(text: str, relay_path: str) -> str:
+    """The index text with `· N saved task(s)` after each workstream name that has a tasks file."""
+    if not text.startswith(_INDEX_MARKER):
+        return text  # a workstream relay, not the index
+    folder = os.path.join(os.path.dirname(relay_path), "relay")
+    out = []
+    for line in text.splitlines():
+        if line.startswith("- ") and " (" in line:
+            name = line[2:line.index(" (")]
+            if name and set(name) <= _INDEX_NAME_CHARS and ".." not in name:
+                count = _saved_task_count(os.path.join(folder, name + ".tasks.md"))
+                if count:
+                    noun = "task" if count == 1 else "tasks"
+                    line = f"- {name} · {count} saved {noun}{line[2 + len(name):]}"
+        out.append(line)
+    return "\n".join(out)
+
+
 # Workstream stack (digression tracker): surface any PARKED workstreams BEFORE the relay, so a session
 # that digressed from its original task never silently loses it. State lives at
 # <artifact-dir>/workstreams.json (root-anchored, like relay). Fail-open & silent: a missing /
@@ -380,51 +425,17 @@ if os.path.isfile(RELAY) and not _is_headless():
         with open(RELAY, encoding="utf-8-sig") as _relay_file:
             text = _relay_file.read().strip()
     except Exception as _exc:
-        # An unreadable relay must not end the hook: seeding, peers and DOC-MAP still follow.
+        # An unreadable relay must not end the hook: peers and DOC-MAP still follow.
         _hook_note("relay read", _exc)
         text = ""
     if text:
+        try:
+            text = _with_task_counts(text, RELAY)
+        except Exception as _exc:  # a count is a hint; the index prints without it
+            _hook_note("saved-task count", _exc)
         print("\n" + RELAY_FRAME_HEADER)
         print(_truncate_relay(text))
         print("\n" + RELAY_FRAME_FOOTER)
-
-# ── native task seeding (Claude Code SessionStart) ───────────────────────────────────────
-_source = str(_payload.get("source", "")).strip().lower() if isinstance(_payload, dict) else ""
-_task_tools_enabled = str(os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS", "")).strip().lower() in _TRUTHY
-_event = str(_payload.get("hook_event_name", "")).strip() if isinstance(_payload, dict) else ""
-# SessionStart only: this script also runs on PreCompact, whose payload has no "source".
-if (_task_tools_enabled and not _is_headless() and _event == "SessionStart"
-        and _source in {"startup", "resume", "clear", "fork"}):
-    try:
-        from pathlib import Path as _Path
-        # Installed plugin: <plugin>/hooks -> <plugin>/scripts (the manifest's destination).
-        # Source tree: claude-harness/hooks -> <repo>/scripts, where caddis_todo.py is authored.
-        _hooks_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for _sc_todo in (os.path.join(os.path.dirname(_hooks_parent), "scripts"),
-                         os.path.join(_hooks_parent, "scripts")):
-            if os.path.isdir(_sc_todo) and _sc_todo not in sys.path:
-                sys.path.insert(0, _sc_todo)
-        import caddis_todo as _ctodo
-        _open_items = _ctodo.open_work(_Path(ROOT), MATCHED_WORKSTREAM)
-        # Seed only what is actionable now: the next few phases plus a few ad-hoc items. The
-        # rest stays one /catchup away, so session start stays within its size budget.
-        _SEED_PHASES, _SEED_TODOS = 5, 5
-        _phases = [r for r in _open_items if r.get("kind") == "phase"]
-        _todos = [r for r in _open_items if r.get("kind") != "phase"]
-        _seed = _phases[:_SEED_PHASES] + _todos[:_SEED_TODOS]
-        _more = len(_open_items) - len(_seed)
-        if _seed:
-            print("\n=== open-work: NATIVE TASK SEEDING ===")
-            print("Create each row below as a native task with its open-work id in task metadata, skipping ids already on the board.")
-            print('Use TaskCreate with metadata {"id": "<id from the row>"}; /handoff closes finished to-dos by that id.')
-            if _more:
-                print(f"(+{_more} more open items — run /catchup to see them.)")
-            for _row in _seed:
-                _m_json = json.dumps({"id": _row["id"]})
-                print(f"- [ ] {' '.join(str(_row['title']).split())[:100]} <!-- caddis: {_m_json} -->")
-            print("=== end open-work ===")
-    except Exception as _exc:
-        _hook_note("native task seeding", _exc)
 
 # ── live peers in this same checkout ────────────────────────────────────────────────────────
 # Three Claude sessions worked in one shared tree on 2026-09-06. One switched branches

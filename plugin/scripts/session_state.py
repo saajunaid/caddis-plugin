@@ -607,7 +607,7 @@ def render(state: dict, meta: dict) -> str:
             status = str(task.get("status") or "pending")
             mark = {"in_progress": "**IN PROGRESS**", "completed": "done"}.get(status, status)
             # The open-work id rides after the trimmed subject so trimming never cuts it:
-            # /handoff's `caddis_todo.py reconcile` closes ad-hoc to-dos by this marker only.
+            # (The 3-store model retired the reconcile that read it; the marker is now informational.)
             marker = ""
             if task.get("caddis_id"):
                 marker = ' <!-- caddis: {"id": "%s"} -->' % task["caddis_id"]

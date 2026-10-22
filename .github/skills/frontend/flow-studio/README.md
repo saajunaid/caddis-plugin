@@ -3,7 +3,7 @@
 The `flow-studio` skill: a model file (JSON) describes a flow, lifecycle or journey, and one
 engine draws it as a self-contained HTML page with pan and zoom, lanes, linked nodes, a slide-in
 inspector, scenario playback, metric overlays, live update, motion that carries state, and numbered implementation notes. The design is in
-`.caddis/plans/flow-studio-skill-design.md`; the S4 stage status is in `.caddis/plans/flow-studio-s4-status.md`.
+`.caddis/plans/done/flow-studio-skill-design.md`; the S4 stage status is in `.caddis/plans/flow-studio-s4-status.md`.
 `SKILL.md` is the current playbook.
 
 ## Use it

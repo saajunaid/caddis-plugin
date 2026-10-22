@@ -53,12 +53,6 @@ BUDGETS: tuple[Budget, ...] = (
         "rendered by render-index; drop relays with status closed",
     ),
     Budget(
-        ".caddis/open-work.md",
-        "rows with Status done",
-        10,
-        "move done rows to .caddis/done/open-work-archive.md with a one-line pointer",
-    ),
-    Budget(
         "DECISIONS.md, .caddis/DECISIONS.md, .caddis/decisions/DECISIONS.md",  # the last is the fleet's real path
         "History table rows",
         30,
@@ -150,36 +144,6 @@ def _count_table_rows(text: str) -> int:
     return sum(len(t.data_rows) for t in tables) + loose_rows
 
 
-def _norm_status(cell: str) -> str:
-    return cell.replace("**", "").replace("__", "").replace("`", "").strip().lower()
-
-
-def _count_done_rows(text: str) -> int:
-    tables, _ = _parse_tables(text)
-    done_re = re.compile(r"^done\b")
-    count = 0
-    if tables:
-        for t in tables:
-            col_map = {c.lower(): idx for idx, c in enumerate(t.columns)}
-            if "status" in col_map:
-                s_idx = col_map["status"]
-                for row in t.data_rows:
-                    if len(row) > s_idx and done_re.search(_norm_status(row[s_idx])):
-                        count += 1
-            else:
-                for row in t.data_rows:
-                    if any(_norm_status(c) == "done" for c in row):
-                        count += 1
-        return count
-
-    for line in text.splitlines():
-        if line.lstrip().startswith("|") and not _is_separator(line):
-            cells = _split_cells(line)
-            if any(_norm_status(c) == "done" for c in cells):
-                count += 1
-    return count
-
-
 def _count_history_rows(text: str) -> int:
     tables, loose_rows = _parse_tables(text)
     history_tables = [t for t in tables if t.heading and "history" in t.heading.lower()]
@@ -198,8 +162,6 @@ def _measure_file(path: Path, unit: str) -> int:
         return _count_table_rows(text)
     if unit in ("lines", "lines per file"):
         return len(text.splitlines())
-    if unit == "rows with Status done":
-        return _count_done_rows(text)
     if unit == "History table rows":
         return _count_history_rows(text)
     raise ValueError(f"unknown budget unit: {unit}")

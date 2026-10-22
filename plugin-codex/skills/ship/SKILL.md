@@ -68,7 +68,7 @@ Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope
 **2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.155/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
@@ -95,7 +95,7 @@ the minimum fix (see `deploy-local` skill §6).
 **GitHub lane** — Find the run id for the pushed SHA, then wait outside the Claude session via `ci-watch`:
 ```bash
 gh run list --branch <branch> --limit 1                 # find the run id for the pushed SHA
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.155/scripts/caddis_lanes.py" ci-watch --run <run-id>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_lanes.py" ci-watch --run <run-id>
 ```
 Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop and report.
 On failure, pull only the failing job logs:
@@ -131,11 +131,11 @@ Release tag:     <tag> → <sha> | n/a
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.155/scripts/caddis_merge_chain.py"` does this check.
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_merge_chain.py"` does this check.
 
 **Trigger: A peer session is known.** A relay or a SessionStart warning names another session on this repo. Before the merge, send each named peer session a message (SendMessage or the peer channel). It is a notice, never a request for permission.
 
-**Trigger: Always, when the repo deploys on push.** After the merge, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.155/scripts/caddis_prod_check.py" <sha>` with the repo's profile, `.caddis/prod-check.toml`. The script resolves a short SHA to the full SHA first, or refuses with exit 4. A repo with no profile gets items 1 and 2 only, and the script says so.
+**Trigger: Always, when the repo deploys on push.** After the merge, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_prod_check.py" <sha>` with the repo's profile, `.caddis/prod-check.toml`. The script resolves a short SHA to the full SHA first, or refuses with exit 4. A repo with no profile gets items 1 and 2 only, and the script says so.
 
 **Trigger: Two or more reviewed green PRs wait to merge.** Combine them into one release PR (the global rule of 2026-10-10): merge their branches into one release branch, run the gates once, open one release PR that links the components, then close the components with a link.
 
