@@ -11,7 +11,7 @@ Implement the plan at **$ARGUMENTS**.
 it is empty, find the active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -58,7 +58,7 @@ depend on them:
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -94,8 +94,8 @@ at the repo root and in each folder you will touch (the canonical rules; `CLAUDE
 **Run the machine gates first — they decide, not your reading of the prose below.**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
 ```
 
 Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
@@ -151,7 +151,7 @@ lane the plan planned. A deviation then shows up as a diff between the phase blo
 row, visible to any later reader without anyone having to catch it live.
 
 **Multi-lane phases — `caddis_lanes.py`.** Use this procedure when the phase launch command is
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_lanes.py" run …`.
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_lanes.py" run …`.
 
 1. In an interactive session, run the phase's literal command. The script creates a temporary
    worktree. It runs the lane or its fallback chain inside a resource-capped job. It re-runs the
@@ -211,9 +211,9 @@ row, visible to any later reader without anyone having to catch it live.
 10. **When a dispatched Claude run is out of budget**, read the output from the subagent or
     `claude -p`. If it holds Claude usage-limit text (for example `You've hit your session limit`
     or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
-    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
+    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
-    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
+    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
     using the same form that `/feature-plan` writes. Never start agy without the `caddis_spend.py run`
     prefix: it is the global spend cap. Its own refusals have their own exit codes, never agy's:
     **75** = over the cap or could not lock (treat like out of budget: switch lane, not an attempt);
@@ -236,6 +236,17 @@ report — do not redo completed work.
      every phase after the first, which is the original bug wearing a different hat. For a
      `caddis_lanes.py` launch command, follow "Multi-lane phases" above instead of spawning the command
      blind.
+   - **EXECUTION** — read the phase's `Execution:` line. A missing line means `inline` (older plans
+     have none). `inline`: run the steps below for the whole phase, as before. `Execution: per-task`:
+     run the phase's tasks in order. Give each task a fresh implementer: a subagent on the phase's
+     lane and model, with a brief that holds the task's `Files:`, `Interfaces:` and steps, the plan's
+     Global Constraints and the test-economy lines (Multi-lane item 7b). If you cannot dispatch a
+     subagent, implement the task yourself and note that in the review file. After each task, run a
+     short task review before the next task: first spec compliance (the task's files, names and tests
+     match the plan), then quality (the author self-check). Fix blocking findings, then go on. Record
+     each task (name, commit, review result) under `## Task progress` in the review file. Then run the
+     phase's normal gates: VERIFY, the `review-tier` review by another vendor, COMMIT and the Tracker.
+     The task reviews never replace that review.
    - **RED** — write the failing test(s) the phase names (`<test file>::<case>`). Run them; confirm they
      fail for the right reason (the missing behavior, not an import error). If a phase genuinely has no
      testable surface, say so in the review file and implement the minimal change directly.
@@ -310,7 +321,7 @@ for a later session to clean up, and nothing is left uncommitted. Order matters:
    it into `done/`. `--only` keeps it off every other file, so another session's finished plan, a
    shipped prompt or a done parking-lot item is never swept into this PR:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
    ```
    Read the output before you commit. It must say `moved: .caddis/plans/<this plan>.md` and name
    no other file. **Refuse** if it would touch anything else, or prints `ERROR` or `NOT MOVED`:
@@ -347,6 +358,9 @@ branch: <current branch>
 
 ## Assumptions made
 - <any gap the plan left that you decided — or "none">
+
+## Task progress  *(only for `Execution: per-task` phases)*
+- <phase N task N.M — commit <hash> — task review: clean | fixed <finding>>
 
 ## Not done / follow-ups
 - <phases skipped/blocked and why — or "none; all phases complete">

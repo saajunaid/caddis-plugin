@@ -58,7 +58,7 @@
 | Office Documents Official | `office-documents-official/` | Hint for Office and PDF file work. Use when the user asks to create, edit, read or convert a Word .docx, PDF, PowerPoint .pptx or Excel .xlsx file. caddis does not ship these skills; points to Anthropic's official document-skills plugin. |
 | Tech Explainer | `tech-explainer/` | >- |
 | Technical Writing | `technical-writing/` | Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards. |
-| Writing Plans | `writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code |
+| Writing Plans | `writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code. In caddis, plans are written with /caddis:feature-plan, the only plan writer; this skill sends you there. |
 
 ### Frontend
 

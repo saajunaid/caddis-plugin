@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "caddis hub owner request (one line of requests.jsonl)",
+  "description": "Appended by the hub, applied by caddis_coordinate.py intake. Readers accept v N and N-1. pr may be null only for approve/decline, and then args.what is required (ruling R2).",
+  "type": "object",
+  "required": ["v", "id", "created_at", "expires_at", "repo", "pr", "head_sha", "action", "args"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {"type": "integer", "enum": [0, 1]},
+    "id": {"type": "string", "minLength": 1},
+    "created_at": {"$ref": "#/$defs/utc"},
+    "expires_at": {"$ref": "#/$defs/utc"},
+    "repo": {"type": "string", "minLength": 1},
+    "pr": {"type": ["integer", "null"], "minimum": 1},
+    "head_sha": {"type": ["string", "null"], "description": "40 hex characters when pr is set; compared case-insensitively"},
+    "action": {"enum": ["hotfix", "unhotfix", "hold", "release", "approve", "decline"]},
+    "args": {
+      "type": "object",
+      "properties": {"what": {"type": "string", "minLength": 1}}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"pr": {"type": "null"}}, "required": ["pr"]},
+      "then": {
+        "properties": {
+          "action": {"enum": ["approve", "decline"]},
+          "args": {"required": ["what"]}
+        }
+      },
+      "else": {
+        "properties": {"head_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"}}
+      }
+    }
+  ],
+  "$defs": {
+    "utc": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"}
+  }
+}

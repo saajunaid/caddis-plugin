@@ -28,6 +28,8 @@ tiers:
       - pool.manifest.yml
       - .pool-version
       - .junai-profile
+      # caddis source only: the upstream skills caddis borrowed from (caddis_upstream_check.py)
+      - upstream-sources.json
   managed_region:
     files:
       - copilot-instructions.md

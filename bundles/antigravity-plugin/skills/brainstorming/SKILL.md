@@ -45,7 +45,7 @@ Start by understanding the current project context, then ask questions one at a 
 **Implementation (if continuing):**
 - Ask: "Ready to set up for implementation?"
 - Use the `using-git-worktrees` skill (caddis, devops/) to create an isolated workspace
-- Use `/caddis:feature-plan` for a phased plan, or the `writing-plans` skill (caddis, docs/)
+- Use `/caddis:feature-plan` to write the plan (it is the only plan writer in caddis)
 
 ## Key Principles
 

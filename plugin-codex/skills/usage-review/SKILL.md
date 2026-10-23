@@ -11,7 +11,7 @@ apply config changes in one step. Data stays on-machine — no telemetry, no ser
 ## Step 1 — run the analysis script
 
 Resolve the script path:
-- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.156/scripts/usage_review.py`
+- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.157/scripts/usage_review.py`
 - harness (caddis) checkout: `scripts/usage_review.py`
 
 Run it:
@@ -32,6 +32,15 @@ Display the markdown output. Then add a single interpretive sentence identifying
 impactful finding** — the one most likely to reduce rate-limit consumption or right-size the harness.
 
 Do NOT paraphrase every finding in prose — the report is already the output.
+
+## Step 2b — check the borrowed upstream skills
+
+Run `python "<scripts folder>/caddis_upstream_check.py"` from the project root (same folder as
+`usage_review.py`). It compares the upstream skills that caddis borrowed ideas from with the copies
+installed on this machine. Show every `DRIFT` line in the report under **Upstream drift**. A `DRIFT`
+line means: review the upstream diff, port what fits, then update `.github/upstream-sources.json`.
+Say nothing for `UP-TO-DATE`, `NOT-INSTALLED` or `NO-SOURCES` (no record: not the caddis source repo).
+The check never fails the review.
 
 ## Step 3 — offer to apply
 

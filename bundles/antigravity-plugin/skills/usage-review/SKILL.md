@@ -33,6 +33,15 @@ impactful finding** — the one most likely to reduce rate-limit consumption or 
 
 Do NOT paraphrase every finding in prose — the report is already the output.
 
+## Step 2b — check the borrowed upstream skills
+
+Run `python "<scripts folder>/caddis_upstream_check.py"` from the project root (same folder as
+`usage_review.py`). It compares the upstream skills that caddis borrowed ideas from with the copies
+installed on this machine. Show every `DRIFT` line in the report under **Upstream drift**. A `DRIFT`
+line means: review the upstream diff, port what fits, then update `.github/upstream-sources.json`.
+Say nothing for `UP-TO-DATE`, `NOT-INSTALLED` or `NO-SOURCES` (no record: not the caddis source repo).
+The check never fails the review.
+
 ## Step 3 — offer to apply
 
 For each finding marked **[apply]** in the report, ask the user whether to apply it.

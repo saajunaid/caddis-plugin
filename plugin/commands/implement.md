@@ -238,6 +238,17 @@ report — do not redo completed work.
      every phase after the first, which is the original bug wearing a different hat. For a
      `caddis_lanes.py` launch command, follow "Multi-lane phases" above instead of spawning the command
      blind.
+   - **EXECUTION** — read the phase's `Execution:` line. A missing line means `inline` (older plans
+     have none). `inline`: run the steps below for the whole phase, as before. `Execution: per-task`:
+     run the phase's tasks in order. Give each task a fresh implementer: a subagent on the phase's
+     lane and model, with a brief that holds the task's `Files:`, `Interfaces:` and steps, the plan's
+     Global Constraints and the test-economy lines (Multi-lane item 7b). If you cannot dispatch a
+     subagent, implement the task yourself and note that in the review file. After each task, run a
+     short task review before the next task: first spec compliance (the task's files, names and tests
+     match the plan), then quality (the author self-check). Fix blocking findings, then go on. Record
+     each task (name, commit, review result) under `## Task progress` in the review file. Then run the
+     phase's normal gates: VERIFY, the `review-tier` review by another vendor, COMMIT and the Tracker.
+     The task reviews never replace that review.
    - **RED** — write the failing test(s) the phase names (`<test file>::<case>`). Run them; confirm they
      fail for the right reason (the missing behavior, not an import error). If a phase genuinely has no
      testable surface, say so in the review file and implement the minimal change directly.
@@ -349,6 +360,9 @@ branch: <current branch>
 
 ## Assumptions made
 - <any gap the plan left that you decided — or "none">
+
+## Task progress  *(only for `Execution: per-task` phases)*
+- <phase N task N.M — commit <hash> — task review: clean | fixed <finding>>
 
 ## Not done / follow-ups
 - <phases skipped/blocked and why — or "none; all phases complete">

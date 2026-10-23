@@ -95,7 +95,7 @@
 | PRD To Code | `docs/prd-to-code/` | Turn a PRD into working application code with a 6-phase method. Use when starting a project from requirements or specs. |
 | Tech Explainer | `docs/tech-explainer/` | Plain-language explainer, with ranked Mermaid diagrams and Simplified Technical English, for a reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain this to X", "explainer", "write this up for someone non-technical", "plain English", "STE", "explain our findings", "write up the benchmark results", "why is it slow — document it", or summarises an investigation for a reader who won't read the raw data. Not for build hand-offs (explainer-doc) or READMEs. |
 | Technical Writing | `docs/technical-writing/` | Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards. |
-| Writing Plans | `docs/writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code |
+| Writing Plans | `docs/writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code. In caddis, plans are written with /caddis:feature-plan, the only plan writer; this skill sends you there. |
 
 ### Frontend
 

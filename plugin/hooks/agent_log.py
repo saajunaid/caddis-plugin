@@ -78,19 +78,19 @@ def _agent_type_from_meta(transcript_path: str) -> str:
     if meta_path == transcript_path:
         return ""
     for attempt in range(5):
-        if not os.path.isfile(meta_path):
-            if attempt < 4:
-                time.sleep(0.2)
-            continue
-        try:
-            with open(meta_path, encoding="utf-8") as fh:
-                meta = json.load(fh)
-            val = meta.get("agentType")
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-        except Exception:
-            pass
-        break
+        if os.path.isfile(meta_path):
+            try:
+                with open(meta_path, encoding="utf-8") as fh:
+                    meta = json.load(fh)
+            except Exception:  # half-written by Claude Code at this moment: wait and read again
+                meta = None
+            if isinstance(meta, dict):
+                val = meta.get("agentType")
+                return val.strip() if isinstance(val, str) and val.strip() else ""
+            if meta is not None:  # complete JSON, but not an object: waiting will not help
+                return ""
+        if attempt < 4:
+            time.sleep(0.2)
     return ""
 
 

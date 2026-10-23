@@ -129,7 +129,7 @@
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/session_waiting.py\"",
-            "timeout": 5
+            "async": true
           }
         ]
       }

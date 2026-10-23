@@ -12,6 +12,9 @@ If `$ARGUMENTS` is empty, ask what to plan and stop.
 The plan file is the **durable spine of the harness** — it must let any future session (or another
 agent, on any tool) resume with zero re-discovery. Optimize for that.
 
+This command is the only plan writer in caddis. The task-level shape, Global Constraints, Review Focus and
+the self-review checklist are adapted from obra/superpowers `writing-plans` 7.0.0 (MIT); see NOTICE.md.
+
 ## Headless mode
 When the invocation contains the marker **`HEADLESS RUN RULES`**, **or `CADDIS_HEADLESS` is set in
 the environment** (the caddis OSS launchers export it on claude's `-p`/`--print`) — a non-interactive
@@ -186,6 +189,29 @@ internal repo path into stakeholder-facing copy, and set a `live` status flag th
 framework's own "Soon" badge). `tsc` clean, 632/632 tests green, cross-review CLEAN, exit gate
 satisfied. A headless run following it literally would have committed both, entirely green.
 
+### Choose how each phase's tasks run (`Execution:`)
+Write one `Execution:` line per phase, next to its `Lane:` and model lines. A fixed rule picks it:
+- **`Execution: per-task`** when the phase has 3 or more tasks that consume each other's interfaces,
+  OR when a mistake would be costly: security, data loss, money, merges or deploys, concurrency.
+- Otherwise `Execution: inline`.
+
+`inline` means today's behaviour: one implementer does the whole phase. `per-task` means the executor
+gives each task a fresh implementer (on the phase's model tier and lane) and a short task review (spec
+compliance, then quality) before the next task starts. The task review does not replace the phase's review by another vendor:
+`review-tier` and `/caddis:cross-review` still run once per phase.
+
+A `per-task` phase is split into tasks. Each task must have:
+- **`Files:`** — every file to create, modify and test, with exact paths.
+- **`Interfaces:`** — `Consumes:` (what it uses from earlier tasks) and `Produces:` (what later tasks
+  use): exact names, parameters and return types. An implementer sees only its own task; this block is
+  how it learns the names that its neighbours use.
+- **Steps** — write the failing test (its name, its assertions and the exact values from the spec); run
+  it, expected FAIL; implement the named signature; run it, expected PASS; commit with named files.
+
+A task is the smallest unit that has its own test cycle and is worth its own review. Put setup, config
+and docs steps in the task whose deliverable needs them. An `inline` phase may keep the lighter shape of
+the phase template.
+
 ### Group phases into MILESTONES — only when the plan is big enough
 **Add milestones when the plan has ~8+ phases OR spans multiple sessions.** Below that, phases and a
 Tracker are enough; a three-phase feature gains nothing from ceremony.
@@ -240,6 +266,16 @@ Creating Model: <model-id>
 ## Constraints & decisions
 - <key tech decision + rationale>
 
+## Global Constraints
+<The project-wide requirements: version floors, dependency limits, naming and copy rules, platform needs.
+One line each, with the exact values copied from the spec or PRD. Every phase's requirements include
+this section.>
+
+## Review Focus
+<Up to five inputs or failure modes that the spec implies but no task test exercises, most likely first.
+One line each: the input or condition, and the behaviour a user expects. Each line gets a test, added
+to the phase or task that owns the code. Write "none found" only after you checked.>
+
 ## Phases
 
 ### Phase 1 — <name>  ⏳
@@ -249,6 +285,7 @@ Creating Model: <model-id>
 **Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>
 **Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
 **Type:** backend | hard | ui | tests | docs  *(required when the Lane runs through caddis_lanes.py)*
+**Execution:** inline | per-task  *(the rule in Step 2; per-task phases list their tasks below)*
 **Session:** continue | **fresh** (start a new session for this phase — note why: lane change / heavy context)
 **Risk:** high — token-verification seam; a wrong answer here is a silent auth bypass  *(omit this line when normal)*
 **Goal:** <one sentence>
@@ -264,6 +301,18 @@ Creating Model: <model-id>
 **Then:** update the Tracker row (status + hash). If this phase ends the session, WRITE the handoff
 yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:handoff`" as the next action.
 
+#### Task 1.1 — <name>  *(per-task phases only)*
+**Files:** create `<path>` · modify `<path>` · test `<test path>`
+**Interfaces:**
+  - Consumes: `<name>(<params>) -> <return type>` from Task <N.M>, or "none"
+  - Produces: `<name>(<params>) -> <return type>`
+**Steps:**
+  1. Write the failing test `<test path>::<case>`: assert `<call>` == `<exact value from the spec>`.
+  2. Run `<literal test command>`: expected FAIL (<the reason, not an import error>).
+  3. Implement `<name>(<params>) -> <return type>` in `<path>`.
+  4. Run `<literal test command>`: expected PASS.
+  5. Commit: `git add <named files>` then `git commit -m "<message>" -- <named files>`.
+
 ### Phase 2 — <name>  🔲
 <same structure>
 
@@ -278,6 +327,8 @@ Three rules: one attempt, one review.
 
 - One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
   COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
+  An `Execution: per-task` phase runs task by task: a fresh implementer per task, and a task review
+  before the next task. The cross-review still runs once for the phase.
 - **Session boundaries:** the executor WRITES the handoff (durable `relay.md` + Tracker) after any
   phase that ends a sitting — it performs the work, it does not suggest the command. Start a FRESH
   session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or whenever
@@ -360,6 +411,8 @@ done:
   spawning another one forever; the `Phase N only` suffix is what stops the child running to the end
   of the plan. The command is executed verbatim by a model with no slack to notice a missing flag,
   and `/caddis:implement` now refuses a command without `-p` rather than running it.
+- **Execution named** — every phase has an `Execution:` line set by the rule in Step 2, and every task
+  of a `per-task` phase has `Files:`, `Interfaces:` and its five steps.
 - **caddis_lanes command carries --phase** — a `caddis_lanes.py` launch command must name `--phase N`
   and `--type`; lane-check refuses one without `--phase`.
 - **Gate-detectable** — if this phase's instruction were WRONG, its exit gate would go red. A phase
@@ -368,6 +421,16 @@ done:
   here checks that the spec is COMPLETE; only this one checks that a mistake would be noticed.
 
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
+
+**Self-review (run it yourself after you write the plan, then fix what it finds in place):**
+- **Spec coverage** — each requirement in the spec or PRD maps to a phase or task. Add a task for a gap.
+- **Step scan** — no step that decides nothing ("TBD", "handle edge cases", "add validation", a name
+  that no task defines). No full function body that the signature and the tests already determine.
+- **Name consistency** — a name, signature or field in a later task matches the one an earlier task's
+  `Produces:` defines.
+- **Review Focus coverage** — each Review Focus line has its test in the task that owns the code.
+- **Proportion** — a plan several times longer than its spec is a transcript of the code. Replace the
+  bodies with signatures, test names and assertions.
 
 A `risk: high` phase gets two independent review runs: run by the roadmap/plan runner automatically (from caddis-next Phase 11), and by hand in an interactive `/caddis:implement` run (`caddis_review.py --plan <plan> --phase <n> --runs 2`, from Phase 10). Only a `blocking` finding fails that review (exit 1); `should-fix` and `nit` findings go on a follow-up list and do not stop the merge. A phase gets 3 completed review rounds (a run that did not complete uses none); the 4th ends with exit 5, "stop, the owner decides". The advisory hub is retired; do not plan a separate validation session.
 
@@ -381,7 +444,7 @@ Small work that does not meet a trigger skips its block.
 
 ## Step 4 — Report
 Output the plan path (`.caddis/plans/<feature-slug>.md`), the phase list (one line each, with each
-phase's model tier + lane), confirm the local-coder gate passed (or list the phases that need
+phase's model tier + lane + execution), confirm the local-coder gate passed (or list the phases that need
 tightening), and: *"To start: `read the plan and implement Phase 1`. To resume later: `/handoff` at
 session end, then `read relay.md` next time. The plan's Execution protocol carries every command —
 nothing to memorize."*
