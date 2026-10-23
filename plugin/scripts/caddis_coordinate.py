@@ -15,8 +15,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -43,10 +45,10 @@ _URL = re.compile(
 )
 
 
-def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run(args: list[str], cwd: Path | None = None, timeout: float = _TIMEOUT) -> subprocess.CompletedProcess[str]:
     # utf-8 explicitly: the Windows default code page garbles non-ASCII paths and titles.
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=_TIMEOUT, creationflags=_NO_WINDOW)
+                          timeout=timeout, creationflags=_NO_WINDOW)
 
 
 def repo_id(remote_name_with_owner: str | None, is_fork_of: str | None, git_root: Path) -> str:
@@ -815,8 +817,8 @@ def queue_merged(rid: str, pr: int, merge_sha: str) -> bool:
 
 
 def deploy_check_set(rid: str, pr: int, *, deploy_run: int | None = None, health: str | None = None) -> None:
-    """Set the deploy run and/or health of the newest deploy check for a PR. Raises ValueError for a health not in
-    `DEPLOY_HEALTH`, a run that is not an integer, or a PR with no deploy check."""
+    """Set the deploy run and/or health of the newest deploy check for a PR; a health also sets `at` to now.
+    Raises ValueError for a health not in `DEPLOY_HEALTH`, a run that is not an integer, or a PR with no deploy check."""
     if health is not None and health not in DEPLOY_HEALTH:
         raise ValueError(f"unknown deploy health: {health!r}")
     if deploy_run is not None and (isinstance(deploy_run, bool) or not isinstance(deploy_run, int)):
@@ -829,8 +831,9 @@ def deploy_check_set(rid: str, pr: int, *, deploy_run: int | None = None, health
             raise ValueError(f"no deploy check for PR {pr}")
         if deploy_run is not None:
             check["deploy_run"] = deploy_run
-        if health is not None:
+        if health is not None:  # stamp `at`, so the newest entry by `at` is the newest health (freeze rule)
             check["health"] = health
+            check["at"] = _now()
     _mutate_state(rid, change)
 
 
@@ -886,6 +889,20 @@ def _gh_head_of(rid: str) -> Callable[[int], str | None]:
     return head_of
 
 
+def _gh_title(rid: str, pr: int) -> str:
+    """The PR title from gh, so the model never puts free text on a command line; `PR #<n>` on any failure."""
+    fallback = f"PR #{pr}"
+    if rid.startswith("local__") or "__" not in rid:
+        return fallback
+    owner, name = rid.split("__", 1)
+    try:
+        result = _run(["gh", "pr", "view", str(pr), "-R", f"{owner}/{name}", "--json", "title", "-q", ".title"])
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    title = result.stdout.strip() if result.returncode == 0 else ""
+    return title or fallback
+
+
 def _claim_state(rid: str, session: dict) -> None:
     """After the lock is taken: create `coordinator.json`, or record the new coordinator session in it."""
     with locked_path(state_path(rid)) as path:
@@ -897,6 +914,445 @@ def _claim_state(rid: str, session: dict) -> None:
                                         "pid": session["pid"]}
         state["heartbeat_at"] = _now()
         _write_state_unlocked(path, state)
+
+
+def session_lookup(sessions: list[dict], *, session_id: str | None = None, name: str | None = None) -> dict:
+    """Return `{"pid", "sessionId", "name"}` of the ONE interactive session with this sessionId or name.
+
+    Background entries are ignored: their pid is not a long-lived Claude Code session (ruling R12)."""
+    if (session_id is None) == (name is None):
+        raise ValueError("session_lookup takes exactly one of session_id or name")
+    key, wanted = ("sessionId", session_id) if session_id is not None else ("name", name)
+    hits = [s for s in sessions if isinstance(s, dict) and s.get("kind") == "interactive" and s.get(key) == wanted]
+    if not hits:
+        raise ValueError(f"no such session: {key} {wanted!r}")
+    if len(hits) > 1:
+        pids = ", ".join(str(s.get("pid")) for s in hits)
+        raise ValueError(f"two interactive sessions share {key} {wanted!r}: pids {pids}")
+    hit = hits[0]
+    pid = hit.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ValueError(f"session {key} {wanted!r} has no valid pid: {pid!r}")
+    for field in ("sessionId", "name"):
+        if not isinstance(hit.get(field), str) or not hit[field]:
+            raise ValueError(f"session {key} {wanted!r} has no {field}")
+    return {"pid": pid, "sessionId": hit["sessionId"], "name": hit["name"]}
+
+
+# --- the per-repo config `.caddis/coordinator.md` (C2.2, ruling R10: one fenced json block) --------------------
+
+CONFIG_KEYS = ("schema", "default_branch", "merge_method", "required_checks", "not_required", "docs_only",
+               "main_workflow", "reviews", "peer_ack", "deploy", "owner_reserved", "stall", "quiet")
+CONFIG_SCHEMA = 1
+_PLACEHOLDER = "<fill:"
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)")  # a Markdown code fence and its info string
+_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "coordinator.md"
+
+
+def config_path(repo_root: Path) -> Path:
+    return Path(repo_root) / ".caddis" / "coordinator.md"
+
+
+def _closes(line: str, fence: str) -> bool:
+    """True when `line` closes a block opened by `fence`: same character, at least as long, nothing after it."""
+    closed = re.match(r"^ {0,3}(`{3,}|~{3,})[ \t]*$", line)
+    return bool(closed) and closed.group(1)[0] == fence[0] and len(closed.group(1)) >= len(fence)
+
+
+def _config_block(text: str) -> object:
+    """Parse the FIRST fenced block whose info string is `json`. Raise ValueError when there is none."""
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        opened = _FENCE.match(lines[i])
+        if not opened:
+            i += 1
+            continue
+        fence, info = opened.group(1), opened.group(2).lower()
+        body: list[str] = []
+        i += 1
+        while i < len(lines) and not _closes(lines[i], fence):
+            body.append(lines[i])
+            i += 1
+        i += 1
+        if info == "json":
+            try:
+                return json.loads("\n".join(body))
+            except ValueError as exc:
+                raise ValueError(f"the json block in the config does not parse: {exc}") from exc
+    raise ValueError("the config has no fenced json block")
+
+
+def _placeholders(value: object, where: str = "") -> list[str]:
+    """Every key path (at any depth) whose value is a string that starts with `<fill:`."""
+    if isinstance(value, str):
+        return [where] if value.startswith(_PLACEHOLDER) else []
+    if isinstance(value, dict):
+        return [hit for k, v in value.items() for hit in _placeholders(v, f"{where}.{k}" if where else str(k))]
+    if isinstance(value, list):
+        return [hit for n, v in enumerate(value) for hit in _placeholders(v, f"{where}[{n}]")]
+    return []
+
+
+def load_config(repo_root: Path) -> dict:
+    """Read `<repo_root>/.caddis/coordinator.md` and return its json block.
+
+    Raise FileNotFoundError when the file is missing, ValueError when there is no json block, a key is missing,
+    `schema` is not 1, or a value is still a `<fill: ...>` placeholder."""
+    path = config_path(repo_root)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"no coordinator config at {path} (run: caddis_coordinate.py config init)") from exc
+    config = _config_block(text)
+    if not isinstance(config, dict):
+        raise ValueError("the config json block must be one JSON object")
+    missing = [key for key in CONFIG_KEYS if key not in config]
+    if missing:
+        raise ValueError(f"the config is missing keys: {', '.join(missing)}")
+    schema = config["schema"]
+    if not isinstance(schema, int) or isinstance(schema, bool) or schema != CONFIG_SCHEMA:
+        raise ValueError(f"the config schema must be {CONFIG_SCHEMA}, not {schema!r}")
+    unfilled = _placeholders(config)
+    if unfilled:
+        raise ValueError(f"the config still has {_PLACEHOLDER} placeholders at: {', '.join(unfilled)}")
+    return config
+
+
+def init_config(repo_root: Path) -> Path:
+    """Copy the template to `<repo_root>/.caddis/coordinator.md` when it is absent. Never overwrite."""
+    path = config_path(repo_root)
+    template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path, "x", encoding="utf-8", newline="") as handle:  # "x": fails if the file exists, no race
+            handle.write(template)
+    except FileExistsError:
+        pass
+    return path
+
+
+# --- the watcher loop (C2.3) --------------------------------------------------------------------------------------
+
+
+def _say(exc: BaseException) -> str:
+    return " ".join(str(exc).split()) or type(exc).__name__
+
+
+def watch_cycle(rid: str, pid: int, now: datetime.datetime, head_of: Callable[[int], str | None]) -> dict:
+    """One watcher cycle: check the lock still names `pid` and that session is alive, then heartbeat and intake.
+
+    Returns `{"stop": "lock lost" | "session gone" | "state gone"}` when the watcher must end, else
+    `{"stop": None, "results": [...], "error": str | None}`. A transient failure (a lock file or state file that
+    cannot be read now, a lock timeout) goes into `error` and is never raised: the next cycle retries. The watcher
+    never takes the lock and changes the queue only through `intake`. The pid check is local (no `claude agents`).
+    """
+    def failed(message: str) -> dict:
+        return {"stop": None, "results": [], "error": message}
+
+    try:
+        holder = _read_holder(_lock_path(rid))
+    except OSError as exc:  # fail closed: it may still name us, so retry next tick rather than stop
+        if not _pid_alive(pid):  # ... unless our own session is dead: then nothing is left to watch for
+            return {"stop": "session gone"}
+        return failed(f"lock file unreadable: {_say(exc)}")
+    if holder is None or holder["pid"] != pid:
+        return {"stop": "lock lost"}
+    if not _holder_alive(holder):  # the pid is dead, or now belongs to a newer process (pid reuse)
+        return {"stop": "session gone"}
+    if not state_path(rid).exists():  # checked first: heartbeat must never recreate the repo folder
+        return {"stop": "state gone"}
+    try:
+        heartbeat(rid)
+        results = intake(rid, now, head_of)
+    except FileNotFoundError:
+        return {"stop": "state gone"}
+    except ValueError as exc:
+        if not state_path(rid).exists():
+            return {"stop": "state gone"}
+        return failed(_say(exc))
+    except OSError as exc:  # sharing error, lock timeout (TimeoutError): retry next tick
+        return failed(_say(exc))
+    except Exception as exc:  # e.g. a hand-edited state file: report it, keep watching
+        return failed(f"unexpected {type(exc).__name__}: {_say(exc)}")
+    return {"stop": None, "results": results, "error": None}
+
+
+def watch(rid: str, pid: int, interval: float, max_cycles: int | None = None) -> int:
+    """Run `watch_cycle` every `interval` seconds. Print one JSON line (flushed) for each cycle with results or a
+    stop, and for an error that differs from the previous cycle's error; print nothing for a quiet cycle or a
+    repeated error. Return 0 on a stop or after `max_cycles` cycles."""
+    head_of = _gh_head_of(rid)
+    cycles = 0
+    last_error: str | None = None
+    try:
+        while True:
+            out = watch_cycle(rid, pid, datetime.datetime.now(datetime.timezone.utc), head_of)
+            error = out.get("error")
+            if out.get("stop") or out.get("results") or (error and error != last_error):
+                print(json.dumps(out, separators=(",", ":")), flush=True)
+            last_error = error
+            if out.get("stop"):
+                return EXIT_OK
+            cycles += 1
+            if max_cycles is not None and cycles >= max_cycles:
+                return EXIT_OK
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        return EXIT_OK
+
+
+# --- deploy check D1-D5 by script (C2.4, ruling R11) -------------------------------------------------------------
+
+DEPLOY_CHECKS = ("D1", "D2", "D3", "D4", "D5")
+_DEPLOY_TIMEOUT = 60  # one subprocess: `git fetch --tags`, or curl with its own --max-time 20
+_CURL_MAX_TIME = "20"
+
+
+def _deploy_run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """The default runner of `deploy_verify`: `_run` with a timeout longer than curl's own `--max-time`."""
+    return _run(args, timeout=_DEPLOY_TIMEOUT)
+
+
+def _curl() -> str:
+    """Windows: System32 curl.exe under %SystemRoot%, by full path, when it exists (a bare name lets CreateProcess
+    pick a curl.exe from the current folder first), else `curl.exe` on PATH. Elsewhere: `curl` on PATH."""
+    if os.name != "nt":
+        return "curl"
+    system = Path(os.environ.get("SystemRoot") or "") / "System32" / "curl.exe"
+    return str(system) if os.environ.get("SystemRoot") and system.is_file() else "curl.exe"
+
+
+def _plain_path(path: object) -> str:
+    """A URL path compared for `never_health_path`: lowercased, no query string or fragment, no trailing slash."""
+    return re.split(r"[?#]", str(path), maxsplit=1)[0].rstrip("/").lower()
+
+
+def _unset(value: object) -> bool:
+    return value is None or (isinstance(value, str) and value.strip().lower() in ("", "none", "null"))
+
+
+def _checks_summary(checks: dict, docs_only: bool) -> str:
+    """`passed: D1, D2, D5; skipped: D3, D4`, from the checks dict, with a `docs-only: ` prefix."""
+    parts = []
+    for label, mark in (("passed", "pass"), ("skipped", "skip")):
+        names = [name for name, value in checks.items() if value == mark]
+        if names:
+            parts.append(f"{label}: {', '.join(names)}")
+    return ("docs-only: " if docs_only else "") + "; ".join(parts)
+
+
+class _CheckFailed(Exception):
+    def __init__(self, reason: str, health: str = "failed") -> None:
+        super().__init__(reason)
+        self.health = health
+
+
+def _call(runner: Callable[[list[str]], subprocess.CompletedProcess[str]], argv: list[str],
+          what: str) -> subprocess.CompletedProcess[str]:
+    """Run one command; a missing tool, a timeout or a non-zero exit is a check failure, never a crash."""
+    try:
+        result = runner(argv)
+    except subprocess.TimeoutExpired:
+        raise _CheckFailed(f"{what} timed out") from None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _CheckFailed(f"{what} could not run ({Path(argv[0]).name}): {_say(exc)}") from None
+    if result.returncode != 0:
+        detail = " ".join((result.stderr or result.stdout or "").split()) or f"exit {result.returncode}"
+        raise _CheckFailed(f"{what} failed: {detail}")
+    return result
+
+
+def deploy_verify(rid: str, cfg: dict, pr: int, merge_sha: str, *, docs_only: bool,
+                  runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None,
+                  env=os.environ, repo_root: Path | None = None) -> dict:
+    """Run deploy checks D1-D5 for a merged PR, record the result with `deploy_check_set`, and return
+    `{"checks": {"D1".."D5": "pass|fail|skip"}, "run": int | None, "health": "ok|failed|pending", "reason": str}`.
+
+    Checks run in order and stop at the first failure (the rest are `skip`). D2 does not wait: the model waits
+    with `caddis_lanes.py ci-watch --run` first. Docs-only runs D1, D2 and D5 only, and D2 fails when the run
+    contradicts the flag (a job named `deploy...` succeeded, or `deploy.jobs` jobs succeeded). A non-docs run needs
+    `deploy.jobs` successful jobs, and every job when it has more. `deploy.never_health_path` is never requested.
+    `GH_TOKEN` comes from the inherited environment only. `repo_root` is where the git commands of D3 run.
+    A run still in progress at D2 records health `pending`, not `failed`.
+    Raises ValueError, before any network call and with nothing recorded, for a merge SHA that is not a full SHA,
+    a PR with no deploy check, or a merge SHA that differs from the one in the PR's newest deploy check."""
+    if not isinstance(merge_sha, str) or not _SHA.fullmatch(merge_sha):
+        raise ValueError(f"the merge SHA must be a full 40-character SHA: {merge_sha!r}")
+    state = read_state(rid)
+    check = next((c for c in reversed((state or {}).get("deploy_checks") or [])
+                  if isinstance(c, dict) and c.get("pr") == pr), None)
+    if check is None:
+        raise ValueError(f"no deploy check for PR {pr} (run queue merged first)")
+    if str(check.get("merge_sha", "")).lower() != merge_sha.lower():
+        raise ValueError(f"merge SHA {merge_sha[:12]} is not the recorded merge SHA "
+                         f"{str(check.get('merge_sha'))[:12]} of PR {pr}")
+    runner = runner or _deploy_run
+    deploy = cfg.get("deploy") if isinstance(cfg.get("deploy"), dict) else {}
+    sha = merge_sha.lower()
+    checks = {name: "skip" for name in DEPLOY_CHECKS}
+    found: dict = {"run": None}
+
+    def curl(path: str, *extra: str) -> list[str]:
+        auth = deploy.get("auth")
+        if _unset(auth):
+            auth_args: list[str] = []
+        elif auth == "ntlm":
+            auth_args = ["--ntlm", "-u", ":"]
+        else:
+            raise _CheckFailed(f"unknown deploy.auth {auth!r} (known: ntlm, none)")
+        name = deploy.get("base_url_env")
+        if _unset(name):
+            raise _CheckFailed("deploy.base_url_env is not set in the config")
+        base = env.get(name)
+        if not base:
+            raise _CheckFailed(f"base URL env {name} not set")
+        if not isinstance(path, str) or not path.startswith("/"):
+            raise _CheckFailed(f"a deploy path must start with '/': {path!r}")
+        never = deploy.get("never_health_path")
+        if not _unset(never) and _plain_path(path) == _plain_path(never):
+            raise _CheckFailed(f"refused: {path} is deploy.never_health_path")
+        return [_curl(), "-s", "--max-time", _CURL_MAX_TIME, *auth_args, *extra, base.rstrip("/") + path]
+
+    def d1() -> None:
+        if rid.startswith("local__") or "__" not in rid:
+            raise _CheckFailed(f"repo {rid} has no GitHub repository")
+        owner, name = rid.split("__", 1)
+        branch, workflow = cfg.get("default_branch"), cfg.get("main_workflow")
+        event = deploy.get("event") or "push"
+        if _unset(workflow) or not isinstance(workflow, str):
+            raise _CheckFailed("main_workflow is not set in the config")
+        out = _call(runner, ["gh", "run", "list", "-R", f"{owner}/{name}", "--branch", str(branch),
+                             "--event", str(event), "--workflow", workflow, "--limit", "50",
+                             "--json", "databaseId,headSha,status,conclusion"], "gh run list")
+        try:
+            runs = json.loads(out.stdout)
+        except ValueError:
+            raise _CheckFailed("gh run list did not print JSON") from None
+        hits = [r for r in runs if isinstance(r, dict) and str(r.get("headSha", "")).lower() == sha] \
+            if isinstance(runs, list) else []
+        if not hits:
+            raise _CheckFailed(f"no {event} run of {workflow} on {branch} for {merge_sha[:12]}")
+        found["run"] = hits[0]  # gh lists newest first
+        run_id = hits[0].get("databaseId")
+        found["id"] = run_id if isinstance(run_id, int) and not isinstance(run_id, bool) else None
+
+    def d2() -> None:
+        run = found["run"]
+        status, conclusion = run.get("status"), run.get("conclusion")
+        if status != "completed":
+            raise _CheckFailed(f"run {found['id']} still running: wait for it with ci-watch --run first", "pending")
+        if conclusion != "success":
+            raise _CheckFailed(f"run {found['id']} concluded {conclusion}")
+        want = deploy.get("jobs")
+        want_ok = isinstance(want, int) and not isinstance(want, bool) and want >= 1
+        if not docs_only and not want_ok:
+            raise _CheckFailed(f"deploy.jobs must be a job count of 1 or more, not {want!r}")
+        if found["id"] is None:
+            raise _CheckFailed("the push run has no databaseId")
+        owner, name = rid.split("__", 1)
+        out = _call(runner, ["gh", "run", "view", str(found["id"]), "-R", f"{owner}/{name}", "--json", "jobs"],
+                    "gh run view")
+        try:
+            jobs = json.loads(out.stdout).get("jobs")
+        except (ValueError, AttributeError):
+            jobs = None
+        if not isinstance(jobs, list):
+            raise _CheckFailed("gh run view did not print a jobs list")
+        succeeded = [j for j in jobs if isinstance(j, dict) and j.get("conclusion") == "success"]
+        done = len(succeeded)
+        if docs_only:  # a docs-only push deploys nothing: a run that deployed contradicts the flag
+            deployed = any("deploy" in str(j.get("name", "")).lower() for j in succeeded)
+            if deployed or (want_ok and done >= want):
+                raise _CheckFailed(f"docs-only flag contradicts the run: {done} jobs succeeded")
+            return
+        others = ", ".join(f"{j.get('name')}={j.get('conclusion')}" for j in jobs
+                           if isinstance(j, dict) and j.get("conclusion") != "success")
+        detail = f" ({others})" if others else ""
+        if done < want:
+            raise _CheckFailed(f"run {found['id']}: {done} of {want} jobs succeeded{detail}")
+        if len(jobs) != want and done != len(jobs):  # extra jobs: every one must succeed
+            raise _CheckFailed(f"run {found['id']}: {len(jobs)} jobs, not {want}, and not all succeeded{detail}")
+
+    def d3() -> None:
+        git = ["git", "-C", str(repo_root)] if repo_root is not None else ["git"]
+        _call(runner, [*git, "fetch", "--tags"], "git fetch --tags")
+        out = _call(runner, [*git, "tag", "--points-at", merge_sha], "git tag --points-at")
+        if not out.stdout.strip():
+            raise _CheckFailed(f"no release tag points at {merge_sha[:12]}")
+
+    def d4() -> None:
+        path = deploy.get("version_path")
+        out = _call(runner, curl(path), f"curl {path}")
+        try:
+            body = json.loads(out.stdout)
+        except ValueError:
+            raise _CheckFailed(f"{path} did not return JSON") from None
+        reported = body.get("sha") if isinstance(body, dict) else None
+        if not isinstance(reported, str) or not reported.lower().startswith(sha):
+            raise _CheckFailed(f"{path} reports sha {reported!r}, not {merge_sha[:12]}")
+
+    def d5() -> None:
+        path = deploy.get("health_path")
+        if _unset(path):
+            raise _CheckFailed("deploy.health_path is not set in the config")
+        null = "NUL" if os.name == "nt" else "/dev/null"
+        out = _call(runner, curl(path, "-o", null, "-w", "%{http_code}"), f"curl {path}")
+        code = out.stdout.strip()
+        if code != "200":
+            raise _CheckFailed(f"{path} returned HTTP {code or 'nothing'}, not 200")
+
+    steps = [("D1", d1, True), ("D2", d2, True),
+             ("D3", d3, not docs_only and not _unset(deploy.get("tag"))),
+             ("D4", d4, not docs_only and not _unset(deploy.get("version_path"))),
+             ("D5", d5, True)]
+    health, reason = "ok", ""
+    for name, step, applies in steps:
+        if not applies:
+            continue
+        try:
+            step()
+        except _CheckFailed as exc:
+            checks[name], health, reason = "fail", exc.health, str(exc)
+            break
+        checks[name] = "pass"
+    if health == "ok":
+        reason = _checks_summary(checks, docs_only)
+    run_id = found.get("id")
+    deploy_check_set(rid, pr, deploy_run=run_id, health=health)
+    return {"checks": checks, "run": run_id, "health": health, "reason": reason}
+
+
+def _deploy_root(config_path_arg: str) -> Path:
+    """`--config-path` names the config file or the repo root; return the repo root."""
+    given = Path(config_path_arg)
+    if given.is_dir():
+        return given
+    root = given.resolve().parent.parent
+    if config_path(root).resolve() != given.resolve():
+        raise ValueError(f"--config-path must be a repo root or its .caddis/coordinator.md: {given}")
+    return root
+
+
+def _claude_agents() -> list[dict]:
+    """Run `claude agents --json` and return its list. Raise OSError or ValueError on failure."""
+    claude = shutil.which("claude")  # on Windows this finds claude.CMD
+    if not claude:
+        raise OSError("claude not found on PATH")
+    try:
+        result = _run([claude, "agents", "--json"])
+    except subprocess.TimeoutExpired as exc:
+        raise OSError(f"claude agents --json timed out after {_TIMEOUT} s") from exc
+    if result.returncode != 0:
+        detail = " ".join((result.stderr or result.stdout or "").split()) or f"exit {result.returncode}"
+        raise OSError(f"claude agents --json failed: {detail}")
+    try:
+        value = json.loads(result.stdout)
+    except ValueError as exc:
+        raise ValueError("claude agents --json did not print JSON") from exc
+    if not isinstance(value, list):
+        raise ValueError("claude agents --json did not print a JSON list")
+    return value
 
 
 def _waits_on(text: str) -> list[dict]:
@@ -932,6 +1388,16 @@ def _parser() -> argparse.ArgumentParser:
     p = command("repo-id", repo=False)
     p.add_argument("--path", default=".", help="a folder inside the checkout (default: current folder)")
 
+    config = sub.add_parser("config").add_subparsers(dest="config_command", required=True, parser_class=_Parser)
+    for name in ("show", "init"):
+        p = command(name, config, repo=False)
+        p.add_argument("--path", default=".", help="the repo root (default: current folder)")
+
+    p = command("session", repo=False)
+    which = p.add_mutually_exclusive_group(required=True)
+    which.add_argument("--session-id", help="the Claude Code sessionId to find")
+    which.add_argument("--name", help="the Claude Code session name to find")
+
     lock = sub.add_parser("lock").add_subparsers(dest="lock_command", required=True, parser_class=_Parser)
     p = command("acquire", lock)
     p.add_argument("--pid", type=int, required=True)
@@ -942,13 +1408,17 @@ def _parser() -> argparse.ArgumentParser:
 
     command("heartbeat")
     command("intake")
+    p = command("watch")
+    p.add_argument("--pid", type=int, required=True, help="the coordinator session pid that holds the lock")
+    p.add_argument("--interval", type=float, default=30.0, help="seconds between cycles (default 30)")
+    p.add_argument("--max-cycles", type=int, help="stop after this many cycles (for tests)")
     command("state")
 
     queue = sub.add_parser("queue").add_subparsers(dest="queue_command", required=True, parser_class=_Parser)
     p = command("add", queue)
     p.add_argument("--pr", type=int, required=True)
     p.add_argument("--head-sha", required=True)
-    p.add_argument("--title", required=True)
+    p.add_argument("--title", help="the PR title (default: read from gh; `PR #<n>` when gh fails)")
     p = command("set", queue)
     p.add_argument("--pr", type=int, required=True)
     p.add_argument("--state", choices=QUEUE_STATES)
@@ -970,6 +1440,12 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--run", type=int, help="the deploy run id")
     p.add_argument("--health", choices=DEPLOY_HEALTH)
 
+    p = command("deploy-verify")
+    p.add_argument("--pr", type=int, required=True)
+    p.add_argument("--merge-sha", required=True, help="the full merge commit SHA")
+    p.add_argument("--config-path", required=True, help="the repo root, or its .caddis/coordinator.md")
+    p.add_argument("--docs-only", action="store_true", help="a docs-only merge: D1, D2 and D5 only")
+
     ledger = sub.add_parser("ledger").add_subparsers(dest="ledger_command", required=True, parser_class=_Parser)
     p = command("record", ledger)
     p.add_argument("--what", required=True)
@@ -989,6 +1465,18 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "repo-id":
         rid = repo_id_for(Path(args.path))
         _emit(args, {"repo": rid}, rid)
+        return EXIT_OK
+    if args.command == "session":
+        found = session_lookup(_claude_agents(), session_id=args.session_id, name=args.name)
+        _emit(args, found, f"pid {found['pid']} ({found['name']})")
+        return EXIT_OK
+    if args.command == "config":
+        if args.config_command == "init":
+            path = init_config(Path(args.path))
+            _emit(args, {"path": str(path)}, str(path))
+        else:
+            loaded = load_config(Path(args.path))
+            _emit(args, loaded, json.dumps(loaded, indent=2))
         return EXIT_OK
     rid = args.repo or repo_id_for(Path.cwd())
     _repo_dir(rid)  # refuse a bad id before anything is written
@@ -1012,6 +1500,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         heartbeat(rid)
         _emit(args, {"ok": True}, "ok")
         return EXIT_OK
+    if args.command == "watch":
+        return watch(rid, args.pid, args.interval, args.max_cycles)
     if args.command == "intake":
         results = intake(rid, datetime.datetime.now(datetime.timezone.utc), _gh_head_of(rid))
         lines = [f"{r['id']}: {r['result']} {r['reason']}".rstrip() for r in results]
@@ -1030,13 +1520,20 @@ def _dispatch(args: argparse.Namespace) -> int:
         item = queue_next(state)
         _emit(args, {"next": item}, f"PR #{item['pr']}" if item else "none")
         return EXIT_OK
+    if args.command == "deploy-verify":
+        root = _deploy_root(args.config_path)
+        out = deploy_verify(rid, load_config(root), args.pr, args.merge_sha, docs_only=args.docs_only,
+                            runner=_deploy_run, repo_root=root)
+        marks = " ".join(f"{name}={mark}" for name, mark in out["checks"].items())
+        _emit(args, out, f"{out['health']}: {marks} ({out['reason']})")
+        return EXIT_OK if out["health"] == "ok" else EXIT_ERROR
     if args.command == "deploy-check":
         deploy_check_set(rid, args.pr, deploy_run=args.run, health=args.health)
     elif args.command == "ledger":
         ledger_record(rid, what=args.what, decision=args.decision, by=args.by, reason=args.reason,
                       window=args.window, request_id=args.request_id)
     elif args.queue_command == "add":
-        queue_add(rid, args.pr, args.head_sha, args.title)
+        queue_add(rid, args.pr, args.head_sha, args.title if args.title is not None else _gh_title(rid, args.pr))
     elif args.queue_command == "set":
         queue_set(rid, args.pr, state=args.state, head_sha=args.head_sha, why_waiting=args.why_waiting,
                   waits_on=args.waits_on)
@@ -1060,8 +1557,17 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
         if args.command == "deploy-check" and args.run is None and args.health is None:
             parser.error("deploy-check set needs --run or --health")
+        if args.command == "deploy-verify" and not _SHA.fullmatch(args.merge_sha):
+            parser.error("deploy-verify --merge-sha must be a full 40-character SHA")
         if args.command == "lock" and args.lock_command == "acquire" and args.pid <= 0:
             parser.error("lock acquire --pid must be a positive process id")
+        if args.command == "watch":
+            if args.pid <= 0:
+                parser.error("watch --pid must be a positive process id")
+            if not 1 <= args.interval <= 86400:  # also refuses NaN and inf (time.sleep(inf) raises)
+                parser.error("watch --interval must be 1 to 86400 seconds")
+            if args.max_cycles is not None and args.max_cycles <= 0:
+                parser.error("watch --max-cycles must be 1 or more")
     except _UsageError as exc:
         print(f"usage error: {exc}", file=sys.stderr)
         return EXIT_USAGE
