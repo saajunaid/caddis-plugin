@@ -146,7 +146,9 @@ history, and the relay has a 4,000-character budget (`caddis_budget.py`).
 > Your session id is printed at session start as `[caddis] this session's id: <id>`; use it for
 > `session_id` and `--session-id`. Never guess one: a wrong id disables session matching.
 >
-> 1. **Name the workstream** (active plan's `feature`, else the branch; the script prints nothing
+> 1. **Name the workstream.** First run the coordinator check of Step 9. When it says this session is the
+>    repo's coordinator, `<name>` is the config's `relay`: do not run `resolve` and do not ask. Else name it
+>    from the active plan's `feature`, else the branch (the script prints nothing
 >    on the default branch with no plan — run `caddis_workstreams.py list` (`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" list`) to show existing workstreams, then ask the user which one to use or for a short name):
 >    `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_workstreams.py" resolve --plan <feature> --branch <branch> --default-branch <main>`
 > 2. **Legacy repo:** if `.caddis/relay.md` exists and does not start with
@@ -398,7 +400,40 @@ Then, in a shared checkout, `Docs PR needed:` with the `PR:` line and the file l
 Step 9 prints after this report. It is the last output of the handoff.
 
 ## Step 9 — print the resume prompt (always the last output)
-The owner should never have to ask for the resume prompt. After the checklist report, run:
+The owner should never have to ask for the resume prompt. After the checklist report, check for a
+coordinator first.
+
+**Coordinator check.** Step 3, point 1 also uses this check. When the repo has `.caddis/coordinator.md`,
+find out if this session is the repo's coordinator:
+1. Read the config. It must have `relay`:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" config show --path . --json
+   ```
+   Exit 1, or no `relay`: this session is not treated as the coordinator here. Use the normal block.
+2. Find the repo id `<R>` (`<account>` is the repo's GitHub account, from the repo's `AGENTS.md`):
+   ```
+   GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" repo-id --json
+   ```
+   Keep `repo` as `<R>`.
+3. Find this session's pid. Keep `pid`:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" session --session-id <session-id> --json
+   ```
+4. Read the lock holder. It never takes or changes the lock:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" lock holder --repo <R> --json
+   ```
+5. This session is the coordinator when the holder's `sessionId` is this session's id, OR the holder's `pid`
+   is this session's `pid` (the same coordinator process, for example after a `/clear` that never ran start).
+
+When this session is the coordinator, `<name>` is the config's `relay`, and you add `--coordinator` to the
+`resume-block` call below. The block then prints only `/clear`, `/rename coordinator` and
+`/caddis:coordinate start`, and no resume prompt: `/caddis:coordinate start` reads the relay and its tasks
+itself. `resume-block --coordinator` refuses (exit 1) a `--name` that is not the config's `relay`. In all
+other cases (no `.caddis/coordinator.md`, no `relay`, `{"holder": null}`, another holder, an exit 1), run
+`resume-block` as written.
+
+Then run:
 ```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_fleet.py" resume-block --name <name> --session-id <session-id> --root .
 ```

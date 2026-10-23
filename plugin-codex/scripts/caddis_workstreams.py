@@ -46,6 +46,15 @@ def _name(value: str) -> str:
     return value
 
 
+def is_plain_name(value: object) -> bool:
+    """True for a plain workstream name as typed (no lower-casing, no `branch.` namespace), e.g. `coordinator`."""
+    try:
+        _name(value)  # type: ignore[arg-type]
+    except ValueError:
+        return False
+    return bool(_PLAIN_NAME.fullmatch(value))  # type: ignore[arg-type]
+
+
 def _plain_name(value: str) -> str:
     if not isinstance(value, str):
         raise TypeError("plan or suggestion must be text")

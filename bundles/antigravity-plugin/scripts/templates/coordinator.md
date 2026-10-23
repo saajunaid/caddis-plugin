@@ -7,7 +7,8 @@ How to fill it:
 
 - Replace every `"<fill: ...>"` string with the real value. The coordinator refuses to start while any
   `<fill:` string is left (`caddis_coordinate.py config show` lists them).
-- Keep every key. A missing key also stops the coordinator.
+- Keep every key. A missing key also stops the coordinator. Only `relay` is optional: delete its line if the
+  coordinator has no relay.
 - Put no host names and no secrets here. The production base URL comes from the environment variable that
   `deploy.base_url_env` names.
 
@@ -42,6 +43,7 @@ What the keys mean:
 | `stall.ready_no_ready_msg_min` | Minutes a green PR may wait for its session's ready message. |
 | `quiet.coordination` | Quiet hours for merges (`none`: no quiet hours). |
 | `quiet.timing_checks` | When timing checks may run. |
+| `relay` | The workstream name of the coordinator's relay (optional; the coordinator reads `.caddis/relay/<relay>.md` and its tasks file at start). |
 
 ```json
 {
@@ -86,6 +88,7 @@ What the keys mean:
   "quiet": {
     "coordination": "none",
     "timing_checks": "<fill: when timing checks may run, for example quiet window only>"
-  }
+  },
+  "relay": "<fill: workstream name of the coordinator's relay, e.g. coordinator>"
 }
 ```

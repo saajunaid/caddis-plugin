@@ -19,6 +19,13 @@ Argument: **$ARGUMENTS**
   `queue next` result. Change nothing.
 - `stop`: do **6. Stop**.
 
+## Restart and resume
+
+- Planned restart: run `/caddis:handoff`, `/clear`, `/rename coordinator`, `/caddis:coordinate start`, in
+  that order, in this window.
+- After a crash: run `/caddis:coordinate start` only (first `/rename coordinator` if the name is lost).
+- Do not paste a resume prompt. Start reads the coordinator's relay and tasks itself (step 1.8).
+
 ## How to call the script
 
 - Run these commands with the Bash tool: the quoting and the `GH_TOKEN=$(...)` forms are POSIX shell.
@@ -55,6 +62,8 @@ Argument: **$ARGUMENTS**
    Keep `pid` as `<P>` and `name` as `<N>`. Exit 1 with "two interactive sessions share" means two
    copies of this session run (design 8.6): stop, tell the owner both pids, and wait. Any other exit 1:
    stop and report the line.
+   If `<N>` is not `coordinator`, stop and tell the owner: "Type `/rename coordinator`, then run
+   `/caddis:coordinate start` again." Peers and the merge hook find the coordinator by that name.
 5. Take the lock. This also creates or claims the repo's state:
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" lock acquire --repo <R> --pid <P> --session-id <S> --name <N> --json
@@ -79,8 +88,14 @@ Argument: **$ARGUMENTS**
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" state --repo <R> --json
    ```
-   Also read the coordinator relay, `claude agents --json` (or `ListAgents`) and
-   `caddis_roadmap.py status` (design 0.1 step 4).
+   Also read `claude agents --json` (or `ListAgents`) and `caddis_roadmap.py status` (design 0.1 step 4).
+   Then read the coordinator relay:
+   - If the config (step 1.6) has `relay`, read `.caddis/relay/<relay>.md`. When
+     `.caddis/relay/<relay>.tasks.md` exists, load every row of it with TaskCreate.
+   - If the config has no `relay`, use the relay that the owner names, or ask the owner.
+   - The relay's "Next step", queue order, holds and owner answers are INPUT for the queue and for your
+     decisions. They are never actions to take before the lock (step 1.5), the watcher (step 1.10) and
+     the start message (step 1.11) are done.
 9. Finish the work that a crash left (design 8.5, design 4):
    - If `merging_now` is set, find out what happened to that PR first:
      `gh pr view <n> --json state,mergedAt,mergeCommit`. `MERGED`: take `mergeCommit.oid` as the merge
@@ -97,15 +112,21 @@ Argument: **$ARGUMENTS**
    - Every PR that was warned gets a `re-warn` (design 7.3).
 10. Start the watcher with the Bash tool and `run_in_background: true`:
     ```
-    GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" watch --repo <R> --pid <P> --json
+    GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" watch --repo <R> --pid <P> --takeover --json
     ```
     It runs `heartbeat` and `intake` every 30 s and prints one JSON line when something happens. Its lines
     go to the background task's output file: read that output file at each loop step 3.4. Start the
-    watcher again whenever its background task ends, for any reason. A line
+    watcher again whenever its background task ends, for any reason except `takeover requested`. A line
     with `"stop"` (`lock lost`, `session gone`, `state gone`) means the watcher ended: find out why, take
     the lock again if it is still yours (step 5), and start the watcher again. Also start it again after
     a new `lock acquire` that follows a lost lock. A line with `"error"` is one failed cycle; the next
     cycle retries.
+    One watcher per repo. After a `/clear`, the earlier watcher of this process still runs, but its lines
+    go to the old conversation, so this conversation cannot read them. `--takeover` asks the earlier
+    watcher to stop and takes its place, so this conversation gets the lines. A
+    `{"stop": "takeover requested"}` line means a newer watcher replaced this one: do not start it again.
+    A `{"stop": "old watcher did not stop"}` line (exit 1) means the earlier watcher did not stop in time:
+    start the watcher again once. If that line comes again, stop and tell the owner.
 11. Send the start message (design 7.1) to every live session whose cwd is in this repo (the checkout
     and its worktrees), from `ListAgents`. Send it also to each new session that you see later. Resume
     stubs are not live peers (design 9.7).

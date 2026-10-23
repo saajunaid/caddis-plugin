@@ -23,12 +23,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 try:
-    from caddis_file_lock import atomic_write, locked_path, retry_denied
+    from caddis_file_lock import _try_lock, _unlock, atomic_write, locked_path, retry_denied
 except ModuleNotFoundError as exc:
     if exc.name != "caddis_file_lock":
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
-    from caddis_file_lock import atomic_write, locked_path, retry_denied
+    from caddis_file_lock import _try_lock, _unlock, atomic_write, locked_path, retry_denied
 
 
 _TIMEOUT = 10
@@ -130,6 +130,14 @@ def state_path(rid: str) -> Path:
 
 def _lock_path(rid: str) -> Path:
     return _repo_dir(rid) / "coordinator.lock.json"
+
+
+def _watcher_lock_path(rid: str) -> Path:
+    return _repo_dir(rid) / "watcher.lock"
+
+
+def _watcher_stop_path(rid: str) -> Path:
+    return _repo_dir(rid) / "watcher.stop"
 
 
 def read_state(rid: str) -> dict | None:
@@ -365,6 +373,17 @@ def acquire_lock(rid: str, pid: int, session_id: str, name: str) -> tuple[bool, 
         atomic_write(path, json.dumps({"pid": pid, "sessionId": session_id, "name": name,
                                        "started_at": _now()}) + "\n")
         return True, None
+
+
+def lock_holder(rid: str) -> dict | None:
+    """Return the lock holder with its `alive` flag, or None when no holder. Never takes or changes the lock.
+
+    Raise OSError when the lock file cannot be read (the caller fails closed)."""
+    holder = _read_holder(_lock_path(rid))
+    if holder is None:
+        return None
+    return {"pid": holder["pid"], "sessionId": holder.get("sessionId"), "name": holder.get("name"),
+            "started_at": holder.get("started_at"), "alive": _holder_alive(holder)}
 
 
 def release_lock(rid: str, pid: int) -> None:
@@ -943,6 +962,7 @@ def session_lookup(sessions: list[dict], *, session_id: str | None = None, name:
 
 CONFIG_KEYS = ("schema", "default_branch", "merge_method", "required_checks", "not_required", "docs_only",
                "main_workflow", "reviews", "peer_ack", "deploy", "owner_reserved", "stall", "quiet")
+OPTIONAL_CONFIG_KEYS = ("relay",)  # the coordinator's own relay: `.caddis/relay/<relay>.md`
 CONFIG_SCHEMA = 1
 _PLACEHOLDER = "<fill:"
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)")  # a Markdown code fence and its info string
@@ -998,7 +1018,8 @@ def load_config(repo_root: Path) -> dict:
     """Read `<repo_root>/.caddis/coordinator.md` and return its json block.
 
     Raise FileNotFoundError when the file is missing, ValueError when there is no json block, a key is missing,
-    `schema` is not 1, or a value is still a `<fill: ...>` placeholder."""
+    `schema` is not 1, a value is still a `<fill: ...>` placeholder, or the optional `relay` is not a plain
+    workstream name (`caddis_workstreams.is_plain_name`: lower case `a-z0-9_-`, no Windows device name)."""
     path = config_path(repo_root)
     try:
         text = path.read_text(encoding="utf-8")
@@ -1016,7 +1037,22 @@ def load_config(repo_root: Path) -> dict:
     unfilled = _placeholders(config)
     if unfilled:
         raise ValueError(f"the config still has {_PLACEHOLDER} placeholders at: {', '.join(unfilled)}")
+    if "relay" in config and not _plain_workstream_name(config["relay"]):
+        raise ValueError(f"the config relay must be a plain workstream name such as coordinator, "
+                         f"not {config['relay']!r}")
     return config
+
+
+def _plain_workstream_name(value: object) -> bool:
+    """The relay name rule of `caddis_workstreams` (one rule, so a relay that loads here can also be read there)."""
+    try:
+        import caddis_workstreams
+    except ModuleNotFoundError as exc:
+        if exc.name != "caddis_workstreams":
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_workstreams
+    return caddis_workstreams.is_plain_name(value)
 
 
 def init_config(repo_root: Path) -> Path:
@@ -1078,10 +1114,79 @@ def watch_cycle(rid: str, pid: int, now: datetime.datetime, head_of: Callable[[i
     return {"stop": None, "results": results, "error": None}
 
 
-def watch(rid: str, pid: int, interval: float, max_cycles: int | None = None) -> int:
+_TAKEOVER_MAX_S = 150.0  # the longest a `--takeover` waits for the old watcher
+_TAKEOVER_POLL_S = 0.2
+
+
+def _print_line(value: dict) -> None:
+    print(json.dumps(value, separators=(",", ":")), flush=True)
+
+
+def _takeover_wait(interval: float) -> float:
+    """The old watcher checks the stop file right after each sleep, and one cycle can run long (gh calls): wait one
+    interval plus 30 s, at most `_TAKEOVER_MAX_S`."""
+    return min(interval + 30, _TAKEOVER_MAX_S)
+
+
+def _remove_stop_file(rid: str) -> None:
+    retry_denied(lambda: _watcher_stop_path(rid).unlink(missing_ok=True))
+
+
+def _remove_own_stop_file(rid: str) -> None:
+    """Remove the stop file only when this process wrote it: a newer takeover's request stays."""
+    try:
+        owner = json.loads(_watcher_stop_path(rid).read_text(encoding="utf-8")).get("pid")
+    except (OSError, ValueError, AttributeError):
+        return
+    if owner == os.getpid():
+        _remove_stop_file(rid)
+
+
+def watch(rid: str, pid: int, interval: float, max_cycles: int | None = None, takeover: bool = False) -> int:
     """Run `watch_cycle` every `interval` seconds. Print one JSON line (flushed) for each cycle with results or a
     stop, and for an error that differs from the previous cycle's error; print nothing for a quiet cycle or a
-    repeated error. Return 0 on a stop or after `max_cycles` cycles."""
+    repeated error. Return 0 on a stop or after `max_cycles` cycles.
+
+    One watcher per repo: the loop holds the OS lock on `<hub>/repos/<rid>/watcher.lock` for its whole life (the OS
+    frees it when the process dies). When another watcher holds it:
+    - without `takeover`, print `{"stop": "another watcher is running"}` and return 0 at once;
+    - with `takeover`, write `<hub>/repos/<rid>/watcher.stop` and wait (`_takeover_wait`) for the lock. The old
+      watcher sees the stop file right after its next sleep, prints `{"stop": "takeover requested"}` and ends.
+      A `finally` removes this process's own stop file (on success, timeout or an exception; a newer takeover's
+      file stays). When the lock does not come in time, print `{"stop": "old watcher did not stop"}` and
+      return 1. After a `/clear` the old watcher runs on in the same process, but its output belongs to the old
+      conversation: takeover gives the new conversation a watcher whose output it can read.
+    The watcher that gets the lock removes any stop file before its first cycle. When the repo folder does not
+    exist, no lock or stop file is made: the first cycle then stops (it never recreates the folder)."""
+    path = _watcher_lock_path(rid)
+    if not path.parent.is_dir():
+        return _watch_loop(rid, pid, interval, max_cycles)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    with os.fdopen(os.open(path, flags, 0o666), "r+b") as handle:
+        held = _try_lock(handle)
+        if not held and not takeover:
+            _print_line({"stop": "another watcher is running"})
+            return EXIT_OK
+        if not held:
+            try:
+                atomic_write(_watcher_stop_path(rid), json.dumps({"pid": os.getpid(), "at": _now()}) + "\n")
+                deadline = time.monotonic() + _takeover_wait(interval)
+                while not held and time.monotonic() < deadline:
+                    time.sleep(_TAKEOVER_POLL_S)
+                    held = _try_lock(handle)
+            finally:  # on success, on timeout and on an exception: never leave this process's request behind
+                _remove_own_stop_file(rid)
+            if not held:
+                _print_line({"stop": "old watcher did not stop"})
+                return EXIT_ERROR
+        try:
+            _remove_stop_file(rid)
+            return _watch_loop(rid, pid, interval, max_cycles)
+        finally:
+            _unlock(handle)
+
+
+def _watch_loop(rid: str, pid: int, interval: float, max_cycles: int | None) -> int:
     head_of = _gh_head_of(rid)
     cycles = 0
     last_error: str | None = None
@@ -1098,6 +1203,9 @@ def watch(rid: str, pid: int, interval: float, max_cycles: int | None = None) ->
             if max_cycles is not None and cycles >= max_cycles:
                 return EXIT_OK
             time.sleep(interval)
+            if _watcher_stop_path(rid).exists():  # right after the sleep: a newer watcher asked for the lock
+                _print_line({"stop": "takeover requested"})
+                return EXIT_OK
     except KeyboardInterrupt:
         return EXIT_OK
 
@@ -1405,6 +1513,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--name", required=True)
     p = command("release", lock)
     p.add_argument("--pid", type=int, required=True)
+    command("holder", lock)
 
     command("heartbeat")
     command("intake")
@@ -1412,6 +1521,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--pid", type=int, required=True, help="the coordinator session pid that holds the lock")
     p.add_argument("--interval", type=float, default=30.0, help="seconds between cycles (default 30)")
     p.add_argument("--max-cycles", type=int, help="stop after this many cycles (for tests)")
+    p.add_argument("--takeover", action="store_true",
+                   help="ask a running watcher of this repo to stop, then take its place (after a /clear)")
     command("state")
 
     queue = sub.add_parser("queue").add_subparsers(dest="queue_command", required=True, parser_class=_Parser)
@@ -1491,6 +1602,12 @@ def _dispatch(args: argparse.Namespace) -> int:
             _claim_state(rid, {"name": args.name, "sessionId": args.session_id, "pid": args.pid})
             _emit(args, {"acquired": True, "holder": None}, "acquired")
             return EXIT_OK
+        if args.lock_command == "holder":
+            holder = lock_holder(rid)
+            _emit(args, holder or {"holder": None}, "no holder" if holder is None else
+                  f"pid {holder['pid']} ({holder['name']}, session {holder['sessionId']}, "
+                  f"{'alive' if holder['alive'] else 'not alive'})")
+            return EXIT_OK
         release_lock(rid, args.pid)
         _emit(args, {"released": True}, "released")
         return EXIT_OK
@@ -1501,7 +1618,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         _emit(args, {"ok": True}, "ok")
         return EXIT_OK
     if args.command == "watch":
-        return watch(rid, args.pid, args.interval, args.max_cycles)
+        return watch(rid, args.pid, args.interval, args.max_cycles, takeover=args.takeover)
     if args.command == "intake":
         results = intake(rid, datetime.datetime.now(datetime.timezone.utc), _gh_head_of(rid))
         lines = [f"{r['id']}: {r['result']} {r['reason']}".rstrip() for r in results]

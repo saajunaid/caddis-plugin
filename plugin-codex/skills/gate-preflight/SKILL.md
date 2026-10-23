@@ -12,7 +12,7 @@ written.
 active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.158/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.159/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using

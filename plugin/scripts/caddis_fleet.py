@@ -482,6 +482,17 @@ def render_resume(session: str, session_id: str, workstream: str, prompt: str, r
             f"{_fenced(shown)}\n{start}\n")
 
 
+def render_coordinator_resume(session: str, session_id: str, workstream: str) -> str:
+    """The resume block for the repo's coordinator: three lines to type, no prompt and no start line.
+
+    `/caddis:coordinate start` reads the coordinator's relay and tasks itself, so a pasted prompt would only race it."""
+    return (f"=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
+            "This session is the repo's coordinator. To resume, type these three lines in this window, one at a time:\n"
+            "/clear\n/rename coordinator\n/caddis:coordinate start\n"
+            f"Do not paste a resume prompt; /caddis:coordinate start reads .caddis/relay/{workstream}.md "
+            "and its tasks itself.\n")
+
+
 # ---- CLI --------------------------------------------------------------------------------------
 
 def _load_acks(fleet_dir: Path) -> list[Ack]:
@@ -489,6 +500,28 @@ def _load_acks(fleet_dir: Path) -> list[Ack]:
     if not acks_dir.is_dir():
         return []
     return [parse_ack(p.read_text(encoding="utf-8")) for p in sorted(acks_dir.glob("*.md"))]
+
+
+def _coordinator_relay_problem(root: Path, name: str) -> str | None:
+    """None when `<root>/.caddis/coordinator.md` loads and its `relay` is `name`, else one line that says why not.
+
+    The coordinator block says `/caddis:coordinate start` reads `.caddis/relay/<name>.md` itself; start reads the
+    config's `relay`, so the block is true only when the two are the same name."""
+    try:
+        import caddis_coordinate
+    except ModuleNotFoundError as exc:
+        if exc.name != "caddis_coordinate":
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_coordinate
+    try:
+        relay = caddis_coordinate.load_config(root).get("relay")
+    except (OSError, ValueError) as exc:  # FileNotFoundError is an OSError
+        return f"--coordinator needs a valid .caddis/coordinator.md with relay {name!r}: {' '.join(str(exc).split())}"
+    if relay != name:
+        return (f"--coordinator: --name {name!r} is not the coordinator config relay {relay!r}"
+                if relay else f"--coordinator: .caddis/coordinator.md has no relay (needs relay {name!r})")
+    return None
 
 
 def _resume_block_cli(args: argparse.Namespace) -> int:
@@ -500,15 +533,23 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import caddis_workstreams
     root = args.root.resolve()
+    if args.coordinator:
+        problem = _coordinator_relay_problem(root, args.name)
+        if problem:
+            sys.stderr.write(f"resume-block failed: {problem}\n")
+            return caddis_exit.BLOCKED
     try:
         text, digest = caddis_workstreams.read_relay(root, args.name)
         if digest is None:
             raise ResumeError(f"relay {args.name!r} not found")
-        prompt = resume_prompt(text)
+        prompt = "" if args.coordinator else resume_prompt(text)
     except (ValueError, OSError) as exc:  # ResumeError is a ValueError; a bad relay name is one too
         sys.stderr.write(f"resume-block failed: {exc}\n")
         return caddis_exit.BLOCKED
     session, known = session_name(args.session_id, root)
+    if args.coordinator:
+        print(render_coordinator_resume(session, args.session_id, args.name), end="")
+        return caddis_exit.CLEAN
     role = args.role or (role_of(session) if known else args.name)
     if not _SAFE_NAME.match(role):  # the role goes unquoted into the start line
         sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
@@ -553,7 +594,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--root", default=".", type=Path)
     p.add_argument("--role", help="role for the new session's name (default: the session name's role, else the relay name)")
     p.add_argument("--fleet", action="store_true", help="fleet close: print no start line (the restart sheet has it)")
+    p.add_argument("--coordinator", action="store_true",
+                   help="this session holds the repo's coordinator lock: print the three restart lines, no prompt")
     args = parser.parse_args(argv)
+    if args.cmd == "resume-block" and args.coordinator and args.role:
+        parser.error("resume-block: --role cannot go with --coordinator (the coordinator keeps its name)")
 
     if args.cmd == "role-of":
         print(role_of(args.name))
