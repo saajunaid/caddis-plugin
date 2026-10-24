@@ -584,13 +584,13 @@ describe('response headers', () => {
 });
 
 describe('pages and unknown routes', () => {
-  it('GET / serves the placeholder page with no inline script', async () => {
+  it('GET / serves the built UI page (or the not-built page) with no inline script or style', async () => {
+    // Static serving has its own tests in static.test.ts. This one uses the default folder, built or not.
     const r = await req('GET', '/');
-    expect(r.status).toBe(200);
+    expect([200, 503]).toContain(r.status);
     expect(r.headers['content-type']).toMatch(/^text\/html/);
     expect(r.body).toContain('caddis hub');
-    expect(r.body).toContain('UI arrives in H2');
-    expect(r.body).not.toMatch(/<script/i);
+    for (const m of r.body.matchAll(/<script[^>]*>/gi)) expect(m[0]).toMatch(/src=/);
     expect(r.body).not.toMatch(/<style|style=/i);
   });
 

@@ -1,0 +1,17 @@
+{
+  "comment": "What caddis-push (sync.ps1) copies from cli/ into the mirror's cli/. The npm package is built and published there, so this set must build alone. CI checks that (scripts/stage-mirror.mjs).",
+  "dirs": ["src", "test", "scripts", "ui", "e2e"],
+  "files": [
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "tsup.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "sync-manifest.json",
+    "README.md",
+    "PUBLISHING.md",
+    "LICENSE",
+    ".gitignore"
+  ]
+}

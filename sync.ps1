@@ -1654,9 +1654,12 @@ function caddis-push {
     $cliSource = Join-Path $ProjectRoot "cli"
     if (Test-Path $cliSource) {
         $cliDest = Join-Path $CADDIS_POOL "cli"
-        $CLI_SYNC_DIRS  = @("src", "test", "scripts")
-        $CLI_SYNC_FILES = @("package.json", "package-lock.json", "tsconfig.json", "tsup.config.ts",
-                            "vitest.config.ts", "README.md", "PUBLISHING.md", "LICENSE", ".gitignore")
+        # The file set lives in cli/sync-manifest.json. CI stages the same set
+        # (cli/scripts/stage-mirror.mjs) and builds it alone, so a new build input
+        # that is not listed fails CI here, not the release in the mirror.
+        $cliManifest    = Get-Content (Join-Path $cliSource "sync-manifest.json") -Raw | ConvertFrom-Json
+        $CLI_SYNC_DIRS  = @($cliManifest.dirs)
+        $CLI_SYNC_FILES = @($cliManifest.files)
 
         New-Item -ItemType Directory -Force $cliDest | Out-Null
         foreach ($d in $CLI_SYNC_DIRS) {

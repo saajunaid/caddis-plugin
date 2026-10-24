@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-24T10:50:00Z",
+  "versions": {
+    "hub": "0.4.77",
+    "pool": null,
+    "plugin": "1.3.163"
+  },
+  "update_needed": true,
+  "sources": {
+    "collector": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "agents": {
+      "ok": false,
+      "last_ok_at": "2026-10-24T10:41:00Z",
+      "last_error": "claude agents timed out after 20 s",
+      "stale": true
+    },
+    "github": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:46:00Z",
+      "last_error": null,
+      "stale": true
+    },
+    "coordinator": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    }
+  },
+  "repos": [
+    {
+      "path": "/srv/demo/shop",
+      "name": "shop",
+      "pinned": false,
+      "roadmaps": null,
+      "plans": null,
+      "relays": null,
+      "github": {
+        "path": "/srv/demo/shop",
+        "repo": "acme/shop",
+        "account": "demo",
+        "error": "gh auth failed for account demo"
+      },
+      "coordinator": {
+        "repo_id": "acme__shop",
+        "schema": 1,
+        "coordinator_session": {
+          "name": "demo-coordinator",
+          "sessionId": "demo-coordinator",
+          "pid": 2
+        },
+        "heartbeat_at": "2026-10-24T10:50:00Z",
+        "heartbeat_age_s": 0,
+        "responding": true,
+        "queue": [],
+        "merging_now": null,
+        "deploy_checks": [],
+        "ledger": [],
+        "processed_requests": [],
+        "error": null,
+        "update_needed": false
+      },
+      "repo_id": "acme__shop"
+    }
+  ],
+  "sessions": [],
+  "spend": {
+    "configured": true,
+    "cap_eur": 200,
+    "committed_eur": 34
+  },
+  "guide": null
+}

@@ -1,0 +1,471 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-24T10:50:00Z",
+  "versions": {
+    "hub": "0.4.77",
+    "pool": null,
+    "plugin": "1.3.163"
+  },
+  "update_needed": false,
+  "sources": {
+    "collector": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "agents": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "github": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "coordinator": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    }
+  },
+  "repos": [
+    {
+      "path": "/srv/demo/shop",
+      "name": "shop",
+      "pinned": false,
+      "roadmaps": null,
+      "plans": null,
+      "relays": {
+        "schema": 1,
+        "relays": [
+          {
+            "branch": null,
+            "plan": null,
+            "session_id": null,
+            "age_min": 60,
+            "next_step": "Read the plan section, then record the decision.",
+            "name": "shop-schema",
+            "status": "OWNER-GATE",
+            "status_arg": "P2-OG1",
+            "updated_at": "2026-10-24T10:25:00Z"
+          }
+        ]
+      },
+      "github": {
+        "path": "/srv/demo/shop",
+        "repo": "acme/shop",
+        "account": "demo",
+        "prs": [
+          {
+            "number": 212,
+            "title": "retry flaky upload",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA212",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/212",
+            "checks": [
+              {
+                "name": "test-windows",
+                "status": "completed",
+                "conclusion": "failure",
+                "required": true
+              },
+              {
+                "name": "lint",
+                "status": "completed",
+                "conclusion": "success",
+                "required": true
+              }
+            ],
+            "required_state": "fail"
+          },
+          {
+            "number": 213,
+            "title": "search filters",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA213",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/213",
+            "checks": [
+              {
+                "name": "test",
+                "status": "completed",
+                "conclusion": "success",
+                "required": true
+              }
+            ],
+            "required_state": "pass"
+          },
+          {
+            "number": 214,
+            "title": "coordinator config",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA214",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/214",
+            "checks": [
+              {
+                "name": "test",
+                "status": "completed",
+                "conclusion": "success",
+                "required": true
+              }
+            ],
+            "required_state": "pass"
+          },
+          {
+            "number": 215,
+            "title": "hotfix: cart total",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA215",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/215",
+            "checks": [
+              {
+                "name": "test",
+                "status": "completed",
+                "conclusion": "success",
+                "required": true
+              }
+            ],
+            "required_state": "pass"
+          },
+          {
+            "number": 216,
+            "title": "wip draft",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA216",
+            "author": "demo-author",
+            "draft": true,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/216",
+            "checks": [],
+            "required_state": "pending"
+          }
+        ],
+        "merges": [
+          {
+            "number": 209,
+            "title": "checkout copy",
+            "merge_sha": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB209",
+            "merged_at": "2026-10-24T10:32:00Z",
+            "runs": [
+              {
+                "name": "deploy",
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://example.invalid/run/1"
+              }
+            ]
+          }
+        ]
+      },
+      "coordinator": {
+        "repo_id": "acme__shop",
+        "schema": 1,
+        "coordinator_session": {
+          "name": "demo-coordinator",
+          "sessionId": "demo-coordinator",
+          "pid": 2
+        },
+        "heartbeat_at": "2026-10-24T10:50:00Z",
+        "heartbeat_age_s": 0,
+        "responding": true,
+        "queue": [
+          {
+            "pr": 215,
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA215",
+            "title": "hotfix: cart total",
+            "state": "ready",
+            "why_waiting": "first in line",
+            "waits_on": [],
+            "hotfix": true,
+            "held": false,
+            "entered_ready_at": "2026-10-24T10:20:00Z"
+          },
+          {
+            "pr": 213,
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA213",
+            "title": "search filters",
+            "state": "waiting",
+            "why_waiting": "CI pass, ready",
+            "waits_on": [],
+            "hotfix": false,
+            "held": false,
+            "entered_ready_at": "2026-10-24T10:20:00Z"
+          },
+          {
+            "pr": 214,
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA214",
+            "title": "coordinator config",
+            "state": "held",
+            "why_waiting": "held: owner approval",
+            "waits_on": [],
+            "hotfix": false,
+            "held": true,
+            "entered_ready_at": "2026-10-24T10:20:00Z"
+          },
+          {
+            "pr": 212,
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA212",
+            "title": "retry flaky upload",
+            "state": "blocked",
+            "why_waiting": "required check test-windows failed",
+            "waits_on": [],
+            "hotfix": false,
+            "held": false,
+            "entered_ready_at": "2026-10-24T10:20:00Z"
+          }
+        ],
+        "merging_now": null,
+        "deploy_checks": [
+          {
+            "pr": 209,
+            "merge_sha": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            "deploy_run": 1,
+            "health": "ok",
+            "at": "2026-10-24T10:32:00Z"
+          }
+        ],
+        "ledger": [],
+        "processed_requests": [],
+        "error": null,
+        "update_needed": false
+      },
+      "repo_id": "acme__shop"
+    },
+    {
+      "path": "/srv/demo/billing",
+      "name": "billing",
+      "pinned": false,
+      "roadmaps": null,
+      "plans": null,
+      "relays": {
+        "schema": 1,
+        "relays": [
+          {
+            "branch": null,
+            "plan": null,
+            "session_id": null,
+            "age_min": 60,
+            "next_step": "Read the relay and decide.",
+            "name": "billing-export",
+            "status": "BLOCKED",
+            "status_arg": "owner",
+            "updated_at": "2026-10-24T09:50:00Z"
+          }
+        ]
+      },
+      "github": {
+        "path": "/srv/demo/billing",
+        "repo": "acme/billing",
+        "account": "demo",
+        "prs": [
+          {
+            "number": 77,
+            "title": "invoice v2",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA77",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/77",
+            "checks": [
+              {
+                "name": "test",
+                "status": "completed",
+                "conclusion": "success",
+                "required": true
+              }
+            ],
+            "required_state": "pass"
+          }
+        ],
+        "merges": [
+          {
+            "number": 75,
+            "title": "tax rounding",
+            "merge_sha": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB75",
+            "merged_at": "2026-10-24T07:50:00Z",
+            "runs": [
+              {
+                "name": "deploy",
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://example.invalid/run/1"
+              }
+            ]
+          }
+        ]
+      },
+      "coordinator": {
+        "repo_id": "acme__billing",
+        "schema": 1,
+        "coordinator_session": {
+          "name": "demo-coordinator",
+          "sessionId": "demo-coordinator",
+          "pid": 2
+        },
+        "heartbeat_at": "2026-10-24T10:42:00Z",
+        "heartbeat_age_s": 480,
+        "responding": false,
+        "queue": [
+          {
+            "pr": 77,
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA77",
+            "title": "invoice v2",
+            "state": "waiting",
+            "why_waiting": "last known queue",
+            "waits_on": [],
+            "hotfix": false,
+            "held": false,
+            "entered_ready_at": "2026-10-24T10:20:00Z"
+          }
+        ],
+        "merging_now": null,
+        "deploy_checks": [],
+        "ledger": [],
+        "processed_requests": [],
+        "error": null,
+        "update_needed": false
+      },
+      "repo_id": "acme__billing"
+    },
+    {
+      "path": "/srv/demo/docs",
+      "name": "docs",
+      "pinned": false,
+      "roadmaps": null,
+      "plans": null,
+      "relays": null,
+      "github": {
+        "path": "/srv/demo/docs",
+        "repo": "acme/docs",
+        "account": "demo",
+        "prs": [
+          {
+            "number": 88,
+            "title": "new install page",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA88",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/88",
+            "checks": [
+              {
+                "name": "lint",
+                "status": "completed",
+                "conclusion": "failure",
+                "required": true
+              }
+            ],
+            "required_state": "fail"
+          }
+        ],
+        "merges": [
+          {
+            "number": 86,
+            "title": "fix links",
+            "merge_sha": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB86",
+            "merged_at": "2026-10-23T10:50:00Z",
+            "runs": [
+              {
+                "name": "deploy",
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://example.invalid/run/1"
+              }
+            ]
+          }
+        ]
+      },
+      "coordinator": null,
+      "repo_id": "acme__docs"
+    }
+  ],
+  "sessions": [
+    {
+      "key": "1:demo-session-api",
+      "pid": 1,
+      "session_id": "demo-session-api",
+      "name": "demo-session-api",
+      "kind": "interactive",
+      "cwd": "/srv/demo/shop",
+      "repo_path": "/srv/demo/shop",
+      "status": "waiting",
+      "waiting_for": "permission prompt",
+      "waiting_class": "owner",
+      "waiting_since": "2026-10-24T10:46:00Z",
+      "copies": 1
+    },
+    {
+      "key": "1:demo-session-web",
+      "pid": 1,
+      "session_id": "demo-session-web",
+      "name": "demo-session-web",
+      "kind": "interactive",
+      "cwd": "/srv/demo/shop",
+      "repo_path": "/srv/demo/shop",
+      "status": "busy",
+      "waiting_for": null,
+      "waiting_class": null,
+      "waiting_since": null,
+      "copies": 1
+    },
+    {
+      "key": "1:demo-session-export",
+      "pid": 1,
+      "session_id": "demo-session-export",
+      "name": "demo-session-export",
+      "kind": "interactive",
+      "cwd": "/srv/demo/billing",
+      "repo_path": "/srv/demo/billing",
+      "status": "waiting",
+      "waiting_for": "question",
+      "waiting_class": "owner",
+      "waiting_since": "2026-10-24T10:48:00Z",
+      "copies": 1
+    },
+    {
+      "key": "1:demo-session-peer",
+      "pid": 1,
+      "session_id": "demo-session-peer",
+      "name": "demo-session-peer",
+      "kind": "interactive",
+      "cwd": "/srv/demo/shop",
+      "repo_path": "/srv/demo/shop",
+      "status": "waiting",
+      "waiting_for": "peer reply",
+      "waiting_class": "peer",
+      "waiting_since": "2026-10-24T10:45:00Z",
+      "copies": 1
+    },
+    {
+      "key": "1:demo-session-new",
+      "pid": 1,
+      "session_id": "demo-session-new",
+      "name": "demo-session-new",
+      "kind": "interactive",
+      "cwd": "/srv/demo/docs",
+      "repo_path": "/srv/demo/docs",
+      "status": "waiting",
+      "waiting_for": "permission prompt",
+      "waiting_class": null,
+      "waiting_since": "2026-10-24T10:50:00Z",
+      "copies": 1
+    }
+  ],
+  "spend": {
+    "configured": true,
+    "cap_eur": 200,
+    "committed_eur": 34
+  },
+  "guide": null
+}

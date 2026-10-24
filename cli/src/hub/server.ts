@@ -1,5 +1,9 @@
 import http from 'node:http';
+import { existsSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { AuthStore, hostAllowed, originAllowed, parseCookies, safeEqual } from './auth.js';
 
 export const SESSION_COOKIE = 'caddis_hub_session';
@@ -17,10 +21,51 @@ export const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
   "frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-// No inline script or style: the CSP forbids both.
-const PLACEHOLDER_HTML =
-  '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>caddis hub</title>\n</head>\n' +
-  '<body>\n<h1>caddis hub</h1>\n<p>UI arrives in H2.</p>\n</body>\n</html>\n';
+const NOT_BUILT_HTML =
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>caddis hub</title></head>' +
+  '<body>UI not built: run npm run build</body></html>';
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+};
+
+/**
+ * The built UI folder. The bundled CLI (`dist/cli.js`) finds it beside itself (`dist/ui`).
+ * Running from source (`src/hub/server.ts`), it is `dist/ui` of the package.
+ */
+export function defaultUiDir(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const beside = path.join(here, 'ui');
+  return existsSync(beside) ? beside : path.resolve(here, '..', '..', 'dist', 'ui');
+}
+
+/**
+ * Resolve a URL path under `root`. Returns null when the path escapes `root` or holds a bad byte (R26).
+ */
+export function resolveStatic(root: string, urlPath: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    return null;
+  }
+  if (decoded.includes(String.fromCharCode(0)) || decoded.includes(String.fromCharCode(92))) return null;
+  // A decoded `..` (from `%2e%2e` or `..%2f`) is refused, so `/assets/..%2findex.html` cannot reach index.html.
+  if (decoded.split('/').includes('..')) return null;
+  const base = path.resolve(root);
+  const file = path.resolve(base, '.' + decoded);
+  return file.startsWith(base + path.sep) ? file : null;
+}
 
 export interface ServerOptions {
   /** The server binds loopback only. Any other value is refused. */
@@ -38,6 +83,8 @@ export interface ServerOptions {
    * CLI can check that the port really is this hub before it sends the key. Not set: the route answers 404.
    */
   instance?: string;
+  /** The built UI folder (R26). Default: `dist/ui` of this package. Tests pass a fixture folder. */
+  uiDir?: string;
   /** Called once after `POST /api/hub/stop` has sent its reply (`caddis hub stop`). */
   onStop?: () => void;
 }
@@ -98,6 +145,38 @@ function tooLarge(req: http.IncomingMessage, res: http.ServerResponse): void {
   fail(res, 413, 'body_too_large');
 }
 
+/**
+ * Serve one file of the built UI (R26). `/` is `index.html` (no-store). `assets/` and `fonts/` files are
+ * hashed or fixed, so they are immutable. No session is needed: these files hold no data.
+ */
+async function serveStatic(res: http.ServerResponse, uiDir: string, urlPath: string): Promise<void> {
+  const rel = urlPath === '/' ? '/index.html' : urlPath;
+  const file = resolveStatic(uiDir, rel);
+  if (!file) return fail(res, 404, 'not_found');
+  let body: Buffer;
+  try {
+    if (!(await stat(file)).isFile()) return fail(res, 404, 'not_found');
+    body = await readFile(file);
+  } catch {
+    if (urlPath === '/') {
+      res.writeHead(503, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(NOT_BUILT_HTML),
+        'Cache-Control': 'no-store',
+      });
+      res.end(NOT_BUILT_HTML);
+      return;
+    }
+    return fail(res, 404, 'not_found');
+  }
+  res.writeHead(200, {
+    'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'Content-Length': body.length,
+    'Cache-Control': urlPath === '/' ? 'no-store' : 'public, max-age=31536000, immutable',
+  });
+  res.end(body);
+}
+
 function keyOk(req: http.IncomingMessage, key: string): boolean {
   const v = req.headers[KEY_HEADER];
   return typeof v === 'string' && safeEqual(v, key);
@@ -118,6 +197,7 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
   }
   const auth = new AuthStore(opts.now ?? Date.now);
   const { key, versions } = opts;
+  const uiDir = opts.uiDir ?? defaultUiDir();
   let port = opts.port;
 
   const sessionOf = (req: http.IncomingMessage) => auth.getSession(parseCookies(req.headers.cookie)[SESSION_COOKIE]);
@@ -214,12 +294,8 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       return fail(res, 404, 'not_found');
     }
 
-    if (path === '/') {
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Length': Buffer.byteLength(PLACEHOLDER_HTML),
-      });
-      res.end(PLACEHOLDER_HTML);
+    if (path === '/' || path.startsWith('/assets/') || path.startsWith('/fonts/')) {
+      await serveStatic(res, uiDir, path);
       return;
     }
     if (path === '/login') {

@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-24T10:50:00Z",
+  "versions": {
+    "hub": "0.4.77",
+    "pool": null,
+    "plugin": "1.3.163"
+  },
+  "update_needed": false,
+  "sources": {
+    "collector": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "agents": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "github": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    },
+    "coordinator": {
+      "ok": true,
+      "last_ok_at": "2026-10-24T10:50:00Z",
+      "last_error": null,
+      "stale": false
+    }
+  },
+  "repos": [
+    {
+      "path": "/srv/demo/docs",
+      "name": "docs",
+      "pinned": false,
+      "roadmaps": null,
+      "plans": null,
+      "relays": null,
+      "github": {
+        "path": "/srv/demo/docs",
+        "repo": "acme/docs",
+        "account": "demo",
+        "prs": [
+          {
+            "number": 88,
+            "title": "new install page",
+            "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA88",
+            "author": "demo-author",
+            "draft": false,
+            "updated_at": "2026-10-24T10:10:00Z",
+            "url": "https://example.invalid/pull/88",
+            "checks": [
+              {
+                "name": "lint",
+                "status": "completed",
+                "conclusion": "failure",
+                "required": true
+              }
+            ],
+            "required_state": "fail"
+          }
+        ],
+        "merges": [
+          {
+            "number": 86,
+            "title": "fix links",
+            "merge_sha": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB86",
+            "merged_at": "2026-10-23T10:50:00Z",
+            "runs": [
+              {
+                "name": "deploy",
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://example.invalid/run/1"
+              }
+            ]
+          }
+        ]
+      },
+      "coordinator": null,
+      "repo_id": "acme__docs"
+    }
+  ],
+  "sessions": [
+    {
+      "key": "1:demo-session-docs",
+      "pid": 1,
+      "session_id": "demo-session-docs",
+      "name": "demo-session-docs",
+      "kind": "interactive",
+      "cwd": "/srv/demo/docs",
+      "repo_path": "/srv/demo/docs",
+      "status": "busy",
+      "waiting_for": null,
+      "waiting_class": null,
+      "waiting_since": null,
+      "copies": 1
+    }
+  ],
+  "spend": {
+    "configured": true,
+    "cap_eur": 200,
+    "committed_eur": 34
+  },
+  "guide": null
+}
