@@ -1,0 +1,254 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import {
+  deriveRoadmaps,
+  filterRoadmap,
+  gateCount,
+  listRow,
+  opensDirectly,
+  readyGates,
+  roadmapTabLabel,
+  type RoadmapModel,
+} from '../../ui/src/repo/roadmap';
+import type { HubState, RepoState } from '../../ui/src/types';
+
+const load = (name: string): HubState =>
+  JSON.parse(readFileSync(new URL(`../fixtures/hub-state/${name}.json`, import.meta.url), 'utf8')) as HubState;
+const repoOf = (s: HubState, name: string): RepoState => s.repos.find((r) => r.name === name)!;
+const launch = (s = load('full')): RoadmapModel => deriveRoadmaps(repoOf(s, 'shop')).roadmaps.find((r) => r.slug === 'launch')!;
+
+describe('deriveRoadmaps: header, KPIs, plan chips (P1, P2, P5)', () => {
+  it('counts milestones and phases and names the next item', () => {
+    const m = launch();
+    expect(m.branch).toBe('main');
+    expect(m.originCommit).toBe('ABC1234');
+    expect(m.kpis).toEqual({
+      phasesDone: 2,
+      phasesTotal: 5,
+      milestonesDone: 1,
+      milestonesTotal: 3,
+      inProgress: ['p-shop#3'],
+      highRisk: 1,
+      next: 'S2 p-shop#3',
+    });
+  });
+  it('has a plan chip with done and total per plan', () => {
+    expect(launch().lanes).toEqual([{ plan: 'p-shop', done: 2, total: 5 }]);
+  });
+});
+
+describe('flow, board, timeline data (P6, P7, P8, P9)', () => {
+  it('keeps milestones in roadmap order with their dependencies', () => {
+    expect(launch().milestones.map((m) => [m.id, m.depends, m.done, m.total])).toEqual([
+      ['S1', [], 2, 2],
+      ['S2', ['S1'], 0, 2],
+      ['S3', ['S2'], 0, 1],
+    ]);
+  });
+  it('buckets now, next and later like the old page', () => {
+    const b = launch().board;
+    expect(b.now.map((m) => m.id)).toEqual(['S2']);
+    expect(b.next.map((m) => m.id)).toEqual(['S3']);
+    expect(b.later).toEqual([]);
+  });
+  it('gives every phase a tile state, a risk flag and a model', () => {
+    const phases = launch().milestones.flatMap((m) => m.phases);
+    expect(phases.map((p) => p.tile)).toEqual(['done', 'done', 'in-progress', 'todo', 'todo']);
+    expect(phases.filter((p) => p.highRisk).map((p) => p.ref)).toEqual(['p-shop#3']);
+    expect(phases[0]).toMatchObject({ name: 'Catalog schema', model: 'Opus', lane: 'claude', plan: 'p-shop', num: 1 });
+  });
+  it('tones: done, prog, wait for an owner gate', () => {
+    expect(launch().milestones.map((m) => m.tone)).toEqual(['done', 'prog', 'wait']);
+  });
+});
+
+describe('gates and runner (P3, P11, P13)', () => {
+  it('lists the open owner gate and the blocker table', () => {
+    const m = launch();
+    expect(m.gates).toEqual([{ milestone: 'S3', type: 'owner-gate', reason: 'owner signs off the checkout copy', check: '' }]);
+    expect(m.blockers).toHaveLength(1);
+  });
+  it('falls back to the unfinished milestones owner gates when the data has no waiting key', () => {
+    const s = load('full');
+    const rm = (repoOf(s, 'shop').roadmaps as { roadmaps: Record<string, unknown>[] }).roadmaps[0]!;
+    delete rm.waiting;
+    expect(launch(s).gates.map((g) => g.milestone)).toEqual(['S3']);
+  });
+  it('shows a live runner, the last stop and the next batch', () => {
+    expect(launch().runner).toMatchObject({
+      running: { batch: 'B7', host: 'demo-host', pid: '1' },
+      staleBatch: null,
+      lastStop: 'done (exit 0)',
+      lastStopAt: '2026-10-23T18:00:00Z',
+      next: 'S2 p-shop#3',
+    });
+  });
+  it('a stale lock and read errors show', () => {
+    const s = load('full');
+    const rm = (repoOf(s, 'shop').roadmaps as { roadmaps: Record<string, unknown>[] }).roadmaps[0]!;
+    rm.runner = { lock: null, stale_lock: { batch: 'B1' }, last_stop: { reason: 'running' }, errors: ['runner.lock: not JSON'] };
+    expect(launch(s).runner).toMatchObject({ running: null, staleBatch: 'B1', lastStop: 'running now', errors: ['runner.lock: not JSON'] });
+    expect(listRow(launch(s)).runner).toBe('running');
+  });
+});
+
+describe('PR and stage (P23, R46)', () => {
+  it('links a PR only from the Tracker data and a GitHub slot', () => {
+    const phases = launch().milestones.flatMap((m) => m.phases);
+    expect(phases[0]!.prs).toEqual([{ number: 148, url: 'https://github.com/acme/shop/pull/148', stage: null, detail: null }]);
+    expect(phases[3]!.prs).toEqual([]);
+  });
+  it('stage: an open PR is in review with its checks, a merged PR is merged, else the tile label', () => {
+    const phases = launch().milestones.flatMap((m) => m.phases);
+    expect(phases[2]!.stage).toMatch(/^#213 in review \(required checks /);
+    expect(phases[1]!.prs[0]!.stage).toBe('merged');
+    expect(phases[1]!.stage).toBe('#209 merged');
+    expect(phases[0]!.stage).toBe('done');
+    expect(phases[3]!.stage).toBe('to do');
+  });
+  it('no GitHub slot: the number stays, with no link', () => {
+    const s = load('full');
+    repoOf(s, 'shop').github = null;
+    expect(launch(s).milestones[0]!.phases[0]!.prs).toEqual([{ number: 148, url: null, stage: null, detail: null }]);
+  });
+});
+
+describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () => {
+  it('several roadmaps and an error entry show the list', () => {
+    const m = deriveRoadmaps(repoOf(load('full'), 'shop'));
+    expect(m.mode).toBe('roadmaps');
+    expect(m.roadmaps.map((r) => r.slug)).toEqual(['launch', 'hardening']);
+    expect(m.errors).toEqual([{ slug: 'broken', error: 'line 4: not a table' }]);
+    expect(opensDirectly(m)).toBe(false);
+  });
+  it('one roadmap and no error opens directly', () => {
+    const m = deriveRoadmaps(repoOf(load('full'), 'billing'));
+    expect(m.roadmaps.map((r) => r.slug)).toEqual(['ledger']);
+    expect(opensDirectly(m)).toBe(true);
+  });
+  it('a list row has the bar, the counts, dots, next, runner and gate count', () => {
+    const row = listRow(launch());
+    expect(row).toMatchObject({
+      slug: 'launch',
+      milestonesDone: 1,
+      milestonesTotal: 3,
+      phasesDone: 2,
+      phasesTotal: 5,
+      pct: 40,
+      next: 'S2 p-shop#3',
+      runner: 'running',
+      gates: 1,
+      tone: 'wait',
+    });
+    expect(row.dots.map((d) => d.id)).toEqual(['S1', 'S2', 'S3']);
+    expect(listRow(deriveRoadmaps(repoOf(load('full'), 'shop')).roadmaps[1]!)).toMatchObject({ runner: 'idle', gates: 0, tone: 'todo' });
+  });
+  it('the tab label counts open gates over the roadmaps', () => {
+    const s = load('full');
+    expect(gateCount(deriveRoadmaps(repoOf(s, 'shop')))).toBe(1);
+    expect(roadmapTabLabel(repoOf(s, 'shop'))).toBe('Roadmap · 1 gate');
+    expect(roadmapTabLabel(repoOf(s, 'billing'))).toBe('Roadmap');
+  });
+  it('no roadmap but an active plan shows the plan rows', () => {
+    const m = deriveRoadmaps(repoOf(load('full'), 'docs'));
+    expect(m.mode).toBe('plans');
+    expect(m.plans).toEqual([
+      {
+        path: '.caddis/plans/p-docs.md',
+        title: 'p-docs',
+        rows: [
+          { phase: '1', status: 'done' },
+          { phase: '2', status: 'not started' },
+          { phase: '3', status: 'not started' },
+        ],
+        open: 2,
+      },
+    ]);
+  });
+  it('a finished plan is not shown; with nothing the mode is none', () => {
+    const s = load('full');
+    const docs = repoOf(s, 'docs');
+    (docs.plans as { plans: Record<string, unknown>[] }).plans[0]!.status = 'done';
+    expect(deriveRoadmaps(docs).mode).toBe('none');
+    docs.roadmaps = null;
+    docs.plans = null;
+    expect(deriveRoadmaps(docs).mode).toBe('none');
+  });
+  it('a collector error for the repo shows as an error', () => {
+    const s = load('full');
+    const docs = repoOf(s, 'docs');
+    docs.roadmaps = null;
+    docs.plans = null;
+    docs.error = 'not a folder';
+    expect(deriveRoadmaps(docs)).toMatchObject({ mode: 'error', repoError: 'not a folder' });
+  });
+  it('a slot error alone is an error', () => {
+    const s = load('full');
+    const docs = repoOf(s, 'docs');
+    docs.roadmaps = { error: 'no origin' };
+    docs.plans = { schema: 1, plans: [] };
+    expect(deriveRoadmaps(docs)).toMatchObject({ mode: 'error', repoError: 'no origin' });
+  });
+  it('plain status data (no detail keys) still renders what it has', () => {
+    const s = load('full');
+    const docs = repoOf(s, 'docs');
+    docs.roadmaps = {
+      schema: 1,
+      roadmaps: [
+        {
+          roadmap: 'old',
+          branch: 'main',
+          done: 0,
+          total: 1,
+          next: null,
+          line: '',
+          milestones: [{ id: 'A', status: 'todo', owner: 'runner', target: null, depends: [], phases: [{ ref: 'p-x#1', state: 'open' }], blockers: [] }],
+        },
+      ],
+    };
+    const m = deriveRoadmaps(docs).roadmaps[0]!;
+    expect(m.detailError).toBeNull();
+    expect(m.milestones[0]!.phases[0]).toMatchObject({ ref: 'p-x#1', plan: 'p-x', num: 1, name: 'p-x#1', tile: 'todo' });
+    expect(m.kpis.next).toBe('none ready');
+  });
+});
+
+describe('detail_error and ready gates (P24)', () => {
+  it('shows the collector detail error', () => {
+    const s = load('full');
+    (repoOf(s, 'shop').roadmaps as { roadmaps: Record<string, unknown>[] }).roadmaps[0]!.detail_error = 'No module named x';
+    expect(launch(s).detailError).toBe('No module named x');
+  });
+  it('a gate whose dependencies are done is ready; one behind an open dependency is not', () => {
+    const s = load('full');
+    expect(readyGates(repoOf(s, 'shop'))).toEqual([]); // S3 depends on S2, still in progress
+    const rm = (repoOf(s, 'shop').roadmaps as { roadmaps: { milestones: { status: string }[] }[] }).roadmaps[0]!;
+    rm.milestones[1]!.status = 'done';
+    expect(readyGates(repoOf(s, 'shop'))).toEqual([
+      { roadmap: 'launch', milestone: 'S3', reason: 'owner signs off the checkout copy', check: '', id: 'launch:S3:0' },
+    ]);
+  });
+});
+
+describe('search (P16)', () => {
+  it('empty text is no filter', () => {
+    expect(filterRoadmap(launch(), '  ')).toBeNull();
+  });
+  it('matches a phase name and shows its milestone', () => {
+    const m = filterRoadmap(launch(), 'search')!;
+    expect([...m.phases]).toEqual(['p-shop#3']);
+    expect([...m.milestones]).toEqual(['S2']);
+    expect(m.count).toBe(1);
+  });
+  it('matches a PR number in the Tracker cell and a milestone id with all its phases', () => {
+    expect([...filterRoadmap(launch(), '#148')!.phases]).toEqual(['p-shop#1']);
+    const s1 = filterRoadmap(launch(), 'S1')!;
+    expect([...s1.phases].sort()).toEqual(['p-shop#1', 'p-shop#2']);
+    expect(s1.count).toBeGreaterThanOrEqual(1);
+  });
+  it('no match gives an empty result with a zero count', () => {
+    const m = filterRoadmap(launch(), 'zzz-nothing')!;
+    expect(m.count).toBe(0);
+    expect(m.milestones.size).toBe(0);
+  });
+});

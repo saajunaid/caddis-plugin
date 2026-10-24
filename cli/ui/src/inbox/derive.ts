@@ -1,3 +1,4 @@
+import { readyGates } from '../repo/roadmap';
 import type { HubState, OwnerItem, RepoState, SessionEntry, SourceName } from '../types';
 
 /**
@@ -286,6 +287,23 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
         since: o.since,
         owner: o,
         source: o.source === 'relay' ? 'collector' : 'coordinator',
+      });
+    }
+    // 2b. Roadmap owner gates whose milestone dependencies are done (design P24). It resolves when the roadmap
+    // no longer names the gate: the owner records it with a docs PR (/caddis:roadmap).
+    for (const g of readyGates(repo)) {
+      add({
+        id: `rmgate:${repo.path}:${g.id}`,
+        kind: 'owner-gate',
+        folder: 'approvals',
+        repo: label,
+        repoPath: repo.path,
+        title: `Roadmap ${g.roadmap}, gate ${g.milestone}: ${g.reason}`,
+        why: `Milestone ${g.milestone} of roadmap ${g.roadmap} waits for you. Everything before it is done.`,
+        next: 'Decide, then record the gate in the roadmap with /caddis:roadmap (a docs PR).',
+        cmd: g.check || '/caddis:roadmap',
+        since: null,
+        source: 'collector',
       });
     }
     // 3. Blocked work: relay STATUS: BLOCKED owner.

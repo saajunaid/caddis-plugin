@@ -6,7 +6,9 @@
  */
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import path from 'node:path';
-import { hubDir } from '../paths.js';
+import { hubHome } from '../paths.js';
+
+export { hubHome };
 
 export const COORDINATOR_SCHEMA = 1;
 export const RESPONDING_WITHIN_S = 180;
@@ -241,12 +243,6 @@ export function coordinatorStatus(heartbeatAt: string | null, stoppedAt: string 
   const stop = stoppedAt ? Date.parse(stoppedAt) : NaN;
   if (!Number.isNaN(stop) && (Number.isNaN(hb) || stop >= hb)) return 'stopped';
   return ageS !== null && ageS < RESPONDING_WITHIN_S ? 'live' : 'down';
-}
-
-/** `CADDIS_HUB_HOME` is the hub folder itself (as in `caddis_coordinate.py`); else `<home>/.caddis/hub`. */
-export function hubHome(home?: string): string {
-  const override = process.env.CADDIS_HUB_HOME;
-  return override ? override : hubDir(home);
 }
 
 export function createCoordinatorSource(opts: CoordinatorOptions = {}): CoordinatorSource {

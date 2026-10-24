@@ -5,3 +5,4 @@ export type { SessionEntry } from '../../src/hub/sources/agents.js';
 
 /** The state schema this UI understands. A higher value means the hub is older than its data. */
 export const SUPPORTED_SCHEMA = 1;
+export type { AuditEntry } from '../../src/hub/audit.js';

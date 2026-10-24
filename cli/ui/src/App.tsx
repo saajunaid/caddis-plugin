@@ -15,6 +15,8 @@ import { useHubState } from './useHubState';
 
 // The guide page loads on demand, so its code and CSS stay out of the first bundle (G6).
 const Guide = lazy(() => import('./guide/Guide').then((m) => ({ default: m.Guide })));
+// The Activity page is its own chunk (R54).
+const Activity = lazy(() => import('./activity/Activity'));
 
 const systemDark = (): boolean => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
 
@@ -92,7 +94,7 @@ export function App(): JSX.Element {
   } else if (route.page === 'repo') {
     const repo = state.repos.find((r) => repoId(r) === route.id);
     body = repo ? (
-      <RepoPage key={route.id} state={state} repo={repo} nowMs={nowMs} act={act} />
+      <RepoPage key={route.id} state={state} repo={repo} nowMs={nowMs} act={act} tab={route.tab} roadmap={route.roadmap} />
     ) : (
       <div className="notice">
         <h1 className="page-title">{route.id}</h1>
@@ -106,11 +108,11 @@ export function App(): JSX.Element {
       </Suspense>
     );
   } else {
+    // The last page of `parseRoute` is Activity.
     body = (
-      <div className="notice">
-        <h1 className="page-title">Activity</h1>
-        <p>Coming soon.</p>
-      </div>
+      <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
+        <Activity state={state} />
+      </Suspense>
     );
   }
 

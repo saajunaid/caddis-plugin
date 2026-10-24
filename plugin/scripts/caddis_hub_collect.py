@@ -71,6 +71,8 @@ def _guide_json() -> dict:
 _REPO_COLLECTORS = {"roadmaps": _roadmaps_json, "plans": _plans_json, "relays": _relays_json}
 
 
+RUNNER_DIR = "caddis-runner"  # the runner folder in the git common dir; a test keeps it equal to caddis_roadmap.RUNNER_DIR
+
 _REPARSE_POINT = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT: a junction or a symlink on Windows
 
 
@@ -145,6 +147,11 @@ def _origin_ref_files(common: Path) -> list[Path]:
     return files + _files(common / "refs" / "remotes" / "origin", recurse=True)
 
 
+def _runner_files(common: Path) -> list[Path]:
+    """The roadmap runner's lock and last-stop files (R45): a runner start or stop must refresh the data."""
+    return _files(common / RUNNER_DIR, recurse=True)
+
+
 def fingerprint(repo: Path) -> str:
     """sha256 over the sorted (name, mtime_ns, size) of every input file and origin ref file. Empty list: still a hash.
 
@@ -154,6 +161,7 @@ def fingerprint(repo: Path) -> str:
     common = git_common_dir(repo)
     if common is not None:
         named.extend((f"git:{path.relative_to(common).as_posix()}", path) for path in _origin_ref_files(common))
+        named.extend((f"git:{path.relative_to(common).as_posix()}", path) for path in _runner_files(common))
     rows = []
     for name, path in named:
         try:

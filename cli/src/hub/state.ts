@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { readAudit, type AuditEntry } from './audit.js';
 import { addRepos, normalizeRepoPath, readConfig, readRegistry, repoKey } from './config.js';
 import { createAgentsSource, type AgentsSource, type SessionEntry } from './sources/agents.js';
 import { createCollectorSource, type CollectorSource, type Slot } from './sources/collector.js';
@@ -103,6 +104,8 @@ export interface HubState {
   guide: Slot | null;
   /** GitHub quota left per account (R40). Empty before the first GitHub call. */
   github_rate: Record<string, RateInfo>;
+  /** The last audit lines: owner actions and refusals (R51). */
+  audit: AuditEntry[];
 }
 export interface HubOptions {
   home?: string;
@@ -424,6 +427,7 @@ export function createHub(opts: HubOptions = {}): StateHub {
       spend: col.data?.spend ?? null,
       guide: col.data?.guide ?? null,
       github_rate: gh.data?.rate ?? {},
+      audit: readAudit(home),
     };
   };
   return {

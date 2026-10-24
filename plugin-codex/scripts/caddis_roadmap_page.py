@@ -163,8 +163,9 @@ def _artifact_dir(root: Path) -> Path:
 
 # ---- the model -------------------------------------------------------------------------------------------------
 
-def build(root: Path, slug: str, roadmap_mod, now: datetime.datetime | None = None) -> dict:
-    """status() plus per-phase Tracker cell, name, model, lane, risk and tile state; waiting sessions; the runner."""
+def build(root: Path, slug: str, roadmap_mod, now: datetime.datetime | None = None, sessions: bool = True) -> dict:
+    """status() plus per-phase Tracker cell, name, model, lane, risk and tile state; waiting sessions; the runner.
+    The hub passes `sessions=False`: it has live sessions of its own, so the marker folder is not read."""
     root = Path(root)
     now = now or datetime.datetime.now(datetime.timezone.utc)
     model = roadmap_mod.status(root, slug)
@@ -191,7 +192,7 @@ def build(root: Path, slug: str, roadmap_mod, now: datetime.datetime | None = No
     model["waiting"] = [{"milestone": ms["id"], "reason": b["reason"], "check": b["check"]}
                         for ms in model["milestones"] for b in ms["blockers"]
                         if b["type"] == "owner-gate" and ms["status"] not in roadmap_mod.FINISHED]
-    model["sessions"] = waiting_sessions(_artifact_dir(main_checkout(root)) / "session-state", now)
+    model["sessions"] = (waiting_sessions(_artifact_dir(main_checkout(root)) / "session-state", now) if sessions else [])
 
     lock_path = roadmap_mod.runner_lock_path(root, "roadmap", slug)
     lock, lock_err = _read_json(lock_path)

@@ -93,6 +93,7 @@ const fakeState = (): NonNullable<HubDeps['state']> => ({
     spend: null,
     guide: null,
     github_rate: {},
+    audit: [],
   }),
 });
 

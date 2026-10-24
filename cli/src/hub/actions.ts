@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { appendLine } from './append.js';
-import { hubHome } from './sources/coordinator.js';
+import { auditPath, hubHome } from './paths.js';
 import { safeRepoId, type HubState, type RepoState } from './state.js';
 
 export const ACTIONS = ['hotfix', 'unhotfix', 'hold', 'release', 'approve', 'decline'] as const;
@@ -116,7 +116,7 @@ export function createActions(opts: ActionsOptions): Actions {
   const now = opts.now ?? Date.now;
   const randomId = opts.randomId ?? randomUUID;
   const root = (): string => hubHome(opts.home);
-  const auditFile = (): string => path.join(root(), 'audit.jsonl');
+  const auditFile = (): string => auditPath(opts.home);
   let recent: number[] = [];
 
   const audit = async (entry: Record<string, unknown>): Promise<void> => {

@@ -38,8 +38,250 @@
       "path": "/srv/demo/shop",
       "name": "shop",
       "pinned": false,
-      "roadmaps": null,
-      "plans": null,
+      "roadmaps": {
+        "schema": 1,
+        "roadmaps": [
+          {
+            "roadmap": "launch",
+            "branch": "main",
+            "runner_host": null,
+            "done": 1,
+            "total": 3,
+            "next": {
+              "milestone": "S2",
+              "plan": "p-shop",
+              "phase": 3
+            },
+            "milestones": [
+              {
+                "id": "S1",
+                "status": "done",
+                "owner": "runner",
+                "target": "WD3",
+                "depends": [],
+                "phases": [
+                  {
+                    "ref": "p-shop#1",
+                    "state": "done",
+                    "plan": "p-shop",
+                    "num": 1,
+                    "name": "Catalog schema",
+                    "model": "Opus",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "done: #148 (ABC1234)",
+                    "tile": "done",
+                    "prs": [
+                      148
+                    ]
+                  },
+                  {
+                    "ref": "p-shop#2",
+                    "state": "done",
+                    "plan": "p-shop",
+                    "num": 2,
+                    "name": "Catalog import",
+                    "model": "Sonnet",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "done: #209",
+                    "tile": "done",
+                    "prs": [
+                      209
+                    ]
+                  }
+                ],
+                "blockers": []
+              },
+              {
+                "id": "S2",
+                "status": "in-progress",
+                "owner": "runner",
+                "target": "WD4",
+                "depends": [
+                  "S1"
+                ],
+                "phases": [
+                  {
+                    "ref": "p-shop#3",
+                    "state": "open",
+                    "plan": "p-shop",
+                    "num": 3,
+                    "name": "Search filters",
+                    "model": "Opus",
+                    "lane": "claude",
+                    "risk": "high - stop for review",
+                    "tracker": "in progress: #213",
+                    "tile": "in-progress",
+                    "prs": [
+                      213
+                    ]
+                  },
+                  {
+                    "ref": "p-shop#4",
+                    "state": "open",
+                    "plan": "p-shop",
+                    "num": 4,
+                    "name": "Cart totals",
+                    "model": "Sonnet",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "not started",
+                    "tile": "todo",
+                    "prs": []
+                  }
+                ],
+                "blockers": []
+              },
+              {
+                "id": "S3",
+                "status": "todo",
+                "owner": "owner",
+                "target": null,
+                "depends": [
+                  "S2"
+                ],
+                "phases": [
+                  {
+                    "ref": "p-shop#5",
+                    "state": "open",
+                    "plan": "p-shop",
+                    "num": 5,
+                    "name": "Checkout copy",
+                    "model": "Sonnet",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "not started",
+                    "tile": "todo",
+                    "prs": []
+                  }
+                ],
+                "blockers": [
+                  {
+                    "type": "owner-gate",
+                    "reason": "owner signs off the checkout copy",
+                    "check": ""
+                  }
+                ]
+              }
+            ],
+            "line": "1 of 3 done",
+            "lanes": [
+              "p-shop"
+            ],
+            "waiting": [
+              {
+                "milestone": "S3",
+                "reason": "owner signs off the checkout copy",
+                "check": ""
+              }
+            ],
+            "origin_commit": "ABC1234",
+            "runner": {
+              "lock": {
+                "batch": "B7",
+                "pid": 1,
+                "host": "demo-host",
+                "started_utc": "2026-10-24T09:00:00Z"
+              },
+              "stale_lock": null,
+              "last_stop": {
+                "reason": "done",
+                "exit": 0,
+                "utc": "2026-10-23T18:00:00Z"
+              },
+              "errors": []
+            }
+          },
+          {
+            "roadmap": "hardening",
+            "branch": "main",
+            "runner_host": null,
+            "done": 0,
+            "total": 1,
+            "next": {
+              "milestone": "H1",
+              "plan": "p-hard",
+              "phase": 1
+            },
+            "milestones": [
+              {
+                "id": "H1",
+                "status": "todo",
+                "owner": "runner",
+                "target": null,
+                "depends": [],
+                "phases": [
+                  {
+                    "ref": "p-hard#1",
+                    "state": "open",
+                    "plan": "p-hard",
+                    "num": 1,
+                    "name": "Rate limits",
+                    "model": "Sonnet",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "not started",
+                    "tile": "todo",
+                    "prs": []
+                  }
+                ],
+                "blockers": []
+              }
+            ],
+            "line": "0 of 1 done",
+            "lanes": [
+              "p-hard"
+            ],
+            "waiting": [],
+            "origin_commit": "ABC1234",
+            "runner": {
+              "lock": null,
+              "stale_lock": null,
+              "last_stop": null,
+              "errors": []
+            }
+          },
+          {
+            "roadmap": "broken",
+            "error": "line 4: not a table"
+          }
+        ]
+      },
+      "plans": {
+        "schema": 1,
+        "plans": [
+          {
+            "path": ".caddis/plans/p-shop.md",
+            "title": "p-shop",
+            "status": "active",
+            "feature": null,
+            "tracker": [
+              {
+                "phase": "1",
+                "status": "done: #148"
+              },
+              {
+                "phase": "2",
+                "status": "done: #209"
+              },
+              {
+                "phase": "3",
+                "status": "in progress: #213"
+              },
+              {
+                "phase": "4",
+                "status": "not started"
+              },
+              {
+                "phase": "5",
+                "status": "not started"
+              }
+            ],
+            "open_rows": 3
+          }
+        ]
+      },
       "relays": {
         "schema": 1,
         "relays": [
@@ -235,8 +477,40 @@
             "at": "2026-10-24T10:32:00Z"
           }
         ],
-        "ledger": [],
-        "processed_requests": [],
+        "ledger": [
+          {
+            "what": "start phase 4",
+            "decision": "approve",
+            "approved_by": "coordinator",
+            "reason": "phase 3 done, its exit gate passed",
+            "window": null,
+            "request_id": null,
+            "at": "2026-10-24T10:15:00Z"
+          },
+          {
+            "what": "PR 209 merge",
+            "decision": "approve",
+            "approved_by": "owner",
+            "reason": "owner clicked approve",
+            "window": null,
+            "request_id": "req-a",
+            "at": "2026-10-24T10:20:00Z"
+          }
+        ],
+        "processed_requests": [
+          {
+            "id": "req-a",
+            "result": "done",
+            "reason": null,
+            "at": "2026-10-24T10:31:00Z"
+          },
+          {
+            "id": "req-b",
+            "result": "rejected",
+            "reason": "head moved",
+            "at": "2026-10-24T10:41:00Z"
+          }
+        ],
         "error": null,
         "update_needed": false,
         "status": "live",
@@ -255,8 +529,91 @@
       "path": "/srv/demo/billing",
       "name": "billing",
       "pinned": false,
-      "roadmaps": null,
-      "plans": null,
+      "roadmaps": {
+        "schema": 1,
+        "roadmaps": [
+          {
+            "roadmap": "ledger",
+            "branch": "main",
+            "runner_host": null,
+            "done": 1,
+            "total": 2,
+            "next": {
+              "milestone": "L2",
+              "plan": "p-bill",
+              "phase": 2
+            },
+            "milestones": [
+              {
+                "id": "L1",
+                "status": "done",
+                "owner": "runner",
+                "target": null,
+                "depends": [],
+                "phases": [
+                  {
+                    "ref": "p-bill#1",
+                    "state": "done",
+                    "plan": "p-bill",
+                    "num": 1,
+                    "name": "Tax rounding",
+                    "model": "Sonnet",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "done: #75",
+                    "tile": "done",
+                    "prs": [
+                      75
+                    ]
+                  }
+                ],
+                "blockers": []
+              },
+              {
+                "id": "L2",
+                "status": "todo",
+                "owner": "runner",
+                "target": null,
+                "depends": [
+                  "L1"
+                ],
+                "phases": [
+                  {
+                    "ref": "p-bill#2",
+                    "state": "open",
+                    "plan": "p-bill",
+                    "num": 2,
+                    "name": "Invoice export",
+                    "model": "Sonnet",
+                    "lane": "claude",
+                    "risk": "",
+                    "tracker": "not started",
+                    "tile": "todo",
+                    "prs": []
+                  }
+                ],
+                "blockers": []
+              }
+            ],
+            "line": "1 of 2 done",
+            "lanes": [
+              "p-bill"
+            ],
+            "waiting": [],
+            "origin_commit": "ABC1234",
+            "runner": {
+              "lock": null,
+              "stale_lock": null,
+              "last_stop": null,
+              "errors": []
+            }
+          }
+        ]
+      },
+      "plans": {
+        "schema": 1,
+        "plans": []
+      },
       "relays": {
         "schema": 1,
         "relays": [
@@ -360,8 +717,36 @@
       "path": "/srv/demo/docs",
       "name": "docs",
       "pinned": false,
-      "roadmaps": null,
-      "plans": null,
+      "roadmaps": {
+        "schema": 1,
+        "roadmaps": []
+      },
+      "plans": {
+        "schema": 1,
+        "plans": [
+          {
+            "path": ".caddis/plans/p-docs.md",
+            "title": "p-docs",
+            "status": "active",
+            "feature": null,
+            "tracker": [
+              {
+                "phase": "1",
+                "status": "done"
+              },
+              {
+                "phase": "2",
+                "status": "not started"
+              },
+              {
+                "phase": "3",
+                "status": "not started"
+              }
+            ],
+            "open_rows": 2
+          }
+        ]
+      },
       "relays": null,
       "github": {
         "path": "/srv/demo/docs",
@@ -491,5 +876,37 @@
     "committed_eur": 34
   },
   "guide": null,
-  "github_rate": {}
+  "github_rate": {},
+  "audit": [
+    {
+      "at": "2026-10-24T10:30:00Z",
+      "request_id": "req-a",
+      "repo": "acme__shop",
+      "pr": 214,
+      "action": "hold",
+      "what": null,
+      "result": "requested",
+      "reason": null
+    },
+    {
+      "at": "2026-10-24T10:40:00Z",
+      "request_id": null,
+      "repo": "acme__shop",
+      "pr": 212,
+      "action": "hotfix",
+      "what": null,
+      "result": "refused",
+      "reason": "head_moved"
+    },
+    {
+      "at": "2026-10-24T09:10:00Z",
+      "request_id": "req-c",
+      "repo": "acme__billing",
+      "pr": null,
+      "action": "approve",
+      "what": "spend over 50 EUR",
+      "result": "requested",
+      "reason": null
+    }
+  ]
 }

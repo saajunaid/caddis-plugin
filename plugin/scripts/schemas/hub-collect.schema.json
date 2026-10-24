@@ -164,6 +164,36 @@
                                             },
                                             "state": {
                                               "type": "string"
+                                            },
+                                            "plan": {
+                                              "type": "string"
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "model": {
+                                              "type": "string"
+                                            },
+                                            "lane": {
+                                              "type": "string"
+                                            },
+                                            "risk": {
+                                              "type": "string"
+                                            },
+                                            "tracker": {
+                                              "type": "string"
+                                            },
+                                            "tile": {
+                                              "type": "string"
+                                            },
+                                            "num": {
+                                              "type": "integer"
+                                            },
+                                            "prs": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "integer"
+                                              }
                                             }
                                           }
                                         }
@@ -197,6 +227,67 @@
                                   }
                                 },
                                 "line": {
+                                  "type": "string"
+                                },
+                                "origin_commit": {
+                                  "type": "string"
+                                },
+                                "lanes": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "waiting": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "milestone": {
+                                        "type": "string"
+                                      },
+                                      "reason": {
+                                        "type": "string"
+                                      },
+                                      "check": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                },
+                                "runner": {
+                                  "type": "object",
+                                  "properties": {
+                                    "lock": {
+                                      "type": [
+                                        "object",
+                                        "null"
+                                      ]
+                                    },
+                                    "stale_lock": {
+                                      "type": [
+                                        "object",
+                                        "null"
+                                      ]
+                                    },
+                                    "last_stop": {
+                                      "type": [
+                                        "object",
+                                        "null"
+                                      ]
+                                    },
+                                    "errors": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                },
+                                "detail_error": {
                                   "type": "string"
                                 }
                               }

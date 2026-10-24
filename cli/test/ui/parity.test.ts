@@ -1,0 +1,110 @@
+import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import RoadmapTab from '../../ui/src/repo/RoadmapTab';
+import { Sessions } from '../../ui/src/repo/SessionsTab';
+import type { HubState, RepoState } from '../../ui/src/types';
+
+/**
+ * The H4 parity gate: the old roadmap page features against the hub (plan section "Phase H4", table P1-P28; P24 is checked in inbox.test.ts).
+ * Each row with an element is rendered from the `full` fixture and its test id must be in the markup. A row that loses
+ * its element fails here. Ruled-out rows (P4, P25-P28) have no element, by decision.
+ */
+const load = (name: string): HubState =>
+  JSON.parse(readFileSync(new URL(`../fixtures/hub-state/${name}.json`, import.meta.url), 'utf8')) as HubState;
+const repoOf = (s: HubState, name: string): RepoState => s.repos.find((r) => r.name === name)!;
+const render = (s: HubState, repo: RepoState, slug: string | null): string =>
+  renderToStaticMarkup(createElement(RoadmapTab, { state: s, repo, slug }));
+
+/** Row of the checklist -> the test ids its element carries. */
+const DETAIL_ROWS: Record<string, string[]> = {
+  P1: ['rm-header'],
+  P2: ['rm-chips'],
+  P3: ['rm-waiting'],
+  P5: ['rm-kpis'],
+  P6: ['rm-flow'],
+  P7: ['rm-board'],
+  P8: ['rm-timeline'],
+  P9: ['rm-legend'],
+  P10: ['rm-timeline-list'],
+  P11: ['rm-gates'],
+  P12: ['rm-milestones'],
+  P13: ['rm-runner'],
+  P16: ['rm-search', 'rm-match-count'],
+  P19: ['rm-crumbs'],
+  P23: ['rm-pr', 'rm-stage'],
+};
+const RULED_OUT = { P4: 'sessions come from claude agents', P25: 'D8', P26: 'D8', P27: 'D8', P28: 'H6 and L20' };
+
+describe('parity checklist against the old roadmap page', () => {
+  const s = load('full');
+  const html = render(s, repoOf(s, 'shop'), 'launch');
+  for (const [row, ids] of Object.entries(DETAIL_ROWS)) {
+    it(`${row}: ${ids.join(', ')} is on the Roadmap detail`, () => {
+      for (const id of ids) expect(html, `${row} lost data-testid="${id}"`).toContain(`data-testid="${id}"`);
+    });
+  }
+
+  it('P14, P17, P18: the list has cards and the read errors, and a stale source adds its note', () => {
+    const list = render(s, repoOf(s, 'shop'), null);
+    for (const id of ['rm-list', 'rm-card', 'rm-errors']) expect(list).toContain(`data-testid="${id}"`);
+    expect(list).toContain('Could not read broken: line 4: not a table');
+    expect(list).not.toContain('data-testid="rm-stale"');
+    const old = load('full');
+    old.sources.collector = { ok: true, last_ok_at: '2026-10-24T10:00:00Z', last_error: null, stale: true };
+    const stale = render(old, repoOf(old, 'shop'), null);
+    expect(stale).toContain('data-testid="rm-stale"');
+    expect(stale).toContain('class="rm stale"');
+  });
+
+  it('P14: the runner read errors show in the detail', () => {
+    const e = load('full');
+    (repoOf(e, 'shop').roadmaps as { roadmaps: { runner: { errors: string[] } }[] }).roadmaps[0]!.runner.errors = ['runner.lock: not JSON'];
+    expect(render(e, repoOf(e, 'shop'), 'launch')).toContain('Could not read runner.lock: not JSON.');
+  });
+
+  it('P15: text from the files is escaped, a script name shows as text', () => {
+    const e = load('full');
+    const rm = (repoOf(e, 'shop').roadmaps as { roadmaps: { milestones: { phases: { name: string }[] }[] }[] }).roadmaps[0]!;
+    rm.milestones[0]!.phases[0]!.name = '<script>alert(1)</script>';
+    const out = render(e, repoOf(e, 'shop'), 'launch');
+    expect(out).not.toContain('<script>alert(1)</script>');
+    expect(out).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('P17: one roadmap opens directly, with no list and no Back link', () => {
+    const out = render(s, repoOf(s, 'billing'), null);
+    expect(out).toContain('data-testid="rm-detail"');
+    expect(out).not.toContain('data-testid="rm-list"');
+    expect(out).not.toContain('href="#/repo/acme__billing/roadmap"');
+  });
+
+  it('with several roadmaps the crumbs link back to the list', () => {
+    expect(html).toContain('href="#/repo/acme__shop/roadmap"');
+  });
+
+  it('empty states: a plan fallback, and no roadmap or plan with the command', () => {
+    expect(render(s, repoOf(s, 'docs'), null)).toContain('data-testid="rm-plans"');
+    const e = load('full');
+    const docs = repoOf(e, 'docs');
+    docs.roadmaps = null;
+    docs.plans = null;
+    const none = render(e, docs, null);
+    expect(none).toContain('No roadmap or plan');
+    expect(none).toContain('/caddis:roadmap');
+  });
+
+  it('P20: the Sessions tab shows the table, the copy button and the empty text', () => {
+    const out = renderToStaticMarkup(createElement(Sessions, { state: s, repo: repoOf(s, 'shop'), nowMs: Date.parse('2026-10-24T10:50:30Z') }));
+    expect(out).toContain('data-testid="sessions-table"');
+    expect(out).toContain('Copy name');
+    const e = load('full');
+    e.sessions = [];
+    expect(renderToStaticMarkup(createElement(Sessions, { state: e, repo: repoOf(e, 'shop'), nowMs: 0 }))).toContain('No sessions running');
+  });
+
+  it('every ruled-out row has a reason', () => {
+    for (const [row, why] of Object.entries(RULED_OUT)) expect(why.length, row).toBeGreaterThan(0);
+  });
+});

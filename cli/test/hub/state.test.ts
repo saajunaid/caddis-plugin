@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addRepos, normalizeRepoPath, readRegistry, resetHubCache, writeJsonAtomic } from '../../src/hub/config.js';
-import { configPath } from '../../src/hub/paths.js';
+import { auditPath, configPath } from '../../src/hub/paths.js';
 import { createHub, localRepoId, repoIdFor, type HubOptions } from '../../src/hub/state.js';
 import { createCollectorSource, type CollectorSource, type CollectorState } from '../../src/hub/sources/collector.js';
 import type { AgentsSource, AgentsState, SessionEntry } from '../../src/hub/sources/agents.js';
@@ -166,7 +166,7 @@ describe('getState', () => {
     await h.refreshAll();
     const s = h.getState();
     expect(Object.keys(s).sort()).toEqual(
-      ['generated_at', 'github_rate', 'guide', 'repos', 'schema', 'sessions', 'sources', 'spend', 'update_needed', 'versions'].sort(),
+      ['audit', 'generated_at', 'github_rate', 'guide', 'repos', 'schema', 'sessions', 'sources', 'spend', 'update_needed', 'versions'].sort(),
     );
     expect(s.schema).toBe(1);
     expect(s.generated_at).toBe('2026-10-24T10:00:00.000Z');
@@ -404,6 +404,15 @@ describe('H3 state: owner items, actions, quota (R36, R37, R40)', () => {
     updated_at: '2026-10-24T09:00:00Z',
     recommendation: { decision: 'approve', reason: 'Additive change.', evidence: 'tests green' },
   };
+
+  it('audit carries the audit tail (R51)', async () => {
+    mkdirSync(path.dirname(auditPath(home)), { recursive: true });
+    writeFileSync(auditPath(home), `${JSON.stringify({ v: 1, at: '2026-10-24T09:00:00Z', repo: 'acme__shop', pr: 7, action: 'hold', result: 'requested' })}
+`);
+    const h = hub();
+    await h.refreshAll();
+    expect(h.getState().audit).toMatchObject([{ repo: 'acme__shop', pr: 7, action: 'hold', result: 'requested' }]);
+  });
 
   it('github_rate comes from the GitHub source', async () => {
     const a = repo('shop', 'https://github.com/acme/shop.git');

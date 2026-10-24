@@ -3,7 +3,7 @@ import { apiHeaders, captureTab, getTab, TAB_KEY } from '../../ui/src/api';
 import { bannersFor } from '../../ui/src/shell/bannerRules';
 import { ageText, anySourceDown, dataAgeText, quotaLow, spendView, titleFor } from '../../ui/src/shell/format';
 import { repoTone } from '../../ui/src/shell/Nav';
-import { parseRoute } from '../../ui/src/shell/route';
+import { parseRoute, repoTabHref } from '../../ui/src/shell/route';
 import { loadTheme, resolveTheme, saveTheme, THEME_KEY } from '../../ui/src/shell/theme';
 import type { HubState } from '../../ui/src/types';
 
@@ -75,9 +75,21 @@ describe('routes', () => {
   it('parses hash routes', () => {
     expect(parseRoute('')).toEqual({ page: 'inbox' });
     expect(parseRoute('#/overview')).toEqual({ page: 'overview' });
-    expect(parseRoute('#/repo/acme__shop')).toEqual({ page: 'repo', id: 'acme__shop' });
+    expect(parseRoute('#/repo/acme__shop')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'flow', roadmap: null });
+    expect(parseRoute('#/repo/acme__shop/roadmap')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'roadmap', roadmap: null });
+    expect(parseRoute('#/repo/acme__shop/roadmap/launch')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'roadmap', roadmap: 'launch' });
+    expect(parseRoute('#/repo/acme__shop/sessions')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'sessions', roadmap: null });
+    expect(parseRoute('#/repo/acme__shop/nope')).toMatchObject({ tab: 'flow' });
     expect(parseRoute('#/repo/')).toEqual({ page: 'inbox' });
     expect(parseRoute('#/nope')).toEqual({ page: 'inbox' });
+  });
+
+  it('round-trips repo tab links (R47)', () => {
+    for (const [tab, slug] of [['flow', null], ['roadmap', null], ['roadmap', 'launch'], ['sessions', null]] as const) {
+      const r = parseRoute(repoTabHref('acme__shop', tab, slug));
+      expect(r).toEqual({ page: 'repo', id: 'acme__shop', tab, roadmap: slug });
+    }
+    expect(parseRoute(repoTabHref('/srv/x y', 'roadmap', 'a b'))).toMatchObject({ id: '/srv/x y', roadmap: 'a b' });
   });
 });
 

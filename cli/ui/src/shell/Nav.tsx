@@ -2,7 +2,7 @@ import { Activity, BookOpen, Inbox as InboxIcon, LayoutDashboard, Menu, X } from
 import type { ReactNode } from 'react';
 import type { HubState, RepoState } from '../types';
 import { Logo } from './Logo';
-import { repoHref, type Route } from './route';
+import { repoHref, repoId, type Route } from './route';
 
 export type RepoTone = 'ok' | 'attention' | 'blocked' | 'idle';
 
@@ -16,7 +16,7 @@ export function repoTone(repo: RepoState, state: HubState): RepoTone {
   return quiet ? 'idle' : 'ok';
 }
 
-export const repoId = (r: RepoState): string => r.repo_id ?? r.path;
+export { repoId };
 
 interface Props {
   route: Route;
@@ -104,7 +104,7 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
           </ul>
           <div className="nav-section-label">More</div>
           <ul className="nav-list">
-            <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" badge={<span className="soon">soon</span>} onGo={close} />
+            <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" onGo={close} />
             <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" onGo={close} />
           </ul>
         </nav>

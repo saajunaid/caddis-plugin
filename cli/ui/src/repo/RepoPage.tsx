@@ -1,15 +1,20 @@
-import { useState } from 'react';
+import { lazy, Suspense } from 'react';
 import { ActionButtons } from '../actions/ActionButtons';
 import { ownerDisabledReason, ownerSpecs, queueSpecs, requestText, requestTone } from '../actions/model';
 import { RecommendationBlock } from '../actions/Recommendation';
 import type { ActApi } from '../actions/useActions';
 import { repoLabel } from '../inbox/derive';
 import { ageText } from '../shell/format';
+import { repoId, repoTabHref, type RepoTab } from '../shell/route';
 import type { HubState, RepoState } from '../types';
 import { deriveFlow, type FlowItem } from './flow';
+import { roadmapTabLabel } from './roadmap';
+import { Sessions } from './SessionsTab';
 
-type Tab = 'flow' | 'roadmap' | 'sessions';
-const TABS: { id: Tab; label: string }[] = [
+// The Roadmap tab is its own chunk (R54): the initial bundle does not grow.
+const RoadmapTab = lazy(() => import('./RoadmapTab'));
+
+const TABS: { id: RepoTab; label: string }[] = [
   { id: 'flow', label: 'Flow' },
   { id: 'roadmap', label: 'Roadmap' },
   { id: 'sessions', label: 'Sessions' },
@@ -164,36 +169,46 @@ function Flow({ state, repo, nowMs, act }: { state: HubState; repo: RepoState; n
   );
 }
 
-export function RepoPage({ state, repo, nowMs, act }: { state: HubState; repo: RepoState; nowMs: number; act: ActApi }): JSX.Element {
-  const [tab, setTab] = useState<Tab>('flow');
+interface PageProps {
+  state: HubState;
+  repo: RepoState;
+  nowMs: number;
+  act: ActApi;
+  /** The tab and the roadmap come from the route (R47). */
+  tab: RepoTab;
+  roadmap: string | null;
+}
+
+export function RepoPage({ state, repo, nowMs, act, tab, roadmap }: PageProps): JSX.Element {
+  const id = repoId(repo);
   return (
     <>
       <div className="page-header">
         <h1 className="page-title">{repoLabel(repo)}</h1>
         <span className="page-subtitle">{repo.name}</span>
       </div>
-      <div className="repo-tabs" role="tablist" aria-label="Repo views">
+      <nav className="repo-tabs" role="tablist" aria-label="Repo views">
         {TABS.map((t) => (
-          <button
+          <a
             key={t.id}
-            type="button"
             role="tab"
             aria-selected={tab === t.id}
+            aria-current={tab === t.id ? 'page' : undefined}
             className={`folder-btn${tab === t.id ? ' sel' : ''}`}
-            onClick={() => setTab(t.id)}
+            href={repoTabHref(id, t.id)}
             data-testid={`tab-${t.id}`}
           >
-            {t.label}
-          </button>
+            {t.id === 'roadmap' ? roadmapTabLabel(repo) : t.label}
+          </a>
         ))}
-      </div>
-      {tab === 'flow' ? (
-        <Flow state={state} repo={repo} nowMs={nowMs} act={act} />
-      ) : (
-        <div className="notice">
-          <p>The {tab === 'roadmap' ? 'Roadmap' : 'Sessions'} tab arrives in H4.</p>
-        </div>
+      </nav>
+      {tab === 'flow' && <Flow state={state} repo={repo} nowMs={nowMs} act={act} />}
+      {tab === 'roadmap' && (
+        <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
+          <RoadmapTab key={roadmap ?? ''} state={state} repo={repo} slug={roadmap} />
+        </Suspense>
       )}
+      {tab === 'sessions' && <Sessions state={state} repo={repo} nowMs={nowMs} />}
     </>
   );
 }

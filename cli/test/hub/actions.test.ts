@@ -89,6 +89,7 @@ function hubState(c: CoordinatorEntry | null = coordinator()): HubState {
     spend: null,
     guide: null,
     github_rate: {},
+    audit: [],
   };
 }
 

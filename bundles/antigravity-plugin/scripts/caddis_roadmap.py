@@ -2204,13 +2204,39 @@ def list_roadmaps_checked(root: Path) -> tuple[list[str], set[str] | None]:
     return sorted(slugs), folders
 
 
+_PR_REF_RE = re.compile(r"#(\d+)")
+
+
+def _roadmap_detail(root: Path, slug: str) -> dict:
+    """status() plus the hub's detail (R45): per phase name, model, lane, risk, Tracker cell, tile and the PR numbers
+    the cell names; per roadmap lanes, open owner gates, the runner and the origin commit. The page module owns
+    this logic. Its machine-local session marks and its clock text are left out."""
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import caddis_roadmap_page
+    model = caddis_roadmap_page.build(Path(root), slug, _THIS_MODULE, sessions=False)
+    model.pop("sessions", None)
+    model.pop("generated", None)
+    for ms in model["milestones"]:
+        for ph in ms["phases"]:
+            ph["prs"] = sorted({int(n) for n in _PR_REF_RE.findall(str(ph.get("tracker", "")))})
+    return model
+
+
 def roadmaps_json(root: Path) -> dict:
-    """The hub's roadmap list: status() of each slug, in `list` order. A roadmap whose status() raises gives
-    {"roadmap": slug, "error": "<one line>"} and the rest still list. Never prints, never exits."""
+    """The hub's roadmap list: status() of each slug plus the detail keys, in `list` order. If the detail fails, the
+    entry keeps the plain status() keys and gains `detail_error` (one line). A roadmap whose status() raises gives {"roadmap": slug, "error":
+    "<one line>"} and the rest still list. Never prints, never exits."""
     entries: list[dict] = []
     for slug in list_roadmaps(Path(root)):
         try:
-            entries.append(status(Path(root), slug))
+            try:
+                entries.append(_roadmap_detail(Path(root), slug))
+            except Exception as exc:  # the detail is optional: keep the plain status and say why it is missing
+                lines = str(exc).strip().splitlines()
+                entries.append({**status(Path(root), slug),
+                                "detail_error": lines[0] if lines else type(exc).__name__})
         except Exception as exc:  # one broken file must not hide the others
             lines = str(exc).strip().splitlines()
             entries.append({"roadmap": slug, "error": lines[0] if lines else type(exc).__name__})

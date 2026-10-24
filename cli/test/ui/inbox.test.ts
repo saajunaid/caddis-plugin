@@ -362,3 +362,39 @@ describe('a per-repo read failure freezes that repo’s items (review I1)', () =
     expect(history.resolved.map((r) => r.item.id)).toContain(`merge:${docs}:88`);
   });
 });
+
+describe('roadmap owner gates in the Inbox (P24)', () => {
+  const withDone = (): HubState => {
+    const s = clone(load('full'));
+    const rm = (s.repos.find((r) => r.name === 'shop')!.roadmaps as { roadmaps: { milestones: { status: string; blockers?: unknown[] }[] }[] }).roadmaps[0]!;
+    rm.milestones[1]!.status = 'done'; // S3 now has every dependency done
+    return s;
+  };
+  const gateItems = (s: HubState) => deriveInbox(s, at(s)).items.filter((i) => i.id.startsWith('rmgate:'));
+
+  it('a gate behind an open dependency is not an item', () => {
+    expect(gateItems(load('full'))).toEqual([]);
+  });
+
+  it('a gate whose dependencies are done is an Owner gate item with repo, roadmap, gate id and next step', () => {
+    const [g] = gateItems(withDone());
+    expect(g).toMatchObject({
+      kind: 'owner-gate',
+      folder: 'approvals',
+      repo: 'acme/shop',
+      title: 'Roadmap launch, gate S3: owner signs off the checkout copy',
+    });
+    expect(g!.next).toContain('/caddis:roadmap');
+    expect(g!.id).toBe('rmgate:/srv/demo/shop:launch:S3:0');
+  });
+
+  it('the id is stable across polls and the item resolves when the roadmap no longer names the gate', () => {
+    const s = withDone();
+    expect(gateItems(s).map((i) => i.id)).toEqual(gateItems(clone(s)).map((i) => i.id));
+    const prev = reconcile(emptyHistory(), deriveInbox(s, at(s)).items, at(s));
+    const rm = (s.repos.find((r) => r.name === 'shop')!.roadmaps as { roadmaps: { milestones: { blockers: unknown[] }[] }[] }).roadmaps[0]!;
+    rm.milestones[2]!.blockers = []; // the gate is recorded
+    const next = reconcile(prev, deriveInbox(s, at(s)).items, at(s));
+    expect(next.resolved.map((r) => r.item.id)).toContain('rmgate:/srv/demo/shop:launch:S3:0');
+  });
+});
