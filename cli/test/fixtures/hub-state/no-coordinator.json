@@ -83,7 +83,12 @@
         ]
       },
       "coordinator": null,
-      "repo_id": "acme__docs"
+      "repo_id": "acme__docs",
+      "actions": {
+        "enabled": false,
+        "code": "no_coordinator",
+        "reason": "No coordinator: each session merges its own PRs. Start one with /caddis:coordinate."
+      }
     }
   ],
   "sessions": [
@@ -107,5 +112,6 @@
     "cap_eur": 200,
     "committed_eur": 34
   },
-  "guide": null
+  "guide": null,
+  "github_rate": {}
 }

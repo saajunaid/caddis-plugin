@@ -238,9 +238,18 @@
         "ledger": [],
         "processed_requests": [],
         "error": null,
-        "update_needed": false
+        "update_needed": false,
+        "status": "live",
+        "stopped_at": null,
+        "owner_asks": [],
+        "requests": []
       },
-      "repo_id": "acme__shop"
+      "repo_id": "acme__shop",
+      "actions": {
+        "enabled": true,
+        "code": "ok",
+        "reason": null
+      }
     },
     {
       "path": "/srv/demo/billing",
@@ -334,9 +343,18 @@
         "ledger": [],
         "processed_requests": [],
         "error": null,
-        "update_needed": false
+        "update_needed": false,
+        "status": "down",
+        "stopped_at": null,
+        "owner_asks": [],
+        "requests": []
       },
-      "repo_id": "acme__billing"
+      "repo_id": "acme__billing",
+      "actions": {
+        "enabled": false,
+        "code": "no_coordinator",
+        "reason": "The coordinator is not responding. Actions wait until it is back."
+      }
     },
     {
       "path": "/srv/demo/docs",
@@ -387,7 +405,12 @@
         ]
       },
       "coordinator": null,
-      "repo_id": "acme__docs"
+      "repo_id": "acme__docs",
+      "actions": {
+        "enabled": false,
+        "code": "no_coordinator",
+        "reason": "No coordinator: each session merges its own PRs. Start one with /caddis:coordinate."
+      }
     }
   ],
   "sessions": [
@@ -467,5 +490,6 @@
     "cap_eur": 200,
     "committed_eur": 34
   },
-  "guide": null
+  "guide": null,
+  "github_rate": {}
 }

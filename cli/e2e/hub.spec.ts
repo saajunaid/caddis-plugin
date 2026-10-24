@@ -84,7 +84,7 @@ test.describe('empty and degraded states (design section 6)', () => {
     const first = page.getByTestId('first-run');
     await expect(first).toContainText('Start a Claude Code session in a repo');
     await expect(page.getByTestId('add-folder')).toBeDisabled();
-    await expect(first).toContainText('Actions arrive in H3');
+    await expect(first).toContainText('Start a session in the folder: the hub adds it.');
     // The same page shows the empty inbox with the last check time.
     await expect(page.getByTestId('inbox-empty')).toContainText('Nothing needs you');
     await expect(page.getByTestId('inbox-empty')).toContainText('Last check');

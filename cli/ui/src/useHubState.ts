@@ -58,5 +58,6 @@ export function useHubState(): HubStateResult {
     };
   }, [load]);
 
-  return { state, error, loading, refresh: () => void load() };
+  const refresh = useCallback(() => void load(), [load]);
+  return { state, error, loading, refresh };
 }

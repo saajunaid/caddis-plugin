@@ -157,7 +157,7 @@ describe('ids and tiles', () => {
 
 describe('resolved history', () => {
   const item = (id: string): InboxItem => ({
-    id, kind: 'waiting', folder: 'needs', repo: 'acme/shop', title: id, why: '', next: '', cmd: '', since: null, action: null,
+    id, kind: 'waiting', folder: 'needs', repo: 'acme/shop', title: id, why: '', next: '', cmd: '', since: null,
   });
   const T0 = Date.parse('2026-10-24T10:00:00Z');
 

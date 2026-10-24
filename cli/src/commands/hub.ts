@@ -29,6 +29,7 @@ import {
 } from '../hub/lock.js';
 import { hubDir, keyPath } from '../hub/paths.js';
 import { createRestarter, readInstalledVersion, type RestartDeps } from '../hub/restart.js';
+import { createActions } from '../hub/actions.js';
 import { KEY_HEADER, startServer } from '../hub/server.js';
 import { createHub, type StateHub } from '../hub/state.js';
 import { run } from '../util/exec.js';
@@ -355,6 +356,7 @@ export async function startHub(deps: HubDeps = {}): Promise<RunningHub> {
       port,
       key,
       getState: () => state.getState(),
+      actions: createActions({ home, getState: () => state.getState(), now }),
       versions: deps.versions ?? defaultVersions(),
       now,
       instance: info.instance,

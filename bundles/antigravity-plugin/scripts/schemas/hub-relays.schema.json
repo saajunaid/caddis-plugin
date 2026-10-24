@@ -71,6 +71,42 @@
               "string",
               "null"
             ]
+          },
+          "recommendation": {
+            "description": "the asking session's recommendation (D16), or null",
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "decision",
+                  "reason",
+                  "evidence"
+                ],
+                "properties": {
+                  "decision": {
+                    "enum": [
+                      "approve",
+                      "hold"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "evidence": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            ]
           }
         }
       }

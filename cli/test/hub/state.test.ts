@@ -109,11 +109,15 @@ const coord = (repoId: string, over: Partial<CoordinatorEntry> = {}): Coordinato
   heartbeat_at: null,
   heartbeat_age_s: null,
   responding: false,
+  status: 'down',
+  stopped_at: null,
   queue: [],
   merging_now: null,
   deploy_checks: [],
   ledger: [],
   processed_requests: [],
+  owner_asks: [],
+  requests: [],
   error: null,
   update_needed: false,
   ...over,
@@ -162,7 +166,7 @@ describe('getState', () => {
     await h.refreshAll();
     const s = h.getState();
     expect(Object.keys(s).sort()).toEqual(
-      ['generated_at', 'guide', 'repos', 'schema', 'sessions', 'sources', 'spend', 'update_needed', 'versions'].sort(),
+      ['generated_at', 'github_rate', 'guide', 'repos', 'schema', 'sessions', 'sources', 'spend', 'update_needed', 'versions'].sort(),
     );
     expect(s.schema).toBe(1);
     expect(s.generated_at).toBe('2026-10-24T10:00:00.000Z');
@@ -373,5 +377,90 @@ describe('timers', () => {
     h.stop();
     h.stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('H3 state: owner items, actions, quota (R36, R37, R40)', () => {
+  const ghWith = (a: string) =>
+    fakeGithub(60_000, {
+      repos: [{ path: a, repo: 'acme/shop', account: 'acme', prs: [], merges: [] }],
+      rate: { acme: { remaining: 4321, reset_at: '2026-10-24T11:00:00Z' } },
+    });
+  const relays = (a: string, rows: unknown[]) =>
+    fakeCollector({
+      data: {
+        schema: 1,
+        generated_at: iso(t),
+        repos: [{ path: a, fingerprint: 'f', relays: { schema: 1, relays: rows } }],
+        spend: {},
+        guide: {},
+      },
+    });
+  const gate = {
+    name: 'shop-schema',
+    status: 'OWNER-GATE',
+    status_arg: 'P2-OG1',
+    session_id: 's1',
+    updated_at: '2026-10-24T09:00:00Z',
+    recommendation: { decision: 'approve', reason: 'Additive change.', evidence: 'tests green' },
+  };
+
+  it('github_rate comes from the GitHub source', async () => {
+    const a = repo('shop', 'https://github.com/acme/shop.git');
+    addRepos([a], home);
+    const h = hub({ github: ghWith(a) });
+    await h.refreshAll();
+    expect(h.getState().github_rate).toEqual({ acme: { remaining: 4321, reset_at: '2026-10-24T11:00:00Z' } });
+  });
+
+  it('joins coordinator asks and relay gates; a decided gate drops out; from names the session', async () => {
+    const a = repo('shop', 'https://github.com/acme/shop.git');
+    addRepos([a], home);
+    const ask = {
+      id: 'ask-1',
+      what: 'overnight agy run',
+      pr: null,
+      head_sha: null,
+      recommendation: 'hold',
+      reason: 'Over the cap.',
+      evidence: 'estimate EUR 80',
+      from: 'demo-coordinator',
+      at: '2026-10-24T09:30:00Z',
+    };
+    const c = coord('acme__shop', { responding: true, status: 'live', owner_asks: [ask] });
+    const h = hub({
+      github: ghWith(a),
+      collector: relays(a, [gate, { ...gate, name: 'other', status_arg: 'P3-OG1', session_id: null }]),
+      agents: fakeAgents([{ ...session(a), name: 'demo-session-api' }]),
+      coordinator: fakeCoordinator([c]),
+    });
+    await h.refreshAll();
+    const items = h.getState().repos[0]!.owner_items;
+    expect(items.map((i) => [i.id, i.what, i.source, i.from])).toEqual([
+      ['ask:ask-1', 'overnight agy run', 'coordinator', 'demo-coordinator'],
+      ['gate:shop-schema:P2-OG1', 'owner gate P2-OG1 (shop-schema)', 'relay', 'demo-session-api'],
+      ['gate:other:P3-OG1', 'owner gate P3-OG1 (other)', 'relay', 'other'],
+    ]);
+    expect(items[1]!.recommendation).toEqual({ decision: 'approve', reason: 'Additive change.', evidence: 'tests green' });
+
+    c.ledger = [{ what: 'owner gate P2-OG1 (shop-schema)', decision: 'approve' }];
+    expect(h.getState().repos[0]!.owner_items.map((i) => i.id)).toEqual(['ask:ask-1', 'gate:other:P3-OG1']);
+  });
+
+  it('actions are on only with a live coordinator, with the reason otherwise', async () => {
+    const a = repo('shop', 'https://github.com/acme/shop.git');
+    addRepos([a], home);
+    const c = coord('acme__shop', { responding: true, status: 'live' });
+    const h = hub({ github: ghWith(a), coordinator: fakeCoordinator([c]) });
+    await h.refreshAll();
+    expect(h.getState().repos[0]!.actions).toEqual({ enabled: true, code: 'ok', reason: null });
+    c.status = 'stopped';
+    expect(h.getState().repos[0]!.actions.reason).toContain('stopped');
+    c.status = 'down';
+    expect(h.getState().repos[0]!.actions.reason).toContain('not responding');
+    const none = hub({ github: ghWith(a) });
+    await none.refreshAll();
+    expect(none.getState().repos[0]!.actions).toMatchObject({ enabled: false, code: 'no_coordinator' });
+    expect(none.getState().repos[0]!.actions.reason).toContain('No coordinator');
   });
 });

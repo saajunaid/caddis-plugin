@@ -13,7 +13,7 @@ import { addRepos, normalizeRepoPath, readConfig, readRegistry, repoKey } from '
 import { createAgentsSource, type AgentsSource, type SessionEntry } from './sources/agents.js';
 import { createCollectorSource, type CollectorSource, type Slot } from './sources/collector.js';
 import { createCoordinatorSource, type CoordinatorEntry, type CoordinatorSource } from './sources/coordinator.js';
-import { createGithubSource, type GithubRepoSlot, type GithubSource } from './sources/github.js';
+import { createGithubSource, type GithubRepoSlot, type GithubSource, type RateInfo } from './sources/github.js';
 import { withTimeout } from './bounded.js';
 import { bundleManifest, packageInfo } from '../util/pkg.js';
 import { caddisHome } from '../util/sessions.js';
@@ -48,6 +48,34 @@ export interface Versions {
   pool: string | null;
   plugin: string | null;
 }
+/** A recommendation shown with an owner-only item (D16). It is never the approval. */
+export interface Recommendation {
+  decision: 'approve' | 'hold';
+  reason: string | null;
+  evidence: string | null;
+}
+/** An open owner-only item (R37): a coordinator ask, or a relay owner gate. */
+export interface OwnerItem {
+  /** Stable across polls. */
+  id: string;
+  /** The text an approve or decline request carries in `args.what`. */
+  what: string;
+  pr: number | null;
+  head_sha: string | null;
+  source: 'coordinator' | 'relay';
+  recommendation: Recommendation | null;
+  /** Who recommends: the coordinator session name, or the relay's session. */
+  from: string | null;
+  since: string | null;
+  /** The relay name, for a relay gate. */
+  relay?: string;
+}
+/** Whether the queue and approval buttons of a repo work, and why not (R33, R36). */
+export interface RepoActions {
+  enabled: boolean;
+  code: 'ok' | 'no_coordinator' | 'bad_repo_id';
+  reason: string | null;
+}
 export interface RepoState {
   path: string;
   name: string;
@@ -60,6 +88,8 @@ export interface RepoState {
   relays: Slot | null;
   github: GithubRepoSlot | null;
   coordinator: CoordinatorEntry | null;
+  owner_items: OwnerItem[];
+  actions: RepoActions;
 }
 export interface HubState {
   schema: number;
@@ -71,6 +101,8 @@ export interface HubState {
   sessions: SessionEntry[];
   spend: Slot | null;
   guide: Slot | null;
+  /** GitHub quota left per account (R40). Empty before the first GitHub call. */
+  github_rate: Record<string, RateInfo>;
 }
 export interface HubOptions {
   home?: string;
@@ -128,6 +160,106 @@ function defaultVersions(home: string): Versions {
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+export const NO_COORDINATOR_REASON = 'No coordinator: each session merges its own PRs. Start one with /caddis:coordinate.';
+export const STOPPED_REASON = 'The coordinator stopped. Start it again with /caddis:coordinate.';
+export const DOWN_REASON = 'The coordinator is not responding. Actions wait until it is back.';
+
+const RESERVED_NAMES = new Set([
+  'con', 'prn', 'aux', 'nul',
+  ...Array.from({ length: 9 }, (_, i) => `com${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `lpt${i + 1}`),
+]);
+
+/**
+ * A repo id names a folder under `<hub>/repos`. This is exactly `_repo_dir` of `caddis_coordinate.py`: refuse an
+ * empty id, `.`, any `..`, `/`, `\` or `:`, a trailing dot or space, and a Windows device name (with any extension).
+ */
+export function safeRepoId(id: string): boolean {
+  if (!id || id === '.' || id.includes('..') || /[/\\:]/.test(id) || /[. ]$/.test(id)) return false;
+  return !RESERVED_NAMES.has(id.split('.', 1)[0]!.toLowerCase());
+}
+export const BAD_REPO_ID_REASON = 'This repo id cannot name a hub folder, so the hub cannot send it actions.';
+
+/** R33, R36: actions need a live coordinator. The reason is the sentence the UI and the server refusal show. */
+export function repoActions(coordinator: CoordinatorEntry | null, repoId?: string): RepoActions {
+  if (repoId !== undefined && !safeRepoId(repoId)) return { enabled: false, code: 'bad_repo_id', reason: BAD_REPO_ID_REASON };
+  if (!coordinator) return { enabled: false, code: 'no_coordinator', reason: NO_COORDINATOR_REASON };
+  if (coordinator.update_needed) {
+    return { enabled: false, code: 'no_coordinator', reason: 'The coordinator file is newer than this hub. Update the hub.' };
+  }
+  if (coordinator.status === 'stopped') return { enabled: false, code: 'no_coordinator', reason: STOPPED_REASON };
+  if (coordinator.status !== 'live') return { enabled: false, code: 'no_coordinator', reason: DOWN_REASON };
+  return { enabled: true, code: 'ok', reason: null };
+}
+
+const recOf = (v: unknown): Record<string, unknown> =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+const textOf = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** The `what` of a relay owner gate (R37): `owner gate <P>-OG<n> (<relay>)`. */
+export const gateWhat = (gate: string, relay: string): string => `owner gate ${gate} (${relay})`;
+
+/**
+ * Open owner-only items of a repo (R37): the coordinator's asks, then relay OWNER-GATE lines. A relay gate whose
+ * `what` the ledger holds is decided and left out. The same `what` twice is shown once (the ask wins).
+ */
+export function ownerItems(
+  coordinator: CoordinatorEntry | null,
+  relays: Slot | null,
+  sessions: SessionEntry[],
+): OwnerItem[] {
+  const out: OwnerItem[] = [];
+  const whats = new Set<string>();
+  const from = textOf(recOf(coordinator?.coordinator_session).name);
+  for (const raw of coordinator?.owner_asks ?? []) {
+    const a = recOf(raw);
+    const id = textOf(a.id);
+    const what = textOf(a.what);
+    if (!id || !what || whats.has(what)) continue;
+    const decision = a.recommendation === 'approve' || a.recommendation === 'hold' ? a.recommendation : null;
+    whats.add(what);
+    out.push({
+      id: `ask:${id}`,
+      what,
+      pr: typeof a.pr === 'number' && Number.isInteger(a.pr) ? a.pr : null,
+      head_sha: textOf(a.head_sha),
+      source: 'coordinator',
+      recommendation: decision ? { decision, reason: textOf(a.reason), evidence: textOf(a.evidence) } : null,
+      from: textOf(a.from) ?? from,
+      since: textOf(a.at),
+    });
+  }
+  const decided = new Set(
+    (coordinator?.ledger ?? []).map((e) => textOf(recOf(e).what)).filter((w): w is string => w !== null),
+  );
+  const list = Array.isArray(relays?.relays) ? (relays.relays as unknown[]) : [];
+  for (const raw of list) {
+    const r = recOf(raw);
+    const name = textOf(r.name);
+    const gate = textOf(r.status_arg);
+    if (r.status !== 'OWNER-GATE' || !name || !gate) continue;
+    const what = gateWhat(gate, name);
+    if (whats.has(what) || decided.has(what)) continue;
+    whats.add(what);
+    const rec = recOf(r.recommendation);
+    const decision = rec.decision === 'approve' || rec.decision === 'hold' ? rec.decision : null;
+    const sid = textOf(r.session_id);
+    const session = sid ? sessions.find((s) => s.session_id === sid) : undefined;
+    out.push({
+      id: `gate:${name}:${gate}`,
+      what,
+      pr: null,
+      head_sha: null,
+      source: 'relay',
+      recommendation: decision ? { decision, reason: textOf(rec.reason), evidence: textOf(rec.evidence) } : null,
+      from: session?.name ?? name,
+      since: textOf(r.updated_at),
+      relay: name,
+    });
+  }
+  return out;
+}
 
 export function createHub(opts: HubOptions = {}): StateHub {
   const home = opts.home ?? caddisHome();
@@ -256,15 +388,19 @@ export function createHub(opts: HubOptions = {}): StateHub {
       const c = colByPath.get(k);
       const g = ghByPath.get(k) ?? null;
       const repoId = g?.repo ? repoIdFor(g.repo) : g?.reason === 'no github remote' ? localRepoId(p) : undefined;
+      const coordinator = repoId ? (coordById.get(repoId) ?? null) : null;
+      const relays = c?.relays ?? null;
       const out: RepoState = {
         path: p,
         name: path.basename(p),
         pinned: pinned.has(k),
         roadmaps: c?.roadmaps ?? null,
         plans: c?.plans ?? null,
-        relays: c?.relays ?? null,
+        relays,
         github: g,
-        coordinator: repoId ? (coordById.get(repoId) ?? null) : null,
+        coordinator,
+        owner_items: ownerItems(coordinator, relays, ag.data ?? []),
+        actions: repoActions(coordinator, repoId),
       };
       if (repoId) out.repo_id = repoId;
       if (c?.error !== undefined) out.error = c.error;
@@ -287,6 +423,7 @@ export function createHub(opts: HubOptions = {}): StateHub {
       sessions: ag.data ?? [],
       spend: col.data?.spend ?? null,
       guide: col.data?.guide ?? null,
+      github_rate: gh.data?.rate ?? {},
     };
   };
   return {

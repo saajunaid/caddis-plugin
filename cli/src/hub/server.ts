@@ -4,6 +4,8 @@ import { readFile, stat } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Actions } from './actions.js';
+import { MAX_ACTION_BODY_BYTES } from './actions.js';
 import { AuthStore, hostAllowed, originAllowed, parseCookies, safeEqual } from './auth.js';
 
 export const SESSION_COOKIE = 'caddis_hub_session';
@@ -87,6 +89,8 @@ export interface ServerOptions {
   uiDir?: string;
   /** Called once after `POST /api/hub/stop` has sent its reply (`caddis hub stop`). */
   onStop?: () => void;
+  /** The owner actions (R32). Not set: `POST /api/actions` answers 404. */
+  actions?: Actions;
 }
 
 export interface HubServer {
@@ -109,11 +113,11 @@ function send(res: http.ServerResponse, status: number, body: unknown, extra: ht
 
 const fail = (res: http.ServerResponse, status: number, error: string): void => send(res, status, { schema: 1, error });
 
-/** Read the body up to MAX_BODY_BYTES. Throws BodyTooLarge past the limit. */
-function readBody(req: http.IncomingMessage): Promise<Buffer> {
+/** Read the body up to `limit` bytes (default MAX_BODY_BYTES). Throws BodyTooLarge past the limit. */
+function readBody(req: http.IncomingMessage, limit = MAX_BODY_BYTES): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const declared = Number(req.headers['content-length'] ?? 0);
-    if (declared > MAX_BODY_BYTES) {
+    if (declared > limit) {
       reject(new BodyTooLarge());
       return;
     }
@@ -123,7 +127,7 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
     req.on('data', (c: Buffer) => {
       if (done) return;
       size += c.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         done = true;
         reject(new BodyTooLarge());
         return;
@@ -278,13 +282,34 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       if (!session) return fail(res, 401, 'unauthorized');
       const token = req.headers[CSRF_HEADER];
       if (typeof token !== 'string' || !safeEqual(token, session.csrf)) return fail(res, 403, 'bad_csrf');
+      if (path === '/api/actions' && method === 'POST' && opts.actions) {
+        // R32: an action also needs the per-tab token, so a cookie replayed from another localhost port cannot act.
+        if (!tabSessionOf(req)) return fail(res, 401, 'unauthorized');
+        const type = String(req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+        if (type !== 'application/json') return fail(res, 415, 'json_only');
+        let raw: Buffer;
+        try {
+          raw = await readBody(req, MAX_ACTION_BODY_BYTES);
+        } catch (e) {
+          if (e instanceof BodyTooLarge) return tooLarge(req, res);
+          throw e;
+        }
+        let body: unknown;
+        try {
+          body = JSON.parse(raw.toString('utf8'));
+        } catch {
+          return fail(res, 400, 'bad_json');
+        }
+        const reply = await opts.actions.submit(body);
+        return send(res, reply.status, reply.body);
+      }
       try {
         await readBody(req);
       } catch (e) {
         if (e instanceof BodyTooLarge) return tooLarge(req, res);
         throw e;
       }
-      // R20: logout is the only POST route in H1. Actions arrive in H3.
+      // R20 (H1): logout. R32 (H3): /api/actions, above.
       if (path === '/api/logout' && method === 'POST') {
         auth.deleteSession(session.id);
         return send(res, 200, { schema: 1, ok: true }, {

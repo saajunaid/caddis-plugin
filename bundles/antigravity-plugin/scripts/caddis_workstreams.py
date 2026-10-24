@@ -229,6 +229,29 @@ def _next_step(text: str) -> str:
     return _single_line(match.group(1), 120) or "next step unrecorded"
 
 
+_RECOMMENDATION = re.compile(r"^\s*(?:[-*]\s*)?recommendation:\s*(approve|hold)\b", re.IGNORECASE)
+_REC_DETAIL = re.compile(r"^\s*(?:[-*]\s*)?(reason|evidence):\s*(.+)$", re.IGNORECASE)
+
+
+def _recommendation(text: str) -> dict | None:
+    """The asking session's recommendation for an owner gate (hub spec D16): a `recommendation: approve|hold` line,
+    then the first `reason:` and `evidence:` lines after it. None when the relay has no recommendation line."""
+    lines = split_document(text)[1].splitlines()
+    for index, line in enumerate(lines):
+        match = _RECOMMENDATION.match(line)
+        if not match:
+            continue
+        found = {"decision": match.group(1).lower(), "reason": None, "evidence": None}
+        for rest in lines[index + 1:]:
+            if _RECOMMENDATION.match(rest):
+                break
+            detail = _REC_DETAIL.match(rest)
+            if detail and found[detail.group(1).lower()] is None:
+                found[detail.group(1).lower()] = _single_line(detail.group(2), 300)
+        return found
+    return None
+
+
 def _age(when: datetime, now: datetime) -> str:
     seconds = max(0, int((now - when).total_seconds()))
     if seconds < 3600:
@@ -294,6 +317,7 @@ def relays_json(root: Path, now: datetime | None = None) -> dict:
             "status": status,
             "status_arg": status_arg,
             "next_step": None if step == "next step unrecorded" else step,
+            "recommendation": _recommendation(content),
         })
     return {"schema": JSON_SCHEMA, "relays": sorted(rows, key=lambda r: r["name"])}
 

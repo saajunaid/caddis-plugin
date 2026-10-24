@@ -64,9 +64,18 @@
         "ledger": [],
         "processed_requests": [],
         "error": null,
-        "update_needed": false
+        "update_needed": false,
+        "status": "live",
+        "stopped_at": null,
+        "owner_asks": [],
+        "requests": []
       },
-      "repo_id": "acme__shop"
+      "repo_id": "acme__shop",
+      "actions": {
+        "enabled": true,
+        "code": "ok",
+        "reason": null
+      }
     }
   ],
   "sessions": [],
@@ -75,5 +84,6 @@
     "cap_eur": 200,
     "committed_eur": 34
   },
-  "guide": null
+  "guide": null,
+  "github_rate": {}
 }

@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useActions } from './actions/useActions';
 import { Inbox } from './inbox/Inbox';
 import { useInbox } from './inbox/useInbox';
 import { Overview } from './overview/Overview';
+import { RepoPage } from './repo/RepoPage';
 import { Banners } from './shell/Banners';
 import { Footer } from './shell/Footer';
 import { Nav, repoId } from './shell/Nav';
@@ -57,7 +59,8 @@ function useTheme(): [ThemeChoice, (t: ThemeChoice) => void] {
 }
 
 export function App(): JSX.Element {
-  const { state, error, loading } = useHubState();
+  const { state, error, loading, refresh } = useHubState();
+  const act = useActions(refresh);
   const nowMs = useNow(5_000);
   const route = useRoute();
   const [theme, setTheme] = useTheme();
@@ -83,15 +86,17 @@ export function App(): JSX.Element {
   } else if (!state) {
     body = <p className="page-subtitle">{loading ? 'Loading...' : 'The hub did not answer. Retrying.'}</p>;
   } else if (route.page === 'inbox') {
-    body = <Inbox state={state} nowMs={nowMs} api={api} />;
+    body = <Inbox state={state} nowMs={nowMs} api={api} act={act} />;
   } else if (route.page === 'overview') {
-    body = <Overview state={state} nowMs={nowMs} api={api} />;
+    body = <Overview state={state} nowMs={nowMs} api={api} act={act} />;
   } else if (route.page === 'repo') {
     const repo = state.repos.find((r) => repoId(r) === route.id);
-    body = (
+    body = repo ? (
+      <RepoPage key={route.id} state={state} repo={repo} nowMs={nowMs} act={act} />
+    ) : (
       <div className="notice">
-        <h1 className="page-title">{repo?.name ?? route.id}</h1>
-        <p>Repo page arrives in H4.</p>
+        <h1 className="page-title">{route.id}</h1>
+        <p>This repo is not in the hub registry.</p>
       </div>
     );
   } else if (route.page === 'guide') {

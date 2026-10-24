@@ -54,10 +54,9 @@ describe('coordinator source', () => {
     expect(e.queue).toHaveLength(1);
     expect(e.deploy_checks).toHaveLength(5);
     expect((e.deploy_checks[0] as { pr: number }).pr).toBe(4);
-    expect(e.ledger).toHaveLength(20);
-    expect((e.ledger[0] as { what: string }).what).toBe('w5');
-    expect(e.processed_requests).toHaveLength(20);
-    expect((e.processed_requests[0] as { id: string }).id).toBe('r5');
+    // H3: kept up to 100, so owner items and request views can join on them (R37, R38).
+    expect(e.ledger).toHaveLength(25);
+    expect(e.processed_requests).toHaveLength(25);
   });
 
   it('marks an old heartbeat as not responding (180 s is the limit)', () => {
@@ -151,5 +150,88 @@ describe('coordinator source', () => {
       else process.env.CADDIS_HUB_HOME = old;
       rmSync(hub, { recursive: true, force: true });
     }
+  });
+});
+
+describe('coordinator status and request views (H3: R36, R38)', () => {
+  const SHA = 'A'.repeat(40);
+  const reqLine = (id: string, created: string, over: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      v: 1,
+      id,
+      created_at: created,
+      expires_at: '2026-10-24T10:30:00Z',
+      repo: 'acme__shop',
+      pr: 7,
+      head_sha: SHA,
+      action: 'hold',
+      args: {},
+      ...over,
+    });
+  const putRequests = (text: string): void =>
+    writeFileSync(path.join(hubDir(home), 'repos', 'acme__shop', 'requests.jsonl'), text);
+
+  it('a stop marker at or after the heartbeat is stopped, not down; a later heartbeat is live', () => {
+    put('acme__shop', state({ heartbeat_at: '2026-10-24T09:50:00Z', stopped_at: '2026-10-24T09:50:00Z' }));
+    const src = make();
+    src.refresh();
+    expect(src.get()[0]).toMatchObject({ status: 'stopped', responding: false, stopped_at: '2026-10-24T09:50:00Z' });
+    put('acme__shop', state({ heartbeat_at: '2026-10-24T09:59:30Z', stopped_at: '2026-10-24T09:50:00Z' }));
+    src.refresh();
+    expect(src.get()[0]).toMatchObject({ status: 'live', responding: true });
+    put('acme__shop', state({ heartbeat_at: '2026-10-24T09:50:00Z' }));
+    src.refresh();
+    expect(src.get()[0]).toMatchObject({ status: 'down', responding: false, stopped_at: null });
+  });
+
+  it('joins each request with its result, and marks one with no result after 2 min as not picked up', () => {
+    put(
+      'acme__shop',
+      state({
+        processed_requests: [
+          { id: 'r-done', result: 'done', reason: '', at: '2026-10-24T09:59:10Z' },
+          { id: 'r-moved', result: 'rejected', reason: 'head moved', at: '2026-10-24T09:59:10Z' },
+          { id: 'r-old', result: 'expired', reason: 'expired', at: '2026-10-24T09:59:10Z' },
+        ],
+      }),
+    );
+    const lines = [
+      reqLine('r-done', '2026-10-24T09:59:00Z', { action: 'approve', pr: null, head_sha: null, args: { what: 'x' } }),
+      reqLine('r-moved', '2026-10-24T09:59:00Z'),
+      reqLine('r-old', '2026-10-24T09:20:00Z'),
+      'not json',
+      reqLine('r-new', '2026-10-24T09:59:30Z'),
+      reqLine('r-lost', '2026-10-24T09:57:30Z'),
+    ];
+    putRequests(lines.join('\n') + '\n' + reqLine('r-partial', '2026-10-24T09:59:59Z').slice(0, 30));
+    const src = make();
+    src.refresh();
+    const views = src.get()[0]!.requests;
+    expect(views.map((v) => [v.id, v.status, v.reason])).toEqual([
+      ['r-done', 'done', null],
+      ['r-moved', 'rejected', 'head moved'],
+      ['r-old', 'expired', 'expired'],
+      ['r-new', 'requested', null],
+      ['r-lost', 'not_picked_up', 'no coordinator intake for 2 min'],
+    ]);
+    expect(views[0]).toMatchObject({ action: 'approve', pr: null, what: 'x', at: '2026-10-24T09:59:10Z' });
+  });
+
+  it('reads only the tail of a large requests file and drops the cut first line', () => {
+    put('acme__shop', state());
+    const lines = Array.from({ length: 2000 }, (_, i) => reqLine(`r${i}`, '2026-10-24T09:59:30Z'));
+    putRequests(lines.join('\n') + '\n');
+    const src = make();
+    src.refresh();
+    const views = src.get()[0]!.requests;
+    expect(views).toHaveLength(30);
+    expect(views.at(-1)!.id).toBe('r1999');
+  });
+
+  it('keeps the open owner asks', () => {
+    put('acme__shop', state({ owner_asks: [{ id: 'ask-1', what: 'w', recommendation: 'hold' }, { what: 'no id' }] }));
+    const src = make();
+    src.refresh();
+    expect(src.get()[0]!.owner_asks).toEqual([{ id: 'ask-1', what: 'w', recommendation: 'hold' }]);
   });
 });

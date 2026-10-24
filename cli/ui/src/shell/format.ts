@@ -66,19 +66,22 @@ export interface QuotaView {
   resetAt: string | null;
 }
 
-/**
- * The lowest GitHub quota below the reserve, or null. The state carries no quota yet (H1 schema 1), so this
- * reads an optional `github_rate` map (account to `{remaining, reset_at}`) and shows nothing without it.
- */
-export function quotaLow(state: HubState | null): QuotaView | null {
+/** The lowest GitHub quota of any account, from `github_rate` (R40), or null before the first GitHub call. */
+export function quotaLowest(state: HubState | null): QuotaView | null {
   const rate = (state as { github_rate?: unknown } | null)?.github_rate;
   if (!rate || typeof rate !== 'object') return null;
   let worst: QuotaView | null = null;
   for (const [account, v] of Object.entries(rate as Record<string, unknown>)) {
     const o = v as { remaining?: unknown; reset_at?: unknown } | null;
-    const remaining = typeof o?.remaining === 'number' ? o.remaining : NaN;
-    if (!(remaining < QUOTA_LOW)) continue;
+    const remaining = typeof o?.remaining === 'number' && Number.isFinite(o.remaining) ? o.remaining : NaN;
+    if (Number.isNaN(remaining)) continue;
     if (!worst || remaining < worst.remaining) worst = { account, remaining, resetAt: typeof o?.reset_at === 'string' ? o.reset_at : null };
   }
   return worst;
+}
+
+/** The lowest GitHub quota when it is below the reserve (L10), or null. */
+export function quotaLow(state: HubState | null): QuotaView | null {
+  const q = quotaLowest(state);
+  return q && q.remaining < QUOTA_LOW ? q : null;
 }

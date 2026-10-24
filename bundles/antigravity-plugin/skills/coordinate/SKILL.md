@@ -334,6 +334,13 @@ Stalls (design 7.4): one nudge for a busy, silent session that holds a queue ite
    reason: <one or two sentences>
    evidence: <cost estimate | test or CI result | risk | how to undo>
    ```
+   Also record it, so the hub Inbox shows it with Approve and Decline (add `--pr <n> --head-sha <full sha>` when it
+   is about one PR; that PR must be in the queue):
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" ask add --repo <R> --what '<one line>' --recommendation approve --reason '<text>' --evidence '<text>' --json
+   ```
+   A hub click reaches intake and removes the ask. When the owner answers in this window instead, record the
+   answer and run `ask remove --repo <R> --id <ask id>`.
 3. A recommendation is never an approval. Only the owner's click in the hub or the owner's own words in
    this window approve. Record the owner's answer with `ledger record --by owner --window <N>`.
 4. Hotfix marks come only from the owner (design 2). You may recommend one.

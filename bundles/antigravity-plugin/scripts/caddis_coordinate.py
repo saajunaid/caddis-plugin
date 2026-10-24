@@ -386,12 +386,26 @@ def lock_holder(rid: str) -> dict | None:
             "started_at": holder.get("started_at"), "alive": _holder_alive(holder)}
 
 
-def release_lock(rid: str, pid: int) -> None:
-    """Remove the lock if `pid` holds it; do nothing otherwise."""
+def release_lock(rid: str, pid: int) -> bool:
+    """Remove the lock if `pid` holds it; do nothing otherwise. Returns True when it was released.
+
+    A release is a clean stop: `coordinator.json` then gets `stopped_at`, so the hub shows "stopped", not "not
+    responding" (hub ruling R36). The marker is best effort: the lock is already gone when it is written."""
+    released = False
     with locked_path(_lock_path(rid)) as path:
         holder = _read_holder(path)
         if holder is not None and holder["pid"] == pid:
             retry_denied(lambda: path.unlink(missing_ok=True))
+            released = True
+    if released and state_path(rid).exists():  # checked first: a release never creates a state file
+        try:
+            with locked_path(state_path(rid)) as path:
+                state = _read_state_strict(path)
+                state["stopped_at"] = _now()
+                _write_state_unlocked(path, state)
+        except (OSError, ValueError):  # unreadable state: the hub then shows "not responding", as before
+            pass
+    return released
 
 
 # --- queue operations (C1.3) --------------------------------------------------------------------------------------
@@ -791,6 +805,12 @@ def _apply(state: dict, req: dict, heads: dict[int, str | None], at: str) -> dic
         state.setdefault("ledger", []).append(_ledger_entry(what=what, decision=action, by="owner",
                                                             reason="owner click", window="hub",
                                                             request_id=req["id"], at=at))
+        # The owner decided: the open ask for the same PR and text is answered (hub ruling R37).
+        asks = state.get("owner_asks")
+        if isinstance(asks, list):
+            state["owner_asks"] = [a for a in asks if not (isinstance(a, dict) and a.get("pr") == pr
+                                                            and isinstance(a.get("what"), str)
+                                                            and a["what"].strip() == what)]
     return result("done", "")
 
 
@@ -835,13 +855,24 @@ def queue_merged(rid: str, pr: int, merge_sha: str) -> bool:
     return outcome[-1]
 
 
-def deploy_check_set(rid: str, pr: int, *, deploy_run: int | None = None, health: str | None = None) -> None:
+DEPLOY_MARKS = ("pass", "fail", "skip")
+
+
+def deploy_check_set(rid: str, pr: int, *, deploy_run: int | None = None, health: str | None = None,
+                     checks: dict | None = None, reason: str | None = None) -> None:
     """Set the deploy run and/or health of the newest deploy check for a PR; a health also sets `at` to now.
-    Raises ValueError for a health not in `DEPLOY_HEALTH`, a run that is not an integer, or a PR with no deploy check."""
+    `checks` ({D1..D5: pass|fail|skip}) and `reason` are the detail of a `deploy_verify` run (hub ruling R39).
+    Raises ValueError for a health not in `DEPLOY_HEALTH`, a run that is not an integer, bad checks, or a PR with no
+    deploy check."""
     if health is not None and health not in DEPLOY_HEALTH:
         raise ValueError(f"unknown deploy health: {health!r}")
     if deploy_run is not None and (isinstance(deploy_run, bool) or not isinstance(deploy_run, int)):
         raise ValueError(f"a deploy run is an integer: {deploy_run!r}")
+    if checks is not None and (not isinstance(checks, dict) or set(checks) - set(DEPLOY_CHECKS)
+                               or any(v not in DEPLOY_MARKS for v in checks.values())):
+        raise ValueError(f"deploy checks are D1..D5 mapped to pass, fail or skip: {checks!r}")
+    if reason is not None and not isinstance(reason, str):
+        raise ValueError("a deploy check reason is a string")
 
     def change(state: dict) -> None:
         check = next((c for c in reversed(state.get("deploy_checks") or [])
@@ -853,6 +884,10 @@ def deploy_check_set(rid: str, pr: int, *, deploy_run: int | None = None, health
         if health is not None:  # stamp `at`, so the newest entry by `at` is the newest health (freeze rule)
             check["health"] = health
             check["at"] = _now()
+        if checks is not None:
+            check["checks"] = {name: checks[name] for name in DEPLOY_CHECKS if name in checks}
+        if reason is not None:
+            check["reason"] = " ".join(reason.split())[:500]
     _mutate_state(rid, change)
 
 
@@ -882,6 +917,70 @@ def ledger_record(rid: str, *, what: str, decision: str, by: str, reason: str, w
     entry = _ledger_entry(what=what, decision=decision, by=by, reason=reason, window=window, request_id=request_id,
                           at=_now())
     _mutate_state(rid, lambda state: state.setdefault("ledger", []).append(entry))
+
+
+# --- owner asks: open owner-only items with the coordinator's recommendation (hub H3, ruling R37) ----------------
+
+ASK_RECOMMENDATIONS = ("approve", "hold")  # spec D16
+ASK_WHAT_MAX = 200
+ASK_TEXT_MAX = 600
+
+
+def _one_line(name: str, value: object, limit: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"ask {name} must be a non-empty string")
+    text = " ".join(value.split())
+    if len(text) > limit:
+        raise ValueError(f"ask {name} is longer than {limit} characters")
+    return text
+
+
+def ask_add(rid: str, *, what: str, recommendation: str, reason: str, evidence: str, pr: int | None = None,
+            head_sha: str | None = None) -> dict:
+    """Record an owner-only item with a recommendation (D15, D16). Returns the ask.
+
+    The owner answers it in the hub (an approve/decline request with the same `pr` and `what`), and intake then
+    removes it. An ask with the same `pr` and `what` as an open one replaces it, so a re-run never doubles an item.
+    `from` is the coordinator session name. A recommendation is never the approval. Raises ValueError."""
+    what = _one_line("what", what, ASK_WHAT_MAX)
+    if recommendation not in ASK_RECOMMENDATIONS:
+        raise ValueError(f"an ask recommendation is approve or hold: {recommendation!r}")
+    reason = _one_line("reason", reason, ASK_TEXT_MAX)
+    evidence = _one_line("evidence", evidence, ASK_TEXT_MAX)
+    if (pr is None) != (head_sha is None):
+        raise ValueError("an ask names a PR and its head SHA together, or neither")
+    if pr is not None and (isinstance(pr, bool) or not isinstance(pr, int) or pr <= 0):
+        raise ValueError(f"a PR is a positive integer: {pr!r}")
+    if head_sha is not None and (not isinstance(head_sha, str) or not _SHA.fullmatch(head_sha)):
+        raise ValueError(f"a head SHA is 40 hex characters: {head_sha!r}")
+    out: list[dict] = []
+
+    def change(state: dict) -> None:
+        session = state.get("coordinator_session") if isinstance(state.get("coordinator_session"), dict) else {}
+        name = session.get("name") if isinstance(session.get("name"), str) and session.get("name") else None
+        ask = {"id": "ask-" + os.urandom(4).hex(), "what": what, "pr": pr,
+               "head_sha": head_sha.lower() if head_sha else None, "recommendation": recommendation,
+               "reason": reason, "evidence": evidence, "from": name, "at": _now()}
+        asks = [a for a in state.get("owner_asks") or [] if isinstance(a, dict)]
+        state["owner_asks"] = [a for a in asks if not (a.get("pr") == pr and a.get("what") == what)] + [ask]
+        out.append(ask)
+    _mutate_state(rid, change)
+    return out[-1]
+
+
+def ask_remove(rid: str, ask_id: str) -> bool:
+    """Remove one open ask by id. Returns False when no ask has that id (nothing written)."""
+    found: list[bool] = []
+
+    def change(state: dict) -> bool:
+        asks = [a for a in state.get("owner_asks") or [] if isinstance(a, dict)]
+        kept = [a for a in asks if a.get("id") != ask_id]
+        found.append(len(kept) != len(asks))
+        if found[-1]:
+            state["owner_asks"] = kept
+        return found[-1]
+    _mutate_state(rid, change)
+    return found[-1]
 
 
 # --- command line (C1.5) ------------------------------------------------------------------------------------------
@@ -932,6 +1031,7 @@ def _claim_state(rid: str, session: dict) -> None:
         state["coordinator_session"] = {"name": session["name"], "sessionId": session["sessionId"],
                                         "pid": session["pid"]}
         state["heartbeat_at"] = _now()
+        state.pop("stopped_at", None)  # a new coordinator is live again (R36)
         _write_state_unlocked(path, state)
 
 
@@ -1514,7 +1614,7 @@ def deploy_verify(rid: str, cfg: dict, pr: int, merge_sha: str, *, docs_only: bo
     if health == "ok":
         reason = _checks_summary(checks, docs_only)
     run_id = found.get("id")
-    deploy_check_set(rid, pr, deploy_run=run_id, health=health)
+    deploy_check_set(rid, pr, deploy_run=run_id, health=health, checks=checks, reason=reason)
     return {"checks": checks, "run": run_id, "health": health, "reason": reason}
 
 
@@ -1647,6 +1747,17 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--config-path", required=True, help="the repo root, or its .caddis/coordinator.md")
     p.add_argument("--docs-only", action="store_true", help="a docs-only merge: D1, D2 and D5 only")
 
+    ask = sub.add_parser("ask").add_subparsers(dest="ask_command", required=True, parser_class=_Parser)
+    p = command("add", ask)
+    p.add_argument("--what", required=True, help="what the owner decides, one line")
+    p.add_argument("--recommendation", choices=ASK_RECOMMENDATIONS, required=True)
+    p.add_argument("--reason", required=True, help="one or two sentences")
+    p.add_argument("--evidence", required=True, help="cost estimate, test or CI result, risk, how to undo")
+    p.add_argument("--pr", type=int)
+    p.add_argument("--head-sha")
+    p = command("remove", ask)
+    p.add_argument("--id", required=True)
+
     ledger = sub.add_parser("ledger").add_subparsers(dest="ledger_command", required=True, parser_class=_Parser)
     p = command("record", ledger)
     p.add_argument("--what", required=True)
@@ -1710,8 +1821,8 @@ def _dispatch(args: argparse.Namespace) -> int:
                   f"pid {holder['pid']} ({holder['name']}, session {holder['sessionId']}, "
                   f"{'alive' if holder['alive'] else 'not alive'})")
             return EXIT_OK
-        release_lock(rid, args.pid)
-        _emit(args, {"released": True}, "released")
+        released = release_lock(rid, args.pid)
+        _emit(args, {"released": released}, "released" if released else "not the holder: nothing released")
         return EXIT_OK
     if args.command == "heartbeat":
         if not state_path(rid).exists():  # checked first so an unknown repo id leaves no folder or lock file behind
@@ -1746,6 +1857,16 @@ def _dispatch(args: argparse.Namespace) -> int:
         marks = " ".join(f"{name}={mark}" for name, mark in out["checks"].items())
         _emit(args, out, f"{out['health']}: {marks} ({out['reason']})")
         return EXIT_OK if out["health"] == "ok" else EXIT_ERROR
+    if args.command == "ask":
+        if args.ask_command == "add":
+            got = ask_add(rid, what=args.what, recommendation=args.recommendation, reason=args.reason,
+                          evidence=args.evidence, pr=args.pr, head_sha=args.head_sha)
+            _emit(args, got, got["id"])
+            return EXIT_OK
+        if not ask_remove(rid, args.id):
+            raise ValueError(f"no open ask with id {args.id!r}")
+        _emit(args, {"ok": True}, "ok")
+        return EXIT_OK
     if args.command == "deploy-check":
         deploy_check_set(rid, args.pr, deploy_run=args.run, health=args.health)
     elif args.command == "ledger":

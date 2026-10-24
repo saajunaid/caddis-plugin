@@ -1,3 +1,4 @@
+import type { ActionBody } from './actions/model';
 import type { HubState } from './types';
 
 export const TAB_KEY = 'caddis-hub-tab';
@@ -89,3 +90,58 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const getSession = (): Promise<SessionInfo> => getJson<SessionInfo>('/api/session');
 export const getState = (): Promise<HubState> => getJson<HubState>('/api/state');
+
+let csrfCache: string | null = null;
+
+/** The session's CSRF token, read once from `/api/session` and kept for this page. */
+async function csrfToken(): Promise<string> {
+  if (!csrfCache) csrfCache = (await getSession()).csrf_token;
+  return csrfCache;
+}
+
+export interface ActionAccepted {
+  ok: true;
+  request: { id: string; created_at: string };
+}
+export interface ActionRefused {
+  ok: false;
+  status: number;
+  error: string;
+  reason: string;
+}
+
+/**
+ * Send one owner action (R32). The browser adds Origin; the page adds the CSRF and tab headers. A 403 can mean the
+ * CSRF token is old (a hub restart): the page reads a new one and tries once more. Never throws.
+ */
+export async function postAction(body: ActionBody): Promise<ActionAccepted | ActionRefused> {
+  const tab = getTab();
+  if (!tab) return { ok: false, status: 401, error: 'unauthorized', reason: 'Signed out. Run caddis hub open.' };
+  const send = async (): Promise<Response> =>
+    fetch('/api/actions', {
+      method: 'POST',
+      headers: { ...apiHeaders(tab, await csrfToken()), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  try {
+    let res = await send();
+    if (res.status === 403) {
+      csrfCache = null;
+      res = await send();
+    }
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (res.status === 202 && data.request && typeof data.request === 'object') {
+      return { ok: true, request: data.request as ActionAccepted['request'] };
+    }
+    return {
+      ok: false,
+      status: res.status,
+      error: typeof data.error === 'string' ? data.error : 'failed',
+      reason: typeof data.reason === 'string' ? data.reason : `The hub answered ${res.status}.`,
+    };
+  } catch {
+    return { ok: false, status: 0, error: 'network', reason: 'The hub did not answer.' };
+  }
+}

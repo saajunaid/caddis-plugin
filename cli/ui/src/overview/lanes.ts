@@ -9,6 +9,8 @@ export interface Card {
   tone: Tone;
   /** True for the last known queue of a coordinator that stopped. */
   grey?: boolean;
+  /** A queue entry: the card gets the compact Hotfix and Hold buttons (R41). */
+  queue?: { pr: number; headSha: string; hotfix: boolean; held: boolean };
 }
 export interface Column {
   id: 'sessions' | 'blocked' | 'waiting' | 'merging' | 'done';
@@ -16,7 +18,7 @@ export interface Column {
   cards: Card[];
   emptyText: string;
 }
-export type LaneMode = 'coordinator' | 'none' | 'down';
+export type LaneMode = 'coordinator' | 'none' | 'down' | 'stopped';
 export interface Lane {
   id: string;
   name: string;
@@ -40,6 +42,7 @@ const clock = (iso: string | null): string => {
 };
 
 export const coordinatorDownText = (since: string | null): string => `Coordinator not responding since ${clock(since)}`;
+export const coordinatorStoppedText = (at: string | null): string => `Coordinator stopped at ${clock(at)}`;
 
 function ago(iso: string | null | undefined, now: number): string {
   const t = iso ? Date.parse(iso) : NaN;
@@ -65,12 +68,13 @@ const queueCard = (q: QueueEntry, grey: boolean): Card => {
     sub: grey ? 'last known queue' : bits.join(' · '),
     tone: q.hotfix || q.held ? 'warn' : 'muted',
     grey,
+    queue: { pr: q.pr, headSha: q.headSha, hotfix: q.hotfix, held: q.held },
   };
 };
 
 export function deriveLane(state: HubState, repo: RepoState, now: number): Lane {
   const coord = repo.coordinator;
-  const mode: LaneMode = !coord ? 'none' : coord.responding ? 'coordinator' : 'down';
+  const mode: LaneMode = !coord ? 'none' : coord.status === 'stopped' ? 'stopped' : coord.responding ? 'coordinator' : 'down';
   const label = repoLabel(repo);
 
   const sessions: Card[] = state.sessions
@@ -111,7 +115,7 @@ export function deriveLane(state: HubState, repo: RepoState, now: number): Lane 
         waiting.push(queueCard(q, false));
       }
     }
-  } else if (mode === 'down') {
+  } else if (mode === 'down' || mode === 'stopped') {
     // The frozen queue stays visible, greyed. The Blocked column keeps GitHub truth only.
     for (const q of queue) if (q.state !== 'blocked') waiting.push(queueCard(q, true));
   }
@@ -136,6 +140,9 @@ export function deriveLane(state: HubState, repo: RepoState, now: number): Lane 
   let note: string | null = null;
   if (mode === 'none') note = `${NO_COORDINATOR_TEXT} Start one with ${NO_COORDINATOR_HINT}.`;
   else if (mode === 'down') note = `${coordinatorDownText(coord?.heartbeat_at ?? null)}. The lane shows GitHub data; the last known queue is greyed.`;
+  else if (mode === 'stopped') {
+    note = `${coordinatorStoppedText(coord?.stopped_at ?? null)}. Each session merges its own PRs until one starts again (/caddis:coordinate). The last known queue is greyed.`;
+  }
 
   const agentsDown = state.sources?.agents ? !state.sources.agents.ok : false;
   const gh = repo.github?.error
@@ -144,6 +151,7 @@ export function deriveLane(state: HubState, repo: RepoState, now: number): Lane 
 
   let summary: string;
   if (mode === 'down') summary = coordinatorDownText(coord?.heartbeat_at ?? null);
+  else if (mode === 'stopped') summary = coordinatorStoppedText(coord?.stopped_at ?? null);
   else {
     const parts = [
       mode === 'none' ? 'No coordinator' : '',
@@ -158,7 +166,13 @@ export function deriveLane(state: HubState, repo: RepoState, now: number): Lane 
 
   const anyOwnerWait = state.sessions.some((s) => samePath(s.repo_path, repo.path) && s.waiting_class === 'owner');
   const tone: Lane['tone'] =
-    mode === 'down' || repo.error || repo.github?.error ? 'blocked' : anyOwnerWait ? 'attention' : mode === 'none' ? 'idle' : 'ok';
+    mode === 'down' || repo.error || repo.github?.error
+      ? 'blocked'
+      : anyOwnerWait
+        ? 'attention'
+        : mode === 'none' || mode === 'stopped'
+          ? 'idle'
+          : 'ok';
 
   return {
     id: repo.path,

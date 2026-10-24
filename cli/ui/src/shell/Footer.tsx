@@ -1,6 +1,6 @@
 import { Clock, Monitor, Moon, Sun } from 'lucide-react';
 import type { HubState } from '../types';
-import { dataAgeText, clockText, quotaLow, spendView } from './format';
+import { dataAgeText, clockText, quotaLow, quotaLowest, spendView } from './format';
 import { THEME_CHOICES, type ThemeChoice } from './theme';
 
 const ICON = { dark: Moon, light: Sun, system: Monitor } as const;
@@ -16,6 +16,7 @@ export function Footer({ state, nowMs, theme, onTheme }: Props): JSX.Element {
   const spend = spendView(state?.spend);
   const v = state?.versions;
   const quota = quotaLow(state);
+  const left = quotaLowest(state);
   return (
     <footer className="sidebar-footer">
       <div className="footer-meta">
@@ -41,6 +42,11 @@ export function Footer({ state, nowMs, theme, onTheme }: Props): JSX.Element {
             <div className={`meter-fill${spend.pct >= 80 ? ' hot' : ''}`} style={{ width: `${spend.pct}%` }} />
           </div>
         </div>
+        {left && !quota && (
+          <div className="quota-line mono" data-testid="quota">
+            GitHub quota {left.remaining} left ({left.account})
+          </div>
+        )}
         {quota && (
           <div className="quota-low" data-testid="quota-low" role="status">
             GitHub quota low: {quota.remaining} left ({quota.account})

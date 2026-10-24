@@ -1,8 +1,12 @@
 import { Archive, ArrowLeft, Bell, Check, Copy, ShieldCheck, ShieldOff } from 'lucide-react';
 import { useState } from 'react';
+import { ActionButtons } from '../actions/ActionButtons';
+import { RecommendationBlock } from '../actions/Recommendation';
+import { ownerDisabledReason, ownerSpecs, queueSpecs, type ActionSpec } from '../actions/model';
+import type { ActApi } from '../actions/useActions';
 import { ageText, anySourceDown } from '../shell/format';
-import type { HubState } from '../types';
-import { KIND_LABEL, type Folder, type InboxItem } from './derive';
+import type { HubState, RepoState } from '../types';
+import { KIND_LABEL, samePath, type Folder, type InboxItem } from './derive';
 import { FirstRun } from '../shell/FirstRun';
 import { Tiles } from './Tiles';
 import type { InboxApi } from './useInbox';
@@ -31,7 +35,15 @@ function copy(text: string): void {
   }
 }
 
-export function Inbox({ state, nowMs, api }: { state: HubState; nowMs: number; api: InboxApi }): JSX.Element {
+/** The v1 buttons of an Inbox item: Approve / Decline for an owner item, Hotfix / Hold for a queued PR. */
+function specsFor(repo: RepoState | undefined, item: InboxItem): ActionSpec[] {
+  if (!repo) return [];
+  if (item.owner) return ownerSpecs(repo, item.owner);
+  if (item.queue) return queueSpecs(repo, item.queue);
+  return [];
+}
+
+export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: number; api: InboxApi; act: ActApi }): JSX.Element {
   const [folder, setFolder] = useState<Folder>('needs');
   const [selId, setSelId] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
@@ -160,6 +172,7 @@ export function Inbox({ state, nowMs, api }: { state: HubState; nowMs: number; a
               <span className="detail-label">Why it matters</span>
               <span>{sel.resolved ? 'The source cleared. No action is needed.' : sel.item.why}</span>
             </div>
+            {!sel.resolved && sel.item.owner && <RecommendationBlock item={sel.item.owner} />}
             <div className="detail-block">
               <span className="detail-label">Next step</span>
               <span>{sel.resolved ? 'Nothing.' : sel.item.next}</span>
@@ -178,12 +191,14 @@ export function Inbox({ state, nowMs, api }: { state: HubState; nowMs: number; a
                 {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
                 {sel.item.kind === 'waiting' ? 'Copy session name' : 'Copy command'}
               </button>
-              {!sel.resolved && sel.item.action && (
-                <button type="button" className="btn" disabled title="Actions arrive in H3">
-                  {sel.item.action} (H3)
-                </button>
-              )}
             </div>
+            {!sel.resolved && (() => {
+              const repo = state.repos.find((r) => samePath(r.path, sel.item.repoPath));
+              const specs = specsFor(repo, sel.item);
+              if (!repo || specs.length === 0) return null;
+              const reason = sel.item.owner ? ownerDisabledReason(repo, sel.item.owner) : undefined;
+              return <ActionButtons repo={repo} specs={specs} act={act} reason={reason} />;
+            })()}
           </article>
         )}
       </div>

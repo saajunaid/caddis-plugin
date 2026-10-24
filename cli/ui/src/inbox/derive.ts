@@ -1,4 +1,4 @@
-import type { HubState, RepoState, SessionEntry, SourceName } from '../types';
+import type { HubState, OwnerItem, RepoState, SessionEntry, SourceName } from '../types';
 
 /**
  * Inbox items, derived in the browser from one state snapshot (R29). Pure: no clock except `now`.
@@ -20,8 +20,10 @@ export interface InboxItem {
   cmd: string;
   /** ISO time the item began, or null when the source has none. */
   since: string | null;
-  /** Label of the disabled H3 action button, or null. */
-  action: string | null;
+  /** An owner-only item: Approve and Decline, with its recommendation (R37). */
+  owner?: OwnerItem;
+  /** A coordinator queue entry: Hotfix and Hold (spec 7). */
+  queue?: { pr: number; headSha: string; hotfix: boolean; held: boolean };
   /** The state source this item comes from. A failing or stale source freezes its items. */
   source?: SourceName;
   /** The repo folder of a repo item. A per-repo read failure of its source freezes it too. */
@@ -93,11 +95,34 @@ export function relaysOf(repo: RepoState): Relay[] {
   return out;
 }
 
+/**
+ * The open owner-only items of a repo (R37). The server joins them into `owner_items`; a state with no such list
+ * (an older hub) falls back to the relay OWNER-GATE lines, with no recommendation.
+ */
+export function ownerItemsOf(repo: RepoState): OwnerItem[] {
+  if (Array.isArray(repo.owner_items)) return repo.owner_items;
+  return relaysOf(repo)
+    .filter((r) => r.status === 'OWNER-GATE' && r.statusArg)
+    .map((r) => ({
+      id: `gate:${r.name}:${r.statusArg}`,
+      what: `owner gate ${r.statusArg} (${r.name})`,
+      pr: null,
+      head_sha: null,
+      source: 'relay' as const,
+      recommendation: null,
+      from: r.name,
+      since: r.updatedAt,
+      relay: r.name,
+    }));
+}
+
 export interface QueueEntry {
   pr: number;
+  headSha: string;
   title: string;
   state: string;
   whyWaiting: string;
+  waitsOn: { repo: string; pr: number }[];
   hotfix: boolean;
   held: boolean;
   since: string | null;
@@ -109,11 +134,19 @@ export function queueOf(repo: RepoState): QueueEntry[] {
     const q = rec(raw);
     const pr = num(q.pr);
     if (pr === null) continue;
+    const waitsOn: QueueEntry['waitsOn'] = [];
+    for (const w of asArray(q.waits_on)) {
+      const o = rec(w);
+      const wpr = num(o.pr);
+      if (wpr !== null) waitsOn.push({ repo: str(o.repo) ?? '', pr: wpr });
+    }
     out.push({
       pr,
+      headSha: str(q.head_sha) ?? '',
       title: str(q.title) ?? '',
       state: str(q.state) ?? 'waiting',
       whyWaiting: str(q.why_waiting) ?? '',
+      waitsOn,
       hotfix: q.hotfix === true,
       held: q.held === true,
       since: str(q.entered_ready_at),
@@ -226,31 +259,38 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
       next: 'Open the session and answer.',
       cmd: name,
       since: s.waiting_since,
-      action: 'Open session',
       source: 'agents',
     });
   }
 
   for (const repo of state.repos) {
     const label = repoLabel(repo);
-    // 2 and 3. Relay STATUS lines.
-    for (const r of relaysOf(repo)) {
-      if (r.status === 'OWNER-GATE') {
-        add({
-          id: `gate:${repo.path}:${r.name}:${r.statusArg}`,
-          kind: 'owner-gate',
-          folder: 'approvals',
-          repo: label,
-          repoPath: repo.path,
-          title: `Gate ${r.statusArg || r.name}: owner approval needed`,
-          why: 'The plan stops at this owner gate. The next phase cannot start without you.',
-          next: r.nextStep ?? 'Read the relay, then record the decision.',
-          cmd: `.caddis/relay/${r.name}.md`,
-          since: r.updatedAt,
-          action: 'Approve',
-          source: 'collector',
-        });
-      } else if (r.status === 'BLOCKED' && r.statusArg.toLowerCase().startsWith('owner')) {
+    // 2. Owner-only items: coordinator asks and relay owner gates (R37).
+    const relayList = relaysOf(repo);
+    for (const o of ownerItemsOf(repo)) {
+      const relay = o.relay ? relayList.find((r) => r.name === o.relay) : undefined;
+      const gate = o.source === 'relay' ? /^owner gate (\S+) /.exec(o.what)?.[1] : undefined;
+      add({
+        id: `owner:${repo.path}:${o.id}`,
+        kind: 'owner-gate',
+        folder: 'approvals',
+        repo: label,
+        repoPath: repo.path,
+        title: gate ? `Gate ${gate}: owner approval needed` : `${o.pr !== null ? `PR #${o.pr}: ` : ''}${o.what}`,
+        why:
+          o.source === 'relay'
+            ? 'The plan stops at this owner gate. The next phase cannot start without you.'
+            : 'This is on the owner-only list. Only your click approves it.',
+        next: relay?.nextStep ?? (o.source === 'relay' ? 'Read the relay, then decide.' : 'Read the recommendation, then decide.'),
+        cmd: o.relay ? `.caddis/relay/${o.relay}.md` : o.what,
+        since: o.since,
+        owner: o,
+        source: o.source === 'relay' ? 'collector' : 'coordinator',
+      });
+    }
+    // 3. Blocked work: relay STATUS: BLOCKED owner.
+    for (const r of relayList) {
+      if (r.status === 'BLOCKED' && r.statusArg.toLowerCase().startsWith('owner')) {
         add({
           id: `blocked:${repo.path}:${r.name}`,
           kind: 'blocked',
@@ -262,7 +302,6 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
           next: r.nextStep ?? 'Read the relay and decide.',
           cmd: `.caddis/relay/${r.name}.md`,
           since: r.updatedAt,
-          action: 'Mark decided',
           source: 'collector',
         });
       }
@@ -283,13 +322,15 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
         next: 'Ask the PR session to fix it, or hold the PR.',
         cmd: prChecksCmd(repo, q.pr),
         since: q.since,
-        action: 'Hold',
+        queue: { pr: q.pr, headSha: q.headSha, hotfix: q.hotfix, held: q.held },
         source: 'coordinator',
       });
     }
+    const queued = new Map(queueOf(repo).map((q) => [q.pr, q]));
     for (const pr of repo.github?.prs ?? []) {
       if (pr.draft || pr.required_state !== 'fail') continue;
       const failed = pr.checks.filter((c) => c.required && c.conclusion === 'failure').map((c) => c.name);
+      const q = queued.get(pr.number);
       add({
         id: `merge:${repo.path}:${pr.number}`,
         kind: 'blocked-merge',
@@ -303,14 +344,14 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
         next: 'Fix the check in the PR session.',
         cmd: prChecksCmd(repo, pr.number),
         since: pr.updated_at,
-        action: 'Hold',
+        ...(q ? { queue: { pr: q.pr, headSha: q.headSha, hotfix: q.hotfix, held: q.held } } : {}),
         source: 'github',
       });
     }
 
-    // 5. Coordinator problem: it wrote a heartbeat once, but not within 3 minutes.
+    // 5. Coordinator problem: it wrote a heartbeat once, but not within 3 minutes. A clean stop is not one (R36).
     const c = repo.coordinator;
-    if (c && !c.responding && c.heartbeat_at) {
+    if (c && !c.responding && c.heartbeat_at && c.status !== 'stopped') {
       add({
         id: `coordinator:${repo.path}`,
         kind: 'coordinator',
@@ -322,7 +363,6 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
         next: 'Check the coordinator session, then restart it.',
         cmd: '/caddis:coordinate',
         since: c.heartbeat_at,
-        action: 'Restart coordinator',
         source: 'coordinator',
       });
     }
@@ -342,7 +382,6 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
       next: 'Read the error. The hub keeps the last good data.',
       cmd: 'caddis hub status',
       since: s.last_ok_at,
-      action: null,
     });
   }
 

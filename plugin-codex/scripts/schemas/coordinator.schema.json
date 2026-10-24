@@ -18,6 +18,7 @@
       }
     },
     "heartbeat_at": {"$ref": "#/$defs/utc"},
+    "stopped_at": {"$ref": "#/$defs/utc", "description": "optional; written by lock release (a clean stop), removed by lock acquire. At or after heartbeat_at: stopped, not down"},
     "queue": {
       "type": "array",
       "items": {
@@ -55,7 +56,14 @@
           "merge_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "description": "lower-cased"},
           "deploy_run": {"type": ["integer", "null"]},
           "health": {"enum": ["pending", "ok", "failed"]},
-          "at": {"$ref": "#/$defs/utc"}
+          "at": {"$ref": "#/$defs/utc"},
+          "checks": {
+            "type": "object",
+            "description": "optional; the D1-D5 marks of the last deploy_verify run",
+            "propertyNames": {"enum": ["D1", "D2", "D3", "D4", "D5"]},
+            "additionalProperties": {"enum": ["pass", "fail", "skip"]}
+          },
+          "reason": {"type": "string", "description": "optional; the failure reason or the pass summary"}
         }
       }
     },
@@ -71,6 +79,25 @@
           "reason": {"type": "string", "minLength": 1},
           "window": {"type": ["string", "null"], "description": "the session window the decision was made in; \"hub\" for an owner click"},
           "request_id": {"type": ["string", "null"], "description": "the owner request id; null when not from a request"},
+          "at": {"$ref": "#/$defs/utc"}
+        }
+      }
+    },
+    "owner_asks": {
+      "type": "array",
+      "description": "optional; open owner-only items with the coordinator's recommendation (D15, D16). Intake removes an ask when an approve or decline with the same pr and what is done",
+      "items": {
+        "type": "object",
+        "required": ["id", "what", "pr", "head_sha", "recommendation", "reason", "evidence", "from", "at"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "what": {"type": "string", "minLength": 1, "maxLength": 200},
+          "pr": {"type": ["integer", "null"], "minimum": 1},
+          "head_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+          "recommendation": {"enum": ["approve", "hold"]},
+          "reason": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1},
+          "from": {"type": ["string", "null"], "description": "the coordinator session name"},
           "at": {"$ref": "#/$defs/utc"}
         }
       }

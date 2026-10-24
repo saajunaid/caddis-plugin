@@ -1,5 +1,9 @@
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
+import { ActionButtons } from '../actions/ActionButtons';
+import { queueSpecs } from '../actions/model';
+import type { ActApi } from '../actions/useActions';
+import { samePath } from '../inbox/derive';
 import { browserStore, FOLDED_KEY, readJson, writeJson } from '../inbox/store';
 import { FirstRun } from '../shell/FirstRun';
 import { anySourceDown } from '../shell/format';
@@ -20,7 +24,7 @@ function loadFolded(): Record<string, boolean> {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, boolean>) : {};
 }
 
-export function Overview({ state, nowMs, api }: { state: HubState; nowMs: number; api: InboxApi }): JSX.Element {
+export function Overview({ state, nowMs, api, act }: { state: HubState; nowMs: number; api: InboxApi; act: ActApi }): JSX.Element {
   const [folded, setFolded] = useState<Record<string, boolean>>(() => loadFolded());
   const lanes = deriveLanes(state, nowMs);
   const toggle = (id: string): void => {
@@ -44,6 +48,7 @@ export function Overview({ state, nowMs, api }: { state: HubState; nowMs: number
       <div className={`lanes${anySourceDown(state) ? ' stale' : ''}`} data-testid="lanes">
         {lanes.map((lane) => {
           const open = !folded[lane.id];
+          const repo = state.repos.find((r) => samePath(r.path, lane.id));
           return (
             <section key={lane.id} className={`lane ${lane.mode}`} data-testid="lane" aria-label={lane.name}>
               <button type="button" className="lane-head" aria-expanded={open} onClick={() => toggle(lane.id)}>
@@ -83,9 +88,10 @@ export function Overview({ state, nowMs, api }: { state: HubState; nowMs: number
                           {c.title} · {c.cards.length}
                         </span>
                         {c.cards.map((k) => (
-                          <div key={k.key} className={`card${k.grey ? ' grey' : ''}`}>
+                          <div key={k.key} className={`card${k.grey ? ' grey' : ''}`} data-testid="lane-card">
                             <span className="card-title">{k.title}</span>
                             <span className={`card-sub tone-${k.tone}`}>{k.sub}</span>
+                            {repo && k.queue && <ActionButtons repo={repo} specs={queueSpecs(repo, k.queue)} act={act} compact />}
                           </div>
                         ))}
                         {c.cards.length === 0 && <span className="col-empty">{c.emptyText}</span>}
