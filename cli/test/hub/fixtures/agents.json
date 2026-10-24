@@ -1,0 +1,9 @@
+[
+  {"pid":3664,"cwd":"/work/shop","kind":"interactive","startedAt":1792707240761,"sessionId":"s-idle","name":"demo-session","status":"idle"},
+  {"pid":3700,"cwd":"/work/shop","kind":"interactive","startedAt":1792707250000,"sessionId":"s-wait","name":"demo-waiting","status":"waiting","waitingFor":"permission prompt"},
+  {"pid":3800,"cwd":"/work/shop","kind":"interactive","startedAt":1792707260000,"sessionId":"s-peer","name":"demo-peer","status":"waiting","waitingFor":"peer reply"},
+  {"pid":3900,"cwd":"/work/shop","kind":"interactive","startedAt":1792707270000,"sessionId":"s-dup","name":"demo-dup","status":"busy"},
+  {"pid":3901,"cwd":"/work/shop","kind":"interactive","startedAt":1792707271000,"sessionId":"s-dup","name":"demo-dup","status":"busy"},
+  {"id":"bg-1","sessionId":"s-bg","kind":"background","state":"working","cwd":"/work/shop","name":"demo-bg"},
+  {"id":"bg-2","sessionId":"s-bg-done","kind":"background","state":"done","cwd":"/work/shop","name":"demo-done"}
+]

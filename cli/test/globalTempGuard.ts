@@ -16,6 +16,7 @@ export const WATCHED_PREFIXES = [
   'caddis-agy-',
   'caddis-codex-',
   'caddis-doctor-',
+  'caddis-hub-',
   'caddis-keys-',
   'caddis-sessions-',
   'caddis-stub-',

@@ -121,6 +121,57 @@ withGlobalFlags(program.command('status'))
     finish(await status({ adapters: resolveAdapters(flags), json: options.json }));
   });
 
+const hub = program.command('hub').description('the local caddis hub web server (127.0.0.1 only)');
+
+hub
+  .command('start')
+  .description('start the hub in the background (hidden)')
+  .action(async () => {
+    const { hubStart } = await import('./commands/hub.js');
+    finish(await hubStart());
+  });
+
+hub
+  .command('stop')
+  .description('stop the running hub')
+  .action(async () => {
+    const { hubStop } = await import('./commands/hub.js');
+    finish(await hubStop());
+  });
+
+hub
+  .command('status')
+  .description('is the hub running: port, pid, versions, uptime (exit 1 when down)')
+  .option('--json', 'machine-readable output', false)
+  .action(async (options: { json?: boolean }) => {
+    const { hubStatus } = await import('./commands/hub.js');
+    finish(await hubStatus({ json: options.json === true }));
+  });
+
+hub
+  .command('open')
+  .description('open the hub in your browser with a one-time login code')
+  .action(async () => {
+    const { hubOpen } = await import('./commands/hub.js');
+    finish(await hubOpen());
+  });
+
+hub
+  .command('serve')
+  .description('run the hub in the foreground (used by start and the logon task)')
+  .action(async () => {
+    const { hubServe } = await import('./commands/hub.js');
+    finish(await hubServe());
+  });
+
+hub
+  .command('autostart <action>')
+  .description('start the hub at logon: enable, disable or status (per user, opt-in)')
+  .action(async (action: string) => {
+    const { hubAutostart } = await import('./commands/hub.js');
+    finish(await hubAutostart(action));
+  });
+
 program.addHelpText(
   'after',
   `

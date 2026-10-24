@@ -84,6 +84,9 @@ def classify_write(file_path: str) -> tuple[str, str]:
         return "deny", f"writes an environment/secret file ({base})"
     if base in _SECRET_BASENAMES or any(base.endswith(s) for s in _SECRET_SUFFIXES):
         return "deny", f"writes a credential/key file ({base})"
+    why = hub_dir_reason(file_path)
+    if why:
+        return "deny", why
 
     why = guard_config_reason(file_path)
     if why:
@@ -132,6 +135,114 @@ def guard_config_reason(path: str) -> str:
     if os.path.normcase(os.path.realpath(os.path.dirname(full))) == os.path.normcase(os.path.realpath(home)):
         return _WHY_CONFIG.format(f"~/{_ARTIFACT_DIR}/{parts[-1]}")
     return ""
+
+
+# ── the hub folder (hub design 7a) ───────────────────────────────────────────
+# `~/.caddis/hub/**` (and `$CADDIS_HOME/.caddis/hub/**` when CADDIS_HOME is set) holds the hub key, the repo registry,
+# the owner requests and the audit log. An agent that writes there could forge an owner request, so a write by tool or
+# through the shell (redirection, tee, cp/mv, Set-Content, Out-File, rm, Remove-Item, ...) denies. Reads stay free.
+# A run of `python .../caddis_coordinate.py` stays free: the script writes, not a shell redirection. Known limits (it
+# is not a boundary): an interpreter one-liner, a script that writes the file, a variable other than the home ones.
+# guard_agy.py carries a copy; test_guard_agy.py checks it.
+_WHY_HUB = "writes the caddis hub folder (~/.caddis/hub); only the hub and caddis_coordinate.py write there"
+# CADDIS_HOME as a shell spells it. It becomes the marker below before the tokenizer splits the text on `$`.
+_CADDIS_HOME_VAR = re.compile(r"\$\{?env:caddis_home\}?|\$\{caddis_home\}|\$caddis_home\b|%caddis_home%", re.I)
+_CADDIS_HOME_MARK = "~caddis-home"
+_HUB_DELETERS = frozenset({"rm", "del", "erase", "rmdir", "rd", "unlink", "shred", "truncate", "remove-item", "ri",
+                           "clear-content", "clc"})
+
+
+def _hub_dirs() -> list[str]:
+    """The hub folders to protect: under the user home, and under CADDIS_HOME when it is set."""
+    homes = [os.path.expanduser("~")]
+    if os.environ.get("CADDIS_HOME"):
+        homes.append(os.environ["CADDIS_HOME"])
+    return [os.path.normcase(os.path.realpath(os.path.join(h, _ARTIFACT_DIR, "hub"))) for h in homes]
+
+
+# A device prefix that Windows removes before it opens the path: `\\?\`, `\\.\`, `\\?\UNC\`, `\??\` (either slash).
+_HUB_DEVICE_PREFIX = re.compile(r"^[\\/]{2}[?.][\\/](?:unc[\\/])?|^[\\/]\?\?[\\/]", re.I)
+_HUB_GLOB = re.compile(r"[*?\[]")
+# A `$` just before a separator is never a variable: an admin share (`\\localhost\c$\...`). The tokenizer
+# splits on `$`, so the target finders drop it first.
+_SHARE_DOLLAR = re.compile(r"\$(?=[\\/])")
+
+
+def _hub_clean(raw: str) -> str:
+    """``raw`` spelled the way Windows opens it, with `/` separators: no device prefix, each segment cut at its first
+    `:` (an NTFS stream such as `::$DATA` or `::$INDEX_ALLOCATION`; a drive letter stays), and trailing dots and
+    spaces removed from each segment (`hub.` and `hub ` open `hub`)."""
+    raw = _HUB_DEVICE_PREFIX.sub("", raw)
+    lead = re.match(r"[\\/]*", raw).group(0)
+    segs = []
+    for i, seg in enumerate(re.split(r"[\\/]+", raw[len(lead):])):
+        drive = seg[:2] if i == 0 and not lead and re.match(r"[A-Za-z]:", seg) else ""
+        seg = drive + seg[len(drive):].split(":", 1)[0]
+        trimmed = seg.rstrip(" .")
+        segs.append(trimmed if trimmed or seg.strip(" ") not in (".", "..") else seg.strip(" "))
+    return lead.replace("\\", "/") + "/".join(segs)
+
+
+def _hub_parts(clean: str) -> list[str]:
+    """The lower-case segments of a _hub_clean path, with `.` and `..` applied the way Windows does (by text)."""
+    out: list[str] = []
+    for seg in clean.lower().split("/"):
+        if seg == "..":
+            out = out[:-1]
+        elif seg and seg != ".":
+            out.append(seg)
+    return out
+
+
+def _hub_seg_is(seg: str, name: str, shell: bool) -> bool:
+    """``seg`` names ``name``. In a shell, a glob segment (`hu*`, `h?b`, `[h]ub`) names it when it matches; as in
+    bash, only a glob that starts with `.` matches a dot name."""
+    if seg == name:
+        return True
+    return (shell and bool(_HUB_GLOB.search(seg)) and (seg.startswith(".") or not name.startswith("."))
+            and fnmatch.fnmatchcase(name, seg))
+
+
+def _hub_spellings(raw: str, shell: bool) -> list[str]:
+    """The paths a shell can open for ``raw``: quotes removed, then `\\` read as a separator (cmd, PowerShell) and
+    `\\` or a backtick read as an escape (bash, PowerShell). A tool path is opened as it is."""
+    if not shell:
+        return [raw]
+    unquoted = raw.replace('"', "").replace("'", "")
+    return [unquoted, re.sub(r"[\\`](.)", r"\1", unquoted)]
+
+
+def hub_dir_reason(path: str, shell: bool = False) -> str:
+    """The deny reason when ``path`` is the hub folder or a file in it, else ''. ``shell`` is True for a path that a
+    shell reads (quotes, escapes and globs apply). A path with a `.caddis` segment and then a `hub` segment denies
+    whatever its root (a device prefix, an admin share such as `\\\\localhost\\c$`, another home): the backstop."""
+    if not isinstance(path, str):
+        return ""
+    raw = _CADDIS_HOME_VAR.sub(_CADDIS_HOME_MARK, path.strip().strip("'\""))
+    for spelling in _hub_spellings(raw, shell):
+        clean = _hub_clean(_HOME_VAR.sub("~", spelling))
+        parts = _hub_parts(clean)
+        hubs = [i for i, seg in enumerate(parts) if _hub_seg_is(seg, "hub", shell)]
+        if any(i and _hub_seg_is(parts[i - 1], _ARTIFACT_DIR, shell) for i in hubs):
+            return _WHY_HUB
+        if not hubs or clean.startswith("//"):  # cheap test first; never resolve a UNC path (a network call)
+            continue
+        if clean.lower().startswith(_CADDIS_HOME_MARK):
+            clean = (os.environ.get("CADDIS_HOME") or "~") + clean[len(_CADDIS_HOME_MARK):]
+        full = os.path.normcase(os.path.realpath(os.path.abspath(os.path.normpath(_home_path(clean)))))
+        for hub in _hub_dirs():
+            if full == hub or full.startswith(hub.rstrip(os.sep) + os.sep):
+                return _WHY_HUB
+    return ""
+
+
+def _hub_delete_targets(command: str) -> list[str]:
+    """The paths that rm / del / Remove-Item / Clear-Content name in ``command`` (their non-option words)."""
+    command = _SHARE_DOLLAR.sub("", _CADDIS_HOME_VAR.sub(_CADDIS_HOME_MARK, _HOME_VAR.sub("~", command)))
+    out: list[str] = []
+    for _name, _cwd, _sub, args in _tool_calls(command, None, _HUB_DELETERS):
+        out += [a for a in args if not a.startswith(("-", ">", "<"))]  # cmd flags (`/s`) never name the hub
+    return out
 
 
 def classify_read(file_path: str) -> tuple[str, str]:
@@ -906,7 +1017,8 @@ def _shell_write_targets(command: str) -> list[str]:
     targets of the writer programs the config rule knows (cp, mv, Copy-Item, Set-Content, New-Item, Tee-Object, sed -i,
     ...). Not the regex's `-Path` group: `Get-Content -Path x` reads. Best-effort by design: a miss degrades to the old
     behaviour, it never invents a denial. guard_agy.py carries a copy; test_guard_agy.py checks they agree."""
-    command = _HOME_VAR.sub("~", command)  # the tokenizer splits on `$`, so in `$HOME/x` the home part would be lost
+    # The tokenizer splits on `$`, so in `$HOME/x` the home part would be lost.
+    command = _SHARE_DOLLAR.sub("", _CADDIS_HOME_VAR.sub(_CADDIS_HOME_MARK, _HOME_VAR.sub("~", command)))
     out = [m.group(g).strip("'\"") for m in _SHELL_WRITE_TARGET.finditer(command)
            for g in ("redir", "tee", "outfile") if m.group(g)]
     try:
@@ -977,6 +1089,18 @@ def _copier_targets(args: list[str]) -> list[str]:
     if not dest:
         return []
     return [dest] + [os.path.join(dest, os.path.basename(src.replace("\\", "/"))) for src in sources]
+
+
+def _hub_delete_safe(text: str) -> str:
+    """The deny reason when a delete command (rm, Remove-Item, ...) names the hub folder, else ''. An error is
+    "no match": one rule must never switch off the rest."""
+    try:
+        for target in _hub_delete_targets(text):
+            if hub_dir_reason(target, shell=True):
+                return f"shell command deletes in the caddis hub folder (~/.caddis/hub); {_WHY_HUB.split('; ', 1)[1]}"
+    except Exception:  # noqa: BLE001 - fail open for this rule only; the other rules still run
+        return ""
+    return ""
 
 
 def guard_config_shell_reason(command: str) -> str:
@@ -1196,9 +1320,14 @@ def classify_bash(command: str, root: str | None = None) -> tuple[str, str]:
     # blocked on Edit, then written by a shell command minutes later. Delegating to classify_write
     # rather than restating its patterns is the point — two copies of a secret list would drift.
     for _target in _shell_write_targets(data_free):
+        if hub_dir_reason(_target, shell=True):  # the shell reads quotes, escapes and globs; a tool path does not
+            return "deny", f"shell command {_WHY_HUB}"
         _tier, _why = classify_write(_target)
         if _tier == "deny":
             return "deny", f"shell command {_why}"
+    _hub = _hub_delete_safe(data_free)
+    if _hub:
+        return "deny", _hub
 
     # ── deny: an inline python/node/etc. one-liner that touches a secret env file ──
     if _INLINE_ENV.search(c):
@@ -1267,8 +1396,8 @@ def decide(tool_name: str, tool_input, allow_patterns: list[str], root: str | No
     if not isinstance(tool_input, dict):
         return "allow", ""
 
-    if tool_name in ("Write", "Edit", "MultiEdit"):
-        target = str(tool_input.get("file_path") or tool_input.get("path") or "")
+    if tool_name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        target = str(tool_input.get("file_path") or tool_input.get("notebook_path") or tool_input.get("path") or "")
         tier, reason = classify_write(target) if target else ("allow", "")
     elif tool_name == "apply_patch":
         raw_cmd = tool_input.get("command")

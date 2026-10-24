@@ -55,6 +55,7 @@ CADDIS_TEMP_PREFIXES = {
     "caddis-codex-": "cli/test/codex.test.ts mkdtempSync",
     "caddis-doctor-home-": "cli/test/doctor.test.ts mkdtempSync",
     "caddis-doctor-sessions-": "cli/test/doctor.test.ts mkdtempSync",
+    "caddis-hub-": "cli/test/hub/*.test.ts mkdtempSync",
     "caddis-keys-": "cli/test/providers.test.ts mkdtempSync",
     "caddis-sessions-": "cli/test/sessions.test.ts mkdtempSync",
     "caddis-stub-": "cli/test/stub.test.ts mkdtempSync",
