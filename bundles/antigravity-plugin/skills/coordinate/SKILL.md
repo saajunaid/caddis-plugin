@@ -236,7 +236,10 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     Do only the merge or the `go`:
     - Target mode: `GH_TOKEN=$(gh auth token -u <account>) gh pr merge <n> --<merge_method> --match-head-commit <watched sha>`.
       The merge SHA is `mergeCommit.oid` from `gh pr view <n> --json state,mergeCommit`.
-    - Interim mode: send `go <PR> <watched sha>`; the PR's session merges with the same command. Then
+    - Interim mode: send `go <PR> <watched sha>`, and on the next line: `I wrote the ack file
+      ~/.claude/merge-acks/<checkout folder name>/pr-<n>.json. Do not write, change or delete it.` The PR's
+      session merges with the same command. If its merge hook refuses because the ack file is wrong or
+      missing, write the ack file again (step 3.13) and send `go` once more. Then
       poll with a Bash command in `run_in_background`: `gh pr view <n> --json state,mergeCommit` once a
       minute, for at most 15 min, until `state` is `MERGED`. Take `mergeCommit.oid` as the merge SHA; the
       session's `merged` reply only tells you to look. No merge after 15 min: ask the PR's session once.

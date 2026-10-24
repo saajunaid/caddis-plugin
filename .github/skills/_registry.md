@@ -176,6 +176,7 @@
 | Ascii Art | `media/ascii-art/` | Create ASCII art (banners, borders, image conversion, custom art), choosing between pyfiglet, cowsay, TOIlet, boxes and more. |
 | Draw Io | `media/draw-io/` | draw.io diagram creation, editing, and review. Use for .drawio XML editing, PNG conversion, layout adjustment, and AWS icon usage. |
 | Excalidraw | `media/excalidraw/` | Brand-themed Excalidraw diagrams for project documentation |
+| Flow Chart From Counts | `media/flow-chart-from-counts/` | Turn a from-to-count edge list into a zoomable Mermaid flow chart page with counts, a legend and a render check. |
 | Mermaid Diagrams | `media/mermaid-diagrams/` | Software diagrams in Mermaid: class, sequence, flowchart, ERD, C4, state, git graph, gantt. Use for domain models, API flows, processes and database schemas. |
 | Particle Art | `media/particle-art/` | Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particle animation", "particles that form a shape", "animated letter/logo/initials", "morphing particles", "constellation", "neural net art", "halftone animation", "ASCII art animation", or "art that reacts to mouse". |
 | Plantuml | `media/plantuml/` | Brand-themed PlantUML diagrams for project documentation |

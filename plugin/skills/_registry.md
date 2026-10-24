@@ -74,6 +74,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Draw Io | `draw-io/` | draw.io diagram creation, editing, and review. Use for .drawio XML editing, PNG conversion, layout adjustment, and AWS icon usage. |
+| Flow Chart From Counts | `flow-chart-from-counts/` | Turn a from-to-count edge list into a zoomable Mermaid flow chart page with counts, a legend and a render check. |
 | Mermaid Diagrams | `mermaid-diagrams/` | Software diagrams in Mermaid: class, sequence, flowchart, ERD, C4, state, git graph, gantt. Use for domain models, API flows, processes and database schemas. |
 | Particle Art | `particle-art/` | >- |
 

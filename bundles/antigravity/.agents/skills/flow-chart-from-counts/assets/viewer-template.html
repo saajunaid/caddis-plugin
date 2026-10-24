@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Flow Chart</title>
+<style>
+/* Flow chart page from the flow-chart-from-counts skill.
+   One .fv block per chart. Each block names a <script type="text/plain"> that holds the Mermaid source.
+   --canvas stays light in dark mode on purpose: the coloured boxes use dark text and need a light ground. */
+:root{
+  --bg:#faf8f5; --surface:#ffffff; --ink-1:#1c1917; --ink-2:#57534e; --ink-3:#78716c; --line:#e7e2da; --canvas:#fbfaf8;
+  --sans:"Segoe UI",system-ui,-apple-system,Arial,sans-serif; --mono:Consolas,ui-monospace,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#23252f; --surface:#2c2f3b; --ink-1:#f3f1ec; --ink-2:#c9c6c0; --ink-3:#a19d97; --line:#3f4250; --canvas:#f4f2ee; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#23252f; --surface:#2c2f3b; --ink-1:#f3f1ec; --ink-2:#c9c6c0; --ink-3:#a19d97; --line:#3f4250; --canvas:#f4f2ee; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink-1);font-family:var(--sans);font-size:14px;line-height:1.55}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 16px 56px;display:grid;gap:20px}
+h1{font-size:22px;margin:0}
+p{margin:0;max-width:74ch}
+.small{font-size:13px;color:var(--ink-2)}
+.legendrow{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink-2)}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-2px;border:1px solid var(--ink-3)}
+.sw.thick{border-width:3px}
+.sw.dash{border-style:dashed;border-width:2px}
+
+/* Viewer */
+.fv{border:1px solid var(--line);border-radius:8px;background:var(--canvas);overflow:hidden;display:flex;flex-direction:column}
+.fv-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface)}
+.fv-hint{font-size:12px;color:var(--ink-3)}
+.fv-btns{display:flex;gap:6px;align-items:center}
+.fv-btns button{font:inherit;font-size:13px;min-width:34px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink-1);cursor:pointer}
+.fv-btns button:hover{border-color:var(--ink-3)}
+.fv-btns button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.fv-pct{font-family:var(--mono);font-size:12px;color:var(--ink-2);min-width:44px;text-align:center}
+.fv-view{position:relative;height:70vh;min-height:420px;overflow:hidden;cursor:grab;touch-action:pan-y;background:var(--canvas)}
+.fv-view.drag{cursor:grabbing}
+.fv-stage{position:absolute;left:0;top:0;transform-origin:0 0}
+.fv-stage > p{color:#57534e;padding:12px}
+/* The title is HTML inside the zoomable stage, so it zooms with the chart and stays in full screen and screenshots. */
+.fv-title{font-size:22px;line-height:1.35;color:#1c1917;padding:8px 0 14px;text-align:center}
+.fv-title b{font-weight:700}
+.fv-title span{display:block;font-size:15px;color:#57534e}
+.fv-stage svg{max-width:none!important;display:block}
+.fv.expanded{position:fixed;inset:0;z-index:50;border-radius:0}
+.fv.expanded .fv-view{height:auto;flex:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>How support cases moved on Mon 5 Oct 2026</h1>
+  <p class="small">Example data. Replace the title, the legend, the chart source and the note.</p>
+
+  <div class="legendrow" aria-label="Legend">
+    <span><span class="sw" style="background:#e7e5e4"></span>Automatic step</span>
+    <span><span class="sw thick" style="background:#bbf7d0;border-color:#15803d"></span>In scope (thick border)</span>
+    <span><span class="sw dash" style="background:#fde68a;border-color:#a16207"></span>Optional, owner choice (dashed)</span>
+    <span><span class="sw" style="background:#f6e7d6"></span>Hand-off to a team</span>
+    <span><span class="sw" style="background:#ffffff;border-color:#57534e;border-width:2px"></span>Start</span>
+    <span><span class="sw" style="background:#eceae6"></span>Case ends</span>
+    <span><span class="sw dash" style="background:#ffffff;border-color:#a8a29e;border-width:1px"></span>Stub: the path continues at the box named</span>
+  </div>
+
+  <!-- One chart. data-src = id of the script that holds the Mermaid source.
+       data-title and data-sub are plain text (set with textContent). data-label is the accessible name. -->
+  <div class="fv" data-src="chart1"
+       data-title="Support cases: Mon 5 Oct 2026"
+       data-sub="(4 Oct 23:00 to 5 Oct 23:00 UTC). Counts in brackets are cases. Paths under 20 cases are not drawn."
+       data-label="Flow of a support case on 5 October, from intake to self-service, team queues and case ends">
+    <div class="fv-bar">
+      <span class="fv-hint">Drag to move. Use + and − or Ctrl + scroll to zoom.</span>
+      <span class="fv-btns">
+        <button type="button" data-z="out" aria-label="Zoom out">−</button>
+        <span class="fv-pct">100%</span>
+        <button type="button" data-z="in" aria-label="Zoom in">+</button>
+        <button type="button" data-z="fit">Fit</button>
+        <button type="button" data-z="full">Full screen</button>
+      </span>
+    </div>
+    <div class="fv-view"><div class="fv-stage"><p class="small">Drawing the flow chart…</p></div></div>
+  </div>
+<script type="text/plain" id="chart1">
+flowchart TD
+  S(["Cases opened<br/>(2,400)"]) --> I["INTAKE<br/>Web form"]
+  I -->|"(180)"| X1(["Case ends"])
+  I -->|"(2,220)"| T["TRIAGE<br/>Rules engine<br/>(2,220)"]
+  T -->|"(1,300)"| A["SELF-SERVICE<br/>Account help<br/>(1,300)"]
+  T -->|"(about 600)"| Q["Team queues"]
+  T -->|"(320)"| C["CHECK, owner choice<br/>Fraud check"]
+  C -->|"(300)"| Q2["Fraud team queue"]
+  A -->|"(1,100)"| X2(["Case ends after self-service"])
+  A --> B(["back to Triage (190)"])
+  subgraph AFTER["After a team picks up a case"]
+    direction LR
+    AG["Agent"] -->|"(700)"| X3(["Case ends"])
+  end
+  X2 ~~~ AFTER
+  classDef auto fill:#e7e5e4,stroke:#78716c,color:#1c1917;
+  classDef scope fill:#bbf7d0,stroke:#15803d,stroke-width:3px,color:#1c1917;
+  classDef choice fill:#fde68a,stroke:#a16207,stroke-width:2px,stroke-dasharray:6 4,color:#1c1917;
+  classDef queue fill:#f6e7d6,stroke:#b45309,color:#1c1917;
+  classDef endn fill:#eceae6,stroke:#78716c,color:#1c1917;
+  classDef startn fill:#ffffff,stroke:#57534e,stroke-width:2px,color:#1c1917;
+  classDef stub fill:#ffffff,stroke:#a8a29e,stroke-dasharray:3 3,color:#57534e;
+  class I,T auto;
+  class A scope;
+  class C choice;
+  class Q,Q2,AG queue;
+  class X1,X2,X3 endn;
+  class S startn;
+  class B stub;
+  style AFTER fill:#fbfaf8,stroke:#a8a29e,stroke-dasharray:4 4,color:#57534e;
+</script>
+  <p class="small">Every number counts distinct cases: an arrow counts the cases that took that path, a box counts the cases that reached it. Arrows into a box can sum to a little more than the box, because a case can reach it by two paths. "Case ends" means the data shows no further step; it does not say why. "Team queues" merges four small queues (about 600). Not drawn: 3 paths with fewer than 20 cases each (41 in total).</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js" integrity="sha512-6a80OTZVmEJhqYJUmYd5z8yHUCDlYnj6q9XwB/gKOEyNQV/Q8u+XeSG59a2ZKFEHGTYzgfOQKYEBtrZV7vBr+Q==" crossorigin="anonymous"></script>
+<script>
+(function(){
+  if(!window.mermaid){
+    document.querySelectorAll('.fv-stage').forEach(function(s){s.innerHTML='<p class="small">The chart library did not load, so the flow chart cannot be drawn.</p>';});
+    return;
+  }
+  try{
+    mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',
+      themeVariables:{fontFamily:'Segoe UI, system-ui, sans-serif',fontSize:'15px',lineColor:'#57534e',primaryTextColor:'#1c1917',edgeLabelBackground:'#ffffff',background:'#fbfaf8'},
+      flowchart:{htmlLabels:true,curve:'basis',nodeSpacing:40,rankSpacing:55,padding:10}});
+  }catch(e){console.error('mermaid.initialize failed',e);}
+  var n=0;
+  function viewer(fv){
+    var view=fv.querySelector('.fv-view'),stage=fv.querySelector('.fv-stage'),pct=fv.querySelector('.fv-pct'),full=fv.querySelector('button[data-z="full"]');
+    var k=1,x=0,y=0,w=0,h=0,fitK=1;
+    function msg(t){stage.innerHTML='<p class="small"></p>';stage.firstChild.textContent=t;}
+    // Page scroll stays free on a phone until the chart is zoomed in or in full screen; then a drag pans the chart.
+    function touch(){view.style.touchAction=(fv.classList.contains('expanded')||k>fitK*1.01)?'none':'pan-y';}
+    function apply(){touch();stage.style.transform='translate('+x+'px,'+y+'px) scale('+k+')';pct.textContent=Math.round(k*100)+'%';}
+    function fit(){var vw=view.clientWidth,vh=view.clientHeight;if(!w)return;k=Math.min(vw/w,vh/h)*0.96;fitK=k;x=(vw-w*k)/2;y=(vh-h*k)/2;apply();}
+    function zoomAt(f,cx,cy){var nk=Math.max(Math.min(0.15,fitK),Math.min(4,k*f));x=cx-(cx-x)*nk/k;y=cy-(cy-y)*nk/k;k=nk;apply();}
+    function title(){
+      var d=document.createElement('div');d.className='fv-title';
+      var b=document.createElement('b');b.textContent=fv.dataset.title||'';d.appendChild(b);
+      if(fv.dataset.sub){var s=document.createElement('span');s.textContent=fv.dataset.sub;d.appendChild(s);}
+      return d;
+    }
+    var src=document.getElementById(fv.dataset.src);
+    var done=Promise.resolve();
+    if(!src){msg('The flow chart source is missing.');}
+    else try{
+      done=mermaid.render('flowsvg'+(n++),src.textContent).then(function(r){
+        stage.innerHTML=r.svg;stage.insertBefore(title(),stage.firstChild);
+        var svg=stage.querySelector('svg');
+        var vb=svg.viewBox.baseVal;w=vb&&vb.width?vb.width:svg.getBBox().width;h=vb&&vb.height?vb.height:svg.getBBox().height;
+        svg.setAttribute('width',w);svg.setAttribute('height',h);svg.style.maxWidth='none';
+        w=Math.max(w,stage.scrollWidth);h=stage.scrollHeight;
+        svg.setAttribute('role','img');svg.setAttribute('aria-label',fv.dataset.label||'Flow chart');
+        fit();
+      }).catch(function(e){console.error(e);msg('The flow chart could not be drawn: '+e.message);});
+    }catch(e){console.error(e);msg('The flow chart could not be drawn: '+e.message);}
+    function toggle(){var on=!fv.classList.contains('expanded');fv.classList.toggle('expanded',on);full.textContent=on?'Close':'Full screen';
+      document.body.style.overflow=on?'hidden':'';
+      // Real full screen when the browser allows it; the fixed-position .expanded class is the fallback.
+      try{if(on&&fv.requestFullscreen)fv.requestFullscreen().catch(function(){});else if(!on&&document.fullscreenElement)document.exitFullscreen().catch(function(){});}catch(e){}
+      setTimeout(fit,60);}
+    fv.addEventListener('click',function(ev){var b=ev.target.closest('button[data-z]');if(!b)return;var c=[view.clientWidth/2,view.clientHeight/2];
+      if(b.dataset.z==='in')zoomAt(1.25,c[0],c[1]);else if(b.dataset.z==='out')zoomAt(0.8,c[0],c[1]);else if(b.dataset.z==='fit')fit();else toggle();});
+    document.addEventListener('fullscreenchange',function(){if(!document.fullscreenElement&&fv.classList.contains('expanded')){fv.classList.remove('expanded');full.textContent='Full screen';document.body.style.overflow='';setTimeout(fit,60);}});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&fv.classList.contains('expanded'))toggle();});
+    // Plain scroll keeps scrolling the page; Ctrl + scroll (or any scroll in full screen) zooms.
+    view.addEventListener('wheel',function(e){if(!(e.ctrlKey||e.metaKey||fv.classList.contains('expanded')))return;e.preventDefault();var r=view.getBoundingClientRect();zoomAt(e.deltaY<0?1.12:0.89,e.clientX-r.left,e.clientY-r.top);},{passive:false});
+    var pts={};
+    view.addEventListener('pointerdown',function(e){view.setPointerCapture(e.pointerId);pts[e.pointerId]=[e.clientX,e.clientY];view.classList.add('drag');});
+    view.addEventListener('pointermove',function(e){if(!pts[e.pointerId])return;var p=pts[e.pointerId],ids=Object.keys(pts);
+      if(ids.length===2){var o=pts[ids[0]==e.pointerId?ids[1]:ids[0]];var d0=Math.hypot(p[0]-o[0],p[1]-o[1]);var d1=Math.hypot(e.clientX-o[0],e.clientY-o[1]);var r=view.getBoundingClientRect();if(d0>0)zoomAt(d1/d0,(e.clientX+o[0])/2-r.left,(e.clientY+o[1])/2-r.top);}
+      else{x+=e.clientX-p[0];y+=e.clientY-p[1];apply();}
+      pts[e.pointerId]=[e.clientX,e.clientY];});
+    function up(e){delete pts[e.pointerId];if(!Object.keys(pts).length)view.classList.remove('drag');}
+    view.addEventListener('pointerup',up);view.addEventListener('pointercancel',up);
+    window.addEventListener('resize',fit);
+    return done;
+  }
+  // Render one chart after another, so each chart finishes before the next one starts.
+  var all=document.querySelectorAll('.fv[data-src]'),i=0;
+  (function next(){if(i<all.length){Promise.resolve(viewer(all[i++])).then(next,next);}})();
+})();
+</script>
+</body>
+</html>
