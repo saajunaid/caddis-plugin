@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hub roadmaps output",
+  "type": "object",
+  "required": [
+    "schema",
+    "roadmaps"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer"
+    },
+    "roadmaps": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "roadmap",
+              "branch",
+              "runner_host",
+              "done",
+              "total",
+              "next",
+              "milestones",
+              "line"
+            ],
+            "properties": {
+              "roadmap": {
+                "type": "string"
+              },
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "runner_host": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "next": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "required": [
+                  "milestone",
+                  "plan",
+                  "phase"
+                ],
+                "properties": {
+                  "milestone": {
+                    "type": "string"
+                  },
+                  "plan": {
+                    "type": "string"
+                  },
+                  "phase": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "milestones": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "status",
+                    "owner",
+                    "target",
+                    "depends",
+                    "phases",
+                    "blockers"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "in-progress",
+                        "code-done/data-pending",
+                        "done",
+                        "not-needed"
+                      ]
+                    },
+                    "owner": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "depends": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "phases": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "ref",
+                          "state"
+                        ],
+                        "properties": {
+                          "ref": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "blockers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "type",
+                          "reason",
+                          "check"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "check": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "line": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "roadmap",
+              "error"
+            ],
+            "properties": {
+              "roadmap": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

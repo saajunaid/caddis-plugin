@@ -259,6 +259,45 @@ def _relays(directory: Path) -> list[tuple[str, dict, str]]:
     return out
 
 
+JSON_SCHEMA = 1  # the `schema` key of every --json output (hub rule R13)
+
+
+def _relay_dir(root: Path) -> Path:
+    artifact = _artifact(root)
+    directory = artifact / "relay"
+    if directory.exists() and not directory.resolve().is_relative_to(artifact.resolve()):
+        raise ValueError("relay directory escapes artifact root")
+    return directory
+
+
+def relays_json(root: Path, now: datetime | None = None) -> dict:
+    """Return every valid relay as JSON data. A bad status line gives status INVALID."""
+    now = now or datetime.now(timezone.utc)
+    rows = []
+    for name, meta, content in _relays(_relay_dir(root)):
+        when = datetime.fromisoformat(meta["generated"]["at"].replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        when = when.astimezone(timezone.utc)
+        try:
+            status, status_arg = parse_status(content)
+        except ValueError as exc:
+            status, status_arg = "INVALID", str(exc)
+        step = _next_step(content)
+        rows.append({
+            "name": name,
+            "branch": meta.get("branch"),
+            "plan": meta.get("plan"),
+            "session_id": meta.get("session_id"),
+            "updated_at": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "age_min": max(0, int((now - when).total_seconds()) // 60),
+            "status": status,
+            "status_arg": status_arg,
+            "next_step": None if step == "next step unrecorded" else step,
+        })
+    return {"schema": JSON_SCHEMA, "relays": sorted(rows, key=lambda r: r["name"])}
+
+
 def _item_matches(item: str, next_text: str) -> bool:
     needle = item.strip()
     if not needle:
@@ -690,6 +729,7 @@ def main(argv: list[str] | None = None) -> int:
 
     list_p = sub.add_parser("list", help="list each relay's name, branch and next step")
     list_p.add_argument("--root", type=Path, default=Path("."))
+    list_p.add_argument("--json", action="store_true")
 
     mentions_p = sub.add_parser("mentions", help="list other relays whose Next step mentions an item")
     mentions_p.add_argument("--item", required=True)
@@ -735,7 +775,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"invalid relay status: {exc}\n")
             return 1
         if args.json:
-            print(json.dumps({"status": kind, "arg": arg}))
+            print(json.dumps({"schema": JSON_SCHEMA, "status": kind, "arg": arg}))
         else:
             if arg:
                 print(f"STATUS: {kind} {arg}")
@@ -788,10 +828,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  conflict: {conflict}")
         return 0 if report.status in ("clean", "migrated") else 1
     elif args.command == "list":
-        artifact = _artifact(args.root)
-        directory = artifact / "relay"
-        if directory.exists() and not directory.resolve().is_relative_to(artifact.resolve()):
-            raise ValueError("relay directory escapes artifact root")
+        try:
+            data = relays_json(args.root) if args.json else None
+            directory = _relay_dir(args.root)
+        except ValueError as exc:  # the relay folder escapes .caddis: one error, never a traceback
+            if args.json:
+                print(json.dumps({"schema": JSON_SCHEMA, "error": str(exc)}))
+            else:
+                sys.stderr.write(f"cannot list relays: {exc}\n")
+            return 1
+        if args.json:
+            print(json.dumps(data, indent=2))
+            return 0
         for name, meta, content in _relays(directory):
             branch_label = _single_line(str(meta.get("branch", "?")), 50)
             print(f"{name}\t{branch_label}\t{_next_step(content)}")

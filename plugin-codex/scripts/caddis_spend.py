@@ -493,6 +493,19 @@ def status_line(home: Path, now: datetime) -> str:
     return f"agy: EUR {committed_last_24h(home, now):.2f} of {cap} in the last 24 h on this machine"
 
 
+def spend_json(home: Path, now: datetime | None = None) -> dict:
+    """The spend status as one JSON-ready dict. It holds no key, no prompt and no caller name."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        cap = load_cap(home)
+        cap_eur, reserve_eur = float(cap.eur_per_24h), float(cap.reserve)
+    except NotConfigured:
+        cap_eur = reserve_eur = None
+    return {"schema": 1, "configured": cap_eur is not None, "cap_eur": cap_eur,
+            "committed_eur": round(committed_last_24h(home, now), 6), "reserve_eur": reserve_eur,
+            "window_h": 24}
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -504,7 +517,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="global agy spend cap (EUR per rolling 24 h, this machine)")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
-    sub.add_parser("status")
+    p_status = sub.add_parser("status")
+    p_status.add_argument("--json", action="store_true", help="print the status as one JSON object")
     p_run = sub.add_parser("run")
     p_run.add_argument("--caller", required=True)
     p_run.add_argument("--timeout-s", type=float, default=None,
@@ -515,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
     if args.cmd == "status":
         try:
-            print(status_line(home, now))
+            print(json.dumps(spend_json(home, now)) if args.json else status_line(home, now))
         except Exception as exc:
             print(f"caddis_spend: could not read the spend log: {exc!r}", file=sys.stderr)
             return EXIT_NOT_CONFIGURED

@@ -1,0 +1,733 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hub collect output",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at",
+    "repos",
+    "spend",
+    "guide"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "repos": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "fingerprint",
+              "roadmaps",
+              "plans",
+              "relays"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "fingerprint": {
+                "type": "string"
+              },
+              "roadmaps": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "schema",
+                      "roadmaps"
+                    ],
+                    "properties": {
+                      "schema": {
+                        "type": "integer"
+                      },
+                      "roadmaps": {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "roadmap",
+                                "branch",
+                                "runner_host",
+                                "done",
+                                "total",
+                                "next",
+                                "milestones",
+                                "line"
+                              ],
+                              "properties": {
+                                "roadmap": {
+                                  "type": "string"
+                                },
+                                "branch": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "runner_host": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "done": {
+                                  "type": "integer"
+                                },
+                                "total": {
+                                  "type": "integer"
+                                },
+                                "next": {
+                                  "type": [
+                                    "object",
+                                    "null"
+                                  ],
+                                  "required": [
+                                    "milestone",
+                                    "plan",
+                                    "phase"
+                                  ],
+                                  "properties": {
+                                    "milestone": {
+                                      "type": "string"
+                                    },
+                                    "plan": {
+                                      "type": "string"
+                                    },
+                                    "phase": {
+                                      "type": "integer"
+                                    }
+                                  }
+                                },
+                                "milestones": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "required": [
+                                      "id",
+                                      "status",
+                                      "owner",
+                                      "target",
+                                      "depends",
+                                      "phases",
+                                      "blockers"
+                                    ],
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "todo",
+                                          "in-progress",
+                                          "code-done/data-pending",
+                                          "done",
+                                          "not-needed"
+                                        ]
+                                      },
+                                      "owner": {
+                                        "type": "string"
+                                      },
+                                      "target": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "depends": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "phases": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "required": [
+                                            "ref",
+                                            "state"
+                                          ],
+                                          "properties": {
+                                            "ref": {
+                                              "type": "string"
+                                            },
+                                            "state": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "blockers": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "required": [
+                                            "type",
+                                            "reason",
+                                            "check"
+                                          ],
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            },
+                                            "reason": {
+                                              "type": "string"
+                                            },
+                                            "check": {
+                                              "type": [
+                                                "string",
+                                                "null"
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "line": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "roadmap",
+                                "error"
+                              ],
+                              "properties": {
+                                "roadmap": {
+                                  "type": "string"
+                                },
+                                "error": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "plans": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "schema",
+                      "plans"
+                    ],
+                    "properties": {
+                      "schema": {
+                        "type": "integer"
+                      },
+                      "plans": {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "path",
+                                "title",
+                                "status",
+                                "feature",
+                                "tracker",
+                                "open_rows"
+                              ],
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "feature": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "tracker": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "required": [
+                                      "phase",
+                                      "status"
+                                    ],
+                                    "properties": {
+                                      "phase": {
+                                        "type": "string"
+                                      },
+                                      "status": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                },
+                                "open_rows": {
+                                  "type": "integer"
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "path",
+                                "error"
+                              ],
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                },
+                                "error": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "relays": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "schema",
+                      "relays"
+                    ],
+                    "properties": {
+                      "schema": {
+                        "type": "integer"
+                      },
+                      "relays": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "branch",
+                            "plan",
+                            "session_id",
+                            "updated_at",
+                            "age_min",
+                            "status",
+                            "status_arg",
+                            "next_step"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "branch": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "plan": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "session_id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "updated_at": {
+                              "type": "string"
+                            },
+                            "age_min": {
+                              "type": "integer"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "CONTINUE",
+                                "OWNER-GATE",
+                                "BLOCKED",
+                                "FAILED",
+                                "INVALID"
+                              ]
+                            },
+                            "status_arg": {
+                              "type": "string"
+                            },
+                            "next_step": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "error"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "spend": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "schema",
+            "configured",
+            "cap_eur",
+            "committed_eur",
+            "reserve_eur",
+            "window_h"
+          ],
+          "properties": {
+            "schema": {
+              "type": "integer"
+            },
+            "configured": {
+              "type": "boolean"
+            },
+            "cap_eur": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "committed_eur": {
+              "type": "number"
+            },
+            "reserve_eur": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "window_h": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "guide": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "schema",
+            "version",
+            "generated",
+            "commands",
+            "agents",
+            "skills",
+            "hooks",
+            "coverage",
+            "counts"
+          ],
+          "properties": {
+            "schema": {
+              "type": "integer"
+            },
+            "version": {
+              "type": "string"
+            },
+            "generated": {
+              "type": "string"
+            },
+            "commands": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "description",
+                  "hint",
+                  "steps",
+                  "scripts",
+                  "noArgs",
+                  "stage",
+                  "daily"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "hint": {
+                    "type": "string"
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "scripts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "noArgs": {
+                    "type": "boolean"
+                  },
+                  "stage": {
+                    "type": "string"
+                  },
+                  "daily": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "agents": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "description",
+                  "tools",
+                  "model",
+                  "writes"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "writes": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "category",
+                  "description",
+                  "core"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "core": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "hooks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "event",
+                  "matcher",
+                  "handler"
+                ],
+                "properties": {
+                  "event": {
+                    "type": "string"
+                  },
+                  "matcher": {
+                    "type": "string"
+                  },
+                  "handler": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "coverage": {
+              "type": "object",
+              "required": [
+                "commands",
+                "skills",
+                "agents"
+              ],
+              "properties": {
+                "commands": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "skills": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "agents": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "counts": {
+              "type": "object",
+              "required": [
+                "commands",
+                "agents",
+                "skills",
+                "core",
+                "hooks"
+              ],
+              "properties": {
+                "commands": {
+                  "type": "integer"
+                },
+                "agents": {
+                  "type": "integer"
+                },
+                "skills": {
+                  "type": "integer"
+                },
+                "core": {
+                  "type": "integer"
+                },
+                "hooks": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

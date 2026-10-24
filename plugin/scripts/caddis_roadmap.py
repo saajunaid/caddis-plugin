@@ -49,7 +49,8 @@ Exit codes (caddis_exit): 0 clean, 1 blocked (nothing ready, check failing, PR n
 (no origin, no roadmap, lock busy, an exit check or Exit setup that cannot run in the merged checkout), 4 error
 (malformed roadmap, unknown id, column or value, refused change).
 
-Usage: caddis_roadmap.py status --roadmap SLUG [--root DIR] [--json]
+Usage: caddis_roadmap.py list [--root DIR] [--json]
+       caddis_roadmap.py status --roadmap SLUG [--root DIR] [--json]
        caddis_roadmap.py next --roadmap SLUG [--root DIR] [--json]
        caddis_roadmap.py check --roadmap SLUG [--root DIR]
        caddis_roadmap.py set --roadmap SLUG [--root DIR] --id ID --col Status|Owner|Target --value V [--by-owner]
@@ -198,6 +199,9 @@ DROPPED_PREFIX = "dropped:"
 OLD_BLOCKER_DAYS = 14  # status lists a blocker whose row is older than this
 
 
+JSON_SCHEMA = 1  # the `schema` key of every --json output (hub rule R13)
+
+
 class RoadmapError(Exception):
     """A refused or impossible request; carries the caddis exit code."""
 
@@ -237,11 +241,21 @@ def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 
 
 def default_branch(root: Path) -> str:
-    """origin/HEAD's branch; when it is not set locally, ask the remote (`git ls-remote --symref origin HEAD`)."""
+    """origin/HEAD's branch; when it is not set locally, ask the remote (`git ls-remote --symref origin HEAD`).
+    When FETCH is off, never ask the remote: use origin/main or origin/master if exactly one exists locally."""
     proc = _git(root, "symbolic-ref", "refs/remotes/origin/HEAD", check=False)
     ref = proc.stdout.strip()
     if proc.returncode == 0 and ref.startswith("refs/remotes/origin/"):
         return ref[len("refs/remotes/origin/"):]
+    if not FETCH:
+        # No network when fetch is off (the collector, `render --no-fetch`): use the one local origin branch.
+        found = [name for name in ("main", "master")
+                 if _git(root, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}",
+                         check=False).returncode == 0]
+        if len(found) == 1:
+            return found[0]
+        raise RoadmapError("cannot tell origin's default branch: origin/HEAD is not set locally; "
+                           "run: git remote set-head origin --auto", caddis_exit.NOT_RUN)
     remote = _git(root, "ls-remote", "--symref", "origin", "HEAD", check=False)
     for line in remote.stdout.splitlines():
         match = re.match(r"^ref:\s*refs/heads/(\S+)\s+HEAD$", line)
@@ -2190,6 +2204,19 @@ def list_roadmaps_checked(root: Path) -> tuple[list[str], set[str] | None]:
     return sorted(slugs), folders
 
 
+def roadmaps_json(root: Path) -> dict:
+    """The hub's roadmap list: status() of each slug, in `list` order. A roadmap whose status() raises gives
+    {"roadmap": slug, "error": "<one line>"} and the rest still list. Never prints, never exits."""
+    entries: list[dict] = []
+    for slug in list_roadmaps(Path(root)):
+        try:
+            entries.append(status(Path(root), slug))
+        except Exception as exc:  # one broken file must not hide the others
+            lines = str(exc).strip().splitlines()
+            entries.append({"roadmap": slug, "error": lines[0] if lines else type(exc).__name__})
+    return {"schema": JSON_SCHEMA, "roadmaps": entries}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = _Parser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -2206,6 +2233,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("list")
     p.add_argument("--root", default=".")
+    p.add_argument("--json", action="store_true")
     add("status", json_out=True)
     add("next", json_out=True)
     add("check")
@@ -2371,6 +2399,10 @@ def _render_site(root: Path, args: argparse.Namespace) -> int:
 
 def _dispatch(args: argparse.Namespace) -> int:
     root = _repo_root(args.root)
+    if args.cmd == "list" and args.json:
+        data = roadmaps_json(root)
+        print(json.dumps(data, indent=2))
+        return caddis_exit.CLEAN if data["roadmaps"] else caddis_exit.BLOCKED
     if args.cmd == "list":
         slugs = list_roadmaps(root)
         for slug in slugs:
@@ -2378,12 +2410,13 @@ def _dispatch(args: argparse.Namespace) -> int:
         return caddis_exit.CLEAN if slugs else caddis_exit.BLOCKED
     if args.cmd == "status":
         result = status(root, args.roadmap)
-        print(json.dumps(result, indent=2) if args.json else result["line"])
+        print(json.dumps({"schema": JSON_SCHEMA, **result}, indent=2) if args.json else result["line"])
         return caddis_exit.CLEAN
     if args.cmd == "next":
         batch, reasons = _select(load(root, args.roadmap), other_roadmap_batches(root, args.roadmap))
         if args.json:
-            print(json.dumps({"batch": batch, "skipped": [{"id": i, "reason": r} for i, r in reasons]}))
+            skipped = [{"id": i, "reason": r} for i, r in reasons]
+            print(json.dumps({"schema": JSON_SCHEMA, "batch": batch, "skipped": skipped}))
         else:
             for mid, reason in reasons:
                 print(f"{mid}: {reason}")

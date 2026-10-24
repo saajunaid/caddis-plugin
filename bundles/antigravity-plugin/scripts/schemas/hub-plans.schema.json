@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hub plans output",
+  "type": "object",
+  "required": [
+    "schema",
+    "plans"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer"
+    },
+    "plans": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "title",
+              "status",
+              "feature",
+              "tracker",
+              "open_rows"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "feature": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracker": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "phase",
+                    "status"
+                  ],
+                  "properties": {
+                    "phase": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "open_rows": {
+                "type": "integer"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "error"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

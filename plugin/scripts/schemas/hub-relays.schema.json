@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hub relays output",
+  "type": "object",
+  "required": [
+    "schema",
+    "relays"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer"
+    },
+    "relays": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "branch",
+          "plan",
+          "session_id",
+          "updated_at",
+          "age_min",
+          "status",
+          "status_arg",
+          "next_step"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "age_min": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "CONTINUE",
+              "OWNER-GATE",
+              "BLOCKED",
+              "FAILED",
+              "INVALID"
+            ]
+          },
+          "status_arg": {
+            "type": "string"
+          },
+          "next_step": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ release as a no-op, because an older /handoff still calls it from its Step 6.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -17,7 +18,7 @@ from pathlib import Path
 
 try:
     import caddis_exit
-    from caddis_frontmatter import parse
+    from caddis_frontmatter import parse, split_document
     from caddis_workstreams import _artifact, _name
 except ModuleNotFoundError as exc:
     if exc.name not in {"caddis_exit", "caddis_file_lock", "caddis_frontmatter", "caddis_workstreams"}:
@@ -26,7 +27,7 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
-    from caddis_frontmatter import parse
+    from caddis_frontmatter import parse, split_document
     from caddis_workstreams import _artifact, _name
 
 
@@ -172,6 +173,63 @@ def tracker_table(text: str) -> tuple[list[str], list[str]] | None:
     return columns, table[:at] + table[at + 1:]
 
 
+def _plan_files(root: Path) -> list[Path]:
+    """The plan files to list: `.caddis/plans/*.md`, else the legacy `.github/plans/*.md`. Never `done/`."""
+    plans_dir = _artifact(root) / "plans"
+    if not plans_dir.is_dir():
+        plans_dir = Path(root) / ".github" / "plans"
+    if plans_dir.is_symlink() or not plans_dir.is_dir():
+        return []
+    return sorted(p for p in plans_dir.glob("*.md") if p.is_file() and not p.is_symlink())
+
+
+def _plan_entry(root: Path, path: Path) -> dict:
+    # caddis_tidy imports this module at load time, so this module imports it only here.
+    try:
+        import caddis_tidy
+    except ModuleNotFoundError as exc:
+        if exc.name != "caddis_tidy":
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import caddis_tidy
+    text = path.read_text(encoding="utf-8")
+    meta, body = split_document(text)
+    if text.lstrip("﻿").startswith("---") and not meta:
+        raise ValueError("frontmatter is not closed or has no keys")
+    heading = re.search(r"^# (.+?)\s*$", body, re.M)
+    title = heading.group(1) if heading else meta.get("title")
+    tracker: list[dict] = []
+    table = tracker_table(text)
+    if table is not None:
+        columns, lines = table
+        status_at = columns.index("status")
+        for line in lines:
+            if not line.strip().startswith("|") or caddis_tidy._TABLE_RULE_RE.match(line.strip()):
+                continue
+            cells = caddis_tidy._row_cells(line)
+            if cells:
+                tracker.append({"phase": cells[0], "status": cells[status_at] if len(cells) > status_at else ""})
+    return {"path": path.relative_to(Path(root)).as_posix(), "title": title,
+            "status": meta.get("status"), "feature": meta.get("feature"),
+            "tracker": tracker, "open_rows": sum(1 for row in tracker if not _is_done(row["status"]))}
+
+
+def plans_json(root: Path) -> dict:
+    """Every current plan as data: `{"schema": 1, "plans": [...]}`. Never prints, never exits.
+
+    A file that does not parse gives `{"path", "error"}`; the other plans still come back.
+    """
+    root = Path(root)
+    plans: list[dict] = []
+    for path in _plan_files(root):
+        try:
+            plans.append(_plan_entry(root, path))
+        except Exception as exc:  # one bad file must not hide the others
+            rel = path.relative_to(root).as_posix()
+            plans.append({"path": rel, "error": (str(exc).splitlines() or [type(exc).__name__])[0]})
+    return {"schema": 1, "plans": plans}
+
+
 def main(argv: list[str] | None = None) -> int:
     # Plan paths may carry non-ASCII text; a Windows console defaults to a legacy code page.
     for stream in (sys.stdout, sys.stderr):
@@ -181,6 +239,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd(), help=argparse.SUPPRESS)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("active-plan")
+    plans_p = commands.add_parser("plans", help="list the plans as JSON")
+    plans_p.add_argument("--json", action="store_true", dest="as_json")
+    # `plans --root R` works too. SUPPRESS: when absent here, the global --root (or cwd) stays.
+    plans_p.add_argument("--root", type=Path, default=argparse.SUPPRESS, help="the project folder")
     # Retired: kept one release so an older /handoff Step 6 does not fail. Takes its old flag, ignores it.
     reconcile_p = commands.add_parser("reconcile", help=argparse.SUPPRESS)
     reconcile_p.add_argument("--session-state", type=Path)
@@ -189,6 +251,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"unrecognized arguments: {' '.join(extra)}")  # only the retired no-op tolerates old flags
     if args.command == "reconcile":
         print(RECONCILE_RETIRED)
+        return 0
+    if args.command == "plans":
+        if not args.as_json:
+            parser.error("plans needs --json")
+        try:
+            print(json.dumps(plans_json(args.root), ensure_ascii=False))
+        except (OSError, ValueError) as exc:  # a .caddis that escapes the project
+            print(f"caddis-todo: {exc}", file=sys.stderr)
+            return 1
         return 0
     try:
         plan, candidates = active_plan(args.root)
