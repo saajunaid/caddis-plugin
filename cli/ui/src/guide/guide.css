@@ -1,0 +1,180 @@
+/* The caddis guide page. Tokens come from theme.css and pages.css. */
+.guide-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.guide-mark {
+  flex: none;
+  width: 56px;
+  height: 56px;
+}
+
+.guide-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.guide-tools {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.guide-filter {
+  display: grid;
+  gap: 4px;
+}
+
+.guide-filter-label {
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.guide-filter-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-bright);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+}
+
+.guide-filter-input:focus-visible,
+.guide-jump:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.guide-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.guide-jump {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-bright);
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.guide-jump:hover {
+  background: var(--bg-elevated);
+}
+
+.guide-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.guide-section {
+  margin-bottom: 28px;
+}
+
+.guide-section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.guide-count,
+.guide-shown {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+
+.guide-group-title {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+}
+
+.guide-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-entry {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-card);
+}
+
+.guide-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.guide-entry-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.guide-entry-purpose {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-sub);
+  overflow-wrap: anywhere;
+}
+
+.guide-entry-invoke {
+  font-family: 'Maple Mono', ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.guide-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-bright);
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.guide-chip.good {
+  color: var(--text-main);
+  border-color: var(--green);
+}
+
+.guide-chip.warn {
+  color: var(--text-main);
+  border-color: var(--mk-warn);
+}
+
+.guide-none {
+  color: var(--text-sub);
+}
+
+.guide-state-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+}

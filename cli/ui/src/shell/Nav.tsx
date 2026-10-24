@@ -105,7 +105,7 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
           <div className="nav-section-label">More</div>
           <ul className="nav-list">
             <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" badge={<span className="soon">soon</span>} onGo={close} />
-            <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" badge={<span className="soon">soon</span>} onGo={close} />
+            <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" onGo={close} />
           </ul>
         </nav>
         {children}

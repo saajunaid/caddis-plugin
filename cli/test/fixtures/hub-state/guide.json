@@ -1,0 +1,206 @@
+{
+  "guide": {
+    "schema": 1,
+    "version": "9.9.9",
+    "generated": "2026-10-24 10:00 UTC",
+    "commands": [
+      {
+        "name": "install-statusline",
+        "description": "Install the status line once per machine.",
+        "hint": "",
+        "steps": [],
+        "scripts": [],
+        "noArgs": true,
+        "stage": "setup",
+        "daily": false
+      },
+      {
+        "name": "feature-plan",
+        "description": "Create a phased, TDD-structured plan.",
+        "hint": "<feature>",
+        "steps": [],
+        "scripts": [],
+        "noArgs": false,
+        "stage": "plan",
+        "daily": true
+      },
+      {
+        "name": "implement",
+        "description": "Implement an approved plan phase by phase.",
+        "hint": "<plan path>",
+        "steps": [],
+        "scripts": [],
+        "noArgs": false,
+        "stage": "build",
+        "daily": true
+      },
+      {
+        "name": "cross-review",
+        "description": "Cross-vendor review of the current diff.",
+        "hint": "[provider]",
+        "steps": [],
+        "scripts": [],
+        "noArgs": false,
+        "stage": "review",
+        "daily": false
+      },
+      {
+        "name": "ship-pr",
+        "description": "Open a reviewed PR and watch CI.",
+        "hint": "",
+        "steps": [],
+        "scripts": [],
+        "noArgs": true,
+        "stage": "ship",
+        "daily": true
+      },
+      {
+        "name": "handoff",
+        "description": "Write the end-of-session handoff.",
+        "hint": "",
+        "steps": [],
+        "scripts": [],
+        "noArgs": true,
+        "stage": "continuity",
+        "daily": false
+      },
+      {
+        "name": "glossary",
+        "description": "Define the words this project invented.",
+        "hint": "[term]",
+        "steps": [],
+        "scripts": [],
+        "noArgs": false,
+        "stage": "knowledge",
+        "daily": false
+      },
+      {
+        "name": "roadmap",
+        "description": "Track milestones across plans.",
+        "hint": "<slug>",
+        "steps": [],
+        "scripts": [],
+        "noArgs": false,
+        "stage": "tracking",
+        "daily": false
+      },
+      {
+        "name": "orphan",
+        "description": "A command with no stage in its file.",
+        "hint": "",
+        "steps": [],
+        "scripts": [],
+        "noArgs": true,
+        "stage": "ungrouped",
+        "daily": false
+      }
+    ],
+    "agents": [
+      {
+        "name": "tester",
+        "description": "Author and run tests for a change.",
+        "tools": [
+          "Read",
+          "Edit",
+          "Write",
+          "Bash"
+        ],
+        "model": "sonnet",
+        "writes": true
+      },
+      {
+        "name": "code-reviewer",
+        "description": "Review a diff for correctness and security.",
+        "tools": [
+          "Read",
+          "Grep",
+          "Bash"
+        ],
+        "model": "",
+        "writes": false
+      },
+      {
+        "name": "debug",
+        "description": "Find a root cause and return a fix plan.",
+        "tools": [
+          "Read",
+          "Grep",
+          "Bash"
+        ],
+        "model": "",
+        "writes": false
+      }
+    ],
+    "skills": [
+      {
+        "name": "tdd",
+        "category": "workflow",
+        "description": "Run a strict red-green-refactor cycle.",
+        "core": true
+      },
+      {
+        "name": "git-commit",
+        "category": "workflow",
+        "description": "Write a conventional commit message.",
+        "core": true
+      },
+      {
+        "name": "python-development",
+        "category": "languages",
+        "description": "Modern Python with production practices.",
+        "core": false
+      },
+      {
+        "name": "sql",
+        "category": "data",
+        "description": "Write optimized, secure SQL.",
+        "core": false
+      },
+      {
+        "name": "loose-skill",
+        "category": "uncategorised",
+        "description": "A skill outside any category folder.",
+        "core": false
+      }
+    ],
+    "hooks": [
+      {
+        "event": "PreToolUse",
+        "matcher": "Bash|Edit",
+        "handler": "guard.py"
+      },
+      {
+        "event": "SessionStart",
+        "matcher": "(every)",
+        "handler": "warm_start.py"
+      },
+      {
+        "event": "SessionEnd",
+        "matcher": "(every)",
+        "handler": "session_end.py"
+      }
+    ],
+    "coverage": {
+      "commands": [
+        "claude",
+        "codex-plugin"
+      ],
+      "skills": [
+        "antigravity-plugin",
+        "claude",
+        "codex-plugin"
+      ],
+      "agents": [
+        "antigravity-plugin",
+        "claude"
+      ]
+    },
+    "counts": {
+      "commands": 9,
+      "agents": 3,
+      "skills": 5,
+      "core": 2,
+      "hooks": 3
+    }
+  }
+}

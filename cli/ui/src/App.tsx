@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Inbox } from './inbox/Inbox';
 import { useInbox } from './inbox/useInbox';
 import { Overview } from './overview/Overview';
@@ -10,6 +10,9 @@ import { titleFor } from './shell/format';
 import { parseRoute } from './shell/route';
 import { loadTheme, resolveTheme, saveTheme, type ThemeChoice } from './shell/theme';
 import { useHubState } from './useHubState';
+
+// The guide page loads on demand, so its code and CSS stay out of the first bundle (G6).
+const Guide = lazy(() => import('./guide/Guide').then((m) => ({ default: m.Guide })));
 
 const systemDark = (): boolean => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
 
@@ -91,10 +94,16 @@ export function App(): JSX.Element {
         <p>Repo page arrives in H4.</p>
       </div>
     );
+  } else if (route.page === 'guide') {
+    body = (
+      <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
+        <Guide guide={state.guide} versions={state.versions} />
+      </Suspense>
+    );
   } else {
     body = (
       <div className="notice">
-        <h1 className="page-title">{route.page === 'activity' ? 'Activity' : 'caddis guide'}</h1>
+        <h1 className="page-title">Activity</h1>
         <p>Coming soon.</p>
       </div>
     );
