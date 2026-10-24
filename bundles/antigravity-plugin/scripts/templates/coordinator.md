@@ -7,8 +7,8 @@ How to fill it:
 
 - Replace every `"<fill: ...>"` string with the real value. The coordinator refuses to start while any
   `<fill:` string is left (`caddis_coordinate.py config show` lists them).
-- Keep every key. A missing key also stops the coordinator. Only `relay` is optional: delete its line if the
-  coordinator has no relay.
+- Keep every key. A missing key also stops the coordinator. Only `relay` and `start_mode` are optional: delete
+  the `relay` line if the coordinator has no relay. Without `start_mode`, every start is in interim mode.
 - Put no host names and no secrets here. The production base URL comes from the environment variable that
   `deploy.base_url_env` names.
 
@@ -44,6 +44,7 @@ What the keys mean:
 | `quiet.coordination` | Quiet hours for merges (`none`: no quiet hours). |
 | `quiet.timing_checks` | When timing checks may run. |
 | `relay` | The workstream name of the coordinator's relay (optional; the coordinator reads `.caddis/relay/<relay>.md` and its tasks file at start). |
+| `start_mode` | The merge mode each start begins in (optional): `interim` (the PR's session merges after `go`) or `target` (the coordinator runs `gh pr merge`). `target` here is the owner's standing consent, so set it only in a PR the owner approves. Missing means `interim`. |
 
 ```json
 {
@@ -89,6 +90,7 @@ What the keys mean:
     "coordination": "none",
     "timing_checks": "<fill: when timing checks may run, for example quiet window only>"
   },
-  "relay": "<fill: workstream name of the coordinator's relay, e.g. coordinator>"
+  "relay": "<fill: workstream name of the coordinator's relay, e.g. coordinator>",
+  "start_mode": "interim"
 }
 ```

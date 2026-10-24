@@ -12,7 +12,7 @@ for one of those rows. This command restores that role in one go.
 The argument is the role: `$ARGUMENTS`. If it is empty, list the roles of the newest sheet (Step 1)
 and ask which one — do not guess.
 
-Every fleet rule lives in `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.160/scripts/caddis_fleet.py`; this command only calls it.
+Every fleet rule lives in `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.161/scripts/caddis_fleet.py`; this command only calls it.
 Run each step in order. A step that says "stop" ends the command: print why, and nothing else.
 
 ## Step 1 — find the newest restart sheet that holds the role
@@ -40,7 +40,7 @@ Start line already names the session: `claude --name <expected> "/caddis:fleet-o
 - `<name>` equals `<expected>` → go on.
 - Otherwise it must at least be a name of this role:
   ```
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.160/scripts/caddis_fleet.py" role-of <name>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.161/scripts/caddis_fleet.py" role-of <name>
   ```
   prints `<role>` (the name is `<role>-<MMDD>-<HH>`) → go on, and note the name differs from the sheet.
 - Anything else → tell the owner to run `/rename <expected>` and then `/caddis:fleet-open <role>`
@@ -69,7 +69,7 @@ live local session whose role is in the roster (`caddis_fleet.py role-of <their 
 your own role. When a role has several names, address the newest:
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.160/scripts/caddis_fleet.py" newest <their role> --names-file <file with one name per line>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.161/scripts/caddis_fleet.py" newest <their role> --names-file <file with one name per line>
 ```
 
 Send each one message, exactly: `<role> is now <name>` (your role, your name). Skip offline sessions
@@ -94,7 +94,7 @@ Record this session's presence (your session id is printed at session start as
 `[caddis] this session's id: <id>`; never guess one):
 
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.160/scripts/caddis_fleet.py" whoami --session-id <id> --name <name> --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.161/scripts/caddis_fleet.py" whoami --session-id <id> --name <name> --root .
 ```
 
 Then print one line, and any `watcher not started:` lines under it:

@@ -962,7 +962,10 @@ def session_lookup(sessions: list[dict], *, session_id: str | None = None, name:
 
 CONFIG_KEYS = ("schema", "default_branch", "merge_method", "required_checks", "not_required", "docs_only",
                "main_workflow", "reviews", "peer_ack", "deploy", "owner_reserved", "stall", "quiet")
-OPTIONAL_CONFIG_KEYS = ("relay",)  # the coordinator's own relay: `.caddis/relay/<relay>.md`
+OPTIONAL_CONFIG_KEYS = ("relay", "start_mode")  # relay: `.caddis/relay/<relay>.md`; start_mode: see START_MODES
+# The merge mode a start begins in. "target" in the reviewed, merged config is the owner's standing consent
+# for the coordinator to run `gh pr merge` (command section 2). Missing means "interim".
+START_MODES = ("interim", "target")
 CONFIG_SCHEMA = 1
 _PLACEHOLDER = "<fill:"
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)")  # a Markdown code fence and its info string
@@ -1018,8 +1021,9 @@ def load_config(repo_root: Path) -> dict:
     """Read `<repo_root>/.caddis/coordinator.md` and return its json block.
 
     Raise FileNotFoundError when the file is missing, ValueError when there is no json block, a key is missing,
-    `schema` is not 1, a value is still a `<fill: ...>` placeholder, or the optional `relay` is not a plain
-    workstream name (`caddis_workstreams.is_plain_name`: lower case `a-z0-9_-`, no Windows device name)."""
+    `schema` is not 1, a value is still a `<fill: ...>` placeholder, the optional `relay` is not a plain
+    workstream name (`caddis_workstreams.is_plain_name`: lower case `a-z0-9_-`, no Windows device name), or the
+    optional `start_mode` is not one of START_MODES."""
     path = config_path(repo_root)
     try:
         text = path.read_text(encoding="utf-8")
@@ -1040,7 +1044,90 @@ def load_config(repo_root: Path) -> dict:
     if "relay" in config and not _plain_workstream_name(config["relay"]):
         raise ValueError(f"the config relay must be a plain workstream name such as coordinator, "
                          f"not {config['relay']!r}")
+    if "start_mode" in config and config["start_mode"] not in START_MODES:
+        raise ValueError(f"the config start_mode must be one of {', '.join(START_MODES)}, "
+                         f"not {config['start_mode']!r}")
     return config
+
+
+_CONFIG_REL = ".caddis/coordinator.md"
+
+
+def _start_mode_at(repo_root: Path, rev: str) -> str | None:
+    """`start_mode` in the config at `rev`: a mode, None (no file or no key) or "invalid"."""
+    shown = _run(["git", "-C", str(repo_root), "show", f"{rev}:{_CONFIG_REL}"])
+    if shown.returncode != 0:
+        return None
+    try:
+        block = _config_block(shown.stdout)
+    except ValueError:
+        return "invalid"
+    if not isinstance(block, dict):
+        return "invalid"
+    if "start_mode" not in block:
+        return None
+    return block["start_mode"] if block["start_mode"] in START_MODES else "invalid"
+
+
+def _origin_default_branch(repo_root: Path) -> str | None:
+    """The default branch from `refs/remotes/origin/HEAD`, never from the work tree (review, 24 Oct 2026)."""
+    out = _run(["git", "-C", str(repo_root), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    ref = out.stdout.strip() if out.returncode == 0 else ""
+    return ref[len("origin/"):] if ref.startswith("origin/") and len(ref) > len("origin/") else None
+
+
+def _set_target_commit(repo_root: Path, ref: str) -> tuple[str | None, str | None]:
+    """The commit on `ref` where `start_mode` last became "target" (newest first: the oldest commit of the newest
+    unbroken run of target versions). The ledger cites it as the owner's consent."""
+    out = _run(["git", "-C", str(repo_root), "log", "--format=%H%x09%s", ref, "--", _CONFIG_REL])
+    if out.returncode != 0:
+        return None, None
+    found: tuple[str | None, str | None] = (None, None)
+    for line in out.stdout.splitlines():
+        sha, _, subject = line.partition("\t")
+        if _start_mode_at(repo_root, sha) != "target":
+            break
+        found = (sha, subject)
+    return found
+
+
+def config_mode(repo_root: Path) -> dict:
+    """The merge mode a start begins in. Target only when origin's default branch AND the work tree both say
+    `"start_mode": "target"`: the work tree of a shared checkout can hold an uncommitted edit that no owner
+    approved (review, 24 Oct 2026). The branch comes from `origin/HEAD`, not from the work-tree config; a work
+    tree whose `default_branch` differs is a mismatch. Returns mode, work_tree, origin, mismatch, set_by (the
+    commit that set target) and set_by_subject. Fetch first; a stale origin ref gives a stale answer."""
+    work = load_config(repo_root)
+    branch = _origin_default_branch(repo_root)
+    origin = _start_mode_at(repo_root, f"origin/{branch}") if branch else "invalid"
+    work_mode = work.get("start_mode")
+    set_by = set_by_subject = None
+    if origin == "target":
+        set_by, set_by_subject = _set_target_commit(repo_root, f"origin/{branch}")
+
+    def effective(value: str | None) -> str:  # missing means interim
+        return value or "interim"
+    mismatch = (origin == "invalid" or branch != work["default_branch"]
+                or effective(work_mode) != effective(origin))
+    mode = "target" if not mismatch and effective(origin) == "target" else "interim"
+    return {"mode": mode, "work_tree": work_mode, "origin": origin, "mismatch": mismatch,
+            "set_by": set_by, "set_by_subject": set_by_subject}
+
+
+def config_changed(diff: str) -> bool:
+    """True when a unified diff touches .caddis/coordinator.md in any way: add, delete, rename to or from it,
+    edit, binary or mode-only change. That file holds the coordinator's own rules (start_mode, required checks,
+    owner_reserved), so such a PR is owner-only (R4) in every mode. File-level on purpose: a text match on keys
+    can be dodged with JSON escapes (review, 24 Oct 2026)."""
+    marks = (f"+++ b/{_CONFIG_REL}", f"--- a/{_CONFIG_REL}", f"rename from {_CONFIG_REL}", f"rename to {_CONFIG_REL}",
+             f"copy from {_CONFIG_REL}", f"copy to {_CONFIG_REL}")
+    for line in diff.splitlines():
+        if line in marks:
+            return True
+        if line.startswith("diff --git ") and (line.startswith(f"diff --git a/{_CONFIG_REL} ")
+                                               or line.endswith(f" b/{_CONFIG_REL}")):
+            return True
+    return False
 
 
 def _plain_workstream_name(value: object) -> bool:
@@ -1497,9 +1584,12 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--path", default=".", help="a folder inside the checkout (default: current folder)")
 
     config = sub.add_parser("config").add_subparsers(dest="config_command", required=True, parser_class=_Parser)
-    for name in ("show", "init"):
+    for name in ("show", "init", "mode"):
         p = command(name, config, repo=False)
         p.add_argument("--path", default=".", help="the repo root (default: current folder)")
+    p = command("pr-check", config, repo=False)
+    p.add_argument("--pr", type=int, required=True, help="the PR whose diff to check (`gh pr diff`)")
+    p.add_argument("--gh-repo", help="owner/name for `gh pr diff -R` (default: the current folder's repo)")
 
     p = command("session", repo=False)
     which = p.add_mutually_exclusive_group(required=True)
@@ -1585,6 +1675,18 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.config_command == "init":
             path = init_config(Path(args.path))
             _emit(args, {"path": str(path)}, str(path))
+        elif args.config_command == "mode":
+            got = config_mode(Path(args.path))
+            _emit(args, got, got["mode"] + (" (work tree and origin differ)" if got["mismatch"] else ""))
+        elif args.config_command == "pr-check":
+            cmd = ["gh", "pr", "diff", str(args.pr)] + (["-R", args.gh_repo] if args.gh_repo else [])
+            out = _run(cmd)
+            if out.returncode != 0:
+                raise ValueError(f"gh pr diff {args.pr} failed: {out.stderr.strip()[:200]}")
+            changed = config_changed(out.stdout)
+            _emit(args, {"pr": args.pr, "changes_config": changed},
+                  "owner-only: the PR changes .caddis/coordinator.md" if changed else "no coordinator config change")
+            return EXIT_LOCK_REFUSED if changed else EXIT_OK
         else:
             loaded = load_config(Path(args.path))
             _emit(args, loaded, json.dumps(loaded, indent=2))
