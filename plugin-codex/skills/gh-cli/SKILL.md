@@ -74,7 +74,7 @@ gh pr checkout 55
 gh pr review 55 --approve --body "LGTM!"
 gh pr review 55 --request-changes --body "Please fix error handling"
 # merge only on ci-watch RESULT: pass, only its HEAD:, with no default-branch run in progress
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.165/scripts/caddis_lanes.py" ci-watch --pr 55
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.166/scripts/caddis_lanes.py" ci-watch --pr 55
 gh run list --branch main --json status       # no in_progress or queued run (main = the default branch)
 gh pr merge 55 --squash --delete-branch --match-head-commit <watched head>
 
@@ -173,7 +173,7 @@ gh issue develop 42 --branch fix/issue-42
 git add src/auth/login.py tests/test_login.py   # named files only, never `git add .`
 git commit -m "fix: resolve login bug" -- src/auth/login.py tests/test_login.py && git push -u origin HEAD
 gh pr create --title "fix: resolve login bug" --body "Closes #42"
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.165/scripts/caddis_lanes.py" ci-watch --pr <n>   # RESULT: pass, HEAD: <watched head>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.166/scripts/caddis_lanes.py" ci-watch --pr <n>   # RESULT: pass, HEAD: <watched head>
 gh run list --branch main --json status       # wait while a default-branch run is in progress
 gh pr merge <n> --squash --delete-branch --match-head-commit <watched head>
 ```

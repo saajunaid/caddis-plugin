@@ -6,7 +6,7 @@
  * `cli/` because the npm package is built in the mirror, which has no `scripts/roadmap_assets/`.
  * test/ui/fonts.test.ts fails when the copy and the source differ.
  *
- * Writes `<publicDir>/fonts/*.woff2`, the two OFL licences beside them, and `<cssOut>`: the same
+ * Writes `<publicDir>/fonts/*.woff2`, the two OFL licences and the Lucide licence beside them, and `<cssOut>`: the same
  * `@font-face` rules with `url(/fonts/<name>)`. Vite copies `public/` to `dist/ui/` and bundles the CSS.
  *
  * Usage: node scripts/build-ui-fonts.mjs [--src <fonts.css>] [--public <dir>] [--css <file>]
@@ -47,7 +47,7 @@ export function buildFonts({ assetsDir = DEFAULT_ASSETS, publicDir, cssOut }) {
     rules.push(body.replace(DATA_RE, `url(/fonts/${name})`));
   }
   if (names.length === 0) throw new Error(`no data: fonts found in ${path.join(assetsDir, 'fonts.css')}`);
-  for (const f of ['OFL-Atkinson.txt', 'OFL-MapleMono.txt']) {
+  for (const f of ['OFL-Atkinson.txt', 'OFL-MapleMono.txt', 'LICENSE-Lucide.txt']) {
     const from = path.join(assetsDir, f);
     if (existsSync(from)) copyFileSync(from, path.join(fontsDir, f));
   }

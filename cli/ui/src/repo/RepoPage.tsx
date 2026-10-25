@@ -8,7 +8,7 @@ import { ageText } from '../shell/format';
 import { repoId, repoTabHref, type RepoTab } from '../shell/route';
 import type { HubState, RepoState } from '../types';
 import { deriveFlow, type FlowItem } from './flow';
-import { roadmapTabLabel } from './roadmap';
+import { collectorStale, roadmapTabLabel } from './roadmap';
 import { Sessions } from './SessionsTab';
 
 // The Roadmap tab is its own chunk (R54): the initial bundle does not grow.
@@ -205,7 +205,7 @@ export function RepoPage({ state, repo, nowMs, act, tab, roadmap }: PageProps): 
       {tab === 'flow' && <Flow state={state} repo={repo} nowMs={nowMs} act={act} />}
       {tab === 'roadmap' && (
         <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
-          <RoadmapTab key={roadmap ?? ''} state={state} repo={repo} slug={roadmap} />
+          <RoadmapTab key={roadmap ?? ''} repo={repo} slug={roadmap} stale={collectorStale(state)} lastOkAt={state.sources.collector.last_ok_at} />
         </Suspense>
       )}
       {tab === 'sessions' && <Sessions state={state} repo={repo} nowMs={nowMs} />}

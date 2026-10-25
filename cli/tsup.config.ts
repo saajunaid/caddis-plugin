@@ -1,3 +1,4 @@
+import { copyFileSync } from 'node:fs';
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
@@ -14,6 +15,10 @@ export default defineConfig({
   platform: 'node',
   outDir: 'dist',
   clean: true,
+  // The export privacy scan reads this file next to its module, in `src/` and in `dist/` (R62 d).
+  onSuccess: async () => {
+    copyFileSync('src/hub/export/allowed-urls.txt', 'dist/allowed-urls.txt');
+  },
   splitting: false,
   sourcemap: false,
   dts: false,

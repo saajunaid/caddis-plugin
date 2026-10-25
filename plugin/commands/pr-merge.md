@@ -97,7 +97,7 @@ hands back here.
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
 Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
-`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
+`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: one `/caddis:cross-review` by one other vendor (two only when the owner asks). No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
 ## Step 4 — Rebase-safe currency
@@ -130,7 +130,7 @@ Watch the PR's checks job-by-job until completion:
   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   `RESULT: pass` means every check of the PR's head commit is complete and green (cancelled, failed or unfinished is never a pass). `HEAD:` names that commit: it is the `<watched-sha>`; merge with `--match-head-commit <watched-sha>`.
-  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell (also: gh finished but a check is still unfinished, the head's checks could not be read, or the head moved during the watch — `FAILING:` says which) → run `ci-watch` again; if it stays 3, stop and report, do not merge.
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify the cause, apply the minimum source fix, and re-push (stop before merging); **3** could not tell (also: gh finished but a check is still unfinished, the head's checks could not be read, or the head moved during the watch — `FAILING:` says which) → if `FAILING:` names a queued or unfinished run, watch that run once with `ci-watch --run <id>` (never a new `--pr` watch); if it stays 3, stop and report, do not merge. One `ci-watch` per PR head; write no "still waiting" turns.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 - If any check fails (red check): report the failure, classify the cause, and **stop before merging**.
   Do not merge a failing PR. Apply the minimum source fix and re-push.

@@ -112,7 +112,7 @@ a reason.
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
 3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
-   the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
+   the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
 A diff over the batch ceiling is split into batches. Each batch prompt lists every file in the

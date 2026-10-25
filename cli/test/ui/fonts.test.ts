@@ -27,13 +27,18 @@ describe('build-ui-fonts (R27)', () => {
     expect(css).toContain('Atkinson Hyperlegible Next');
     expect(css).toContain('Maple Mono');
   });
+
+  it('ships the three licences beside the fonts', () => {
+    buildFonts({ publicDir: tmp, cssOut: path.join(tmp, 'f.css') });
+    for (const f of ['OFL-Atkinson.txt', 'OFL-MapleMono.txt', 'LICENSE-Lucide.txt']) expect(existsSync(path.join(tmp, 'fonts', f)), f).toBe(true);
+  });
 });
 
 // The mirror has no repo-root scripts/roadmap_assets/, so cli/ keeps its own copy. In a source checkout the
 // two must stay byte-identical. In the mirror this test skips.
 const ROOT_ASSETS = path.resolve(DEFAULT_ASSETS, '..', '..', '..', 'scripts', 'roadmap_assets');
 describe.skipIf(!existsSync(path.join(ROOT_ASSETS, 'fonts.css')))('ui/fonts-src copy', () => {
-  it.each(['fonts.css', 'OFL-Atkinson.txt', 'OFL-MapleMono.txt'])('%s is byte-identical to scripts/roadmap_assets', (f) => {
+  it.each(['fonts.css', 'OFL-Atkinson.txt', 'OFL-MapleMono.txt', 'LICENSE-Lucide.txt'])('%s is byte-identical to scripts/roadmap_assets', (f) => {
     const copy = readFileSync(path.join(DEFAULT_ASSETS, f));
     const source = readFileSync(path.join(ROOT_ASSETS, f));
     expect(copy.equals(source), `${f} drifted: copy scripts/roadmap_assets/${f} to cli/ui/fonts-src/`).toBe(true);

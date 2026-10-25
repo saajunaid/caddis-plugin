@@ -4,8 +4,9 @@ import { repoLabel } from '../inbox/derive';
 import { clockText } from '../shell/format';
 import { repoId as repoIdOf, repoTabHref } from '../shell/route';
 import { localTime } from '../shell/time';
-import type { HubState, RepoState } from '../types';
+import type { RepoState } from '../types';
 import {
+  collectorStale,
   deriveRoadmaps,
   filterRoadmap,
   listRow,
@@ -211,7 +212,7 @@ function Milestones({ m, match }: { m: RoadmapModel; match: Match | null }): JSX
   );
 }
 
-function Detail({ m, repo, crumbHref, match }: { m: RoadmapModel; repo: RepoState; crumbHref: string | null; match: Match | null }): JSX.Element {
+function Detail({ m, repo, crumbHref, match, variant }: { m: RoadmapModel; repo: RepoState; crumbHref: string | null; match: Match | null; variant: Variant }): JSX.Element {
   const k = m.kpis;
   const jump = (id: string) => () => openMilestone(m.slug, id);
   return (
@@ -355,44 +356,46 @@ function Detail({ m, repo, crumbHref, match }: { m: RoadmapModel; repo: RepoStat
 
       <Milestones m={m} match={match} />
 
-      <section className="rm-section" data-testid="rm-runner" aria-label="Runner">
-        <h3 className="flow-h">Runner</h3>
-        {m.runner.running ? (
-          <p>
-            Running batch <code>{m.runner.running.batch}</code>
-            {m.runner.running.since ? ` since ${localTime(m.runner.running.since)}` : ''}
-            {m.runner.running.host ? ` (host ${m.runner.running.host}${m.runner.running.pid ? `, pid ${m.runner.running.pid}` : ''})` : ''}.
-          </p>
-        ) : (
-          <p className="col-empty">No runner holds this roadmap now.</p>
-        )}
-        {m.runner.staleBatch !== null && (
-          <p>
-            A stale runner lock remains (batch <code>{m.runner.staleBatch}</code>): the runner that held it is gone.
-          </p>
-        )}
-        {m.runner.lastStop && (
-          <p>
-            Last stop record: {m.runner.lastStopAt ? `${localTime(m.runner.lastStopAt)}: ` : ''}
-            {m.runner.lastStop}.
-          </p>
-        )}
-        {m.runner.errors.map((e) => (
-          <p key={e} className="tone-warn">
-            Could not read {e}.
-          </p>
-        ))}
-        {m.runner.next && (
-          <p>
-            Next batch: <code>{m.runner.next}</code>
-          </p>
-        )}
-      </section>
+      {variant === 'hub' && (
+        <section className="rm-section" data-testid="rm-runner" aria-label="Runner">
+          <h3 className="flow-h">Runner</h3>
+          {m.runner.running ? (
+            <p>
+              Running batch <code>{m.runner.running.batch}</code>
+              {m.runner.running.since ? ` since ${localTime(m.runner.running.since)}` : ''}
+              {m.runner.running.host ? ` (host ${m.runner.running.host}${m.runner.running.pid ? `, pid ${m.runner.running.pid}` : ''})` : ''}.
+            </p>
+          ) : (
+            <p className="col-empty">No runner holds this roadmap now.</p>
+          )}
+          {m.runner.staleBatch !== null && (
+            <p>
+              A stale runner lock remains (batch <code>{m.runner.staleBatch}</code>): the runner that held it is gone.
+            </p>
+          )}
+          {m.runner.lastStop && (
+            <p>
+              Last stop record: {m.runner.lastStopAt ? `${localTime(m.runner.lastStopAt)}: ` : ''}
+              {m.runner.lastStop}.
+            </p>
+          )}
+          {m.runner.errors.map((e) => (
+            <p key={e} className="tone-warn">
+              Could not read {e}.
+            </p>
+          ))}
+          {m.runner.next && (
+            <p>
+              Next batch: <code>{m.runner.next}</code>
+            </p>
+          )}
+        </section>
+      )}
     </div>
   );
 }
 
-function ListView({ repo, m }: { repo: RepoState; m: RepoRoadmaps }): JSX.Element {
+function ListView({ repo, m, variant }: { repo: RepoState; m: RepoRoadmaps; variant: Variant }): JSX.Element {
   const id = repoIdOf(repo);
   return (
     <div className="rm-list-view">
@@ -418,7 +421,7 @@ function ListView({ repo, m }: { repo: RepoState; m: RepoRoadmaps }): JSX.Elemen
           const row = listRow(r);
           return (
             <li key={r.slug}>
-              <a className={`rm-rcard rm-card tone-${row.tone}`} data-testid="rm-card" href={repoTabHref(id, 'roadmap', r.slug)}>
+              <a className={`rm-rcard rm-card tone-${row.tone}`} data-testid="rm-card" href={roadmapHref(variant, id, r.slug)}>
                 <span>
                   <strong>{row.slug}</strong> <span className="rm-sub">{row.branch ?? ''}</span>
                 </span>
@@ -434,7 +437,8 @@ function ListView({ repo, m }: { repo: RepoState; m: RepoRoadmaps }): JSX.Elemen
                   ))}
                 </span>
                 <span className="rm-sub">
-                  next: {row.next} · runner: {row.runner}
+                  next: {row.next}
+                  {variant === 'hub' ? ` · runner: ${row.runner}` : ''}
                   {row.gates > 0 ? ` · ${row.gates} open gate${row.gates === 1 ? '' : 's'}` : ''}
                 </span>
               </a>
@@ -471,19 +475,28 @@ function Plans({ plans }: { plans: PlanView[] }): JSX.Element {
   );
 }
 
-/** The data of the Roadmap tab is old when the collector source is down or stale (spec section 6). */
-export const collectorStale = (state: HubState): boolean => !state.sources.collector.ok || state.sources.collector.stale;
+export { collectorStale };
+
+/** `hub`: the full view. `site`: the shared copy of the Pages export (R64): no runner, no host, no sessions. */
+export type Variant = 'hub' | 'site';
+
+/** The site routes are `#/` and `#/roadmap/<slug>` (R63). The hub routes are repo routes. */
+const roadmapHref = (variant: Variant, id: string, slug?: string): string =>
+  variant === 'site' ? (slug ? `#/roadmap/${encodeURIComponent(slug)}` : '#/') : repoTabHref(id, 'roadmap', slug);
 
 interface Props {
-  state: HubState;
   repo: RepoState;
   /** The roadmap the route names, or null. */
   slug: string | null;
+  /** True when the collector data is old (the hub passes `collectorStale(state)`). */
+  stale?: boolean;
+  /** When the collector last read well. */
+  lastOkAt?: string | null;
+  variant?: Variant;
 }
 
-export default function RoadmapTab({ state, repo, slug }: Props): JSX.Element {
+export default function RoadmapTab({ repo, slug, stale = false, lastOkAt = null, variant = 'hub' }: Props): JSX.Element {
   const m = deriveRoadmaps(repo);
-  const stale = collectorStale(state);
   const [text, setText] = useState('');
   const search = useRef<HTMLInputElement>(null);
 
@@ -504,7 +517,7 @@ export default function RoadmapTab({ state, repo, slug }: Props): JSX.Element {
   const id = repoIdOf(repo);
   const staleNote = stale && (
     <p className="lane-note" data-testid="rm-stale">
-      Roadmap data is old. Last good read {clockText(state.sources.collector.last_ok_at)}. The numbers below are greyed.
+      Roadmap data is old. Last good read {clockText(lastOkAt)}. The numbers below are greyed.
     </p>
   );
 
@@ -527,7 +540,8 @@ export default function RoadmapTab({ state, repo, slug }: Props): JSX.Element {
   } else if (m.mode === 'plans') {
     body = <Plans plans={m.plans} />;
   } else {
-    const picked = slug ? m.roadmaps.find((r) => r.slug === slug) : opensDirectly(m) ? m.roadmaps[0] : undefined;
+    // The site home always lists: its KPIs and gates sit above the list.
+    const picked = slug ? m.roadmaps.find((r) => r.slug === slug) : variant === 'hub' && opensDirectly(m) ? m.roadmaps[0] : undefined;
     if (picked) {
       const canList = m.roadmaps.length + m.errors.length > 1;
       const match = filterRoadmap(picked, text);
@@ -553,7 +567,7 @@ export default function RoadmapTab({ state, repo, slug }: Props): JSX.Element {
               {match ? `${match.count} ${match.count === 1 ? 'match' : 'matches'}` : ''}
             </span>
           </div>
-          <Detail m={picked} repo={repo} crumbHref={canList ? repoTabHref(id, 'roadmap') : null} match={match} />
+          <Detail m={picked} repo={repo} crumbHref={canList ? roadmapHref(variant, id) : null} match={match} variant={variant} />
         </>
       );
     } else {
@@ -564,7 +578,7 @@ export default function RoadmapTab({ state, repo, slug }: Props): JSX.Element {
               No roadmap named {slug} in this repo.
             </p>
           )}
-          <ListView repo={repo} m={m} />
+          <ListView repo={repo} m={m} variant={variant} />
         </>
       );
     }

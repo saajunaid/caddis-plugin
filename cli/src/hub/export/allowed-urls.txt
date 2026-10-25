@@ -1,0 +1,19 @@
+# URLs that may appear in the Pages export (R62 d). One exact URL per line.
+# Any other URL in any exported file fails the privacy scan.
+# Add a line only after you check that the URL is a namespace or licence link, not a private host.
+
+# XML and SVG namespace names and the error-page link in the React bundle
+http://www.w3.org/1998/Math/MathML
+http://www.w3.org/1999/xhtml
+http://www.w3.org/1999/xlink
+http://www.w3.org/2000/svg
+http://www.w3.org/XML/1998/namespace
+https://reactjs.org/docs/error-decoder.html?invariant=
+
+# Licence texts in licenses/
+https://github.com/googlefonts/atkinson-hyperlegible-next
+https://github.com/subframe7536/maple-font
+https://openfontlicense.org
+
+# A PR link is built from `--github` and a number at run time. The bundle holds only the template.
+template: https://github.com/

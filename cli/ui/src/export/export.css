@@ -1,0 +1,23 @@
+/* The few rules the export page needs beyond pages.css. */
+.ex-table-wrap {
+  overflow-x: auto;
+}
+.ex-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.ex-table th,
+.ex-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-dim);
+}
+.ex-table th {
+  color: var(--text-sub);
+  font-weight: 600;
+}
+.ex-note {
+  margin-top: 24px;
+}

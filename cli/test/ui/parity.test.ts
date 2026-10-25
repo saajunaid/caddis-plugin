@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import RoadmapTab from '../../ui/src/repo/RoadmapTab';
+import RoadmapTab, { collectorStale } from '../../ui/src/repo/RoadmapTab';
 import { Sessions } from '../../ui/src/repo/SessionsTab';
 import type { HubState, RepoState } from '../../ui/src/types';
 
@@ -14,8 +14,8 @@ import type { HubState, RepoState } from '../../ui/src/types';
 const load = (name: string): HubState =>
   JSON.parse(readFileSync(new URL(`../fixtures/hub-state/${name}.json`, import.meta.url), 'utf8')) as HubState;
 const repoOf = (s: HubState, name: string): RepoState => s.repos.find((r) => r.name === name)!;
-const render = (s: HubState, repo: RepoState, slug: string | null): string =>
-  renderToStaticMarkup(createElement(RoadmapTab, { state: s, repo, slug }));
+const render = (s: HubState, repo: RepoState, slug: string | null, extra: { variant?: 'hub' | 'site' } = {}): string =>
+  renderToStaticMarkup(createElement(RoadmapTab, { repo, slug, stale: collectorStale(s), lastOkAt: s.sources.collector.last_ok_at, ...extra }));
 
 /** Row of the checklist -> the test ids its element carries. */
 const DETAIL_ROWS: Record<string, string[]> = {
@@ -106,5 +106,38 @@ describe('parity checklist against the old roadmap page', () => {
 
   it('every ruled-out row has a reason', () => {
     for (const [row, why] of Object.entries(RULED_OUT)) expect(why.length, row).toBeGreaterThan(0);
+  });
+});
+
+describe('site variant (H6.1, R64)', () => {
+  const full = load('full');
+  const planted = load('full');
+  const rm = (repoOf(planted, 'shop').roadmaps as { roadmaps: { runner: { lock: Record<string, unknown> } }[] }).roadmaps[0]!;
+  rm.runner.lock = { batch: 'S1', started_utc: '2026-10-24T09:00:00Z', host: 'sample-host-77', pid: 424242 };
+  const site = (s: HubState, slug: string | null): string => render(s, repoOf(s, 'shop'), slug, { variant: 'site' });
+
+  it('keeps every detail row except the runner', () => {
+    const html = site(planted, 'launch');
+    for (const [row, ids] of Object.entries(DETAIL_ROWS)) {
+      if (row === 'P13') continue;
+      for (const id of ids) expect(html, `${row} lost data-testid="${id}"`).toContain(`data-testid="${id}"`);
+    }
+    expect(html).not.toContain('data-testid="rm-runner"');
+    expect(html).not.toContain('sample-host-77');
+    expect(html).not.toContain('424242');
+  });
+
+  it('the hub variant still shows the runner and its host', () => {
+    const html = render(planted, repoOf(planted, 'shop'), 'launch');
+    expect(html).toContain('data-testid="rm-runner"');
+    expect(html).toContain('sample-host-77');
+  });
+
+  it('the list card has no runner text and links to the site routes', () => {
+    const html = site(full, null);
+    expect(html).toContain('data-testid="rm-card"');
+    expect(html).not.toContain('runner:');
+    expect(html).toContain('href="#/roadmap/launch"');
+    expect(site(full, 'launch')).toContain('href="#/"');
   });
 });

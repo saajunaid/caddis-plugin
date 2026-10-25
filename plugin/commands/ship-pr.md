@@ -126,7 +126,7 @@ source checkout; skip this step if the script is missing or the repo has no `.ca
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
 Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
-`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: two reviewers of two other vendors in one round. No `TIER:` line means tier 2.
+`<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: one `/caddis:cross-review` by one other vendor (two only when the owner asks). No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 
 > **Why this is mechanical and not "consider a review here".** a fleet app shipped four
@@ -170,7 +170,7 @@ scope-guard check when present:
   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   `RESULT: pass` means every check of the PR's head commit is complete and green; `HEAD:` names that commit.
-  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → run `ci-watch` again; if it stays 3, stop and report, do not merge.
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → watch the queued or unfinished run once with `ci-watch --run <id>` (never a new `--pr` watch); if it stays 3, stop and report, do not merge. One `ci-watch` per PR head; write no "still waiting" turns.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh pr checks <pr> --watch` / `gh run watch` (`gh-cli` skill).
 On a red check, classify the failure and apply the minimum **source** fix, then re-push (through
 Step 4's safety if history must change).

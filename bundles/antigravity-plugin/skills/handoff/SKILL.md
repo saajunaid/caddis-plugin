@@ -464,6 +464,11 @@ claude --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce 
   `--role <role>` to set another.
 
 ## Rules
+- **Clear above 200k tokens.** A session whose conversation passes about 200k tokens writes this handoff at
+  the next safe point and asks the owner for `/clear`. Each turn re-reads the whole conversation, so a long
+  session costs more with every turn.
+- **Model for the next session.** Print one line `Model for next session: ...` just before the RESUME block (the block stays the last output): Sonnet (effort medium) to run an approved
+  plan; Opus to write a plan or design. Start line: `claude --model sonnet --effort medium --name <role>-<MMDD>-<HH>`.
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in
   order: (1) interrupted mid-phase work → finish + commit it; else (2) the active plan's next not-started
   phase; else (3) the top open question/decision. Everything else is context, not the next step.

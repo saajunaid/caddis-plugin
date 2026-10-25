@@ -580,7 +580,7 @@ TIER_REVIEWERS = {
     "0": 0,
     "1-small": 0,
     "1": 1,
-    "2": 2,
+    "2": 1,
 }
 
 
@@ -738,10 +738,10 @@ def gate_review_tier(
     except Exception as exc:  # noqa: BLE001 - a diff we cannot read is reviewed in full, never skipped
         sys.stderr.write(f"caddis-gate: review-tier could not read the diff ({exc}); counting it as tier 2\n")
         print("TIER: 2")
-        print("REVIEWERS: 2")
+        print("REVIEWERS: 1")
         return EXIT_OK
     tier = review_tier(files, plan_risk=risk)
-    reviewers = TIER_REVIEWERS.get(tier, 2)
+    reviewers = TIER_REVIEWERS.get(tier, 1)
     print(f"TIER: {tier}")
     print(f"REVIEWERS: {reviewers}")
     return EXIT_OK

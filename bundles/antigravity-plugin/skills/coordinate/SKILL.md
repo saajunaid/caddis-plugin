@@ -26,6 +26,15 @@ Argument: **$ARGUMENTS**
 - After a crash: run `/caddis:coordinate start` only (first `/rename coordinator` if the name is lost).
 - Do not paste a resume prompt. Start reads the coordinator's relay and tasks itself (step 1.8).
 
+## Keep this session cheap
+
+Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation.
+- Start the coordinator on Sonnet with low effort: `claude --model sonnet --effort low --name coordinator`,
+  then `/caddis:coordinate start`.
+- Post a peer message only when the queue or a PR state changes. Send no acknowledgement of an
+  acknowledgement. The watcher already prints a line only on a change, so a quiet cycle wakes nobody.
+- Restart (handoff, `/clear`, `/caddis:coordinate`) when this conversation passes about 200k tokens, or once a day.
+
 ## How to call the script
 
 - Run these commands with the Bash tool: the quoting and the `GH_TOKEN=$(...)` forms are POSIX shell.
@@ -209,7 +218,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
    GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --pr <n>
    ```
    Act only on `RESULT: pass`. The `HEAD:` line is the `<watched sha>`. Exit 1: CI is red (design 8.1;
-   one re-run for a flake, design 8.2). Exit 3: run `ci-watch` again; if it stays 3, stop and report.
+   one re-run for a flake, design 8.2). Exit 3: watch the queued or unfinished run once with `ci-watch --run <id> --repo <owner/name>` (not a new `--pr` watch); if it stays 3, stop and report. One `ci-watch` per PR head; write no "still waiting" turns.
    Exit 4: a usage error; stop and report.
 7. If the item is in `ci` (after step 3.5 or a new head), check R1 and R2 again at the watched head,
    then run `queue ready` (step 3.3). Do not warn for an item that is not `ready`.

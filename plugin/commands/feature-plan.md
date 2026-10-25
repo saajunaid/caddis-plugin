@@ -149,8 +149,8 @@ froze CI on the dev box.
 
 - **review lane (every phase that touches code)** — cross-vendor review by a vendor that did NOT
   write the code: `/caddis:cross-review --range main..HEAD`
-  (Claude or GLM implemented) or `--provider glm` / a Claude `code-reviewer` pass (DeepSeek-adjacent
-  work). Never same-vendor.
+  (Claude or GLM implemented) or `--provider glm` (DeepSeek-adjacent work). Never same-vendor. Never a
+  Claude reviewer subagent, unless every other-vendor provider failed; the executor says so in the review file.
 
 **The `Lane:` line is a routing directive read by `/caddis:implement`, not a note.** An interactive
 session that is handed a phase belonging to another lane spawns that lane rather than absorbing the
@@ -198,9 +198,10 @@ Write one `Execution:` line per phase, next to its `Lane:` and model lines. A fi
 - Otherwise `Execution: inline`.
 
 `inline` means today's behaviour: one implementer does the whole phase. `per-task` means the executor
-gives each task a fresh implementer (on the phase's model tier and lane) and a short task review (spec
-compliance, then quality) before the next task starts. The task review does not replace the phase's review by another vendor:
-`review-tier` and `/caddis:cross-review` still run once per phase.
+gives each task a fresh implementer (on the phase's model tier and lane). There is no model review
+between tasks. Each phase gets ONE review, by ONE reviewer of another vendor, at the end of the phase
+(`review-tier` and `/caddis:cross-review`). A fix is re-checked only when it fixes a blocking finding
+and changes logic.
 
 A `per-task` phase is split into tasks. Each task must have:
 - **`Files:`** — every file to create, modify and test, with exact paths.
@@ -280,11 +281,19 @@ to the phase or task that owns the code. Write "none found" only after you check
 
 ## Phases
 
+**Session rules for the orchestrator** (measured 24-25 Oct 2026: long Opus sessions re-read 400-600k tokens
+on every turn). Keep the context small: subagent replies under about 200 words, full reports in files,
+never paste or tail large outputs. At each phase end, write the handoff; continue in the same session only
+while the conversation is under about 200k tokens. Run the phase review as
+`/caddis:cross-review --range <base>..HEAD`. Send a task marked mechanical (literal tests, moves, deletes,
+renames) to agy through `caddis_spend.py run`. Run one `ci-watch` per PR head; on a queued-run timeout watch
+that run once with `--run <id>`; write no "still waiting" turns.
+
 ### Phase 1 — <name>  ⏳
 > ⚠️ **Switch model/lane BEFORE starting this phase** — the *active* model does the work, not the
 > one named here. Lane `claude`: run `/model <alias>`. Lane `glm-headless`: run the exact command below.
 **Milestone:** M1  *(omit on plans without milestones)*
-**Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>
+**Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>. Orchestrator: Sonnet to run the plan (Opus only to write plans and designs).
 **Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
 **Type:** backend | hard | ui | tests | docs  *(required when the Lane runs through caddis_lanes.py)*
 **Execution:** inline | per-task  *(the rule in Step 2; per-task phases list their tasks below)*
@@ -324,13 +333,13 @@ Three rules: one attempt, one review.
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
 3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
-   the first CLEAN. Tier 2: two reviewers of two other vendors, in one round. Fix blocking findings only;
+   the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
 - One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
   COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
-  An `Execution: per-task` phase runs task by task: a fresh implementer per task, and a task review
-  before the next task. The cross-review still runs once for the phase.
+  An `Execution: per-task` phase runs task by task: a fresh implementer per task, and no model
+  review between tasks. One cross-review, by one other vendor, runs at the end of the phase.
 - **Session boundaries:** the executor WRITES the handoff (durable `relay.md` + Tracker) after any
   phase that ends a sitting — it performs the work, it does not suggest the command. Start a FRESH
   session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or whenever

@@ -56,3 +56,34 @@ describe('bundle budget limits', () => {
     expect(BUDGET).toEqual({ jsGzip: 184320, cssGzip: 30720, totalNoFonts: 1048576 });
   });
 });
+
+// R65: the export page has the same budget as the hub (R30). Its files are at `./assets/`, and the whole folder without
+// fonts and licences stays under 1 MB.
+const exportDist = fileURLToPath(new URL('../../dist/export', import.meta.url));
+const exportBuilt = existsSync(path.join(exportDist, 'index.html'));
+
+describe.skipIf(!exportBuilt)('export bundle budget (R65)', () => {
+  const html = exportBuilt ? readFileSync(path.join(exportDist, 'index.html'), 'utf8') : '';
+  const initialFiles = (ext: string): string[] =>
+    [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+)"/g)].map((m) => path.join(exportDist, m[1]!)).filter((f) => f.endsWith(ext));
+
+  it('initial JS is within the gzip budget', () => {
+    const files = initialFiles('.js');
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.reduce((n, f) => n + gz(f), 0)).toBeLessThanOrEqual(BUDGET.jsGzip);
+  });
+
+  it('CSS is within the gzip budget', () => {
+    const files = initialFiles('.css');
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.reduce((n, f) => n + gz(f), 0)).toBeLessThanOrEqual(BUDGET.cssGzip);
+  });
+
+  it('dist/export without fonts is within 1 MB', () => {
+    const fonts = path.join(exportDist, 'fonts') + path.sep;
+    const total = walk(exportDist)
+      .filter((f) => !f.startsWith(fonts))
+      .reduce((n, f) => n + statSync(f).size, 0);
+    expect(total).toBeLessThanOrEqual(BUDGET.totalNoFonts);
+  });
+});

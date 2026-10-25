@@ -118,7 +118,7 @@ The merge lands on the default branch and triggers the pipeline. Watch it via th
   ```bash
   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <run-id>
   ```
-  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 6).
+  Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 6). This step already watches the run with `--run`, so do not watch it again; write no "still waiting" turns.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If the workflow has a deploy job, watch it through; if CI-only, note that no deploy occurs.
 
 ## Step 5 — Post-deploy validation

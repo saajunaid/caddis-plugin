@@ -10,15 +10,13 @@ import { Nav, repoId } from './shell/Nav';
 import { setFavicon } from './shell/favicon';
 import { titleFor } from './shell/format';
 import { parseRoute } from './shell/route';
-import { loadTheme, resolveTheme, saveTheme, type ThemeChoice } from './shell/theme';
+import { useTheme } from './shell/useTheme';
 import { useHubState } from './useHubState';
 
 // The guide page loads on demand, so its code and CSS stay out of the first bundle (G6).
 const Guide = lazy(() => import('./guide/Guide').then((m) => ({ default: m.Guide })));
 // The Activity page is its own chunk (R54).
 const Activity = lazy(() => import('./activity/Activity'));
-
-const systemDark = (): boolean => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
 
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -37,27 +35,6 @@ function useRoute() {
     return () => window.removeEventListener('hashchange', on);
   }, []);
   return parseRoute(hash);
-}
-
-function useTheme(): [ThemeChoice, (t: ThemeChoice) => void] {
-  const [choice, setChoice] = useState<ThemeChoice>(() => loadTheme());
-  useEffect(() => {
-    const apply = (): void => {
-      document.documentElement.dataset.theme = resolveTheme(choice, systemDark());
-    };
-    apply();
-    if (choice !== 'system' || !window.matchMedia) return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, [choice]);
-  return [
-    choice,
-    (t) => {
-      saveTheme(t);
-      setChoice(t);
-    },
-  ];
 }
 
 export function App(): JSX.Element {

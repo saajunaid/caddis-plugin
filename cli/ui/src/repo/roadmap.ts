@@ -1,4 +1,4 @@
-import type { RepoState } from '../types';
+import type { HubState, RepoState } from '../types';
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
@@ -420,3 +420,6 @@ export function roadmapTabLabel(repo: RepoState): string {
   const n = gateCount(deriveRoadmaps(repo));
   return n > 0 ? `Roadmap · ${n} gate${n === 1 ? '' : 's'}` : 'Roadmap';
 }
+
+/** The data of the Roadmap tab is old when the collector source is down or stale (spec section 6). */
+export const collectorStale = (state: HubState): boolean => !state.sources.collector.ok || state.sources.collector.stale;

@@ -68,7 +68,7 @@ export function defaultScriptPath(): string {
 const FIND_TIMEOUT_MS = 10_000;
 const find = (name: string): Promise<string | null> => withTimeout(findBin(name), FIND_TIMEOUT_MS, `finding ${name}`);
 
-async function resolvePython(): Promise<{ cmd: string; pre: string[] } | null> {
+export async function resolvePython(): Promise<{ cmd: string; pre: string[] } | null> {
   const py = await find('python');
   if (py) return { cmd: py, pre: [] };
   if (process.platform === 'win32') {

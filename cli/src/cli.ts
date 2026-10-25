@@ -165,6 +165,20 @@ hub
   });
 
 hub
+  .command('export')
+  .description('build the static roadmap page for GitHub Pages: roadmap data only, privacy scan (exit 3 on a hit)')
+  .option('--repo <path>', 'the git checkout with .caddis/roadmaps or .caddis/plans')
+  .option('--out <dir>', 'the folder to write (emptied only if empty or made by this command)')
+  .option('--github <owner/repo>', 'the public GitHub repo, for the PR links')
+  .option('--commit <sha>', 'the commit the page is built from (cut to 7 hex)')
+  .option('--label <text>', 'extra text for the banner')
+  .option('--check <dir>', 'scan an already built folder and do nothing else')
+  .action(async (options: { repo?: string; out?: string; github?: string; commit?: string; label?: string; check?: string }) => {
+    const { hubExport } = await import('./hub/export/export.js');
+    finish(await hubExport(options));
+  });
+
+hub
   .command('autostart <action>')
   .description('start the hub at logon: enable, disable or status (per user, opt-in)')
   .action(async (action: string) => {
