@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCollectorSource } from '../../src/hub/sources/collector.js';
 import { findBin } from '../../src/util/which.js';
+import { findScriptsDir } from '../scriptsDir.js';
 
 let dir: string;
 beforeEach(() => {
@@ -209,7 +210,7 @@ describe('collector source', () => {
   });
 
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-  const script = path.join(repoRoot, 'scripts', 'caddis_hub_collect.py');
+  const script = path.join(findScriptsDir() ?? path.join(repoRoot, 'scripts'), 'caddis_hub_collect.py');
   const fixture = path.join(repoRoot, 'scripts', 'tests', 'fixtures', 'hub', 'acme-shop');
   it('runs the real collector on a fixture copy (when python exists)', async () => {
     const py = (await findBin('python')) ?? (await findBin('python3'));

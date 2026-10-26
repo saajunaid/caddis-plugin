@@ -113,6 +113,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # The hub tests start the bundled Python scripts (needs 3.11+).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Test
         run: npm test
 

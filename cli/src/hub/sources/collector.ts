@@ -53,7 +53,7 @@ export interface CollectorOptions {
   spawn?: SpawnFn;
 }
 
-/** The script in the npm bundle, or the repo's `scripts/` folder in a dev checkout. */
+/** The script in the npm bundle, or the repo's `scripts/` folder in a dev checkout, or the mirror's bundles/ folder. */
 export function defaultScriptPath(): string {
   const name = 'caddis_hub_collect.py';
   const bundle = bundlePath('antigravity-plugin', { requireManifest: false });
@@ -61,7 +61,11 @@ export function defaultScriptPath(): string {
     const shipped = path.join(bundle, 'scripts', name);
     if (existsSync(shipped)) return shipped;
   }
-  return path.join(packageInfo().root, '..', 'scripts', name);
+  // A checkout before `npm run build`: the repo's scripts/, or in the mirror the bundles/ folder beside cli/.
+  const root = path.join(packageInfo().root, '..');
+  const repoScript = path.join(root, 'scripts', name);
+  const mirrorScript = path.join(root, 'bundles', 'antigravity-plugin', 'scripts', name);
+  return !existsSync(repoScript) && existsSync(mirrorScript) ? mirrorScript : repoScript;
 }
 
 /** A PATH lookup reads the disk; a dead network folder on PATH must not hold the collector forever. */

@@ -17,6 +17,7 @@ Tiers:
           piping a download into a shell, a git tree move (switch, rebase, pull, ...) in a checkout whose
           AGENTS.md says `Shared checkout: yes` (deny when headless). The user confirms. (Routine config like package.json/
           tsconfig is NOT gated — frequent and not dangerous; over-prompting gets the guard disabled.)
+  (also deny: a write of a file directly at a drive root, `E:/x` or `/x`; never `rm`, Claude Code checks that)
   allow — everything else; the hook stays silent so normal handling applies.
 
 Escape hatch: `.caddis/config.toml [guard] allow = ["substr", ...]` may only DOWNGRADE an `ask`
@@ -42,6 +43,7 @@ import fnmatch
 import json
 import math
 import os
+import posixpath
 import re
 import shlex
 import subprocess
@@ -70,6 +72,73 @@ _ASK_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lo
 _CI_WORKFLOW_RE = re.compile(r"(^|/)(\.github|\.gitea)/workflows/", re.I)
 
 
+# ── no temp files at a drive root (write -> deny) ────────────────────────────
+# Agents leave temp files at a drive root (`E:/tmp_x.css`, `/tmp_x.py`). Claude Code then blocks the clean-up `rm` on
+# a "critical path" and nothing can approve it. So the guard refuses the WRITE. It never touches `rm`.
+_ROOT_DRIVE = re.compile(r"^[A-Za-z]:/([^/]+)$")        # E:/name
+_ROOT_GITBASH = re.compile(r"^/[A-Za-z]/([^/]+)$")      # /e/name
+_ROOT_POSIX = re.compile(r"^/([^/]+)$")                 # /name
+# A bare `/tmp` is a folder, not a file: `cp a /tmp` and `mv a /tmp` name a folder.
+_POSIX_ROOT_DIRS = frozenset({"tmp", "dev", "etc", "usr", "var", "home", "opt", "mnt", "bin", "sbin", "lib", "lib64",
+                              "proc", "sys", "run", "root", "srv", "boot", "media", "snap", "cygdrive", "mingw64"})
+_ROOT_ADVICE = ("Write temp files in your session scratchpad or E:\\Projects\\.worktrees, "
+                "never at a drive root.")
+
+
+def root_write_reason(path: str) -> str:
+    """The deny reason when ``path`` is a file directly in a filesystem root (`E:/x`, `/x`, `/e/x`), else ''.
+    The path is normalized first: mixed slashes and `..` resolve. A deeper path is fine."""
+    raw = (path or "").strip().strip("'\"")
+    if not raw or raw.endswith(("/", "\\")):  # a trailing separator names a folder
+        return ""
+    p = re.sub(r"/+", "/", raw.replace("\\", "/"))
+    drive = re.match(r"^([A-Za-z]:)(/.*)?$", p)
+    if drive:
+        p = drive.group(1) + posixpath.normpath(drive.group(2) or "/")
+        hit = _ROOT_DRIVE.match(p)
+    elif p.startswith("/"):
+        p = posixpath.normpath(p)
+        hit = _ROOT_GITBASH.match(p)
+        if not hit:
+            hit = _ROOT_POSIX.match(p)
+            if hit and hit.group(1).lower() in _POSIX_ROOT_DIRS:
+                hit = None
+    else:
+        return ""
+    if not hit or hit.group(1) in (".", ".."):
+        return ""
+    return f"writes a file at a drive root ({raw}). {_ROOT_ADVICE}"
+
+
+# Only tools whose -o / -O / --output names an output FILE. `grep -o` and `rg -o` print only the match, so they
+# are not here.
+_OUTPUT_FLAG_TOOLS = frozenset({"curl", "wget", "gcc", "g++", "cc", "c++", "clang", "clang++", "sort", "go"})
+_OUTPUT_FLAGS = ("-o", "-O", "--output", "--output-file")
+
+
+def _output_flag_targets(args: list[str]) -> list[str]:
+    """The values of -o / -O / --output / --output-file (also `--output=x`) in one tool call."""
+    out = []
+    for i, word in enumerate(args):
+        if word in _OUTPUT_FLAGS and i + 1 < len(args):
+            out.append(args[i + 1])
+        elif word.startswith(("--output=", "--output-file=")):
+            out.append(word.split("=", 1)[1])
+    return out
+
+
+def _root_write_targets(command: str) -> list[str]:
+    """Paths a shell command writes through `touch` and the output flags of the tools above. The redirects, `tee`,
+    `cp`/`mv` and the PowerShell writers come from _shell_write_targets. Best-effort: a miss allows the call."""
+    out: list[str] = []
+    try:
+        for name, _cwd, _sub, args in _tool_calls(command, None, _OUTPUT_FLAG_TOOLS | {"touch"}):
+            out += [a for a in args if not a.startswith("-")] if name == "touch" else _output_flag_targets(args)
+    except Exception:  # noqa: BLE001 - a tokenizer failure allows the call
+        pass
+    return out
+
+
 def classify_write(file_path: str) -> tuple[str, str]:
     """Risk tier (deny|ask|allow) + reason for writing/editing ``file_path``."""
     p = file_path.replace("\\", "/").rstrip(". ")
@@ -85,6 +154,10 @@ def classify_write(file_path: str) -> tuple[str, str]:
     if base in _SECRET_BASENAMES or any(base.endswith(s) for s in _SECRET_SUFFIXES):
         return "deny", f"writes a credential/key file ({base})"
     why = hub_dir_reason(file_path)
+    if why:
+        return "deny", why
+
+    why = root_write_reason(file_path)
     if why:
         return "deny", why
 
@@ -1003,10 +1076,10 @@ def _catastrophic_statement(c: str) -> str:
 # Write/Edit path can never disagree about what counts as a secret.
 _SHELL_WRITE_TARGET = re.compile(
     r"""(?:
-          >>?\s*(?P<redir>[^\s|;&<>]+)                      # > file   >> file
-        | \|\s*tee\s+(?:-a\s+)?(?P<tee>[^\s|;&<>]+)          # | tee file
+          >>?\s*(?P<redir>(?:"[^"]+"|'[^']+'|[^\s|;&<>]+))                      # > file   >> file
+        | \|\s*tee\s+(?:-a\s+)?(?P<tee>(?:"[^"]+"|'[^']+'|[^\s|;&<>]+))          # | tee file
         | -(?:Path|FilePath|LiteralPath)\s+(?P<ps>[^\s|;&]+) # Set-Content -Path file
-        | \bOut-File\s+(?P<outfile>[^\s|;&]+)                # Out-File file
+        | \bOut-File\s+(?P<outfile>(?:"[^"]+"|'[^']+'|[^\s|;&]+))                # Out-File file
     )""",
     re.IGNORECASE | re.VERBOSE,
 )
@@ -1286,6 +1359,8 @@ def _shell_env_access(command: str) -> tuple[str, str]:
                 if not destination and len(operands) >= 2:
                     destination = operands.pop()
                 if destination and classify_write(destination)[0] == "deny":
+                    if root_write_reason(destination):  # a root write has its own reason (and advice)
+                        return "deny", f"shell command {root_write_reason(destination)}"
                     return "deny", f"shell command copies onto a secret file ({destination})"
                 if any(classify_read(source)[0] == "deny" for source in operands):
                     return "deny", "shell command copies a secret env file"
@@ -1324,6 +1399,10 @@ def classify_bash(command: str, root: str | None = None) -> tuple[str, str]:
             return "deny", f"shell command {_WHY_HUB}"
         _tier, _why = classify_write(_target)
         if _tier == "deny":
+            return "deny", f"shell command {_why}"
+    for _target in _root_write_targets(data_free):
+        _why = root_write_reason(_target)
+        if _why:
             return "deny", f"shell command {_why}"
     _hub = _hub_delete_safe(data_free)
     if _hub:

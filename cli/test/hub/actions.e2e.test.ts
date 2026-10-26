@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { findScriptsDir } from '../scriptsDir.js';
 import { createActions } from '../../src/hub/actions.js';
 import { addRepos, normalizeRepoPath, resetHubCache } from '../../src/hub/config.js';
 import { hubDir } from '../../src/hub/paths.js';
@@ -23,7 +24,8 @@ import { createCoordinatorSource, type RequestView } from '../../src/hub/sources
 import type { GithubSource } from '../../src/hub/sources/github.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SCRIPTS = path.resolve(here, '..', '..', '..', 'scripts');
+// Source repo: scripts/. Mirror: the bundled copy (see test/scriptsDir.ts).
+const SCRIPTS = findScriptsDir() ?? path.resolve(here, '..', '..', '..', 'scripts');
 const COORDINATE = path.join(SCRIPTS, 'caddis_coordinate.py');
 const FIXTURE = path.join(here, 'fixtures', 'fixture_coordinator.py');
 const RID = 'acme__shop';
@@ -172,7 +174,7 @@ const idOf = (r: { body: Record<string, unknown> }): string => (r.body.request a
 // The gate must run in CI: there a missing Python fails the run. Locally it skips with this note.
 describe.runIf(PY === null && !!process.env.CI)('H3 gate: Python', () => {
   it('needs Python 3.11+ in CI', () => {
-    throw new Error('the H3 gate test needs Python 3.11+ (python, python3 or py -3) and scripts/caddis_coordinate.py');
+    throw new Error('the H3 gate test needs Python 3.11+ (python, python3 or py -3) and caddis_coordinate.py (scripts/ or the bundled copy)');
   });
 });
 

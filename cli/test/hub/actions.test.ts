@@ -14,6 +14,8 @@ import type { CoordinatorEntry } from '../../src/hub/sources/coordinator.js';
 const SHA = 'A'.repeat(40);
 const OTHER = 'B'.repeat(40);
 const T0 = Date.parse('2026-10-24T10:00:00.250Z');
+// Tests that run 20+ appends in a row, each with an fsync: slow on a busy Windows disk.
+const FSYNC_LOOP_TIMEOUT_MS = 20_000;
 let home: string;
 let t: number;
 
@@ -212,7 +214,7 @@ describe('createActions: accepted requests (R34, R35)', () => {
     t += 60_001;
     expect((await a.submit(hold)).status).toBe(202);
     expect(lines(reqFile())).toHaveLength(MAX_ACTIONS_PER_MINUTE + 1);
-  });
+  }, FSYNC_LOOP_TIMEOUT_MS);
 
   it('formats times with whole seconds', () => {
     expect(utcSeconds(Date.parse('2026-10-24T10:00:00.999Z'))).toBe('2026-10-24T10:00:00Z');
@@ -227,7 +229,7 @@ describe('appendLine (R34)', () => {
     const got = readFileSync(file, 'utf8').split('\n');
     expect(got.pop()).toBe('');
     expect(got.map((l) => JSON.parse(l).i).sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i));
-  });
+  }, FSYNC_LOOP_TIMEOUT_MS);
 
   it('closes a tail with no newline first, so the new line stays whole', async () => {
     const file = path.join(home, 'requests.jsonl');
