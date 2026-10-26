@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveRoadmaps,
   planColumns,
+  planKpis,
+  initiallyOpenPlan,
   filterRoadmap,
   gateCount,
   listRow,
@@ -163,6 +165,7 @@ describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () =>
           { phase: '3', status: 'not started', state: 'todo' },
         ],
         open: 2,
+        changedAt: null,
       },
     ]);
   });
@@ -176,6 +179,33 @@ describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () =>
       blocked: ['A2'],
       done: ['A1', 'A4'],
     });
+  });
+  it('a plan KPI counts rows by column and the share done; moved counts as done', () => {
+    const m = deriveRoadmaps(repoOf(load('full'), 'shop'));
+    const side = m.plans.find((p) => p.path === '.caddis/plans/p-side.md')!;
+    expect(planKpis(side)).toEqual({ total: 4, done: 2, inProgress: 0, blocked: 1, todo: 1, pct: 50 });
+  });
+  it('a plan with no Tracker rows has 0 % done, not NaN', () => {
+    const plan = { path: 'a.md', title: 'a', rows: [], open: 0, changedAt: null };
+    expect(planKpis(plan).pct).toBe(0);
+  });
+  it('the open plan that changed last starts open; finished or unknown-time plans do not win', () => {
+    const row = (state: 'todo' | 'done') => ({ phase: 'x', status: state, state });
+    const plans = [
+      { path: 'old.md', title: 'old', rows: [row('todo')], open: 1, changedAt: 100 },
+      { path: 'new.md', title: 'new', rows: [row('todo')], open: 1, changedAt: 300 },
+      { path: 'all-done.md', title: 'd', rows: [row('done')], open: 0, changedAt: 900 },
+      { path: 'no-time.md', title: 'n', rows: [row('todo')], open: 1, changedAt: null },
+    ];
+    expect(initiallyOpenPlan(plans)).toBe('new.md');
+    expect(initiallyOpenPlan([plans[3]!, plans[2]!])).toBe('no-time.md');
+    expect(initiallyOpenPlan([plans[2]!])).toBeNull();
+  });
+  it('the collector time reaches the plan view', () => {
+    const s = load('full');
+    const docs = repoOf(s, 'docs');
+    (docs.plans as { plans: Record<string, unknown>[] }).plans[0]!.changed_at = 1_793_000_000;
+    expect(deriveRoadmaps(docs).plans[0]!.changedAt).toBe(1_793_000_000);
   });
   it('plans that no roadmap names show under the roadmaps; a lane plan does not', () => {
     const m = deriveRoadmaps(repoOf(load('full'), 'shop'));

@@ -81,6 +81,10 @@
               },
               "open_rows": {
                 "type": "integer"
+              },
+              "changed_at": {
+                "type": ["integer", "null"],
+                "description": "Unix time of the last change: the commit time on origin, or the file time in the working tree. null when unknown."
               }
             }
           },

@@ -51,7 +51,7 @@
   background: transparent;
   color: var(--text-main);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -66,7 +66,7 @@
 
 .kpi-tile .kpi-num {
   font-size: 30px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.1;
 }
 
@@ -196,7 +196,7 @@
 }
 
 .item-title {
-  font-weight: 600;
+  font-weight: 400;
   overflow-wrap: anywhere;
 }
 
@@ -204,7 +204,7 @@
   padding: 1px 8px;
   border-radius: 99px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .chip-waiting {
@@ -367,7 +367,7 @@
 }
 
 .lane-name {
-  font-weight: 700;
+  font-weight: 400;
   font-family: 'Maple Mono', ui-monospace, monospace;
   font-size: 14px;
 }
@@ -417,7 +417,7 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-dim);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .card {
@@ -432,7 +432,7 @@
 }
 
 .card-title {
-  font-weight: 600;
+  font-weight: 500;
   font-size: 14px;
 }
 
@@ -828,6 +828,9 @@ select:focus-visible {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+.rm-rcard strong {
+  font-weight: 500;
+}
 .rm-cols .rm-rcard {
   width: 100%;
   margin-bottom: 8px;
@@ -898,11 +901,11 @@ select:focus-visible {
 }
 .rm-head {
   background: var(--bg-lane);
-  font-weight: 700;
+  font-weight: 600;
   border-top: 0;
 }
 .rm-lane {
-  font-weight: 600;
+  font-weight: 500;
   border-left: 0;
   overflow-wrap: anywhere;
 }
@@ -992,6 +995,76 @@ select:focus-visible {
 }
 .rm-ms[open] > .flow-list {
   margin-top: 8px;
+}
+
+/* A plan board: a card that opens and closes. The KPI line stays visible when it is closed. */
+.rm-plan {
+  border: 1px solid var(--border-dim);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 12px 14px;
+}
+.rm-plan[open] {
+  gap: 12px;
+}
+.rm-plan-sum {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  list-style: none;
+}
+.rm-plan-sum::-webkit-details-marker {
+  display: none;
+}
+.rm-plan-sum::before {
+  content: '▸';
+  color: var(--text-sub);
+  transition: transform 0.15s ease;
+}
+.rm-plan[open] > .rm-plan-sum::before {
+  transform: rotate(90deg);
+}
+.rm-plan-title {
+  font-weight: 600;
+  font-size: 15.5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rm-pkpis {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding-left: 20px;
+  font-size: 13.5px;
+  color: var(--text-sub);
+}
+.rm-pkpi-num {
+  font-family: 'Maple Mono', ui-monospace, monospace;
+  font-feature-settings: 'zero' on;
+  color: var(--text-main);
+}
+.rm-pkpi.tone-prog .rm-pkpi-num {
+  color: var(--mk-accent);
+}
+.rm-pkpi.tone-block .rm-pkpi-num {
+  color: var(--mk-warn);
+}
+.rm-pbar {
+  display: inline-block;
+  width: 120px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-dim);
+  overflow: hidden;
+}
+.rm-pbar > span {
+  display: block;
+  height: 100%;
+  background: var(--green);
 }
 .rm-pr {
   color: var(--mk-accent);

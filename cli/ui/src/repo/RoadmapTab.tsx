@@ -13,8 +13,10 @@ import {
   NO_ROADMAP_HINT,
   NO_ROADMAP_TEXT,
   opensDirectly,
+  initiallyOpenPlan,
   PLAN_COLUMNS,
   planColumns,
+  planKpis,
   TILE_LABEL,
   type Match,
   type MilestoneView,
@@ -457,14 +459,45 @@ const CARD_TONE: Record<Tile, string> = { todo: 'todo', 'in-progress': 'prog', b
 /** The card's status line: a bare open box adds nothing, the column already says "to do". */
 const cardText = (status: string): string => status.replace(/^☐\s*/u, '').trim();
 
-/** One plan's Tracker as a kanban board: a card per row, in columns by state. */
-function PlanBoard({ plan }: { plan: PlanView }): JSX.Element {
+/** The KPI line of a plan: always visible, also when the board is closed. */
+function PlanKpiLine({ plan }: { plan: PlanView }): JSX.Element | null {
+  if (plan.rows.length === 0) return null;
+  const k = planKpis(plan);
+  return (
+    <span className="rm-pkpis" data-testid="rm-plan-kpis">
+      <span className="rm-pkpi">
+        <span className="rm-pkpi-num">
+          {k.done} / {k.total}
+        </span>{' '}
+        done
+      </span>
+      <span className="rm-pbar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={k.pct} aria-label="Share of rows done">
+        <span style={{ width: `${k.pct}%` }} />
+      </span>
+      <span className="rm-pkpi rm-pkpi-pct">{k.pct} %</span>
+      <span className={`rm-pkpi${k.inProgress ? ' tone-prog' : ''}`}>
+        <span className="rm-pkpi-num">{k.inProgress}</span> in progress
+      </span>
+      <span className={`rm-pkpi${k.blocked ? ' tone-block' : ''}`}>
+        <span className="rm-pkpi-num">{k.blocked}</span> blocked
+      </span>
+      <span className="rm-pkpi">
+        <span className="rm-pkpi-num">{k.todo}</span> to do
+      </span>
+    </span>
+  );
+}
+
+/** One plan's Tracker as a kanban board: a card per row, in columns by state. Click the header to open or close it. */
+function PlanBoard({ plan, startOpen }: { plan: PlanView; startOpen: boolean }): JSX.Element {
   const cols = planColumns(plan);
   return (
-    <section className="rm-section" data-testid="rm-plan-board" aria-label={plan.title}>
-      <h3 className="flow-h">
-        {plan.title} · {plan.open} open
-      </h3>
+    <details className="rm-section rm-plan" data-testid="rm-plan-board" aria-label={plan.title} open={startOpen || undefined}>
+      <summary className="rm-plan-sum">
+        <span className="rm-plan-title">{plan.title}</span>
+        <span className="rm-sub">{plan.open} open</span>
+        <PlanKpiLine plan={plan} />
+      </summary>
       {plan.rows.length === 0 ? (
         <p className="col-empty">This plan has no Tracker table.</p>
       ) : (
@@ -488,16 +521,23 @@ function PlanBoard({ plan }: { plan: PlanView }): JSX.Element {
           ))}
         </div>
       )}
-    </section>
+    </details>
   );
 }
 
+/** The board that starts open is picked once, so a data refresh never opens or closes a board under the reader. */
+function usePlanToOpen(plans: PlanView[]): string | null {
+  const [path] = useState(() => initiallyOpenPlan(plans));
+  return path;
+}
+
 function Plans({ plans }: { plans: PlanView[] }): JSX.Element {
+  const openPath = usePlanToOpen(plans);
   return (
     <div className="flow" data-testid="rm-plans">
-      <p className="page-subtitle">No roadmap here. These plans are active.</p>
+      <p className="page-subtitle">No roadmap here. These plans are active. Click a plan to open or close it.</p>
       {plans.map((p) => (
-        <PlanBoard key={p.path} plan={p} />
+        <PlanBoard key={p.path} plan={p} startOpen={p.path === openPath} />
       ))}
     </div>
   );
@@ -505,12 +545,13 @@ function Plans({ plans }: { plans: PlanView[] }): JSX.Element {
 
 /** Open plans that no roadmap names, under the roadmap view. */
 function OtherPlans({ plans }: { plans: PlanView[] }): JSX.Element | null {
+  const openPath = usePlanToOpen(plans);
   if (plans.length === 0) return null;
   return (
     <div className="flow" data-testid="rm-other-plans">
       <h2 className="rm-title">Plans with no roadmap</h2>
       {plans.map((p) => (
-        <PlanBoard key={p.path} plan={p} />
+        <PlanBoard key={p.path} plan={p} startOpen={p.path === openPath} />
       ))}
     </div>
   );

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -231,6 +232,52 @@ def copy_file(source: Path, destination: Path) -> int:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
     return 1
+
+
+def private_skills(manifest: dict[str, Any]) -> set[str]:
+    """Skill names and categories that a denylist holds back and no roster ships.
+
+    The extras denylist names the core skills (they ship in core) and the private ones (they ship
+    nowhere). Taking away every name a roster includes leaves only the private ones."""
+    denied: set[str] = set()
+    shipped: set[str] = set()
+    for target in manifest.get("targets", []):
+        for copy_spec in target.get("copies", []):
+            denied |= set(copy_spec.get("excluded_skills", []))
+            for skills in (copy_spec.get("included_skills") or {}).values():
+                shipped |= set(skills)
+    return denied - shipped
+
+
+def _build_reference():
+    """scripts/build_reference.py as a module: one module object per process."""
+    name = "build_reference"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, PROJECT_ROOT / "scripts" / "build_reference.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load scripts/build_reference.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module
+
+
+def write_guide_data(destination: Path, manifest: dict[str, Any]) -> None:
+    """Write the hub guide data (build_reference.guide_json) as JSON, without private skills."""
+    data = _build_reference().guide_json()
+    hidden = private_skills(manifest)
+    data["skills"] = [
+        s for s in data["skills"] if s["name"] not in hidden and s["category"] not in hidden
+    ]
+    data["counts"]["skills"] = len(data["skills"])
+    data["counts"]["core"] = sum(1 for s in data["skills"] if s["core"])
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def flatten_skill_tree(skills_dir: Path, stats: ExportStats | None = None) -> int:
@@ -704,6 +751,17 @@ def export_target(manifest: dict[str, Any], target: dict[str, Any]) -> ExportSta
             print(f"[FAIL] {target['name']}: file source '{source_rel}' does not exist")
             continue
         stats.files_copied += copy_file(source, destination)
+
+    # The hub guide reads its data from a file beside the collector: an install has no source
+    # pool for build_reference.py to scan, so the data is built here, from the source.
+    guide_dest = target.get("guide_data")
+    if guide_dest:
+        try:
+            write_guide_data(workspace_root / guide_dest, manifest)
+            stats.files_copied += 1
+        except Exception as exc:  # noqa: BLE001 - any failure is an export error, reported below
+            stats.add_error(f"guide data '{guide_dest}' could not be built: {exc}")
+            print(f"[FAIL] {target['name']}: guide data '{guide_dest}' could not be built: {exc}")
 
     for transform_spec in target.get("transforms", []):
         source_dir = canonical_root / transform_spec["source"]

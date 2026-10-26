@@ -294,6 +294,42 @@ def _origin_plan_texts(root: Path, branch: str) -> list[tuple[str, str]] | None:
         batch.close()
 
 
+# How far back the hub looks for a plan's last change. An older plan gets no time and sorts last.
+_CHANGED_SINCE = "400.days"
+
+
+def _origin_plan_times(root: Path, branch: str, folder: str) -> dict[str, int]:
+    """{path: commit time} of the last commit on origin/<branch> that touched each plan file in `folder`.
+    One local git process (no network). Empty when git fails: the time is a sort hint, never required."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "-c", "core.quotepath=off", "log", f"--since={_CHANGED_SINCE}",
+             "--format=%x00%ct", "--name-only", f"refs/remotes/origin/{branch}", "--", folder],
+            capture_output=True, timeout=30, creationflags=_NO_WINDOW,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if out.returncode != 0:
+        return {}
+    times: dict[str, int] = {}
+    for chunk in out.stdout.decode("utf-8", errors="replace").split("\x00")[1:]:
+        lines = chunk.strip().splitlines()
+        try:
+            when = int(lines[0])
+        except (ValueError, IndexError):
+            continue
+        for name in lines[1:]:
+            times.setdefault(name.strip(), when)  # git log is newest first: the first time seen is the last change
+    return times
+
+
+def _file_time(path: Path) -> int | None:
+    try:
+        return int(path.stat().st_mtime)
+    except OSError:
+        return None
+
+
 def _entry_or_error(rel: str, read) -> dict:
     try:
         return read()
@@ -312,9 +348,17 @@ def plans_json(root: Path, branch: str | None = None) -> dict:
     texts = _origin_plan_texts(root, branch) if branch else None
     if texts is not None:
         plans = [_entry_or_error(rel, lambda rel=rel, text=text: _plan_entry_text(rel, text)) for rel, text in texts]
+        times = _origin_plan_times(root, branch, texts[0][0].rsplit("/", 1)[0]) if texts else {}
+        for plan in plans:
+            if "error" not in plan:
+                plan["changed_at"] = times.get(plan["path"])
         return {"schema": 1, "source": f"origin/{branch}", "plans": plans}
-    plans = [_entry_or_error(path.relative_to(root).as_posix(), lambda path=path: _plan_entry(root, path))
-             for path in _plan_files(root)]
+    plans = []
+    for path in _plan_files(root):
+        plan = _entry_or_error(path.relative_to(root).as_posix(), lambda path=path: _plan_entry(root, path))
+        if "error" not in plan:
+            plan["changed_at"] = _file_time(path)
+        plans.append(plan)
     return {"schema": 1, "source": "working-tree", "plans": plans}
 
 

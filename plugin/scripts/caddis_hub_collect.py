@@ -99,8 +99,30 @@ def _spend_json() -> dict:
     return _sibling("caddis_spend").spend_json(Path.home())
 
 
+# An installed bundle has no source pool to scan: the export writes the guide data beside this script.
+GUIDE_DATA = Path(__file__).resolve().parent / "caddis_guide.json"
+
+
 def _guide_json() -> dict:
-    return _sibling("build_reference").guide_json()
+    """The guide data file of an install, else build_reference in a source checkout."""
+    try:
+        text = GUIDE_DATA.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = None
+    if text is not None:
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError(f"{GUIDE_DATA.name} is not a JSON object")
+        return data
+    try:
+        module = _sibling("build_reference")
+    except ModuleNotFoundError as exc:
+        if exc.name != "build_reference":
+            raise
+        raise RuntimeError(
+            f"the guide data is missing from this install: no {GUIDE_DATA.name} beside {Path(__file__).name}"
+        ) from None
+    return module.guide_json()
 
 
 _REPO_COLLECTORS = {"roadmaps": _roadmaps_json, "plans": _plans_json, "relays": _relays_json}

@@ -124,6 +124,8 @@ export interface PlanView {
   title: string;
   rows: PlanRow[];
   open: number;
+  /** Unix time of the plan's last change (collector `changed_at`); null when unknown. */
+  changedAt: number | null;
 }
 /** The kanban columns of a plan board. A `moved` row sits in Done, greyed. */
 export type PlanColumn = 'todo' | 'in-progress' | 'blocked' | 'done';
@@ -137,6 +139,37 @@ export function planColumns(p: PlanView): Record<PlanColumn, PlanRow[]> {
   const cols: Record<PlanColumn, PlanRow[]> = { todo: [], 'in-progress': [], blocked: [], done: [] };
   for (const row of p.rows) cols[row.state === 'moved' ? 'done' : row.state].push(row);
   return cols;
+}
+/** The KPI line of one plan board: rows per column and the share done (moved counts as done). */
+export interface PlanKpis {
+  total: number;
+  done: number;
+  inProgress: number;
+  blocked: number;
+  todo: number;
+  pct: number;
+}
+export function planKpis(p: PlanView): PlanKpis {
+  const cols = planColumns(p);
+  const total = p.rows.length;
+  const done = cols.done.length;
+  return {
+    total,
+    done,
+    inProgress: cols['in-progress'].length,
+    blocked: cols.blocked.length,
+    todo: cols.todo.length,
+    pct: total === 0 ? 0 : Math.round((done / total) * 100),
+  };
+}
+/** The path of the board that starts open: the plan with open rows that changed last. Null when none is open. */
+export function initiallyOpenPlan(plans: PlanView[]): string | null {
+  let best: PlanView | null = null;
+  for (const p of plans) {
+    if (p.open === 0 || p.rows.length === 0) continue;
+    if (!best || (p.changedAt ?? -1) > (best.changedAt ?? -1)) best = p;
+  }
+  return best ? best.path : null;
 }
 export interface RepoRoadmaps {
   mode: 'roadmaps' | 'plans' | 'none' | 'error';
@@ -313,6 +346,7 @@ function planViews(raw: unknown): PlanView[] {
       title: str(p.title) || str(p.path),
       rows: asArray(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status), state: tileOf(rec(t).state) })),
       open: int(p.open_rows),
+      changedAt: typeof p.changed_at === 'number' && Number.isFinite(p.changed_at) ? p.changed_at : null,
     }));
 }
 

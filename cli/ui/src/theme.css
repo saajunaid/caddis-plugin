@@ -95,6 +95,17 @@ body {
   overflow-x: hidden;
 }
 
+/* Weight scale: 400 body, 500 labels and buttons, 600 headings, 700 the brand only.
+   The fonts ship 400, 500, 600 and 700, so each weight renders as asked (no fallback to bold). */
+h1,
+h2,
+h3,
+h4,
+strong,
+b {
+  font-weight: 600;
+}
+
 /* Monospace only for PR numbers, SHAs, commands and session names. */
 .mono,
 code {
@@ -185,7 +196,7 @@ a:focus-visible,
   padding: 6px 10px;
   border-radius: 7px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -276,7 +287,7 @@ a:focus-visible,
 
 .nav-section-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-dim);
   padding: 0 10px;
   margin-bottom: -10px;
@@ -311,7 +322,7 @@ a:focus-visible,
 .nav-link.active {
   background: var(--tone-purple-bg);
   color: var(--purple);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .nav-link-left {
@@ -342,7 +353,7 @@ a:focus-visible,
   padding: 1px 8px;
   border-radius: 99px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   background: linear-gradient(135deg, var(--yellow), var(--red));
   color: #191a23;
   flex-shrink: 0;
@@ -465,7 +476,7 @@ a:focus-visible,
 .theme-btn.active {
   background: var(--bg-card);
   color: var(--purple);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Main area */
@@ -496,7 +507,7 @@ a:focus-visible,
 
 .page-title {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-main);
   display: flex;
   align-items: center;
@@ -594,7 +605,7 @@ a:focus-visible,
 .kpi-label {
   font-size: 13.5px;
   color: var(--text-sub);
-  font-weight: 600;
+  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -603,7 +614,7 @@ a:focus-visible,
 
 .kpi-val {
   font-size: 19px;
-  font-weight: 700;
+  font-weight: 600;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -612,7 +623,7 @@ a:focus-visible,
 
 .kpi-sub {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 @media (max-width: 1100px) {
