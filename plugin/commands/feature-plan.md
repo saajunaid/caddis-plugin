@@ -284,7 +284,7 @@ to the phase or task that owns the code. Write "none found" only after you check
 **Session rules for the orchestrator** (measured 24-25 Oct 2026: long Opus sessions re-read 400-600k tokens
 on every turn). Keep the context small: subagent replies under about 200 words, full reports in files,
 never paste or tail large outputs. At each phase end, write the handoff; continue in the same session only
-while the conversation is under about 200k tokens. Run the phase review as
+while the conversation is under about 200k tokens. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k. Run the phase review as
 `/caddis:cross-review --range <base>..HEAD`. Send a task marked mechanical (literal tests, moves, deletes,
 renames) to agy through `caddis_spend.py run`. Run one `ci-watch` per PR head; on a queued-run timeout watch
 that run once with `--run <id>`; write no "still waiting" turns.

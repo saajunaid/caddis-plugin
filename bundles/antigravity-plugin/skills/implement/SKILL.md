@@ -62,7 +62,7 @@ and 95-154 turns per session were started by background events. Each turn re-rea
 - **Small context.** Ask each subagent for a reply under about 200 words. Full reports go to files; read a
   file only for the part you need. Never paste or tail a large output.
 - **Handoff at phase end.** At each phase end, write the handoff yourself (see "At every halt" below). Continue
-  in the same session only while the conversation is under about 200k tokens. Above that, ask for `/clear`.
+  in the same session only while the conversation is under about 200k tokens. Above that, ask for `/clear`. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k.
 - **Model.** The orchestrator runs on Sonnet. Opus stays for plans, designs and critical-code subagents.
 - **One phase review.** Run `/caddis:cross-review --range <base>..HEAD` (one other vendor; agy Argon by default).
   Never use a Claude reviewer subagent. Exception: every other-vendor provider failed. Then say so in the review file.

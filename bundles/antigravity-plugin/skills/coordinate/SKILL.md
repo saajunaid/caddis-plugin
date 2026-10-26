@@ -33,7 +33,7 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
   then `/caddis:coordinate start`.
 - Post a peer message only when the queue or a PR state changes. Send no acknowledgement of an
   acknowledgement. The watcher already prints a line only on a change, so a quiet cycle wakes nobody.
-- Restart (handoff, `/clear`, `/caddis:coordinate`) when this conversation passes about 200k tokens, or once a day.
+- Restart (handoff, `/clear`, `/caddis:coordinate`) when this conversation passes about 200k tokens, or once a day. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k.
 
 ## How to call the script
 

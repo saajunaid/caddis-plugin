@@ -437,6 +437,28 @@ def machine_findings(which: Callable[[str], str | None] | None = None,
     return out
 
 
+AUTOCOMPACT_KEY = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+
+
+def autocompact_backstop_line(settings: dict, environ: Mapping[str, str]) -> str | None:
+    """A warning when no auto-compact backstop is set (session-size plan); None when it is set."""
+    env = settings.get("env") if isinstance(settings, dict) else None
+    if environ.get(AUTOCOMPACT_KEY) or (isinstance(env, dict) and env.get(AUTOCOMPACT_KEY)):
+        return None
+    return (
+        f"[caddis] Set {AUTOCOMPACT_KEY}=40 in ~/.claude/settings.json env, "
+        "so a session compacts at 400k, not about 967k."
+    )
+
+
+def _user_claude_settings() -> dict:
+    try:
+        data = json.loads((_home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def keys_line(env: Mapping[str, str]) -> tuple[str, str]:
     scripts = Path(__file__).resolve().parent
     try:
@@ -629,6 +651,8 @@ def run(dest: Path, quiet: bool) -> int:
     if k_level == "FAIL":
         hard = 1
     print(f"  {k_level:4} {k_text}")
+    backstop = autocompact_backstop_line(_user_claude_settings(), os.environ)
+    print(f"  WARN {backstop}" if backstop else f"  OK   auto-compact backstop: {AUTOCOMPACT_KEY} set")
 
     host = host_guard_findings()
     if host:
