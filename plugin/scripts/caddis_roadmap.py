@@ -88,15 +88,17 @@ try:
     import caddis_exit
     import caddis_redact
     import caddis_rows
+    import caddis_status
     import caddis_worktree_safety
 except ModuleNotFoundError as exc:
-    if exc.name not in {"caddis_exit", "caddis_redact", "caddis_rows", "caddis_worktree_safety"}:
+    if exc.name not in {"caddis_exit", "caddis_redact", "caddis_rows", "caddis_status", "caddis_worktree_safety"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
     import caddis_redact
     import caddis_rows
+    import caddis_status
     import caddis_worktree_safety
 
 # No child process opens a console window on Windows (this runs under hooks and status lines that
@@ -690,8 +692,7 @@ def parse_tracker(text: str) -> dict[int, str]:
 
 
 def _is_done_status(cell: str) -> bool:
-    value = cell.strip().lstrip("*").strip()
-    return value.lower().startswith("done") or value.startswith("✅")
+    return caddis_status.is_done(cell)
 
 
 class PhaseIndex:
@@ -2246,16 +2247,7 @@ def phase_facts(plan_text: str | None) -> dict[int, dict]:
 
 def tile_state(tracker_cell: str, state: str) -> str:
     """todo | in-progress | done | moved | blocked, from the Tracker cell (origin), falling back to status()."""
-    cell = (tracker_cell or "").strip().lstrip("*").strip().lower()
-    if cell.startswith("moved") or "moved" in cell.split(" - ", 1)[0]:
-        return "moved"
-    if cell.startswith(("done", "✅", "merged")):
-        return "done"
-    if cell.startswith(("blocked", "halt", "waiting")):
-        return "blocked"
-    if cell.startswith(("in progress", "in-progress", "active", "building", "built", "⏳")):
-        return "in-progress"
-    return "done" if state == "done" else "todo"
+    return caddis_status.status_state(tracker_cell, "done" if state == "done" else "todo")
 
 
 def build(root: Path, slug: str, roadmap_mod=None) -> dict:

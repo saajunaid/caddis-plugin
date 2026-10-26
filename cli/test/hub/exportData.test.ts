@@ -70,7 +70,7 @@ function collector(): Record<string, unknown> {
         plans: {
           schema: 1,
           plans: [
-            { path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done', commit: 'x' }], open_rows: 1, feature: 'f' },
+            { path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done', state: 'done', commit: 'x' }], open_rows: 1, feature: 'f' },
             { path: `${WIN_REPO}\\.caddis\\plans\\abs.md`, title: 'abs-canary', status: 'active', tracker: [], open_rows: 0 },
             { path: '../outside/plan.md', title: 'dots-canary', status: 'active', tracker: [], open_rows: 0 },
             { path: '.caddis/plans/bad.md', error: 'sample-plan-error' },
@@ -99,7 +99,7 @@ describe('exportData (R59)', () => {
       ['lane', 'model', 'name', 'num', 'plan', 'prs', 'ref', 'risk', 'state', 'tile', 'tracker'],
     );
     expect(rm.milestones[0]!.phases[1]).toMatchObject({ ref: 'p-shop#2', num: 2, model: 'mid', prs: [12], tracker: 'done #12' });
-    expect(data.plans).toEqual([{ path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done' }], open_rows: 1 }]);
+    expect(data.plans).toEqual([{ path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done', state: 'done' }], open_rows: 1 }]);
     expect(data).toMatchObject({ generated_at: '2026-10-24T10:05:00Z', github: 'acme/shop', label: null });
   });
 

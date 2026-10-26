@@ -250,6 +250,7 @@
       },
       "plans": {
         "schema": 1,
+        "source": "origin/main",
         "plans": [
           {
             "path": ".caddis/plans/p-shop.md",
@@ -259,23 +260,57 @@
             "tracker": [
               {
                 "phase": "1",
-                "status": "done: #148"
+                "status": "done: #148",
+                "state": "done"
               },
               {
                 "phase": "2",
-                "status": "done: #209"
+                "status": "done: #209",
+                "state": "done"
               },
               {
                 "phase": "3",
-                "status": "in progress: #213"
+                "status": "in progress: #213",
+                "state": "in-progress"
               },
               {
                 "phase": "4",
-                "status": "not started"
+                "status": "not started",
+                "state": "todo"
               },
               {
                 "phase": "5",
-                "status": "not started"
+                "status": "not started",
+                "state": "todo"
+              }
+            ],
+            "open_rows": 3
+          },
+          {
+            "path": ".caddis/plans/p-side.md",
+            "title": "p-side",
+            "status": "active",
+            "feature": null,
+            "tracker": [
+              {
+                "phase": "A1",
+                "status": "☑",
+                "state": "done"
+              },
+              {
+                "phase": "A2",
+                "status": "☐ blocked (ETL)",
+                "state": "blocked"
+              },
+              {
+                "phase": "A3",
+                "status": "☐",
+                "state": "todo"
+              },
+              {
+                "phase": "A4",
+                "status": "moved - to p-shop",
+                "state": "moved"
               }
             ],
             "open_rows": 3
@@ -612,6 +647,7 @@
       },
       "plans": {
         "schema": 1,
+        "source": "origin/main",
         "plans": []
       },
       "relays": {
@@ -723,6 +759,7 @@
       },
       "plans": {
         "schema": 1,
+        "source": "origin/main",
         "plans": [
           {
             "path": ".caddis/plans/p-docs.md",
@@ -732,15 +769,18 @@
             "tracker": [
               {
                 "phase": "1",
-                "status": "done"
+                "status": "done",
+                "state": "done"
               },
               {
                 "phase": "2",
-                "status": "not started"
+                "status": "not started",
+                "state": "todo"
               },
               {
                 "phase": "3",
-                "status": "not started"
+                "status": "not started",
+                "state": "todo"
               }
             ],
             "open_rows": 2

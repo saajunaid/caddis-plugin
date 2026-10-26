@@ -56,7 +56,7 @@ function sample(opts: { gates: boolean }): ExportData {
             { roadmap: 'broken', error: 'line 4: not a table in sample-path' },
           ],
         },
-        plans: { plans: [{ path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done' }], open_rows: 1 }] },
+        plans: { plans: [{ path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done', state: 'done' }], open_rows: 1 }] },
       },
     ],
   };

@@ -832,6 +832,18 @@ select:focus-visible {
   width: 100%;
   margin-bottom: 8px;
 }
+.rm-cols.rm-cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.rm-pcard {
+  cursor: default;
+}
+.rm-pcard:hover {
+  background: var(--bg-card);
+}
+.rm-pcard.is-moved {
+  opacity: 0.55;
+}
 .rm-list-h {
   margin: 0 0 6px;
   font-size: 14px;
@@ -952,7 +964,8 @@ select:focus-visible {
   .rm-timeline-list {
     display: block;
   }
-  .rm-cols {
+  .rm-cols,
+  .rm-cols.rm-cols-4 {
     grid-template-columns: 1fr;
   }
 }

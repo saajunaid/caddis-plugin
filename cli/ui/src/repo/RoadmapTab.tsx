@@ -13,6 +13,8 @@ import {
   NO_ROADMAP_HINT,
   NO_ROADMAP_TEXT,
   opensDirectly,
+  PLAN_COLUMNS,
+  planColumns,
   TILE_LABEL,
   type Match,
   type MilestoneView,
@@ -450,26 +452,65 @@ function ListView({ repo, m, variant }: { repo: RepoState; m: RepoRoadmaps; vari
   );
 }
 
+const CARD_TONE: Record<Tile, string> = { todo: 'todo', 'in-progress': 'prog', blocked: 'block', done: 'done', moved: 'done' };
+
+/** The card's status line: a bare open box adds nothing, the column already says "to do". */
+const cardText = (status: string): string => status.replace(/^☐\s*/u, '').trim();
+
+/** One plan's Tracker as a kanban board: a card per row, in columns by state. */
+function PlanBoard({ plan }: { plan: PlanView }): JSX.Element {
+  const cols = planColumns(plan);
+  return (
+    <section className="rm-section" data-testid="rm-plan-board" aria-label={plan.title}>
+      <h3 className="flow-h">
+        {plan.title} · {plan.open} open
+      </h3>
+      {plan.rows.length === 0 ? (
+        <p className="col-empty">This plan has no Tracker table.</p>
+      ) : (
+        <div className="rm-cols rm-cols-4">
+          {PLAN_COLUMNS.map((c) => (
+            <div key={c.key} data-col={c.key}>
+              <h4 className="rm-list-h">
+                {c.label} · {cols[c.key].length}
+              </h4>
+              {cols[c.key].length === 0 ? (
+                <p className="col-empty">none</p>
+              ) : (
+                cols[c.key].map((r, i) => (
+                  <div key={`${r.phase}-${i}`} className={`rm-rcard rm-pcard tone-${CARD_TONE[r.state]}${r.state === 'moved' ? ' is-moved' : ''}`}>
+                    <strong>{r.phase}</strong>
+                    {cardText(r.status) ? <span className="rm-sub">{cardText(r.status)}</span> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Plans({ plans }: { plans: PlanView[] }): JSX.Element {
   return (
     <div className="flow" data-testid="rm-plans">
       <p className="page-subtitle">No roadmap here. These plans are active.</p>
       {plans.map((p) => (
-        <section key={p.path} className="flow-section" aria-label={p.title}>
-          <h3 className="flow-h">
-            {p.title} · {p.open} open
-          </h3>
-          <ul className="flow-list">
-            {p.rows.map((r) => (
-              <li key={r.phase} className="flow-row">
-                <div className="flow-row-head">
-                  <code className="mono">Phase {r.phase}</code>
-                  <span>{r.status || 'no status'}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <PlanBoard key={p.path} plan={p} />
+      ))}
+    </div>
+  );
+}
+
+/** Open plans that no roadmap names, under the roadmap view. */
+function OtherPlans({ plans }: { plans: PlanView[] }): JSX.Element | null {
+  if (plans.length === 0) return null;
+  return (
+    <div className="flow" data-testid="rm-other-plans">
+      <h2 className="rm-title">Plans with no roadmap</h2>
+      {plans.map((p) => (
+        <PlanBoard key={p.path} plan={p} />
       ))}
     </div>
   );
@@ -588,6 +629,7 @@ export default function RoadmapTab({ repo, slug, stale = false, lastOkAt = null,
     <div className={`rm${stale ? ' stale' : ''}`} data-testid="roadmap-tab">
       {staleNote}
       {body}
+      {m.mode === 'roadmaps' ? <OtherPlans plans={m.otherPlans} /> : null}
     </div>
   );
 }

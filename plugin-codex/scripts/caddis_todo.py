@@ -19,15 +19,18 @@ from pathlib import Path
 try:
     import caddis_exit
     from caddis_frontmatter import parse, split_document
+    from caddis_status import is_done, status_state
     from caddis_workstreams import _artifact, _name
 except ModuleNotFoundError as exc:
-    if exc.name not in {"caddis_exit", "caddis_file_lock", "caddis_frontmatter", "caddis_workstreams"}:
+    if exc.name not in {"caddis_exit", "caddis_file_lock", "caddis_frontmatter", "caddis_status",
+                        "caddis_workstreams"}:
         raise
     # caddis_tidy imports caddis_file_lock after this module: these two folders stay on the path.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
     from caddis_frontmatter import parse, split_document
+    from caddis_status import is_done, status_state
     from caddis_workstreams import _artifact, _name
 
 
@@ -56,13 +59,8 @@ def _resolves_path(root: Path, value: str) -> Path:
 
 
 def _is_done(status: str) -> bool:
-    """A Tracker status cell that means done: "done", "done (note)" or a leading check mark.
-    A cell that says work is still pending is not done (owner decision 2026-09-27)."""
-    lowered = status.strip().lower()
-    first = lowered.split(" ", 1)[0] if lowered else ""
-    if "pending" in lowered:
-        return False
-    return first in {"done", "✅"} or first.startswith("✅")
+    """A Tracker status cell that means done. The vocabulary lives in caddis_status; tidy and tests call this name."""
+    return is_done(status)
 
 
 def _active_plan(root: Path, workstream: str | None) -> Path | None:
@@ -159,7 +157,8 @@ def tracker_table(text: str) -> tuple[list[str], list[str]] | None:
     One reader, so caddis_tidy and any later caller never disagree about the same table.
     """
     # A real heading line only: plan prose may mention "## Tracker" inline before the section.
-    heading = re.search(r"^## Tracker\b.*$", text, re.M)
+    # "## Tracker" or a numbered "## 12. Tracker" (hand-written plans number their sections).
+    heading = re.search(r"^##\s+(?:\d+[.)]?\s+)?Tracker\b.*$", text, re.M)
     if heading is None:
         return None
     section = text[heading.end():].split("\n## ", 1)[0]
@@ -184,6 +183,10 @@ def _plan_files(root: Path) -> list[Path]:
 
 
 def _plan_entry(root: Path, path: Path) -> dict:
+    return _plan_entry_text(path.relative_to(Path(root)).as_posix(), path.read_text(encoding="utf-8"))
+
+
+def _plan_entry_text(rel: str, text: str) -> dict:
     # caddis_tidy imports this module at load time, so this module imports it only here.
     try:
         import caddis_tidy
@@ -192,7 +195,6 @@ def _plan_entry(root: Path, path: Path) -> dict:
             raise
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import caddis_tidy
-    text = path.read_text(encoding="utf-8")
     meta, body = split_document(text)
     if text.lstrip("﻿").startswith("---") and not meta:
         raise ValueError("frontmatter is not closed or has no keys")
@@ -208,26 +210,112 @@ def _plan_entry(root: Path, path: Path) -> dict:
                 continue
             cells = caddis_tidy._row_cells(line)
             if cells:
-                tracker.append({"phase": cells[0], "status": cells[status_at] if len(cells) > status_at else ""})
-    return {"path": path.relative_to(Path(root)).as_posix(), "title": title,
+                cell = cells[status_at] if len(cells) > status_at else ""
+                tracker.append({"phase": cells[0], "status": cell, "state": status_state(cell)})
+    return {"path": rel, "title": title,
             "status": meta.get("status"), "feature": meta.get("feature"),
             "tracker": tracker, "open_rows": sum(1 for row in tracker if not _is_done(row["status"]))}
 
 
-def plans_json(root: Path) -> dict:
-    """Every current plan as data: `{"schema": 1, "plans": [...]}`. Never prints, never exits.
+class _Batch:
+    """One `git cat-file --batch` process, asked object by object (local git only, no network)."""
 
-    A file that does not parse gives `{"path", "error"}`; the other plans still come back.
+    def __init__(self, root: Path):
+        self.proc = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=_NO_WINDOW)
+
+    def get(self, name: str) -> tuple[str, str, bytes] | None:
+        """(oid, type, content) of `name`, or None when git says it is missing."""
+        assert self.proc.stdin is not None and self.proc.stdout is not None
+        self.proc.stdin.write(name.encode("utf-8") + b"\n")
+        self.proc.stdin.flush()
+        header = self.proc.stdout.readline().split()
+        if len(header) != 3:
+            return None  # "<name> missing" (or ambiguous)
+        size = int(header[2])
+        content = self.proc.stdout.read(size + 1)[:size]  # the content, then one newline
+        return header[0].decode("ascii"), header[1].decode("ascii"), content
+
+    def close(self) -> None:
+        if self.proc.stdin:
+            self.proc.stdin.close()
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+        if self.proc.stdout:
+            self.proc.stdout.close()
+
+
+def _tree_blobs(tree: bytes, oid_len: int) -> list[tuple[str, str]]:
+    """[(name, blob oid)] from a raw tree object: `<mode> <name>\\0<oid bytes>` repeated. Files only."""
+    out: list[tuple[str, str]] = []
+    at = 0
+    while at < len(tree):
+        space = tree.index(b" ", at)
+        nul = tree.index(b"\0", space)
+        mode, name = tree[at:space], tree[space + 1:nul].decode("utf-8", errors="replace")
+        oid = tree[nul + 1:nul + 1 + oid_len].hex()
+        at = nul + 1 + oid_len
+        if mode in (b"100644", b"100755"):
+            out.append((name, oid))
+    return out
+
+
+def _origin_plan_texts(root: Path, branch: str) -> list[tuple[str, str]] | None:
+    """[(path, text)] of the plan files on origin/<branch>: `.caddis/plans/*.md`, else `.github/plans/*.md`, never
+    `done/`. One git process for the whole read. None when git cannot read the ref."""
+    try:
+        batch = _Batch(root)
+    except OSError:
+        return None
+    try:
+        if batch.get(f"refs/remotes/origin/{branch}") is None:
+            return None
+        for folder in (".caddis/plans", ".github/plans"):
+            tree = batch.get(f"refs/remotes/origin/{branch}:{folder}")
+            if tree is None or tree[1] != "tree":
+                continue
+            names = sorted((name, oid) for name, oid in _tree_blobs(tree[2], len(tree[0]) // 2) if name.endswith(".md"))
+            if not names:
+                continue
+            texts: list[tuple[str, str]] = []
+            for name, oid in names:
+                blob = batch.get(oid)
+                if blob is None:
+                    return None
+                texts.append((f"{folder}/{name}", blob[2].decode("utf-8", errors="replace").replace("\r\n", "\n")))
+            return texts
+        return []
+    except (OSError, ValueError):
+        return None
+    finally:
+        batch.close()
+
+
+def _entry_or_error(rel: str, read) -> dict:
+    try:
+        return read()
+    except Exception as exc:  # one bad file must not hide the others
+        return {"path": rel, "error": (str(exc).splitlines() or [type(exc).__name__])[0]}
+
+
+def plans_json(root: Path, branch: str | None = None) -> dict:
+    """Every current plan as data: `{"schema": 1, "source": ..., "plans": [...]}`. Never prints, never exits.
+
+    With `branch`, read the plans from the local `origin/<branch>` ref (the hub: a pushed Tracker edit shows with
+    no pull); when git cannot read that ref, read the working tree. `source` names which one was read. A file that
+    does not parse gives `{"path", "error"}`; the other plans still come back.
     """
     root = Path(root)
-    plans: list[dict] = []
-    for path in _plan_files(root):
-        try:
-            plans.append(_plan_entry(root, path))
-        except Exception as exc:  # one bad file must not hide the others
-            rel = path.relative_to(root).as_posix()
-            plans.append({"path": rel, "error": (str(exc).splitlines() or [type(exc).__name__])[0]})
-    return {"schema": 1, "plans": plans}
+    texts = _origin_plan_texts(root, branch) if branch else None
+    if texts is not None:
+        plans = [_entry_or_error(rel, lambda rel=rel, text=text: _plan_entry_text(rel, text)) for rel, text in texts]
+        return {"schema": 1, "source": f"origin/{branch}", "plans": plans}
+    plans = [_entry_or_error(path.relative_to(root).as_posix(), lambda path=path: _plan_entry(root, path))
+             for path in _plan_files(root)]
+    return {"schema": 1, "source": "working-tree", "plans": plans}
 
 
 def main(argv: list[str] | None = None) -> int:

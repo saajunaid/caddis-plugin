@@ -52,8 +52,43 @@ def _roadmaps_json(root: Path) -> dict:
         module.FETCH = saved
 
 
+def _local_origin_branches(common: Path) -> list[str]:
+    """Which of origin/main and origin/master exist, from the loose ref files and packed-refs (no subprocess)."""
+    try:
+        packed = (common / "packed-refs").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        packed = ""
+    packed_refs = {line.split(" ", 1)[1].strip() for line in packed.splitlines() if " refs/" in line}
+    return [name for name in ("main", "master")
+            if (common / "refs" / "remotes" / "origin" / name).is_file() or f"refs/remotes/origin/{name}" in packed_refs]
+
+
 def _plans_json(root: Path) -> dict:
-    return _sibling("caddis_todo").plans_json(root)
+    """Plans from the origin ref the repo already has (R15: local git only), so a pushed Tracker edit shows with no
+    pull. A folder that is not a git checkout, or has no origin default branch, reads the working tree."""
+    branch = None
+    common = git_common_dir(Path(root))
+    if common is None:
+        return _sibling("caddis_todo").plans_json(root)
+    try:  # origin/HEAD is a one-line file; reading it saves a git process per repo
+        head = (common / "refs" / "remotes" / "origin" / "HEAD").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        head = ""
+    if head.startswith("ref: refs/remotes/origin/"):
+        branch = head[len("ref: refs/remotes/origin/"):]
+    elif len(found := _local_origin_branches(common)) == 1:
+        branch = found[0]  # the same rule as caddis_roadmap.default_branch with FETCH off, read from the files
+    else:
+        roadmap = _sibling("caddis_roadmap")
+        saved = roadmap.FETCH
+        roadmap.FETCH = False
+        try:
+            branch = roadmap.default_branch(Path(root))
+        except roadmap.RoadmapError:
+            branch = None
+        finally:
+            roadmap.FETCH = saved
+    return _sibling("caddis_todo").plans_json(root, branch=branch)
 
 
 def _relays_json(root: Path) -> dict:

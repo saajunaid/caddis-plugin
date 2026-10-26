@@ -243,7 +243,8 @@ row, visible to any later reader without anyone having to catch it live.
     open `caddis-run codex -m gpt-6-astra` and ask it to follow this same subsection.
 
 **2. Determine where to resume.** The `## Tracker` table is the resume signal. Start at the first phase whose
-status is not `done`/`✅`. If every phase is already done, verify the tests are green and go straight to the
+status is not done (`done`, `merged`, `✅`, `☑`, `✔`, `✓`; never a cell that says `pending`;
+one vocabulary in `scripts/caddis_status.py`). If every phase is already done, verify the tests are green and go straight to the
 report — do not redo completed work.
 
 **3. Implement each remaining phase, TDD-first.** For each phase, in order:

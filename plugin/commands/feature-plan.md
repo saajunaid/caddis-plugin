@@ -397,6 +397,10 @@ Three rules: one attempt, one review.
 | 1 | M1 | mid | claude | not started | — | — | |
 ```
 
+Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
+`in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell
+that says `pending` is never done.
+
 ## Plan quality gate — local-coder ready (MANDATORY)
 The plan must be executable by a **low-capability local coder model** (the planner→coder handoff: a
 strong model plans, a cheaper/local model implements). The plan carries the intelligence; the coder

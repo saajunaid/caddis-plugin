@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   deriveRoadmaps,
+  planColumns,
   filterRoadmap,
   gateCount,
   listRow,
@@ -157,13 +158,35 @@ describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () =>
         path: '.caddis/plans/p-docs.md',
         title: 'p-docs',
         rows: [
-          { phase: '1', status: 'done' },
-          { phase: '2', status: 'not started' },
-          { phase: '3', status: 'not started' },
+          { phase: '1', status: 'done', state: 'done' },
+          { phase: '2', status: 'not started', state: 'todo' },
+          { phase: '3', status: 'not started', state: 'todo' },
         ],
         open: 2,
       },
     ]);
+  });
+  it('a plan board puts each row in a column by its state; moved sits in Done', () => {
+    const m = deriveRoadmaps(repoOf(load('full'), 'shop'));
+    const side = m.plans.find((p) => p.path === '.caddis/plans/p-side.md')!;
+    const cols = planColumns(side);
+    expect(Object.fromEntries(Object.entries(cols).map(([k, rows]) => [k, rows.map((r) => r.phase)]))).toEqual({
+      todo: ['A3'],
+      'in-progress': [],
+      blocked: ['A2'],
+      done: ['A1', 'A4'],
+    });
+  });
+  it('plans that no roadmap names show under the roadmaps; a lane plan does not', () => {
+    const m = deriveRoadmaps(repoOf(load('full'), 'shop'));
+    expect(m.mode).toBe('roadmaps');
+    expect(m.otherPlans.map((p) => p.path)).toEqual(['.caddis/plans/p-side.md']);
+  });
+  it('a row with no state (older collector) is to do', () => {
+    const s = load('full');
+    const docs = repoOf(s, 'docs');
+    for (const row of (docs.plans as { plans: { tracker: Record<string, unknown>[] }[] }).plans[0]!.tracker) delete row.state;
+    expect(deriveRoadmaps(docs).plans[0]!.rows.map((r) => r.state)).toEqual(['todo', 'todo', 'todo']);
   });
   it('a finished plan is not shown; with nothing the mode is none', () => {
     const s = load('full');

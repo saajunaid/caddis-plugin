@@ -113,17 +113,38 @@ export interface RoadmapError {
   slug: string;
   error: string;
 }
+export interface PlanRow {
+  phase: string;
+  status: string;
+  /** The collector's state for the Status cell (caddis_status.py); `todo` when the data has none. */
+  state: Tile;
+}
 export interface PlanView {
   path: string;
   title: string;
-  rows: { phase: string; status: string }[];
+  rows: PlanRow[];
   open: number;
+}
+/** The kanban columns of a plan board. A `moved` row sits in Done, greyed. */
+export type PlanColumn = 'todo' | 'in-progress' | 'blocked' | 'done';
+export const PLAN_COLUMNS: { key: PlanColumn; label: string }[] = [
+  { key: 'todo', label: 'To do' },
+  { key: 'in-progress', label: 'In progress' },
+  { key: 'blocked', label: 'Blocked' },
+  { key: 'done', label: 'Done' },
+];
+export function planColumns(p: PlanView): Record<PlanColumn, PlanRow[]> {
+  const cols: Record<PlanColumn, PlanRow[]> = { todo: [], 'in-progress': [], blocked: [], done: [] };
+  for (const row of p.rows) cols[row.state === 'moved' ? 'done' : row.state].push(row);
+  return cols;
 }
 export interface RepoRoadmaps {
   mode: 'roadmaps' | 'plans' | 'none' | 'error';
   roadmaps: RoadmapModel[];
   errors: RoadmapError[];
   plans: PlanView[];
+  /** Open plans with Tracker rows that no roadmap names, shown as boards under the roadmaps. */
+  otherPlans: PlanView[];
   /** The collector's error for this repo, shown instead of data. */
   repoError: string | null;
 }
@@ -278,6 +299,11 @@ export function roadmapModel(repo: RepoState, raw: unknown): RoadmapModel {
   };
 }
 
+const tileOf = (v: unknown): Tile => (typeof v === 'string' && TILES.has(v) ? (v as Tile) : 'todo');
+
+/** The file stem of a plan path: the name a roadmap lane uses. */
+const planStem = (path: string): string => (path.split('/').pop() ?? '').replace(/\.md$/, '');
+
 function planViews(raw: unknown): PlanView[] {
   return asArray(rec(raw).plans)
     .map((p) => rec(p))
@@ -285,7 +311,7 @@ function planViews(raw: unknown): PlanView[] {
     .map((p) => ({
       path: str(p.path),
       title: str(p.title) || str(p.path),
-      rows: asArray(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status) })),
+      rows: asArray(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status), state: tileOf(rec(t).state) })),
       open: int(p.open_rows),
     }));
 }
@@ -302,7 +328,9 @@ export function deriveRoadmaps(repo: RepoState): RepoRoadmaps {
     else if (str(e.roadmap)) roadmaps.push(roadmapModel(repo, e));
   }
   const plans = planViews(repo.plans);
-  const base = { roadmaps, errors, plans, repoError };
+  const named = new Set(roadmaps.flatMap((r) => r.lanes.map((l) => l.plan)));
+  const otherPlans = plans.filter((p) => p.rows.length > 0 && p.open > 0 && !named.has(planStem(p.path)));
+  const base = { roadmaps, errors, plans, otherPlans, repoError };
   if (roadmaps.length || errors.length) return { mode: 'roadmaps', ...base };
   if (repoError && !repo.roadmaps && !repo.plans) return { mode: 'error', ...base };
   if (plans.length) return { mode: 'plans', ...base };

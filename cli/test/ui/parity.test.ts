@@ -85,7 +85,10 @@ describe('parity checklist against the old roadmap page', () => {
   });
 
   it('empty states: a plan fallback, and no roadmap or plan with the command', () => {
-    expect(render(s, repoOf(s, 'docs'), null)).toContain('data-testid="rm-plans"');
+    const plans = render(s, repoOf(s, 'docs'), null);
+    expect(plans).toContain('data-testid="rm-plans"');
+    expect(plans).toContain('data-testid="rm-plan-board"');
+    expect(plans).toContain('To do · 2');
     const e = load('full');
     const docs = repoOf(e, 'docs');
     docs.roadmaps = null;

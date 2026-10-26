@@ -80,7 +80,8 @@ test.describe('Roadmap tab', () => {
   test('no roadmap: the active plans, then the empty text with the command', async ({ page, openHub }) => {
     await openHub('full', undefined, '#/repo/acme__docs/roadmap');
     await expect(page.getByTestId('rm-plans')).toContainText('p-docs');
-    await expect(page.getByTestId('rm-plans')).toContainText('Phase 2');
+    await expect(page.getByTestId('rm-plan-board')).toContainText('To do · 2');
+    await expect(page.getByTestId('rm-plan-board')).toContainText('Done · 1');
     await openHub('full', (s) => {
       const docs = s.repos.find((r: { name: string }) => r.name === 'docs');
       docs.roadmaps = null;

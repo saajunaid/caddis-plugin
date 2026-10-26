@@ -4,11 +4,15 @@
   "type": "object",
   "required": [
     "schema",
+    "source",
     "plans"
   ],
   "properties": {
     "schema": {
       "type": "integer"
+    },
+    "source": {
+      "type": "string"
     },
     "plans": {
       "type": "array",
@@ -52,7 +56,8 @@
                   "type": "object",
                   "required": [
                     "phase",
-                    "status"
+                    "status",
+                    "state"
                   ],
                   "properties": {
                     "phase": {
@@ -60,6 +65,16 @@
                     },
                     "status": {
                       "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "in-progress",
+                        "blocked",
+                        "done",
+                        "moved"
+                      ]
                     }
                   }
                 }

@@ -134,7 +134,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   - `ui`: `claude`, `codex-astra`
   - `tests`: `codex-sol`, `glm`, `claude`
   - `docs`: `agy`, `glm`, `claude`
-  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.171/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
   --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
   has budget, give any phase the `claude` lane. Override chains and model pins per project in
   `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
@@ -156,7 +156,7 @@ work; a headless one records the deviation in the Tracker. Write the launch comm
 phase — it is executed verbatim.
 
 **Choose each phase's Lane from the routing table.** Run
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.171/scripts/caddis_routing.py" show --json`. A phase the orchestrator
 does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
 Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
 of that role and write its Lane line as follows:
@@ -165,7 +165,7 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.171/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
 always starts with `caddis_spend.py run`: it books the call against the global EUR spend cap, and
@@ -329,7 +329,7 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 Three rules: one attempt, one review.
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.171/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -394,6 +394,10 @@ Three rules: one attempt, one review.
 |---|---|---|---|---|---|---|---|
 | 1 | M1 | mid | claude | not started | — | — | |
 ```
+
+Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
+`in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell
+that says `pending` is never done.
 
 ## Plan quality gate — local-coder ready (MANDATORY)
 The plan must be executable by a **low-capability local coder model** (the planner→coder handoff: a

@@ -66,7 +66,7 @@ export interface ExportPlan {
   path: string;
   title: string;
   status: string;
-  tracker: { phase: string; status: string }[];
+  tracker: { phase: string; status: string; state: string }[];
   open_rows: number;
 }
 export interface ExportData {
@@ -165,7 +165,7 @@ function plan(raw: unknown): ExportPlan | null {
     path: str(p.path),
     title: str(p.title),
     status: str(p.status),
-    tracker: arr(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status) })),
+    tracker: arr(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status), state: str(rec(t).state) })),
     open_rows: int(p.open_rows),
   };
 }

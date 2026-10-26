@@ -342,6 +342,11 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_status.py",
+          "destination": "scripts/caddis_status.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_todo.py",
           "destination": "scripts/caddis_todo.py"
         },
@@ -804,6 +809,11 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_status.py",
+          "destination": "scripts/caddis_status.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_todo.py",
           "destination": "scripts/caddis_todo.py"
         },
@@ -1163,7 +1173,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.170",
+        "version": "1.3.171",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -1354,6 +1364,11 @@
           "root": "scriptsrc",
           "source": "caddis_relay_git.py",
           "destination": "scripts/caddis_relay_git.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_status.py",
+          "destination": "scripts/caddis_status.py"
         },
         {
           "root": "scriptsrc",
