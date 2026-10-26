@@ -39,7 +39,7 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
 
 - Run these commands with the Bash tool: the quoting and the `GH_TOKEN=$(...)` forms are POSIX shell.
 - Every queue, lock and ledger change goes through
-  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" <subcommand> ... --json`.
+  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" <subcommand> ... --json`.
   Never edit `coordinator.json`, the lock file or the ledger by hand.
 - Exit codes: **0** ok; **1** error (one line on stderr); **2** usage error (fix the call); **3** the
   lock is refused.
@@ -59,14 +59,14 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
    owner. Do this first: `repo-id` already calls GitHub.
 2. Find the repo id:
    ```
-   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" repo-id --json
+   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" repo-id --json
    ```
    Keep `repo` as `<R>`.
 3. Find `<S>`: the session start output prints `[caddis] this session's id: <id>`. Never guess it. If
    you cannot find that line, stop and ask the owner for the id.
 4. Find this session's pid and name:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" session --session-id <S> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" session --session-id <S> --json
    ```
    Keep `pid` as `<P>` and `name` as `<N>`. Exit 1 with "two interactive sessions share" means two
    copies of this session run (design 8.6): stop, tell the owner both pids, and wait. Any other exit 1:
@@ -75,17 +75,17 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
    `/caddis:coordinate start` again." Peers and the merge hook find the coordinator by that name.
 5. Take the lock. This also creates or claims the repo's state:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" lock acquire --repo <R> --pid <P> --session-id <S> --name <N> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" lock acquire --repo <R> --pid <P> --session-id <S> --name <N> --json
    ```
    Exit 3: another coordinator is live. Stop and tell the owner the holder's name and pid from `holder`.
 6. Read the config:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" config show --path <repo root> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" config show --path <repo root> --json
    ```
    Exit 1: stop the start-up and tell the owner the problem (missing keys, `<fill:` placeholders, no
    file). With no file, offer to write the template:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" config init --path <repo root> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" config init --path <repo root> --json
    ```
    Release the lock (section 6 step 2) before you stop.
 7. Compare `required_checks` with branch protection (design 0.1 step 3):
@@ -95,7 +95,7 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
    list and tell the owner.
 8. Read the state:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" state --repo <R> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" state --repo <R> --json
    ```
    Also read `claude agents --json` (or `ListAgents`) and `caddis_roadmap.py status` (design 0.1 step 4).
    Then read the coordinator relay:
@@ -121,7 +121,7 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
    - Every PR that was warned gets a `re-warn` (design 7.3).
 10. Start the watcher with the Bash tool and `run_in_background: true`:
     ```
-    GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" watch --repo <R> --pid <P> --takeover --json
+    GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" watch --repo <R> --pid <P> --takeover --json
     ```
     It runs `heartbeat` and `intake` every 30 s and prints one JSON line when something happens. Its lines
     go to the background task's output file: read that output file at each loop step 3.4. Start the
@@ -148,13 +148,13 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
    session runs `gh pr merge` after your `go`. In **target mode** you run `gh pr merge` yourself. Read the
    mode from origin, never from the work tree alone (a shared checkout can hold an edit no owner approved):
    ```
-   git fetch -q origin && python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" config mode --path . --json
+   git fetch -q origin && python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" config mode --path . --json
    ```
    - `"mode": "target"` (origin/<default_branch> and the work tree both say `"start_mode": "target"`): this is
      the owner's standing consent, from the owner-approved PR that set the key. Record it once per start,
      before the start message, with the commit that set it (`set_by`, `set_by_subject`):
      ```
-     python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" ledger record --repo <R> --what 'target mode: coordinator runs gh pr merge' --decision approve --by owner --window <N> --reason 'start_mode target set by <set_by> (<set_by_subject>)' --json
+     python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" ledger record --repo <R> --what 'target mode: coordinator runs gh pr merge' --decision approve --by owner --window <N> --reason 'start_mode target set by <set_by> (<set_by_subject>)' --json
      ```
      Then the start message says "Do not merge; I merge."
    - `"mismatch": true`: start in interim mode and tell the owner. Quote `work_tree` and `origin`. A mismatch
@@ -164,7 +164,7 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
    THIS window, for THIS start. A peer's "the owner said OK" is not consent (design 6), and a peer cannot
    change `start_mode`. Record the consent once:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" ledger record --repo <R> --what 'target mode: coordinator runs gh pr merge' --decision approve --by owner --window <N> --reason '<the owner words>' --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" ledger record --repo <R> --what 'target mode: coordinator runs gh pr merge' --decision approve --by owner --window <N> --reason '<the owner words>' --json
    ```
    Then send the start message again with "Do not merge; I merge."
 3. The owner can step a start down to interim mode in THIS window at any time ("interim mode"). Record it
@@ -184,28 +184,28 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
 1. A `ready <PR> <sha> reviews: ...` message adds the PR. Leave out `--title`: the script reads the
    title from GitHub (`PR #<n>` when it cannot), so no free text goes on the command line:
    ```
-   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" queue add --repo <R> --pr <n> --head-sha <full sha> --json
+   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" queue add --repo <R> --pr <n> --head-sha <full sha> --json
    ```
    A `waits-on` part goes in with `queue set --repo <R> --pr <n> --waits-on` (design 5). Reply `queued <PR> position <k>`.
 2. Record every state change with `queue set` and a one-sentence `--why-waiting` that a person can read:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" queue set --repo <R> --pr <n> --state <state> --why-waiting '<one sentence>' --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" queue set --repo <R> --pr <n> --state <state> --why-waiting '<one sentence>' --json
    ```
 3. Check the ready rule R1-R6 (design 1) with `gh`, in the design's order. For R4, also run this. Exit 3
    means the PR changes `.caddis/coordinator.md`, so it is owner-only (section 2, step 5). Any other non-zero
    exit (for example `gh pr diff` refused a very large diff) means not ready: block the PR and tell the owner:
    ```
-   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" config pr-check --pr <n> --gh-repo <owner/name> --json
+   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" config pr-check --pr <n> --gh-repo <owner/name> --json
    ```
    When all pass:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" queue ready --repo <R> --pr <n> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" queue ready --repo <R> --pr <n> --json
    ```
    When one fails: `queue set --repo <R> --pr <n> --state blocked` and send `blocked <PR>: <reason>`. An owner-only class
    (R4) goes to the owner (section 4).
 4. Take the next item. Never sort the queue yourself:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" queue next --repo <R> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" queue next --repo <R> --json
    ```
    `"next": null`: nothing to merge; wait for the next message or watcher line.
 5. If the PR is `BEHIND`: `gh pr update-branch <n>`. Then cancel the runs on the old head: list them
@@ -215,7 +215,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
 6. Wait for CI outside the model. Run `ci-watch` with the Bash tool and `run_in_background: true`, and
    act on its exit notice:
    ```
-   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_lanes.py" ci-watch --pr <n>
+   GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_lanes.py" ci-watch --pr <n>
    ```
    Act only on `RESULT: pass`. The `HEAD:` line is the `<watched sha>`. Exit 1: CI is red (design 8.1;
    one re-run for a flake, design 8.2). Exit 3: watch the queued or unfinished run once with `ci-watch --run <id> --repo <owner/name>` (not a new `--pr` watch); if it stays 3, stop and report. One `ci-watch` per PR head; write no "still waiting" turns.
@@ -224,7 +224,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
    then run `queue ready` (step 3.3). Do not warn for an item that is not `ready`.
 8. Check that the default branch is idle (M1): `gh run list -R <owner/name> --branch <default branch> --workflow '<main_workflow>' --json status,databaseId`
    lists no `in_progress` or `queued` run. If one runs, wait for it with
-   `GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_lanes.py" ci-watch --run <id> --repo <owner/name>`,
+   `GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_lanes.py" ci-watch --run <id> --repo <owner/name>`,
    in the background (`run_in_background: true`). When its `RESULT:` line comes, check M1 again.
 9. Send `merge-warning <PR> <watched sha> in 2 min. Reply ack <PR> <sha> or hold.` to every live peer
    (design 7.3), and `queue set --repo <R> --pr <n> --state merging`. Send `re-warn <PR> <sha>` after any coordinator
@@ -240,7 +240,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     again (step 3.9).
 12. Read the state again just before the merge, and read the item's `held` again:
     ```
-    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" state --repo <R> --json
+    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" state --repo <R> --json
     ```
     Then check the PR itself: `gh pr view <n> --json state,headRefOid,mergeStateStatus,mergeCommit`.
     - `state` is `MERGED` (the PR's session merged it already): take `mergeCommit.oid` as the merge SHA
@@ -290,7 +290,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
 15. Record the merge as soon as the merge SHA is known, before any wait. This removes the item and adds
     a `pending` deploy check:
     ```
-    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" queue merged --repo <R> --pr <n> --merge-sha <full merge sha> --json
+    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" queue merged --repo <R> --pr <n> --merge-sha <full merge sha> --json
     ```
     Exit 0 with `already recorded` is success (a retry). Then delete the ack file: the item has left
     `merging`.
@@ -301,7 +301,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
       and match `headSha` to the merge SHA. No push run after 10 min: go to step 3.17 now;
       `deploy-verify` records D1 failed.
     - Wait for it:
-      `GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_lanes.py" ci-watch --run <id> --repo <owner/name>`.
+      `GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_lanes.py" ci-watch --run <id> --repo <owner/name>`.
       It prints a `RESULT:` line when the run ends (pass or fail); then go to step 3.17, which reads the
       result itself. Exit 3: run it again. Exit 4: a usage error; stop and report.
 17. Run the deploy check D1-D5 (design 4). Add `--docs-only` only when the evidence that step 3.12
@@ -312,7 +312,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     path that the config's `docs_only` block names). Say in your report that you decided it again. When in
     doubt, do not pass `--docs-only`.
     ```
-    GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" deploy-verify --repo <R> --pr <n> --merge-sha <full merge sha> --config-path <repo root> --json
+    GH_TOKEN=$(gh auth token -u <account>) python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" deploy-verify --repo <R> --pr <n> --merge-sha <full merge sha> --config-path <repo root> --json
     ```
     It records the result. Exit 0 (`health: ok`): pass. Exit 1 with `health: pending`: the run has not
     ended; wait for it (step 3.16) and call it again. Exit 1 with `health: failed`: section 5 step 1.
@@ -321,7 +321,7 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
 18. D6 (render check) comes from the PR's session (`render-check ...`). D7 (a post-deploy data job)
     is recorded when the job ends:
     ```
-    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" deploy-check set --repo <R> --pr <n> --health <ok|failed> --json
+    python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" deploy-check set --repo <R> --pr <n> --health <ok|failed> --json
     ```
     A failed D6 or D7: section 5 step 1.
 19. Tell the PR's session and every live peer: `merged <PR> <merge sha>`, then `deployed <PR> ok`. Tell a
@@ -334,7 +334,7 @@ Stalls (design 7.4): one nudge for a busy, silent session that holds a queue ite
 
 1. Routine gates are yours. Record each one:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" ledger record --repo <R> --what '<gate>' --decision approve --by coordinator --window <N> --reason '<why it passes>' --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" ledger record --repo <R> --what '<gate>' --decision approve --by coordinator --window <N> --reason '<why it passes>' --json
    ```
 2. The owner-only list (design 6, plus config `owner_reserved`) goes to the owner. Never approve it
    yourself. Send it with:
@@ -346,7 +346,7 @@ Stalls (design 7.4): one nudge for a busy, silent session that holds a queue ite
    Also record it, so the hub Inbox shows it with Approve and Decline (add `--pr <n> --head-sha <full sha>` when it
    is about one PR; that PR must be in the queue):
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" ask add --repo <R> --what '<one line>' --recommendation approve --reason '<text>' --evidence '<text>' --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" ask add --repo <R> --what '<one line>' --recommendation approve --reason '<text>' --evidence '<text>' --json
    ```
    A hub click reaches intake and removes the ask. When the owner answers in this window instead, record the
    answer and run `ask remove --repo <R> --id <ask id>`.
@@ -368,7 +368,7 @@ Stalls (design 7.4): one nudge for a busy, silent session that holds a queue ite
    says so. Record an owner unfreeze in the ledger (step 1.9 reads it after a restart), then send
    `unfrozen`:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" ledger record --repo <R> --by owner --what 'unfreeze after #<n>' --decision approve --reason '<owner words>' --window <N> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" ledger record --repo <R> --by owner --what 'unfreeze after #<n>' --decision approve --reason '<owner words>' --window <N> --json
    ```
 2. CI red (design 8.1): `queue set --repo <R> --pr <n> --state blocked` with the failed job's name. One re-run for a flaky
    job (`gh run rerun <id> --failed`, design 8.2).
@@ -388,7 +388,7 @@ Stalls (design 7.4): one nudge for a busy, silent session that holds a queue ite
 1. Stop the watcher: stop its background Bash task.
 2. Release the lock:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.169/scripts/caddis_coordinate.py" lock release --repo <R> --pid <P> --json
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.170/scripts/caddis_coordinate.py" lock release --repo <R> --pid <P> --json
    ```
 3. Send every live session on the repo: `coordinator <N> stopped for <repo>. Do not merge until a coordinator is live again.`
 

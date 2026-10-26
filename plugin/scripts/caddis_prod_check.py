@@ -5,6 +5,10 @@ succeeded (with --docs-only: the deploy job was skipped); (3) the version endpoi
 it; (4) the health endpoint JSON has every value `true`, not only HTTP 200; (5) optional: named background jobs were
 attempted after the deploy with zero failures. A repo with no profile gets items 1 and 2 only.
 
+Push run (item 1): `[ci] workflow = "<name>"` names the workflow to check. Without it, when several workflows ran on
+the merge SHA (a CI workflow and a Pages one), the run whose jobs hold the deploy job or a required job is used. A job
+of a reusable workflow, listed as `<caller job> / <job>`, counts as `<job>`.
+
 Prints one PASS or FAIL line per item and a RESULT line. Exit 0 only when every item passes; 1 when one fails; 3 when
 the profile cannot be read; 4 when the SHA is ambiguous or not found. Read-only: it never writes to GitHub or prod.
 
@@ -69,6 +73,7 @@ def real_runner(cwd: Path) -> Runner:
 class Profile:
     found: bool = False
     branch: str = "main"
+    workflow: str | None = None  # the push workflow to check, when the repo has more than one (e.g. a Pages one)
     required_jobs: list[str] = field(default_factory=list)
     deploy_job: str = "deploy_prod"
     push_run_wait_minutes: float = 10
@@ -82,7 +87,7 @@ class Profile:
 
 
 _KEY_TYPES: dict[str, type | tuple[type, ...]] = {
-    "branch": str, "required_jobs": list, "deploy_job": str, "push_run_wait_minutes": (int, float),
+    "branch": str, "workflow": str, "required_jobs": list, "deploy_job": str, "push_run_wait_minutes": (int, float),
     "run_wait_minutes": (int, float), "version_url": str, "version_field": str, "health_url": str, "auth": str,
     "timeout_seconds": int,
 }
@@ -111,6 +116,9 @@ def load_profile(repo: Path, path: Path | None = None) -> Profile:
         if key == "required_jobs" and not all(isinstance(job, str) for job in value):
             raise ValueError(f"{path}: required_jobs must be a list of job names")
         setattr(profile, key, value)
+    if profile.workflow is not None and (not profile.workflow.strip()
+                                         or profile.workflow.lower().endswith((".yml", ".yaml"))):
+        raise ValueError(f"{path}: workflow must be the workflow's name (its `name:` line), not a file name")
     if profile.auth not in ("none", "ntlm"):
         raise ValueError(f"{path}: auth must be 'none' or 'ntlm'")
     if background is not None:
@@ -167,16 +175,42 @@ def resolve_sha(ctx: Context, sha: str) -> tuple[int, str]:
 
 
 def push_runs(ctx: Context, limit: int = 20) -> list[dict]:
-    return ctx.gh_json("run", "list", "--branch", ctx.profile.branch, "--event", "push", "--limit", str(limit),
-                       "--json", "databaseId,headSha,status,conclusion")  # type: ignore[return-value]
+    args = ["run", "list", "--branch", ctx.profile.branch, "--event", "push", "--limit", str(limit),
+            "--json", "databaseId,headSha,status,conclusion,workflowName"]
+    if ctx.profile.workflow:
+        args[2:2] = ["--workflow", ctx.profile.workflow]
+    runs = ctx.gh_json(*args)
+    if ctx.profile.workflow:  # also filter here: the list must never hold another workflow's run
+        runs = [r for r in runs if r.get("workflowName") == ctx.profile.workflow]  # type: ignore[union-attr]
+    return runs  # type: ignore[return-value]
+
+
+def _pick_run(ctx: Context, candidates: list[dict]) -> tuple[dict | None, str]:
+    """(run, state): state is "sure", "wait" (no run lists the jobs yet: they are queued) or "guess" (nothing can
+    tell the runs apart). Several workflows can run on one push (serve-sight: `CI and Deploy` and `roadmap-pages`).
+    With no `workflow` in the profile, take the run whose jobs hold the deploy job or a required job."""
+    if len(candidates) <= 1:
+        return (candidates[0] if candidates else None), ("sure" if candidates else "wait")
+    wanted = [j for j in (ctx.profile.deploy_job, *ctx.profile.required_jobs) if j]
+    if not wanted:  # no deploy job and no required jobs: waiting cannot help
+        return candidates[0], "guess"
+    for run in candidates:
+        view = ctx.gh_json("run", "view", str(run["databaseId"]), "--json", "jobs")
+        jobs = _jobs(view if isinstance(view, dict) else {})
+        if any(_job(jobs, name) is not None for name in wanted):
+            return run, "sure"
+    return candidates[0], "wait"
 
 
 def find_push_run(ctx: Context, sha: str) -> dict | None:
     """Wait up to the profile's minutes for a push run of `sha` to appear."""
     deadline = ctx.clock.now() + ctx.profile.push_run_wait_minutes * 60
     while True:
-        run = next((r for r in push_runs(ctx) if r.get("headSha") == sha), None)
-        if run or ctx.dry_run or ctx.clock.now() >= deadline:
+        run, state = _pick_run(ctx, [r for r in push_runs(ctx) if r.get("headSha") == sha])
+        if state != "wait" or ctx.dry_run or ctx.clock.now() >= deadline:
+            if run and state != "sure":
+                ctx.out(f"INFO 1 {sha[:12]} has several push runs and none lists {ctx.profile.deploy_job or 'the jobs'}"
+                        f"; using run {run['databaseId']}. Set `workflow` in .caddis/prod-check.toml")
             return run
         ctx.clock.sleep(15)
 
@@ -197,9 +231,23 @@ def _jobs(view: dict) -> dict[str, str]:
     return {j.get("name", ""): (j.get("conclusion") or j.get("status") or "") for j in view.get("jobs", [])}
 
 
+def _same_job(actual: str, name: str) -> bool:
+    """A job of a reusable workflow is listed as "<caller job> / <job>" (serve-sight: `ci / deploy_prod`)."""
+    return actual == name or actual.endswith(" / " + name)
+
+
+def _job(jobs: dict[str, str], name: str) -> str | None:
+    """The state of job `name`, or None when the run has no such job. When several reusable workflows each have a
+    job of that name, a state that is not success wins, so one success never hides a failure."""
+    states = [state for actual, state in jobs.items() if _same_job(actual, name)]
+    if not states:
+        return None
+    return next((s for s in states if s != "success"), "success")
+
+
 def _deploy_done(view: dict, deploy_job: str) -> datetime | None:
     for job in view.get("jobs", []):
-        if job.get("name") == deploy_job and job.get("completedAt"):
+        if _same_job(job.get("name", ""), deploy_job) and job.get("completedAt"):
             return _utc(job["completedAt"])
     return None
 
@@ -232,13 +280,13 @@ def check_ci(ctx: Context, sha: str, docs_only: bool) -> tuple[list[str], dict |
     ctx.out("jobs: " + ", ".join(f"{name}={state}" for name, state in jobs.items()))
     deploy = ctx.profile.deploy_job
     if docs_only:
-        if jobs.get(deploy) == "skipped" and conclusion == "success":
+        if _job(jobs, deploy) == "skipped" and conclusion == "success":
             ctx.out(f"PASS 2 docs-only: {deploy} skipped, run conclusion success")
             return [], view
         if conclusion != "success":
             ctx.out(f"FAIL 2 docs-only merge, but the run concluded {conclusion}")
             return ["2 jobs"], view
-        ctx.out(f"FAIL 2 docs-only merge, but {deploy} = {jobs.get(deploy, 'absent')}; run the full prod check")
+        ctx.out(f"FAIL 2 docs-only merge, but {deploy} = {_job(jobs, deploy) or 'absent'}; run the full prod check")
         return ["2 jobs"], view
     if not ctx.profile.found:
         if conclusion == "success":
@@ -246,11 +294,11 @@ def check_ci(ctx: Context, sha: str, docs_only: bool) -> tuple[list[str], dict |
             return [], view
         ctx.out(f"FAIL 2 run conclusion {conclusion}")
         return ["2 jobs"], view
-    bad = {name: jobs.get(name, "absent") for name in ctx.profile.required_jobs if jobs.get(name) != "success"}
-    if deploy and jobs.get(deploy) != "success":
+    bad = {name: _job(jobs, name) or "absent" for name in ctx.profile.required_jobs if _job(jobs, name) != "success"}
+    if deploy and _job(jobs, deploy) != "success":
         # A code merge that did not deploy fails, also when the job is not listed as required.
         # A repo with no deploy job sets `deploy_job = ""` in its profile.
-        bad[deploy] = jobs.get(deploy, "absent")
+        bad[deploy] = _job(jobs, deploy) or "absent"
     if bad:
         skipped = " (skipped without --docs-only)" if bad.get(deploy) == "skipped" else ""
         ctx.out("FAIL 2 " + ", ".join(f"{n}={c}" for n, c in bad.items()) + skipped)
