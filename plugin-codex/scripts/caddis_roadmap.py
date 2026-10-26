@@ -104,7 +104,7 @@ except ModuleNotFoundError as exc:
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
-# This module object, taken while it loads. `render` hands it to the page builder. A lookup by name at call time
+# This module object, taken while it loads. build() uses it unless a test passes a stand-in. A lookup by name at call time
 # (`sys.modules[__name__]`) can return a different copy when the file was loaded twice in one process.
 _THIS_MODULE = sys.modules[__name__]
 STATUSES = ("todo", "in-progress", "code-done/data-pending", "done", "not-needed")
@@ -248,7 +248,7 @@ def default_branch(root: Path) -> str:
     if proc.returncode == 0 and ref.startswith("refs/remotes/origin/"):
         return ref[len("refs/remotes/origin/"):]
     if not FETCH:
-        # No network when fetch is off (the collector, `render --no-fetch`): use the one local origin branch.
+        # No network when fetch is off (the hub collector): use the one local origin branch.
         found = [name for name in ("main", "master")
                  if _git(root, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}",
                          check=False).returncode == 0]
@@ -265,7 +265,7 @@ def default_branch(root: Path) -> str:
                        caddis_exit.NOT_RUN)
 
 
-FETCH = True  # `render --no-fetch` (the waiting hook) turns it off for one command: read the origin refs it has
+FETCH = True  # the hub collector turns it off for one call: read the origin refs the repo has
 
 
 def fetch(root: Path) -> str:
@@ -2204,20 +2204,120 @@ def list_roadmaps_checked(root: Path) -> tuple[list[str], set[str] | None]:
     return sorted(slugs), folders
 
 
+# ---- roadmap detail (R68): status() plus the plan headers, the Tracker cells and the runner -------------------
+
+PHASE_HEADER = re.compile(r"^###\s+Phase\s+(\d+)[a-z]?\s*[-–—:]\s*(.+?)\s*(?:[✅⏳\U0001F532].*)?$",
+                          re.MULTILINE)
+_FACT = re.compile(r"\*\*(Model|Lane|Risk):\*\*\s*([^\n]+?)\s*(?=\*\*(?:Model|Lane|Risk):\*\*|$)",
+                   re.MULTILINE)
+
+
+def _read_json(path: Path | None):
+    """(data, error): data is a dict or None; error names a file that exists but cannot be read."""
+    if path is None:
+        return None, ""
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, ""
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, f"{Path(path).name}: {getattr(exc, 'strerror', None) or exc}"
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None, f"{Path(path).name}: not JSON"
+    return (data, "") if isinstance(data, dict) else (None, f"{Path(path).name}: not a JSON object")
+
+
+def phase_facts(plan_text: str | None) -> dict[int, dict]:
+    """Phase number -> {name, model, lane, risk} from the plan's `### Phase <n> - <name>` sections."""
+    if not plan_text:
+        return {}
+    heads = list(PHASE_HEADER.finditer(plan_text))
+    out: dict[int, dict] = {}
+    for i, m in enumerate(heads):
+        body = plan_text[m.end():heads[i + 1].start() if i + 1 < len(heads) else len(plan_text)]
+        body = body.split("\n## ", 1)[0]  # stop at the next level-2 section (Tracker, Risks, ...)
+        facts = {k.lower(): v.strip() for k, v in _FACT.findall(body)}
+        out.setdefault(int(m.group(1)), {"name": m.group(2).strip(), "model": facts.get("model", ""),
+                                         "lane": facts.get("lane", ""), "risk": facts.get("risk", "")})
+    return out
+
+
+def tile_state(tracker_cell: str, state: str) -> str:
+    """todo | in-progress | done | moved | blocked, from the Tracker cell (origin), falling back to status()."""
+    cell = (tracker_cell or "").strip().lstrip("*").strip().lower()
+    if cell.startswith("moved") or "moved" in cell.split(" - ", 1)[0]:
+        return "moved"
+    if cell.startswith(("done", "✅", "merged")):
+        return "done"
+    if cell.startswith(("blocked", "halt", "waiting")):
+        return "blocked"
+    if cell.startswith(("in progress", "in-progress", "active", "building", "built", "⏳")):
+        return "in-progress"
+    return "done" if state == "done" else "todo"
+
+
+def build(root: Path, slug: str, roadmap_mod=None) -> dict:
+    """status() plus per-phase Tracker cell, name, model, lane, risk and tile state; open owner gates; the runner;
+    the origin commit. `roadmap_mod` is this module unless a test passes a stand-in. No session marks are read: the
+    hub has live sessions of its own."""
+    mod = roadmap_mod or _THIS_MODULE
+    root = Path(root)
+    model = mod.status(root, slug)
+    plans: dict[str, tuple[dict[int, str], dict[int, dict]]] = {}
+    lanes: list[str] = []
+    for ms in model["milestones"]:
+        for ph in ms["phases"]:
+            m = mod.REF_RE.match(ph["ref"])
+            ph.update(plan="", num=0, tracker="", name="", model="", lane="", risk="")
+            if not m:
+                ph["tile"] = "todo"
+                continue
+            plan, num = m.group(1), int(m.group(2))
+            if plan not in plans:
+                text = mod.show(root, model["branch"], f".caddis/plans/{plan}.md")
+                if text is None:
+                    text = mod.show(root, model["branch"], f".caddis/plans/done/{plan}.md")
+                plans[plan] = (mod.parse_tracker(text) if text else {}, phase_facts(text))
+                lanes.append(plan)
+            rows, facts = plans[plan]
+            ph.update(plan=plan, num=num, tracker=rows.get(num, ""), **{k: v for k, v in facts.get(num, {}).items()})
+            ph["tile"] = tile_state(ph["tracker"], ph["state"])
+    model["lanes"] = lanes
+    model["waiting"] = [{"milestone": ms["id"], "reason": b["reason"], "check": b["check"]}
+                        for ms in model["milestones"] for b in ms["blockers"]
+                        if b["type"] == "owner-gate" and ms["status"] not in mod.FINISHED]
+
+    lock_path = mod.runner_lock_path(root, "roadmap", slug)
+    lock, lock_err = _read_json(lock_path)
+    if lock is not None and not all(lock.get(k) not in (None, "") for k in ("batch", "pid", "started_utc")):
+        lock_err = lock_err or f"{Path(lock_path).name}: missing batch, pid or started_utc"
+        lock = None
+    live = False
+    if lock is not None and lock_path is not None:
+        try:
+            live = mod.runner_lock_stale(lock_path) is False
+        except Exception:  # a judgement that cannot be made is not "running"
+            live = False
+    stop, stop_err = _read_json(mod.last_stop_path(root, "roadmap", slug))
+    model["runner"] = {"lock": lock if live else None, "stale_lock": lock if (lock and not live) else None,
+                       "last_stop": stop, "errors": [e for e in (lock_err, stop_err) if e]}
+    try:
+        model["origin_commit"] = mod._git(root, "rev-parse", "--short", f"origin/{model['branch']}",
+                                          check=False).stdout.strip()
+    except Exception:
+        model["origin_commit"] = ""
+    return model
+
+
 _PR_REF_RE = re.compile(r"#(\d+)")
 
 
 def _roadmap_detail(root: Path, slug: str) -> dict:
     """status() plus the hub's detail (R45): per phase name, model, lane, risk, Tracker cell, tile and the PR numbers
-    the cell names; per roadmap lanes, open owner gates, the runner and the origin commit. The page module owns
-    this logic. Its machine-local session marks and its clock text are left out."""
-    scripts_dir = str(Path(__file__).resolve().parent)
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
-    import caddis_roadmap_page
-    model = caddis_roadmap_page.build(Path(root), slug, _THIS_MODULE, sessions=False)
-    model.pop("sessions", None)
-    model.pop("generated", None)
+    the cell names; per roadmap lanes, open owner gates, the runner and the origin commit."""
+    model = build(Path(root), slug)
     for ms in model["milestones"]:
         for ph in ms["phases"]:
             ph["prs"] = sorted({int(n) for n in _PR_REF_RE.findall(str(ph.get("tracker", "")))})
@@ -2283,144 +2383,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("rollup", write=True)
     p.add_argument("--id", required=True)
     add("recheck", write=True)
-    p = sub.add_parser("render")
-    which = p.add_mutually_exclusive_group(required=True)
-    which.add_argument("--roadmap")
-    which.add_argument("--all", action="store_true", help="every roadmap on origin (used by hooks and commands)")
-    p.add_argument("--root", default=".")
-    p.add_argument("--out", default=None, help="the HTML file (default ~/.caddis/roadmap-pages/<repo>/<slug>.html)")
-    p.add_argument("--site", default=None, metavar="DIR",
-                   help="with --all: build the shared copy (no live sessions or runners, a banner) in DIR/build and "
-                        "publish only the safe files to DIR/public (for GitHub Pages)")
-    p.add_argument("--no-fetch", action="store_true",
-                   help="use the origin refs this checkout has; no git fetch (the waiting hook's background render)")
-    p.add_argument("--delay", type=int, default=0,
-                   help="wait this many seconds (at most 60) first: the waiting hook's follow-up render")
     return parser
-
-
-RENDER_LOCK_STALE_S = 600  # a render lock older than this is left by a killed render
-PENDING_NAME = ".roadmap-render.pending"  # session_waiting.py writes it beside its debounce stamp
-
-
-def _clear(path: Path | None) -> bool:
-    """Delete `path`; True when it was there."""
-    if path is None:
-        return False
-    try:
-        path.unlink()
-        return True
-    except FileNotFoundError:
-        return False
-    except OSError:
-        return path.exists()
-
-
-def _take_render_lock(lock: Path) -> bool:
-    """One render per repo at a time (robustness #8): create `lock` with O_EXCL, never wait. A lock older than
-    RENDER_LOCK_STALE_S is taken over once. False: another render holds it."""
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    for attempt in range(2):
-        try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            pass
-        except PermissionError:  # Windows: a deleted lock whose delete is still pending
-            return False
-        else:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(str(os.getpid()))
-            return True
-        try:
-            stale = time.time() - lock.stat().st_mtime > RENDER_LOCK_STALE_S
-        except FileNotFoundError:
-            stale = True  # released between the create and the stat: try again
-        except OSError:  # Windows: a lock being deleted cannot be read either
-            return False
-        if attempt or not stale:
-            return False
-        try:
-            lock.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            return False
-    return False
-
-
-def _render(root: Path, args: argparse.Namespace, site_dir: Path | None = None) -> int:
-    """`render`: the pages, the prune and the hub. The caller holds the repo's render lock. `site_dir` (the shared
-    copy's build folder, `render --site`) replaces the pages root and takes no lock."""
-    import caddis_roadmap_page
-    slugs, on_origin = list_roadmaps_checked(root) if args.all else ([args.roadmap], None)
-    failed = written = pruned = 0
-    site_kw = {} if site_dir is None else {"site_dir": site_dir}  # the normal calls stay exactly as they were
-    for slug in slugs:  # --all: one bad roadmap must not stop the others
-        try:
-            path = caddis_roadmap_page.write_page(root, slug, Path(args.out) if args.out else None,
-                                                  _THIS_MODULE, **site_kw)
-            if path is None:  # a newer caddis owns this page: kept, and neither written nor failed
-                continue
-            written += 1
-            print(f"[ROADMAP] page written: {path.resolve()}")
-        except Exception as exc:  # --all: one roadmap must never stop the others
-            if not args.all:
-                raise
-            failed += 1
-            print(f"[ROADMAP] {slug}: page not written: {exc}", file=sys.stderr)
-    try:  # the hub is a convenience: nothing below ever fails a render or changes its exit code
-        if args.all and on_origin is not None:  # a roadmap removed from origin leaves the hub too; a listing
-            # that failed removes nothing, and a folder still on origin keeps its page even if its render failed
-            pruned = caddis_roadmap_page.prune_folder(
-                caddis_roadmap_page.default_page_path(root, "_", base=site_dir).parent, on_origin | set(slugs))
-        if site_dir is not None:
-            site_kw["banner"] = caddis_roadmap_page.site_banner(root)
-        hub = caddis_roadmap_page.write_hub(**site_kw) if not args.out and (written or pruned) else None
-        if hub is not None:  # None: a newer caddis owns the hub (write_hub said so)
-            print(f"[ROADMAP] hub written: {hub.resolve()}")
-    except Exception as exc:
-        print(f"[ROADMAP] hub not written: {exc}", file=sys.stderr)
-        if site_dir is not None:  # the shared copy is published, so a hub that failed is a failed render
-            failed += 1
-    if site_dir is not None and not failed and not written:
-        print("[ROADMAP] site not rendered: no roadmap was rendered (none on origin, or the listing failed)",
-              file=sys.stderr)
-        return caddis_exit.BLOCKED
-    return caddis_exit.BLOCKED if failed else caddis_exit.CLEAN
-
-
-def _render_site(root: Path, args: argparse.Namespace) -> int:
-    """`render --all --site DIR`: build the shared copy in DIR/build (no render lock, no version gate, no stamp: CI is
-    the only writer), then publish its allow-list to DIR/public. A render that failed publishes nothing."""
-    import caddis_roadmap_page
-    site = Path(args.site)
-    build, public = site / "build", site / "public"
-    global FETCH
-    FETCH = not args.no_fetch
-    try:  # a reused DIR keeps the last run's index.html: only one written by THIS run may be published
-        (build / "index.html").unlink(missing_ok=True)
-    except OSError as exc:
-        raise RoadmapError(f"site not published: the old {build / 'index.html'} cannot be removed: {exc}",
-                           caddis_exit.ERROR) from exc
-    try:
-        code = _render(root, args, site_dir=build)
-    finally:
-        FETCH = True
-    if code != caddis_exit.CLEAN:
-        print("[ROADMAP] site not published: the render did not finish clean (see above); the last public/ is kept",
-              file=sys.stderr)
-        return code
-    if not (build / "index.html").is_file():
-        print("[ROADMAP] site not published: the hub (index.html) was not written", file=sys.stderr)
-        return caddis_exit.BLOCKED
-    try:
-        paths = caddis_roadmap_page.export_site(build, public)
-    except ValueError as exc:
-        raise RoadmapError(f"site not published: {exc}", caddis_exit.ERROR) from exc
-    for rel in paths:
-        print(f"[ROADMAP] site file: {rel}")
-    print(f"[ROADMAP] site published: {len(paths)} file(s) in {public.resolve()}")
-    return caddis_exit.CLEAN
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -2469,51 +2432,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         return rollup(root, args.roadmap, args.id, args.dry_run)
     if args.cmd == "recheck":
         return recheck(root, args.roadmap, args.dry_run)
-    if args.cmd == "render":
-        import caddis_roadmap_page  # the page is separate; only `render` needs it
-        if args.site is not None:
-            if args.out:
-                raise RoadmapError("--site and --out cannot be used together: --out is one self-contained page, "
-                                   "--site is the shared copy of every roadmap", caddis_exit.ERROR)
-            if not args.all:
-                raise RoadmapError("--site works with --all, not with --roadmap", caddis_exit.ERROR)
-            if args.delay > 0:
-                raise RoadmapError("--site and --delay cannot be used together: a CI render does not wait",
-                                   caddis_exit.ERROR)
-            return _render_site(root, args)
-        if args.all and args.out:
-            raise RoadmapError("--out works with one --roadmap, not with --all", caddis_exit.ERROR)
-        if args.delay > 0:
-            time.sleep(min(args.delay, 60))
-        folder = caddis_roadmap_page.default_page_path(root, "_").parent.name
-        lock = caddis_roadmap_page.pages_root() / ".locks" / f"{folder}.lock"
-        # The waiting hook's debounce (and a render that finds the lock held) leaves PENDING_NAME: the render that
-        # holds the lock renders once more at its end, so the last mark change always reaches the page.
-        state = caddis_roadmap_page.main_checkout(root) / ".caddis" / "session-state"
-        pending = state / PENDING_NAME if args.all and not args.out else None
-        if not _take_render_lock(lock):
-            if pending is not None and state.is_dir():
-                try:
-                    pending.write_text(str(os.getpid()), encoding="utf-8")
-                except OSError:
-                    pass
-            print("[ROADMAP] another render of this repo is running; skipped")
-            return caddis_exit.CLEAN
-        global FETCH
-        FETCH = not args.no_fetch
-        try:
-            _clear(pending)  # this render reads the marks as they are now
-            code = _render(root, args)
-            if _clear(pending):  # a mark changed while it ran: once more, under the same lock
-                code = _render(root, args)
-            return code
-        finally:
-            FETCH = True
-            try:  # only our own lock: a render that ran past the stale age may have been taken over
-                if lock.read_text(encoding="utf-8").strip() == str(os.getpid()):
-                    lock.unlink()
-            except (OSError, UnicodeDecodeError):
-                pass
     return caddis_exit.ERROR
 
 

@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_ASSETS, buildFonts } from '../../scripts/build-ui-fonts.mjs';
+import { DEFAULT_ASSETS, LICENCES, buildFonts } from '../../scripts/build-ui-fonts.mjs';
 
 let tmp: string;
 beforeEach(() => {
@@ -28,20 +28,20 @@ describe('build-ui-fonts (R27)', () => {
     expect(css).toContain('Maple Mono');
   });
 
-  it('ships the three licences beside the fonts', () => {
+  it('ships the three licences in licenses/, not in fonts/ (dist/ui/licenses, R61)', () => {
     buildFonts({ publicDir: tmp, cssOut: path.join(tmp, 'f.css') });
-    for (const f of ['OFL-Atkinson.txt', 'OFL-MapleMono.txt', 'LICENSE-Lucide.txt']) expect(existsSync(path.join(tmp, 'fonts', f)), f).toBe(true);
+    for (const f of LICENCES) {
+      expect(readFileSync(path.join(tmp, 'licenses', f)).equals(readFileSync(path.join(DEFAULT_ASSETS, f))), f).toBe(true);
+      expect(existsSync(path.join(tmp, 'fonts', f)), f).toBe(false);
+    }
   });
-});
 
-// The mirror has no repo-root scripts/roadmap_assets/, so cli/ keeps its own copy. In a source checkout the
-// two must stay byte-identical. In the mirror this test skips.
-const ROOT_ASSETS = path.resolve(DEFAULT_ASSETS, '..', '..', '..', 'scripts', 'roadmap_assets');
-describe.skipIf(!existsSync(path.join(ROOT_ASSETS, 'fonts.css')))('ui/fonts-src copy', () => {
-  it.each(['fonts.css', 'OFL-Atkinson.txt', 'OFL-MapleMono.txt', 'LICENSE-Lucide.txt'])('%s is byte-identical to scripts/roadmap_assets', (f) => {
-    const copy = readFileSync(path.join(DEFAULT_ASSETS, f));
-    const source = readFileSync(path.join(ROOT_ASSETS, f));
-    expect(copy.equals(source), `${f} drifted: copy scripts/roadmap_assets/${f} to cli/ui/fonts-src/`).toBe(true);
+  it('fails when a licence is missing from the source', () => {
+    const src = path.join(tmp, 'src');
+    mkdirSync(src);
+    copyFileSync(path.join(DEFAULT_ASSETS, 'fonts.css'), path.join(src, 'fonts.css'));
+    for (const f of LICENCES.slice(0, 2)) copyFileSync(path.join(DEFAULT_ASSETS, f), path.join(src, f));
+    expect(() => buildFonts({ assetsDir: src, publicDir: path.join(tmp, 'out'), cssOut: path.join(tmp, 'f.css') })).toThrow(LICENCES[2]);
   });
 });
 

@@ -149,7 +149,13 @@ function copyFixedSet(dist: string, dest: string): void {
       const from = path.join(fonts, name);
       if (!lstatSync(from).isFile()) continue;
       if (name.endsWith('.woff2')) copyFileSync(from, path.join(dest, 'fonts', name));
-      else if (/^(OFL-[A-Za-z]+|LICENSE-Lucide)\.txt$/.test(name)) copyFileSync(from, path.join(dest, 'licenses', name));
+    }
+  }
+  const licenses = path.join(dist, 'licenses');
+  if (isDir(licenses)) {
+    for (const name of readdirSync(licenses)) {
+      const from = path.join(licenses, name);
+      if (lstatSync(from).isFile() && /^(OFL-[A-Za-z]+|LICENSE-Lucide)\.txt$/.test(name)) copyFileSync(from, path.join(dest, 'licenses', name));
     }
   }
 }

@@ -46,10 +46,8 @@ Keep it short enough to read at a glance. Roughly:
 - **The next step**, if one is recorded. Say which file it came from.
 - **Uncommitted work**, if `git status` is dirty — this is the thing most likely to be lost, and
   the state file does not track it. Check it; do not assume clean.
-- **The roadmap page**, when the repo has a roadmap (`.caddis/roadmaps/`): re-render it with
-  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" render --all` (best effort) and give the path it prints
-  (`~/.caddis/roadmap-pages/<repo>/<slug>.html`); it shows every session waiting for the owner. The hub of every
-  repo on this machine is `~/.caddis/roadmap-pages/index.html`.
+- **The roadmap**, when the repo has one (`.caddis/roadmaps/`): open the hub: `caddis hub open`, repo, Roadmap
+  tab. The hub also lists every live session that waits for the owner.
 
 Leave out anything already done unless the user asks. "What is finished" is a different question
 from "where are we", and the completed list is usually the longest part of both files.

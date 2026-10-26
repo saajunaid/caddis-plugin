@@ -338,12 +338,6 @@ un-indexed note, or `caddis_tidy.py --apply` for a finished artifact in the wron
 not a failure of the handoff: the row is `done` when all three ran. If a script is missing, the row is
 `skipped: <script> not installed`.
 
-Then, when the repo has a roadmap (`.caddis/roadmaps/`), re-render its page so phases built by hand show too
-(best effort, not a checklist row; it writes only under `~/.caddis/roadmap-pages/`, never in this checkout):
-```
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" render --all
-```
-
 ## Step 6d — remove this session's own worktrees and scratch folders
 Checklist row 12, `own-cleanup`. It runs in every checkout, a shared one too, after the Step 0 `finish`
 (falls back to `scripts/caddis_created.py` in a source checkout; if the script is missing, or exits 2 because

@@ -219,7 +219,7 @@ def session_env(base: dict | None = None) -> dict:
 
 
 def runner_env() -> dict:
-    """The environment of the runner's own caddis_roadmap.py children (writes, merge chain, render): headless_env
+    """The environment of the runner's own caddis_roadmap.py children (writes, merge chain): headless_env
     plus the runner's gh login. Never given to a session."""
     env = headless_env()
     env.update(caddis_roadmap.AUTH_ENV)
@@ -1257,30 +1257,11 @@ def run(*, repo: Path, plan: str | None = None, roadmap: str | None = None, caps
             caddis_roadmap.AUTH_ENV["GH_TOKEN"] = value  # the runner's own calls only; never a session's env
     if roadmap is not None:
         rm_cmd = list(roadmap_cmd or default_roadmap_cmd())
-        try:
-            return _run_roadmap(ctx, template, dry_run, after_session, rm_cmd,
-                                hostname or socket.gethostname(), publish or default_publish,
-                                pr_merged or default_pr_merged, worktree_root,
-                                delete_remote_branch or default_delete_remote_branch, pr_closed or default_pr_closed)
-        finally:
-            if not dry_run:
-                _render_page(ctx, rm_cmd)  # the page shows where the run stopped and what waits for the owner
+        return _run_roadmap(ctx, template, dry_run, after_session, rm_cmd,
+                            hostname or socket.gethostname(), publish or default_publish,
+                            pr_merged or default_pr_merged, worktree_root,
+                            delete_remote_branch or default_delete_remote_branch, pr_closed or default_pr_closed)
     return _run_plan(ctx, template, dry_run, after_session)
-
-
-PAGE_RENDER_TIMEOUT_S = 120
-
-
-def _render_page(ctx: "_Ctx", roadmap_cmd: Sequence[str]) -> None:
-    """Re-render the local roadmap page (roadmap-page Phase 3). Best effort: a failure is one stderr line, never a stop."""
-    argv = [*roadmap_cmd, "render", "--roadmap", ctx.target.slug, "--root", str(ctx.repo)]
-    try:
-        proc = subprocess.run(argv, cwd=ctx.repo, env=runner_env(), stdin=subprocess.DEVNULL, capture_output=True,
-                              text=True, encoding="utf-8", errors="replace", timeout=PAGE_RENDER_TIMEOUT_S)
-        if proc.returncode != 0:
-            print(f"caddis_roadmap_run: page not rendered (exit {proc.returncode})", file=sys.stderr)
-    except Exception as exc:  # a page must never change how a run ends
-        print(f"caddis_roadmap_run: page not rendered: {type(exc).__name__}", file=sys.stderr)
 
 
 def _dry_run_tail(ctx: _Ctx, template: Path, prompt: str, cwd: Path | None = None) -> None:
@@ -2159,7 +2140,6 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
             finally:
                 s.record.setdefault("status", "FAILED")
                 ctx.log(s.record)
-            _render_page(ctx, roadmap_cmd)
             if after_session is not None:
                 after_session(sessions)
     except _Stop as stop:

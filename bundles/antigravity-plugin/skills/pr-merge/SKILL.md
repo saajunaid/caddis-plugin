@@ -190,9 +190,8 @@ If the default branch triggers an automated deployment pipeline:
 - Delete the **local** feature branch: `git branch -d <branch>` (use `-D` only if squashed after verifying tree contents match).
 - Delete the **remote** feature branch: `git push origin --delete <branch>` (if not deleted by forge).
 - Drop the temporary `backup/<branch>-preship` ref if one was created in Step 4.
-- If the repo has a roadmap (`.caddis/roadmaps/`), re-render its page, because the merge changed a Tracker on origin:
-  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_roadmap.py" render --all` (best effort; a failure is a note, not a
-  stop). The page is `~/.caddis/roadmap-pages/<repo>/<slug>.html`.
+- If the repo has a roadmap (`.caddis/roadmaps/`), the merge changed a Tracker on origin. To see it: open the hub:
+  `caddis hub open`, repo, Roadmap tab.
 
 If deploy validation failed: **skip cleanup** entirely and report why — never delete a branch whose
 work may need re-work.
