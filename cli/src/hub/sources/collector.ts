@@ -21,6 +21,7 @@ export type Slot = Record<string, unknown>;
 export interface RepoData {
   path: string;
   fingerprint?: string;
+  unchanged?: boolean;
   error?: string;
   roadmaps?: Slot;
   plans?: Slot;
@@ -122,6 +123,7 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
     for (const key of [...cache.keys()]) if (!keep.has(key)) cache.delete(key);
     for (const entry of out.repos as RepoData[]) {
       if (!entry || typeof entry.path !== 'string' || !keep.has(entry.path)) continue;
+      if (entry.unchanged === true) continue;
       const old = cache.get(entry.path);
       if (entry.error !== undefined || entry.fingerprint === undefined) {
         // A failed repo keeps its last good data. A new error entry is stored only first time.
@@ -154,9 +156,14 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
       pre = found.pre;
     }
     const script = opts.scriptPath ?? defaultScriptPath();
+    const known = [...cache.values()]
+      .filter((r) => r.error === undefined && typeof r.fingerprint === 'string' && repos.includes(r.path))
+      .map((r) => `${r.path}=${r.fingerprint}`);
     // The collector needs `--repos`. With none, ask for spend and guide on a path that does not exist.
     const args = repos.length
-      ? [...pre, script, '--repos', ...repos, '--json']
+      ? known.length
+        ? [...pre, script, '--repos', ...repos, '--known', ...known, '--json']
+        : [...pre, script, '--repos', ...repos, '--json']
       : [...pre, script, '--repos', path.join(os.tmpdir(), 'caddis-hub-no-repos'), '--only', 'spend,guide', '--json'];
     const result = await spawn(cmd, args, { timeoutMs: RUN_TIMEOUT_MS });
     if (result.timedOut) return fail(`collector timed out after ${RUN_TIMEOUT_MS / 1000} s`);

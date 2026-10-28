@@ -19,7 +19,7 @@ async function hasFocusRing(el: Locator): Promise<boolean> {
   });
 }
 
-const SECTIONS = ['rm-header', 'rm-chips', 'rm-waiting', 'rm-kpis', 'rm-flow', 'rm-board', 'rm-timeline', 'rm-gates', 'rm-milestones', 'rm-runner'];
+const SECTIONS = ['rm-header', 'rm-chips', 'rm-waiting', 'rm-kpis', 'rm-flow', 'rm-timeline', 'rm-gates', 'rm-milestones', 'rm-runner'];
 
 test.describe('Roadmap tab', () => {
   test('several roadmaps: a list with progress and next item, the read error, and a click opens one', async ({ page, openHub }) => {
@@ -35,11 +35,12 @@ test.describe('Roadmap tab', () => {
 
     await launch.click();
     await expect(page).toHaveURL(/#\/repo\/acme__shop\/roadmap\/launch$/);
-    for (const id of SECTIONS) await expect(page.getByTestId(id)).toBeVisible();
-    await expect(page.getByTestId('rm-header')).toContainText('1 of 3 milestones · 2 of 5 phases done');
-    await expect(page.getByTestId('rm-crumbs')).toContainText('acme/shop');
+    const detail = page.getByTestId('rm-detail').first();
+    for (const id of SECTIONS) await expect(detail.getByTestId(id)).toBeVisible();
+    await expect(detail.getByTestId('rm-header')).toContainText('1 of 3 milestones · 2 of 5 phases done');
+    await expect(detail.getByTestId('rm-crumbs')).toContainText('acme/shop');
     // Back to the list through the crumbs.
-    await page.getByTestId('rm-crumbs').getByRole('link', { name: 'Roadmaps' }).click();
+    await detail.getByTestId('rm-crumbs').getByRole('link', { name: 'Roadmaps' }).click();
     await expect(page.getByTestId('rm-list')).toBeVisible();
     expect(await cspViolations(page)).toEqual([]);
     expect(problems.console).toEqual([]);
@@ -64,22 +65,41 @@ test.describe('Roadmap tab', () => {
 
   test('search filters the rows, counts matches, and / focuses the box', async ({ page, openHub }) => {
     await openHub('full', undefined, `${SHOP}/roadmap/launch`);
+    const detail = page.getByTestId('rm-detail').first();
     await page.locator('main').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('/');
     await expect(page.getByTestId('rm-search')).toBeFocused();
     await page.keyboard.type('search');
     await expect(page.getByTestId('rm-match-count')).toHaveText('1 match');
-    await expect(page.getByTestId('rm-phase')).toHaveCount(1);
-    await expect(page.getByTestId('rm-phase')).toContainText('Search filters');
+    await expect(detail.getByTestId('rm-phase')).toHaveCount(1);
+    await expect(detail.getByTestId('rm-phase')).toContainText('Search filters');
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('rm-match-count')).toHaveText('');
     await page.getByTestId('rm-search').fill('zzz-nothing');
     await expect(page.getByTestId('rm-match-count')).toHaveText('0 matches');
   });
 
+  test('Timeline and Board switch remembers the choice across reload', async ({ page, openHub }) => {
+    await openHub('full', undefined, `${SHOP}/roadmap/launch`);
+    const detail = page.getByTestId('rm-detail').first();
+    await expect(detail.getByTestId('rm-timeline')).toBeVisible();
+    await expect(detail.getByTestId('rm-board')).toHaveCount(0);
+    await detail.getByTestId('rm-view-board').click();
+    await expect(detail.getByTestId('rm-board')).toBeVisible();
+    await expect(detail.getByTestId('rm-timeline')).toHaveCount(0);
+    await page.reload();
+    await expect(detail.getByTestId('rm-board')).toBeVisible();
+    await expect(detail.getByTestId('rm-timeline')).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem('caddis.hub.roadmapView'))).toBe('board');
+    await detail.getByTestId('rm-view-timeline').click();
+    await expect(detail.getByTestId('rm-timeline')).toBeVisible();
+    await expect(detail.getByTestId('rm-board')).toHaveCount(0);
+  });
+
   test('no roadmap: the active plans, then the empty text with the command', async ({ page, openHub }) => {
     await openHub('full', undefined, '#/repo/acme__docs/roadmap');
     await expect(page.getByTestId('rm-plans')).toContainText('p-docs');
+    await page.locator('.rm-plan').first().getByTestId('rm-view-board').click();
     await expect(page.getByTestId('rm-plan-board')).toContainText('To do · 2');
     await expect(page.getByTestId('rm-plan-board')).toContainText('Done · 1');
     await openHub('full', (s) => {
@@ -100,6 +120,73 @@ test.describe('Roadmap tab', () => {
       `${SHOP}/roadmap`,
     );
     await expect(page.getByTestId('rm-stale')).toContainText('Roadmap data is old');
+  });
+
+  test('a Timeline tile opens the phase panel', async ({ page, openHub }) => {
+    await openHub('full', undefined, '#/repo/acme__docs/roadmap');
+    const detail = page.getByTestId('rm-detail').first();
+    await expect(detail.getByTestId('rm-timeline')).toBeVisible();
+    await detail.getByTestId('rm-timeline').locator('.rm-tile:visible').first().click();
+    await expect(page.getByTestId('rm-panel-title')).toBeVisible();
+    await expect(page.getByTestId('rm-panel-empty')).toContainText('The plan has no section for this phase.');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('rm-panel')).toHaveCount(0);
+  });
+
+  test('the phase panel opens from a roadmap tile and closes with the button', async ({ page, openHub }) => {
+    await openHub('full', undefined, `${SHOP}/roadmap/launch`);
+    const detail = page.getByTestId('rm-detail').first();
+    const tile = detail.getByTestId('rm-timeline').locator('.rm-tile:visible').first();
+    await tile.click();
+    await expect(page.getByTestId('rm-panel')).toBeVisible();
+    await page.getByTestId('rm-panel-close').click();
+    await expect(page.getByTestId('rm-panel')).toHaveCount(0);
+    await expect(tile).toBeFocused();
+  });
+
+  test('a closed plan builds its page when you open it', async ({ page, openHub }) => {
+    await openHub(
+      'full',
+      (s) => {
+        const docs = s.repos.find((r: { name: string }) => r.name === 'docs');
+        docs.plans.plans.push({
+          path: '.caddis/plans/p-two.md',
+          title: 'p-two',
+          status: 'active',
+          feature: null,
+          tracker: [{ phase: '1', status: 'not started', state: 'todo' }],
+          open_rows: 1,
+        });
+      },
+      '#/repo/acme__docs/roadmap',
+    );
+    await expect(page.getByTestId('rm-detail')).toHaveCount(1);
+    await page.locator('details.rm-plan[aria-label="p-two"] > summary').click();
+    await expect(page.getByTestId('rm-detail')).toHaveCount(2);
+  });
+
+  test('the Roadmap tab says where the plans come from', async ({ page, openHub }) => {
+    await openHub('full', undefined, '#/repo/acme__docs/roadmap');
+    await expect(page.getByTestId('rm-source')).toContainText('Plans from origin/main');
+  });
+
+  test('the phase panel loads the section text when a tile is clicked', async ({ page, openHub }) => {
+    await openHub(
+      'full',
+      (s) => {
+        const docs = s.repos.find((r: { name: string }) => r.name === 'docs');
+        docs.plans.plans[0].phases = { '1': { title: 'Login', text: 'Section one text' } };
+      },
+      '#/repo/acme__docs/roadmap',
+    );
+    const detail = page.getByTestId('rm-detail').first();
+    const tiles = detail.getByTestId('rm-timeline').locator('.rm-tile:visible');
+    await tiles.nth(0).click();
+    await expect(page.getByTestId('rm-panel-text')).toContainText('Section one text');
+    await page.keyboard.press('Escape');
+    await tiles.nth(1).click();
+    await expect(page.getByTestId('rm-panel-empty')).toContainText('The plan has no section for this phase.');
+    await expect(page.getByTestId('rm-panel-text')).toHaveCount(0);
   });
 });
 
@@ -164,7 +251,8 @@ test.describe('tabs, themes and keyboard', () => {
       await openHub('full', undefined, `${SHOP}/roadmap/launch`);
       await page.getByRole('button', { name: theme, exact: true }).click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      for (const id of SECTIONS) await expect(page.getByTestId(id)).toBeVisible();
+      const detail = page.getByTestId('rm-detail').first();
+      for (const id of SECTIONS) await expect(detail.getByTestId(id)).toBeVisible();
       const tile = page.getByTestId('rm-timeline').locator('.rm-tile[data-state="done"]').first();
       await expect(tile).toBeVisible();
     });
@@ -215,8 +303,9 @@ test.describe('360 px', () => {
 
   test('the detail shows the list form, not the grid', async ({ page, openHub }) => {
     await openHub('full', undefined, `${SHOP}/roadmap/launch`);
-    await expect(page.getByTestId('rm-timeline-list')).toBeVisible();
-    await expect(page.locator('.rm-timeline-grid')).toBeHidden();
+    const detail = page.getByTestId('rm-detail').first();
+    await expect(detail.getByTestId('rm-timeline-list')).toBeVisible();
+    await expect(detail.locator('.rm-timeline-grid')).toBeHidden();
     await page.getByTestId('rm-milestones').locator('summary').first().click();
     await noHorizontalScroll(page);
   });

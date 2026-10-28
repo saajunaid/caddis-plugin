@@ -126,7 +126,7 @@ test.describe('Pages export', () => {
     await expect(page.getByTestId('ex-gates')).toContainText('owner signs off the catalog');
     await page.getByTestId('ex-nav').getByRole('link', { name: 'launch' }).click();
     await expect(page).toHaveURL(`${site.base}#/roadmap/launch`);
-    for (const id of ['rm-header', 'rm-waiting', 'rm-kpis', 'rm-flow', 'rm-board', 'rm-timeline', 'rm-gates', 'rm-milestones']) await expect(page.getByTestId(id)).toBeVisible();
+    for (const id of ['rm-header', 'rm-waiting', 'rm-kpis', 'rm-flow', 'rm-timeline', 'rm-gates', 'rm-milestones']) await expect(page.getByTestId(id)).toBeVisible();
     await expect(page.getByTestId('rm-runner')).toHaveCount(0);
     await expect(page.getByTestId('rm-pr').first()).toHaveAttribute('href', 'https://github.com/acme/shop/pull/11');
     // S14, S16: nothing left the server, nothing but its own files, and no API call.

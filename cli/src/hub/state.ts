@@ -286,7 +286,7 @@ export function createHub(opts: HubOptions = {}): StateHub {
   };
 
   const collector = opts.collector ?? createCollectorSource({ repos: repoPaths, now });
-  const agents = opts.agents ?? createAgentsSource({ now });
+  const agents = opts.agents ?? createAgentsSource({ now, home });
   const github =
     opts.github ?? createGithubSource({ repos: repoPaths, accounts: () => readConfig(home).value.accounts, now });
   const coordinator = opts.coordinator ?? createCoordinatorSource({ home, now });

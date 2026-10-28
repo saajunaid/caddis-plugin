@@ -27,7 +27,7 @@ import {
   writeLock,
   type LockInfo,
 } from '../hub/lock.js';
-import { hubDir, keyPath } from '../hub/paths.js';
+import { hubDir, keyPath, sessionsPath } from '../hub/paths.js';
 import { createRestarter, readInstalledVersion, type RestartDeps } from '../hub/restart.js';
 import { createActions } from '../hub/actions.js';
 import { KEY_HEADER, startServer } from '../hub/server.js';
@@ -361,6 +361,7 @@ export async function startHub(deps: HubDeps = {}): Promise<RunningHub> {
       now,
       instance: info.instance,
       onStop: () => void stop(),
+      sessionsFile: sessionsPath(home),
     });
   } catch (e) {
     releaseLock(process.pid, home);

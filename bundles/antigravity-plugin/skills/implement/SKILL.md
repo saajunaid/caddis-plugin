@@ -61,15 +61,76 @@ Measured 24-25 Oct 2026: about 60% of usage was cache re-reads in long Opus main
 and 95-154 turns per session were started by background events. Each turn re-reads the whole conversation.
 - **Small context.** Ask each subagent for a reply under about 200 words. Full reports go to files; read a
   file only for the part you need. Never paste or tail a large output.
-- **Handoff at phase end.** At each phase end, write the handoff yourself (see "At every halt" below). Continue
-  in the same session only while the conversation is under about 200k tokens. Above that, ask for `/clear`. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k.
-- **Model.** The orchestrator runs on Sonnet. Opus stays for plans, designs and critical-code subagents.
+- **Context rule.** Above 200k: checkpoint at the next card end when 2 or more cards are left; else finish
+  the phase and run the full handoff. At 280k: checkpoint at the first moment no agent or background command
+  runs. The checkpoint is the "Checkpoint" section of `/caddis:handoff`; the context_size hook prints its
+  exact command at 200k and at 280k. At each phase end, write the full handoff yourself (see "At every halt"
+  below). **Headless (`CADDIS_HEADLESS` set): never checkpoint** (the script refuses). At 280k, start no new
+  card, commit only finished cards, write `BLOCKED context <n>` and your state (cards done, commits, next
+  card) in the review file, and end with the JSON block.
+- **Model.** Take the model and effort from the session table:
+  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" session --role orchestrator` prints `<model> <effort>`
+  (source checkout: `claude-harness/scripts/caddis_routing.py`). Opus stays for plans, designs and
+  critical-code subagents (`plan-writer`, `critical-phase`).
+- **Escalation.** Escalate to Opus through a SMALL subagent (by-reference brief, reply ≤ 10 lines), never `/model opus` mid-session (the prompt cache is per model, so a switch at 200k re-writes the whole cache), when: a card fails again after its one fix card; a measurement fails a rule (isolate the cause first, then give the owner options); a plan amendment changes the design, not only facts; a risk-high phase reaches review. A fresh Opus session only to write a new plan or a redesign.
 - **One phase review.** Run `/caddis:cross-review --range <base>..HEAD` (one other vendor; agy Argon by default).
   Never use a Claude reviewer subagent. Exception: every other-vendor provider failed. Then say so in the review file.
 - **Mechanical tasks** (literal tests, moves, deletes, renames) go to agy through
   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy ...`.
 - **Fewer wake-ups.** Run one `ci-watch` per PR head. When it times out on a queued run, watch that run once
   with `ci-watch --run <id>`; do not start a new PR watch. Write no "still waiting" turns.
+
+## Waves
+
+A wave runs up to 3 phases at the same time. Pick it at run time; the plan has no wave marker. In a wave,
+the orchestrator's context holds its own briefs, each child's reply and the gate output it runs. It does
+not hold the child's work. So these rules keep briefs and replies small:
+1. **Brief by reference:** "read <plan>, Card rules, then Phase N card B". Never paste card text into a
+   prompt.
+2. **Reply at most 10 lines:** status, commit, the gate's result line, the report path. The full report goes
+   to a file outside every worktree (the orchestrator scratchpad `wave-<id>/p<N>.md`, or the lane packet in
+   `.caddis/orchestrator/lane-runs/`). An untracked file in a worktree blocks `git worktree remove`.
+3. **Wave:** at most 3 phases with disjoint `Files:`, started together, one worktree each (the default cap
+   is 3 lanes, and there are 3 CI runners). A child gets ONE card per dispatch. The size rule (6 files per
+   agy card; 12 files and 6 cards per phase) applies per phase and per card, not per wave.
+4. **Safe point:** no child runs, and each finished child is recorded (Tracker Notes or relay). Checkpoint
+   and `/clear` only at a safe point. After the 200k warning: the next safe point after a card end (normally
+   the wave end). At 280k: start no new card, wait for the running children (each only up to its time
+   limit, rule 10), then checkpoint. Never `/clear` while a child runs.
+5. **Children never write the relay** and never run a handoff or a checkpoint: only the orchestrator writes
+   the relay. The script refuses a headless child; the brief says it for an Agent-tool subagent. So
+   `put --expected-hash` has one writer per workstream. A child at its own limit returns
+   `BLOCKED: <cards done, commits, next card>`. The context_size hook does not measure subagents (it reads
+   the main thread only); a headless child session gets the headless 280k text.
+6. **Worktrees:** make each from the feature-branch head at `$CADDIS_WORKTREE_ROOT/<repo>/<plan>-p<N>`,
+   else `<parent of the main checkout>/.worktrees/<repo>/<plan>-p<N>` (or use `caddis_lanes.py run`, which
+   makes and records its own). Record it with
+   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_created.py" record --path <path> --kind worktree --purpose "wave <id> phase <N>"`,
+   and remove it after the merge. Every child shell command starts in its own worktree.
+7. **Merge:** one member at a time into the feature branch. Run the whole test folder after each merge, and
+   the phase gates. A conflict stops that member only.
+8. **Cost:** wave cost is the sum of its members, each on the cheapest fitting model from the session table
+   (`caddis_routing.py session`). Before the wave, `caddis_spend.py status` headroom must cover the members
+   × the per-call reserve. Exit 75 means "not run", not "failed".
+9. **No plan-time marker.** Pick the wave from the CURRENT `Files:` lists: at most 3 phases, disjoint, one
+   worktree each. Safety comes from this run-time check and the whole test folder after each merge, not
+   from the plan: phases often touch files outside their `Files:`. A plan adds only an optional
+   `**Depends on:** Phase <x>` line, when a phase does NOT need the phase before it.
+10. **Child time limit and orphans.** Every brief states a time limit: 20 minutes for a card (the same as the
+   agy `--print-timeout`), 10 minutes for a read-only child. At the limit plus 2 minutes with no reply, stop
+   the child (`TaskStop`) and run the orphan check in its worktree: `git status --short` and
+   `git log <feature-head>..HEAD --oneline`. Then:
+   - (a) A commit exists and the card gate passes in that worktree: keep it; the card is done.
+   - (b) A commit exists and the gate fails, or the tree is dirty with no commit: write
+     `BLOCKED: orphan <worktree> <branch> <state>` in the Tracker Notes. Do NOT delete the worktree.
+     Re-dispatch the card ONCE from a fresh worktree off the feature head.
+   - (c) Nothing changed: re-dispatch the card once, the same way.
+   A second failure of the same card stops the wave, and the orchestrator asks the owner. The 10-line reply
+   cap stays: on a failure, read the child's full report FILE (rule 2), not a longer reply. A child that
+   dies leaves its worktree. The orchestrator removes it after the merge, or the owner decides; the child
+   never does.
+
+A headless session (`CADDIS_HEADLESS` set) never starts a wave: it is a wave member at most.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
@@ -284,9 +345,10 @@ report — do not redo completed work.
    violated), **stop there**: leave later phases untouched, record the blocker in the review file, mark the
    Tracker row `blocked`, and report honestly with `"tests":"failed"` — never fake completion.
 
-**3b. Halt only at a boundary.** Implement phase after phase, committing each. Stop for exactly four
+**3b. Halt only at a boundary.** Implement phase after phase, committing each. Stop for exactly five
 reasons — a **milestone boundary**, a phase marked `Session: fresh`, **after** a `risk: high` phase,
-or a **failed/blocked** phase. A lane change is not one of them: you spawn the lane yourself (Step 1).
+a **failed/blocked** phase, or (interactive only) **the checkpoint after the 200k warning** at a card end
+(the context rule above). A lane change is not one of them: you spawn the lane yourself (Step 1).
 
 The `risk: high` halt is deliberately *after*, not before. Execute and commit the phase normally; the
 halt exists to stop the **next** phase building on it before a human has looked, so the blast radius

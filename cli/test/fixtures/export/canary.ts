@@ -83,8 +83,8 @@ export function makeDist(base: string): string {
   put(path.join(dist, 'assets', 'app-1.css'), 'body{margin:0}\n');
   mkdirSync(path.join(dist, 'fonts'), { recursive: true });
   writeFileSync(path.join(dist, 'fonts', 'sample-400.abc.woff2'), Buffer.from('wOF2....'));
-  put(path.join(dist, 'licenses', 'OFL-Atkinson.txt'), 'OFL sample\n');
-  put(path.join(dist, 'licenses', 'OFL-MapleMono.txt'), 'OFL sample\n');
+  put(path.join(dist, 'licenses', 'OFL-IBMPlexMono.txt'), 'OFL sample\n');
+  put(path.join(dist, 'licenses', 'OFL-IBMPlexSans.txt'), 'OFL sample\n');
   put(path.join(dist, 'licenses', 'LICENSE-Lucide.txt'), 'ISC sample\n');
   put(path.join(dist, 'licenses', 'notes.txt'), 'must not be copied\n');
   put(path.join(dist, 'fonts', 'notes.txt'), 'must not be copied\n');

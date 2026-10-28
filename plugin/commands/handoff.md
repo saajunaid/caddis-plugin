@@ -75,6 +75,70 @@ Step 8 prints all 12 in this order. Never drop a row from the report, even when 
 `caddis_tidy.py --prune --apply` on its own, in any checkout (nor `--prune --temp --apply`); only the user can ask for it (Step 6b). In a
 shared checkout the report also lists every tracked file Step 1 changed, under `Docs PR needed:`.
 
+## Checkpoint (mid-phase, between cards)
+The handoff has two tiers. The **full** tier is this whole command. The **checkpoint** tier is a cheap
+mid-phase handoff: two script calls, about 3 model calls. It writes the relay and the tasks file and prints
+the RESUME block. The next full handoff does the rest.
+
+**When to checkpoint.** At a card end (or a task end), when one of these is true:
+- The context_size hook printed the 200k warning, and 2 or more cards are left in the phase. When 1 card
+  or less is left, finish the phase and run the full handoff instead.
+- The hook printed the 280k stop line. Start no new card. Checkpoint at the first moment no agent or
+  background command runs.
+- You stop for more than 1 hour and the conversation is over 100k tokens.
+
+**In a wave** (`/caddis:implement`, "Waves"), the card end is the safe point (rule 4): no child runs, and
+each finished child is recorded. Checkpoint only there, and never `/clear` while a child runs. The relay
+lists each wave member's phase, worktree, branch, last commit and next card.
+
+**When not to checkpoint.** Run the full handoff, or do what the refusal says:
+- A headless session (`CADDIS_HEADLESS` set). The script refuses (exit 1):
+  `CHECKPOINT: refused headless: return BLOCKED with your state`. An Agent-tool subagent also never runs
+  it; it returns `BLOCKED: <cards done, commits, next card>`.
+- The coordinator's relay. The script refuses (exit 1): `CHECKPOINT: coordinator: run /caddis:handoff`.
+  It also refuses when it cannot run the coordinator check:
+  `CHECKPOINT: cannot tell if <name> is the coordinator relay (<why>): run /caddis:handoff`.
+- A fleet close (`FLEET CLOSE from <coordinator>`). Always run the full handoff with `--fleet` (Step 9).
+- An agent or a background command still runs. Finish without `--idle` refuses (exit 1):
+  `CHECKPOINT: wait until no agent or background command runs`.
+
+**The two commands.**
+1. **Prepare.** It reads the relay hash before you compose the new relay:
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_handoff.py" checkpoint --session-id <session-id> --plan <plan> --phase <N>
+   ```
+   (Source checkout: `scripts/caddis_handoff.py`. Add `--name <name>` when you know the workstream.) It
+   prints `workstream:`, `relay:`, `hash:`, `shared:`, `tasks:`, `budget: 4000` and `next:`.
+2. **Finish.** Write the new relay to a temp file with the Write tool (never a heredoc). Then run the
+   `next:` command as printed. Replace `<tmp>` with the temp file path. Set `--kt` to `done` or
+   `skipped:<reason>`. Keep `--idle` only when no agent or background command runs.
+
+**What you write.** Only three things; the script does the rest:
+- **The relay text.** Use the Step 3 format. It holds the current state only, and the Done-pruning rules
+  (Rules) apply. `## Next step` names the next card exactly. Keep it under 4,000 characters.
+- **The Tracker Edit.** Set the phase's Tracker row to `in progress` and name the last card done. Finish
+  fails row 2 when the row does not say `in progress`. Do not commit the plan file: finish prints
+  `plan file modified, not committed`, and a "no stray files" card check exempts the plan path. In a
+  shared checkout (Step 0), make no Tracker edit: finish prints row 2 as
+  `skipped: shared checkout (card state is in the relay)`, so the checkpoint changes no tracked file.
+- **The knowledge-transfer decision.** When a root cause, a workaround or a rejected approach is new since
+  the last handoff, dispatch the `knowledge-transfer` subagent (Step 1) first, then pass `--kt done`.
+  Else pass `--kt skipped:<reason>`.
+
+**What finish prints.** `=== CHECKPOINT CHECKLIST ===` with the same 12 rows as Step 8, in the same order.
+Rows 5, 6, 8, 9, 10 and 12 print `skipped: checkpoint tier`. Then it prints the RESUME block (Step 9) as its
+last output. Print that block as it is, with nothing after it, then ask the owner for `/clear`.
+
+**When finish fails** (exit 1):
+- `CHECKPOINT: row 3 relay failed`: the relay is NOT written. A peer changed the relay after prepare: the
+  script prints the diff and writes nothing. Run prepare again for the new hash, merge by hand, and finish
+  again. Never force it.
+- `CHECKPOINT: handover-check failed`: the relay is written, but it names a missing path or is over 4,000
+  characters. There is no RESUME block. Fix the relay, then run prepare and finish again.
+- `ERROR after relay write: <reason>`: the relay is written (`relay written:` names it), but a later step
+  failed. Finish prints the RESUME block when it can. When there is none, resume from the relay path; do not
+  write the block by hand.
+
 ## Step 1 — capture learnings FIRST (knowledge-transfer)
 **Before** gathering git signals or writing relay.md, decide on `knowledge-transfer` — and the default
 is to run it.
@@ -437,13 +501,15 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_fleet.py" resume-block --name <name
 the session name (`session-state/<session-id>.name` when `whoami` wrote it, else the first 8 characters of
 the id). It prints, and you print its output as it is, with nothing after it:
 ```
+Model for next session: <model>, effort <effort>
 === RESUME ===
 Session: <session name> (<session id>)
 Workstream: <name>
 <the resume prompt, in a fenced block>
 Start line:
-claude --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
+claude --model <model> --effort <effort> --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
 ```
+`<model>` and `<effort>` come from `caddis_routing.py session` (Rules, "Model for the next session").
 - **The announce sentence.** In a normal handoff the one-line start line also ends with a sentence that tells
   the new session to run `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send
   each named live peer in the same repo (the checkout and its worktrees) one `SendMessage`:
@@ -460,11 +526,16 @@ claude --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce 
   `--role <role>` to set another.
 
 ## Rules
-- **Clear above 200k tokens.** A session whose conversation passes about 200k tokens writes this handoff at
-  the next safe point and asks the owner for `/clear`. Each turn re-reads the whole conversation, so a long
-  session costs more with every turn. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k.
-- **Model for the next session.** Print one line `Model for next session: ...` just before the RESUME block (the block stays the last output): Sonnet (effort medium) to run an approved
-  plan; Opus to write a plan or design. Start line: `claude --model sonnet --effort medium --name <role>-<MMDD>-<HH>`.
+- **Context rule.** Above 200k: checkpoint at the next card end when 2 or more cards are left; else finish
+  the phase and run the full handoff. At 280k: checkpoint at the first moment no agent or background command
+  runs. Then ask the owner for `/clear`. Each turn re-reads the whole conversation, so a long session costs
+  more with every turn. The context_size hook prints the exact command at 200k and at 280k ("Checkpoint" above).
+- **Model for the next session.** Take the model and effort from the session table:
+  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" session --role <role>` prints `<model> <effort>`.
+  The role is `orchestrator` to run an approved plan and `plan-writer` to write a plan or design.
+  `resume-block` (Step 9) reads the same table: it prints `Model for next session: <model>, effort <effort>`
+  as its first line and puts `--model <model> --effort <effort>` in the Start line. Pass `--role plan-writer`
+  for plan or design work. Do not print a second model line.
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in
   order: (1) interrupted mid-phase work → finish + commit it; else (2) the active plan's next not-started
   phase; else (3) the top open question/decision. Everything else is context, not the next step.

@@ -10,7 +10,11 @@ On that turn only, the workspace's relay doc is injected as an ephemeral step so
 resumes with zero re-discovery. Every later invocation emits nothing (re-injecting the relay on every
 turn would burn context and drown the conversation).
 
-Self-contained (the agy bundle ships neither claude-harness/hooks/ nor scripts/), stdlib-only.
+Every invocation (not only the first) also marks the session `working` in its status file
+`~/.caddis/sessions/<conversationId>.json`, which the caddis hub reads (scripts/caddis_heartbeat.py).
+
+Stdlib-only. The relay logic is self-contained; only the optional helpers (no_window, hook_log,
+caddis_heartbeat, repo_freshness) are imported, from the bundle's scripts/ or the source tree.
 
 agy PreInvocation stdin (camelCase protojson):
   {"invocationNum": 1, "initialNumSteps": N, "conversationId": "…", "workspacePaths": ["…"], …}
@@ -293,6 +297,28 @@ def _mark_injected(root, conversation):
     except Exception as _exc:
         _hook_note("agy relay injection marker", _exc, root)
 
+
+def _status_beat(data, status):
+    """Write this agy session's status for the caddis hub (~/.caddis/sessions/). Never raises, never prints.
+
+    caddis_heartbeat.py ships under scripts/ in the agy bundle; in the source repo it is in
+    claude-harness/scripts/. Headless runs (review and lane runs) write nothing.
+    """
+    try:
+        if str(os.environ.get("CADDIS_HEADLESS", "")).strip():
+            return
+        _here = os.path.dirname(os.path.abspath(__file__))
+        for _cand in (os.path.join(_here, "scripts"),
+                      os.path.join(os.path.dirname(_here), "scripts")):
+            if os.path.isfile(os.path.join(_cand, "caddis_heartbeat.py")):
+                if _cand not in sys.path:
+                    sys.path.insert(0, _cand)
+                break
+        import caddis_heartbeat as _hb  # noqa: E402
+        _hb.agy_beat(data, status, plugin_root=_here)  # the bundle's plugin.json sits beside the hook
+    except Exception as _exc:
+        _hook_note("agy session status", _exc)
+
 def _workspace_roots(data):
     """Every workspace root in the payload, as a list. Empty when the payload has none.
 
@@ -325,6 +351,8 @@ def main() -> None:
             return
         if not isinstance(data, dict):
             return
+        # Every invocation: the session is working (the hub's session list). Before the first-turn gate.
+        _status_beat(data, "working")
         # SessionStart equivalent: the FIRST invocation only (agy 0-indexes invocationNum, so the
         # first turn is 0, not 1). Anything else (or an unparseable invocationNum) injects nothing.
         try:

@@ -1,8 +1,11 @@
-"""UserPromptSubmit + PostToolUse — advise the session when context crosses 200k or 350k tokens.
+"""UserPromptSubmit + PostToolUse — advise the session when context crosses 200k or 280k tokens.
 
 Reads the latest main-thread usage from the session transcript (via scripts/caddis_ctx_report.py)
-and emits a [caddis] advisory when the context level rises to warn (>= 200,000) or force (>= 350,000),
-and on every UserPromptSubmit while at force. Never blocks a tool and always exits 0.
+and emits a [caddis] advisory when the context level rises to warn (>= 200,000) or force (>= 280,000),
+and on every UserPromptSubmit while at force. The text names one exact command: the checkpoint
+(`caddis_handoff.py checkpoint --session-id <id>`), or the full handoff when that script is not
+installed. A headless session (CADDIS_HEADLESS truthy) gets no warn text and a BLOCKED force text,
+because headless sessions never checkpoint. Never blocks a tool and always exits 0.
 """
 import json
 import os
@@ -29,6 +32,51 @@ except Exception:
     sys.exit(0)
 
 _LEVEL_RANK = {"ok": 0, "warn": 1, "force": 2}
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _headless() -> bool:
+    return str(os.environ.get("CADDIS_HEADLESS", "")).strip().lower() in _TRUTHY
+
+
+def _checkpoint_script() -> str | None:
+    """First existing caddis_handoff.py: <hooks>/../scripts (plugin), then <hooks>/../../scripts (source tree)."""
+    for folder in (
+        os.path.join(os.path.dirname(_HOOKS_DIR), "scripts"),
+        os.path.join(os.path.dirname(os.path.dirname(_HOOKS_DIR)), "scripts"),
+    ):
+        path = os.path.join(folder, "caddis_handoff.py")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _message(level: str, n: int, warn: int, force: int, session_id: str) -> str | None:
+    if level == "force":
+        first = f"[caddis] Context is {n:,} tokens (stop line {force:,}). "
+        if _headless():
+            return (
+                first + "Headless: start no new card. Commit only finished cards. "
+                f"End with BLOCKED context {n:,} and your state (cards done, commits, next card). "
+                "Do not write a handoff."
+            )
+        script = _checkpoint_script()
+        if script is None:
+            return first + "Write the handoff (/caddis:handoff), then ask for /clear."
+        return (
+            first + "Start no new card. When no agent or background command runs, run the checkpoint now: "
+            f'python "{script}" checkpoint --session-id {session_id}. Then ask for /clear.'
+        )
+    if _headless():
+        return None
+    first = f"[caddis] Context is {n:,} tokens (warn at {warn:,}). "
+    script = _checkpoint_script()
+    if script is None:
+        return first + "Write the handoff (/caddis:handoff), then ask for /clear."
+    return (
+        first + f'At the next card end, run the checkpoint: python "{script}" checkpoint --session-id {session_id}. '
+        "If 1 card or less is left in the phase, finish the phase and run /caddis:handoff instead."
+    )
 
 
 def main() -> None:
@@ -45,7 +93,7 @@ def main() -> None:
             return
 
         WARN = int(os.environ.get("CADDIS_CTX_WARN", 200000))
-        FORCE = int(os.environ.get("CADDIS_CTX_FORCE", 350000))
+        FORCE = int(os.environ.get("CADDIS_CTX_FORCE", 280000))
 
         n = last_context(transcript_path)
         if n is None:
@@ -84,16 +132,9 @@ def main() -> None:
         if not should_emit:
             return
 
-        if level == "force":
-            msg = (
-                f"[caddis] Context is {n:,} tokens (limit {FORCE:,}). "
-                "Start no new work. Write the handoff now, then /clear and resume from the relay."
-            )
-        else:
-            msg = (
-                f"[caddis] Context is {n:,} tokens (warn at {WARN:,}). "
-                "Finish the current step. At the next phase end, write the handoff and restart with /clear."
-            )
+        msg = _message(level, n, WARN, FORCE, session_id)
+        if not msg:
+            return
 
         out = {
             "systemMessage": msg,

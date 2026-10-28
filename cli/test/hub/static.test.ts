@@ -60,6 +60,7 @@ function fixtureUi(): string {
   writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>t</title><script type="module" src="/assets/x.js"></script>');
   writeFileSync(path.join(ui, 'assets', 'x.js'), 'export {};');
   writeFileSync(path.join(ui, 'assets', 'x.css'), 'body{}');
+  writeFileSync(path.join(ui, 'assets', 'mark.webp'), 'RIFF');
   writeFileSync(path.join(ui, 'fonts', 'a.woff2'), 'wOF2');
   writeFileSync(path.join(tmp, 'key'), 'SECRET');
   return ui;
@@ -83,6 +84,7 @@ describe('static UI (R26)', () => {
     expect(js.headers['content-type']).toBe('text/javascript; charset=utf-8');
     expect(js.headers['cache-control']).toBe('public, max-age=31536000, immutable');
     expect((await get(port, '/assets/x.css')).headers['content-type']).toBe('text/css; charset=utf-8');
+    expect((await get(port, '/assets/mark.webp')).headers['content-type']).toBe('image/webp'); // the animated logo
     const font = await get(port, '/fonts/a.woff2');
     expect(font.headers['content-type']).toBe('font/woff2');
     expect(font.headers['cache-control']).toContain('immutable');

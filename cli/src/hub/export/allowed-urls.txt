@@ -11,8 +11,9 @@ http://www.w3.org/XML/1998/namespace
 https://reactjs.org/docs/error-decoder.html?invariant=
 
 # Licence texts in licenses/
-https://github.com/googlefonts/atkinson-hyperlegible-next
-https://github.com/subframe7536/maple-font
+https://github.com/IBM/plex
+http://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
 https://openfontlicense.org
 
 # A PR link is built from `--github` and a number at run time. The bundle holds only the template.

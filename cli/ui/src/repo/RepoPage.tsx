@@ -3,11 +3,13 @@ import { ActionButtons } from '../actions/ActionButtons';
 import { ownerDisabledReason, ownerSpecs, queueSpecs, requestText, requestTone } from '../actions/model';
 import { RecommendationBlock } from '../actions/Recommendation';
 import type { ActApi } from '../actions/useActions';
+import { getPlanPhase } from '../api';
 import { repoLabel } from '../inbox/derive';
 import { ageText } from '../shell/format';
 import { repoId, repoTabHref, type RepoTab } from '../shell/route';
 import type { HubState, RepoState } from '../types';
 import { deriveFlow, type FlowItem } from './flow';
+import { PhaseLoaderContext } from './phaseLoader';
 import { collectorStale, roadmapTabLabel } from './roadmap';
 import { Sessions } from './SessionsTab';
 
@@ -205,7 +207,9 @@ export function RepoPage({ state, repo, nowMs, act, tab, roadmap }: PageProps): 
       {tab === 'flow' && <Flow state={state} repo={repo} nowMs={nowMs} act={act} />}
       {tab === 'roadmap' && (
         <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
-          <RoadmapTab key={roadmap ?? ''} repo={repo} slug={roadmap} stale={collectorStale(state)} lastOkAt={state.sources.collector.last_ok_at} />
+          <PhaseLoaderContext.Provider value={getPlanPhase}>
+            <RoadmapTab key={roadmap ?? ''} repo={repo} slug={roadmap} stale={collectorStale(state)} lastOkAt={state.sources.collector.last_ok_at} />
+          </PhaseLoaderContext.Provider>
         </Suspense>
       )}
       {tab === 'sessions' && <Sessions state={state} repo={repo} nowMs={nowMs} />}

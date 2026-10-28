@@ -35,7 +35,7 @@ mode.
 ## Step 2 — check this session's name before loading anything
 
 Run `ListAgents`. Its header line says `This session is <name>`; that is your name. The sheet row's
-Start line already names the session: `claude --name <expected> "/caddis:fleet-open <role>"`, where
+Start line already names the session: `cd "<folder>"; claude --model <model> --effort <effort> --name <expected> "/caddis:fleet-open <role>"`, where
 `<expected>` is `new_name` of the role at the sheet's hour.
 
 - `<name>` equals `<expected>` → go on.

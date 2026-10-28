@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Batched hub collector: every repo's roadmaps, plans and relays, plus agy spend and the guide, as one JSON object.
 
-Usage: caddis_hub_collect.py --repos PATH [PATH ...] [--only roadmaps,plans,relays,spend,guide] --json
+Usage: caddis_hub_collect.py --repos PATH [PATH ...] [--only roadmaps,plans,relays,spend,guide] [--known PATH=FP ...] --json
 
 The hub runs this once per cycle. It runs in ONE Python process for all repos (hub rule R15, spawn cost L8). It
 never calls gh, claude or agy, and never runs `git fetch`: the roadmap reader sees the origin refs the repo
@@ -63,6 +63,13 @@ def _local_origin_branches(common: Path) -> list[str]:
             if (common / "refs" / "remotes" / "origin" / name).is_file() or f"refs/remotes/origin/{name}" in packed_refs]
 
 
+def _fetch_time(common: Path) -> int | None:
+    try:
+        return int((common / "FETCH_HEAD").stat().st_mtime)
+    except OSError:
+        return None
+
+
 def _plans_json(root: Path) -> dict:
     """Plans from the origin ref the repo already has (R15: local git only), so a pushed Tracker edit shows with no
     pull. A folder that is not a git checkout, or has no origin default branch, reads the working tree."""
@@ -88,7 +95,10 @@ def _plans_json(root: Path) -> dict:
             branch = None
         finally:
             roadmap.FETCH = saved
-    return _sibling("caddis_todo").plans_json(root, branch=branch)
+    out = _sibling("caddis_todo").plans_json(root, branch=branch)
+    if common is not None and isinstance(out, dict):
+        out["fetched_at"] = _fetch_time(common)
+    return out
 
 
 def _relays_json(root: Path) -> dict:
@@ -198,8 +208,8 @@ def git_common_dir(repo: Path) -> Path | None:
 
 
 def _origin_ref_files(common: Path) -> list[Path]:
-    """The ref files the roadmap reader gets its data from: packed-refs, origin/HEAD, every origin branch."""
-    files = [p for p in (common / "packed-refs",) if p.is_file() and not _is_link(p)]
+    """The ref files the roadmap reader gets its data from: packed-refs, FETCH_HEAD, origin/HEAD, every origin branch."""
+    files = [p for p in (common / "packed-refs", common / "FETCH_HEAD") if p.is_file() and not _is_link(p)]
     # refs/remotes/origin/HEAD sits inside refs/remotes/origin/, so the walk covers it.
     return files + _files(common / "refs" / "remotes" / "origin", recurse=True)
 
@@ -229,7 +239,19 @@ def fingerprint(repo: Path) -> str:
     return hashlib.sha256(json.dumps(sorted(rows)).encode("utf-8")).hexdigest()
 
 
-def collect_repo(path: str, kinds: tuple[str, ...]) -> dict:
+def parse_known(values: list[str]) -> dict[str, str]:
+    known: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"bad --known value: {value}")
+        path, fp = value.rsplit("=", 1)
+        if not path or not fp:
+            raise ValueError(f"bad --known value: {value}")
+        known[path] = fp
+    return known
+
+
+def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None = None) -> dict:
     repo = Path(path)
     if not repo.is_dir():
         return {"path": path, "error": "not a folder"}
@@ -238,6 +260,8 @@ def collect_repo(path: str, kinds: tuple[str, ...]) -> dict:
         entry["fingerprint"] = fingerprint(repo)
     except Exception as exc:  # a repo we cannot read must not stop the others
         return {"path": path, **_error(exc)}
+    if known and known.get(path) == entry["fingerprint"]:
+        return {**entry, "unchanged": True}
     for kind in _REPO_KINDS:
         if kind not in kinds:
             continue
@@ -248,9 +272,9 @@ def collect_repo(path: str, kinds: tuple[str, ...]) -> dict:
     return entry
 
 
-def collect(repos: list[str], kinds: tuple[str, ...]) -> dict:
+def collect(repos: list[str], kinds: tuple[str, ...], known: dict[str, str] | None = None) -> dict:
     out: dict = {"schema": SCHEMA, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 "repos": [collect_repo(path, kinds) for path in repos]}
+                 "repos": [collect_repo(path, kinds, known) for path in repos]}
     for kind, call in (("spend", _spend_json), ("guide", _guide_json)):
         if kind not in kinds:
             continue
@@ -275,13 +299,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = _Parser(description=__doc__.splitlines()[0])
     parser.add_argument("--repos", nargs="+", required=True, metavar="PATH")
     parser.add_argument("--only", default=",".join(KINDS), help="comma list of: " + ", ".join(KINDS))
+    parser.add_argument("--known", nargs="+", default=[], metavar="PATH=FP")
     parser.add_argument("--json", action="store_true", required=True)
     args = parser.parse_args(argv)
     kinds = tuple(k.strip() for k in args.only.split(",") if k.strip())
     unknown = [k for k in kinds if k not in KINDS]
     if unknown or not kinds:
         parser.error(f"unknown --only kind: {', '.join(unknown) or '(empty)'}; use {', '.join(KINDS)}")
-    print(json.dumps(collect(args.repos, kinds), ensure_ascii=False))
+    try:
+        known = parse_known(args.known)
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(json.dumps(collect(args.repos, kinds, known), ensure_ascii=False))
     return 0
 
 

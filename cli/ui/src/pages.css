@@ -368,7 +368,7 @@
 
 .lane-name {
   font-weight: 400;
-  font-family: 'Maple Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
 }
 
@@ -933,6 +933,12 @@ select:focus-visible {
   background: var(--bg-card);
   max-width: 100%;
   overflow-wrap: anywhere;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .rm-tile[data-state="done"] {
   background: var(--chip-done-bg);
@@ -948,6 +954,65 @@ select:focus-visible {
 }
 .rm-tile[data-state="moved"] {
   background: repeating-linear-gradient(135deg, var(--chip-done-bg) 0 5px, var(--bg-card) 5px 10px);
+}
+.rm-panel {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  bottom: 16px;
+  width: min(480px, calc(100vw - 32px));
+  padding: 16px;
+  overflow: auto;
+  z-index: 40;
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.rm-panel h3 {
+  margin: 0 32px 8px 0;
+  outline: none;
+}
+.rm-panel-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.rm-panel-text {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  max-height: 60vh;
+  overflow: auto;
+  margin: 12px 0 0;
+}
+@media (max-width: 700px) {
+  .rm-panel {
+    left: 16px;
+  }
+}
+.flow-title.rm-open {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.rm-tile:focus-visible,
+.rm-open:focus-visible,
+.rm-panel-close:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
 }
 .rm-risk {
   width: 7px;
@@ -1043,7 +1108,7 @@ select:focus-visible {
   color: var(--text-sub);
 }
 .rm-pkpi-num {
-  font-family: 'Maple Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-feature-settings: 'zero' on;
   color: var(--text-main);
 }
@@ -1095,6 +1160,36 @@ select:focus-visible {
   font-size: 13px;
 }
 
+.rm-view {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-dim);
+  border-radius: 999px;
+  background: var(--bg-card);
+}
+.rm-view button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-sub);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.rm-view button[aria-pressed='true'] {
+  background: var(--purple);
+  color: var(--bg-canvas);
+  font-weight: 600;
+}
+.rm-plan-only {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sub);
+}
 /* Activity */
 .act-filters {
   display: flex;

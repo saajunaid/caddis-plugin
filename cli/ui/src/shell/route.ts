@@ -5,7 +5,7 @@ export type Route =
   | { page: 'overview' }
   | { page: 'repo'; id: string; tab: RepoTab; roadmap: string | null }
   | { page: 'activity' }
-  | { page: 'guide' };
+  | { page: 'guide'; tab: 'poster' | 'details'; item: string | null };
 
 /** Hash routes, no router library: `#/inbox`, `#/overview`, `#/repo/<id>[/<tab>[/<slug>]]`. Unknown gives the Inbox. */
 export function parseRoute(hash: string): Route {
@@ -13,7 +13,15 @@ export function parseRoute(hash: string): Route {
   const head = parts[0];
   if (head === 'overview') return { page: 'overview' };
   if (head === 'activity') return { page: 'activity' };
-  if (head === 'guide') return { page: 'guide' };
+  if (head === 'guide') {
+    try {
+      const tab = parts[1] === 'details' ? 'details' : 'poster';
+      const item = parts[2] ? decodeURIComponent(parts[2]) : null;
+      return { page: 'guide', tab, item };
+    } catch {
+      return { page: 'inbox' };
+    }
+  }
   if (head === 'repo' && parts[1]) {
     try {
       const tab: RepoTab = parts[2] === 'roadmap' || parts[2] === 'sessions' ? parts[2] : 'flow';
@@ -35,4 +43,9 @@ export const repoHref = (id: string): string => `#/repo/${encodeURIComponent(id)
 export function repoTabHref(id: string, tab: RepoTab, roadmap?: string | null): string {
   if (tab === 'flow') return repoHref(id);
   return `${repoHref(id)}/${tab}${tab === 'roadmap' && roadmap ? `/${encodeURIComponent(roadmap)}` : ''}`;
+}
+
+export function guideHref(tab: 'poster' | 'details', item?: string | null): string {
+  if (tab === 'poster') return '#/guide';
+  return `#/guide/details${item ? `/${encodeURIComponent(item)}` : ''}`;
 }

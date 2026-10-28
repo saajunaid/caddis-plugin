@@ -313,6 +313,11 @@
         },
         {
           "root": "harness",
+          "source": "scripts/caddis_heartbeat.py",
+          "destination": "scripts/caddis_heartbeat.py"
+        },
+        {
+          "root": "harness",
           "source": "scripts/caddis_exit.py",
           "destination": "scripts/caddis_exit.py"
         },
@@ -370,6 +375,11 @@
           "root": "scriptsrc",
           "source": "caddis_own_cleanup.py",
           "destination": "scripts/caddis_own_cleanup.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_handoff.py",
+          "destination": "scripts/caddis_handoff.py"
         },
         {
           "root": "scriptsrc",
@@ -841,6 +851,11 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_handoff.py",
+          "destination": "scripts/caddis_handoff.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_worktree_root.py",
           "destination": "scripts/caddis_worktree_root.py"
         },
@@ -1175,7 +1190,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.172",
+        "version": "1.3.173",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -1397,6 +1412,11 @@
           "root": "scriptsrc",
           "source": "caddis_own_cleanup.py",
           "destination": "scripts/caddis_own_cleanup.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_handoff.py",
+          "destination": "scripts/caddis_handoff.py"
         },
         {
           "root": "scriptsrc",

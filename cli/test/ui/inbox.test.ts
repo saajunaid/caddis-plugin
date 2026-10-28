@@ -398,3 +398,22 @@ describe('roadmap owner gates in the Inbox (P24)', () => {
     expect(next.resolved.map((r) => r.item.id)).toContain('rmgate:/srv/demo/shop:launch:S3:0');
   });
 });
+
+describe('deriveInbox: a waiting agy session', () => {
+  it('names the agent in the title', () => {
+    const s = clone(load('full'));
+    s.sessions.push({
+      ...s.sessions[0]!,
+      key: 'agy:conv-7',
+      session_id: 'conv-7abcdef12',
+      name: null,
+      agent: 'agy',
+      status: 'waiting',
+      waiting_for: 'input needed',
+      waiting_class: 'owner',
+    });
+    const item = deriveInbox(s, at(s)).items.find((i) => i.id === 'waiting:conv-7abcdef12')!;
+    expect(item.title).toBe('conv-7ab (agy) waits on input needed');
+    expect(item.cmd).toBe('conv-7ab');
+  });
+});

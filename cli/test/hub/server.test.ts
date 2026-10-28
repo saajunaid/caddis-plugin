@@ -1,7 +1,12 @@
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startServer, SESSION_COOKIE, MAX_BODY_BYTES } from '../../src/hub/server.js';
+import { SESSION_IDLE_MS } from '../../src/hub/auth.js';
+import { acceptsGzip, startServer, SESSION_COOKIE, MAX_BODY_BYTES } from '../../src/hub/server.js';
 
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
@@ -47,6 +52,33 @@ function req(
     );
     r.on('error', reject);
     if (body !== undefined) r.write(body);
+    r.end();
+  });
+}
+
+function rawGet(
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const r = http.request(
+      {
+        host: '127.0.0.1',
+        port: srv.port,
+        method: 'GET',
+        path,
+        headers: { host: `127.0.0.1:${srv.port}`, ...headers },
+        agent: false,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }),
+        );
+      },
+    );
+    r.on('error', reject);
     r.end();
   });
 }
@@ -114,6 +146,22 @@ afterEach(async () => {
   await srv.close();
 });
 
+describe('acceptsGzip', () => {
+  it('parses Accept-Encoding tokens and q-values', () => {
+    expect(acceptsGzip('gzip')).toBe(true);
+    expect(acceptsGzip('gzip;q=0')).toBe(false);
+    expect(acceptsGzip('gzip; q=0.0')).toBe(false);
+    expect(acceptsGzip('deflate, gzip;q=0.5')).toBe(true);
+    expect(acceptsGzip('GZIP')).toBe(true);
+    expect(acceptsGzip('identity')).toBe(false);
+    expect(acceptsGzip(undefined)).toBe(false);
+    expect(acceptsGzip('x-gzip')).toBe(false);
+    expect(acceptsGzip('br, gzip;q=0, *')).toBe(false);
+    expect(acceptsGzip(['br', 'gzip'])).toBe(true);
+    expect(acceptsGzip('gzip;q=abc')).toBe(false);
+  });
+});
+
 describe('listen address', () => {
   it('listens on 127.0.0.1 only, on an OS-picked port', async () => {
     expect(srv.port).toBeGreaterThan(0);
@@ -147,17 +195,17 @@ describe('server key', () => {
 describe('session TTL over HTTP', () => {
   it('an idle session past 12 h gets 401', async () => {
     const { hdr } = await login();
-    t += 12 * 60 * 60 * 1000;
+    t += SESSION_IDLE_MS;
     expect((await req('GET', '/api/state', hdr)).status).toBe(401);
   });
 
   it('a session past 24 h gets 401 even when used each hour', async () => {
     const { hdr } = await login();
-    for (let h = 0; h < 23; h++) {
-      t += 60 * 60 * 1000;
+    for (let h = 0; h < 29; h++) {
+      t += 24 * 60 * 60 * 1000;
       expect((await req('GET', '/api/state', hdr)).status).toBe(200);
     }
-    t += 60 * 60 * 1000;
+    t += 24 * 60 * 60 * 1000;
     expect((await req('GET', '/api/state', hdr)).status).toBe(401);
   });
 });
@@ -342,6 +390,121 @@ describe('login with a one-time code', () => {
     expect(attrs).toContain('Path=/');
     expect(attrs.map((a) => a.toLowerCase())).not.toContain('secure');
   });
+
+  it('the login cookie has Max-Age 2592000', async () => {
+    const code = await mintCode();
+    const r = await req('GET', `/login?code=${encodeURIComponent(code)}`);
+    const sc = (r.headers['set-cookie'] as string[])[0]!;
+    expect(sc).toContain('Max-Age=2592000');
+  });
+
+  it('a login survives a server restart with the same sessions file', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'caddis-srv-'));
+    try {
+      const sessionsFile = path.join(dir, 'sessions.json');
+      await srv.close();
+      srv = await startServer({
+        host: '127.0.0.1',
+        port: 0,
+        key,
+        getState: () => state,
+        versions,
+        now: () => t,
+        sessionsFile,
+      });
+      const { hdr } = await login();
+      await srv.close();
+      srv = await startServer({
+        host: '127.0.0.1',
+        port: 0,
+        key,
+        getState: () => state,
+        versions,
+        now: () => t,
+        sessionsFile,
+      });
+      const r = await req('GET', '/api/session', hdr);
+      expect(r.status).toBe(200);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a corrupt sessions file starts the hub with no sessions', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'caddis-srv-'));
+    try {
+      const sessionsFile = path.join(dir, 'sessions.json');
+      writeFileSync(sessionsFile, '{not json');
+      await srv.close();
+      srv = await startServer({
+        host: '127.0.0.1',
+        port: 0,
+        key,
+        getState: () => state,
+        versions,
+        now: () => t,
+        sessionsFile,
+      });
+      expect((await req('GET', '/api/health', keyHdr())).status).toBe(200);
+      expect(
+        (
+          await req('GET', '/api/session', {
+            cookie: `${SESSION_COOKIE}=old-made-up-cookie`,
+            'x-caddis-hub-tab': 'x'.repeat(43),
+          })
+        ).status,
+      ).toBe(401);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('logout after a restart ends the restored session', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'caddis-srv-'));
+    try {
+      const sessionsFile = path.join(dir, 'sessions.json');
+      await srv.close();
+      srv = await startServer({
+        host: '127.0.0.1',
+        port: 0,
+        key,
+        getState: () => state,
+        versions,
+        now: () => t,
+        sessionsFile,
+      });
+      const { cookie, csrf, hdr } = await login();
+      await srv.close();
+      srv = await startServer({
+        host: '127.0.0.1',
+        port: 0,
+        key,
+        getState: () => state,
+        versions,
+        now: () => t,
+        sessionsFile,
+      });
+      const out = await req('POST', '/api/logout', {
+        cookie,
+        origin: `http://localhost:${srv.port}`,
+        'x-csrf-token': csrf,
+      });
+      expect(out.status).toBe(200);
+      await srv.close();
+      srv = await startServer({
+        host: '127.0.0.1',
+        port: 0,
+        key,
+        getState: () => state,
+        versions,
+        now: () => t,
+        sessionsFile,
+      });
+      expect((await req('GET', '/api/session', hdr)).status).toBe(401);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('session routes', () => {
@@ -360,6 +523,160 @@ describe('session routes', () => {
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toMatch(/^application\/json/);
     expect(JSON.parse(r.body)).toEqual(state);
+  });
+
+  it('/api/state with Accept-Encoding gzip is compressed', async () => {
+    const { hdr } = await login();
+    const r = await rawGet('/api/state', { ...hdr, 'accept-encoding': 'gzip' });
+    expect(r.status).toBe(200);
+    expect(r.headers['content-encoding']).toBe('gzip');
+    expect(String(r.headers.vary)).toContain('Accept-Encoding');
+    expect(JSON.parse(gunzipSync(r.body).toString('utf8'))).toEqual(state);
+    expect(r.headers['content-length']).toBe(String(r.body.length));
+  });
+
+  it('/api/state without Accept-Encoding is plain JSON', async () => {
+    const { hdr } = await login();
+    const r = await req('GET', '/api/state', hdr);
+    expect(r.status).toBe(200);
+    expect(r.headers['content-encoding']).toBeUndefined();
+    expect(JSON.parse(r.body)).toEqual(state);
+  });
+
+  it('/api/state with gzip;q=0 is plain JSON', async () => {
+    const { hdr } = await login();
+    const r = await rawGet('/api/state', { ...hdr, 'accept-encoding': 'gzip;q=0' });
+    expect(r.status).toBe(200);
+    expect(r.headers['content-encoding']).toBeUndefined();
+    expect(JSON.parse(r.body.toString('utf8')).repos).toBeDefined();
+  });
+
+  it('/api/state without a session is still 401 with gzip asked', async () => {
+    const r = await rawGet('/api/state', { 'accept-encoding': 'gzip' });
+    expect(r.status).toBe(401);
+  });
+
+  it('/api/state carries phase titles but not phase text', async () => {
+    const docRepo = {
+      name: 'acme/docs',
+      path: 'E:/r/docs',
+      plans: {
+        schema: 1,
+        plans: [
+          {
+            path: '.caddis/plans/p-docs.md',
+            title: 'p-docs',
+            phases: { '2': { title: 'Fonts', text: 'Body two' } },
+          },
+        ],
+      },
+    };
+    state.repos.push(docRepo);
+    try {
+      const { hdr } = await login();
+      const r = await req('GET', '/api/state', hdr);
+      expect(r.status).toBe(200);
+      expect(r.body).not.toContain('Body two');
+      const parsed = JSON.parse(r.body);
+      const last = parsed.repos[parsed.repos.length - 1];
+      expect(last.plans.plans[0].phases['2']).toEqual({ title: 'Fonts' });
+      expect(JSON.stringify(state)).toContain('Body two');
+    } finally {
+      state.repos.pop();
+    }
+  });
+
+  it('/api/plan-phase returns one section', async () => {
+    const docRepo = {
+      name: 'acme/docs',
+      path: 'E:/r/docs',
+      plans: {
+        schema: 1,
+        plans: [
+          {
+            path: '.caddis/plans/p-docs.md',
+            title: 'p-docs',
+            phases: { '2': { title: 'Fonts', text: 'Body two' } },
+          },
+        ],
+      },
+    };
+    state.repos.push(docRepo);
+    try {
+      const { hdr } = await login();
+      const r = await req(
+        'GET',
+        '/api/plan-phase?repo=E%3A%2Fr%2Fdocs&plan=.caddis%2Fplans%2Fp-docs.md&key=2',
+        hdr,
+      );
+      expect(r.status).toBe(200);
+      expect(JSON.parse(r.body)).toEqual({ schema: 1, title: 'Fonts', text: 'Body two' });
+    } finally {
+      state.repos.pop();
+    }
+  });
+
+  it('/api/plan-phase for an unknown key is 404', async () => {
+    const docRepo = {
+      name: 'acme/docs',
+      path: 'E:/r/docs',
+      plans: {
+        schema: 1,
+        plans: [
+          {
+            path: '.caddis/plans/p-docs.md',
+            title: 'p-docs',
+            phases: { '2': { title: 'Fonts', text: 'Body two' } },
+          },
+        ],
+      },
+    };
+    state.repos.push(docRepo);
+    try {
+      const { hdr } = await login();
+      const r = await req(
+        'GET',
+        '/api/plan-phase?repo=E%3A%2Fr%2Fdocs&plan=.caddis%2Fplans%2Fp-docs.md&key=9',
+        hdr,
+      );
+      expect(r.status).toBe(404);
+    } finally {
+      state.repos.pop();
+    }
+  });
+
+  it('/api/plan-phase without a session is 401', async () => {
+    const docRepo = {
+      name: 'acme/docs',
+      path: 'E:/r/docs',
+      plans: {
+        schema: 1,
+        plans: [
+          {
+            path: '.caddis/plans/p-docs.md',
+            title: 'p-docs',
+            phases: { '2': { title: 'Fonts', text: 'Body two' } },
+          },
+        ],
+      },
+    };
+    state.repos.push(docRepo);
+    try {
+      const r = await req(
+        'GET',
+        '/api/plan-phase?repo=E%3A%2Fr%2Fdocs&plan=.caddis%2Fplans%2Fp-docs.md&key=2',
+      );
+      expect(r.status).toBe(401);
+    } finally {
+      state.repos.pop();
+    }
+  });
+
+  it('/api/plan-phase without key is 400', async () => {
+    const { hdr } = await login();
+    const r = await req('GET', '/api/plan-phase?repo=E%3A%2Fr%2Fdocs&plan=.caddis%2Fplans%2Fp-docs.md', hdr);
+    expect(r.status).toBe(400);
+    expect(JSON.parse(r.body).error).toBe('bad_request');
   });
 
   it('/api/session without a session gets 401', async () => {
@@ -417,9 +734,9 @@ describe('per-tab token (final review I2)', () => {
 
   it('a refused tab token does not keep an idle session alive', async () => {
     const { cookie, hdr } = await login();
-    t += 11 * 60 * 60 * 1000;
+    t += SESSION_IDLE_MS - 24 * 60 * 60 * 1000;
     expect((await req('GET', '/api/state', { cookie })).status).toBe(401);
-    t += 60 * 60 * 1000;
+    t += 24 * 60 * 60 * 1000;
     expect((await req('GET', '/api/state', hdr)).status).toBe(401);
   });
 

@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.171",
- "generated": "2026-10-26 08:51 UTC",
+ "version": "1.3.172",
+ "generated": "2026-10-28 12:39 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -149,7 +149,8 @@
    ],
    "scripts": [
     "caddis_coordinate.py",
-    "caddis_lanes.py"
+    "caddis_lanes.py",
+    "caddis_routing.py"
    ],
    "noArgs": false,
    "stage": "ship",
@@ -512,6 +513,10 @@
      "Checklist"
     ],
     [
+     "",
+     "Checkpoint (mid-phase, between cards)"
+    ],
+    [
      "1",
      "capture learnings FIRST (knowledge-transfer)"
     ],
@@ -534,10 +539,6 @@
     [
      "",
      "Done (this session / across sessions)"
-    ],
-    [
-     "",
-     "Next step (exact)"
     ]
    ],
    "scripts": [
@@ -548,8 +549,10 @@
     "caddis_docs_pr.py",
     "caddis_fleet.py",
     "caddis_gate.py",
+    "caddis_handoff.py",
     "caddis_inventory.py",
     "caddis_relay_git.py",
+    "caddis_routing.py",
     "caddis_tidy.py",
     "caddis_workstreams.py",
     "check_doc_coverage.py",
@@ -586,6 +589,10 @@
     ],
     [
      "",
+     "Waves"
+    ],
+    [
+     "",
      "Three rules: one attempt, one review"
     ],
     [
@@ -607,15 +614,13 @@
     [
      "",
      "Task progress  *(only for `Execution: per-task` phases)*"
-    ],
-    [
-     "",
-     "Not done / follow-ups"
     ]
    ],
    "scripts": [
+    "caddis_created.py",
     "caddis_gate.py",
     "caddis_lanes.py",
+    "caddis_routing.py",
     "caddis_spend.py",
     "caddis_status.py",
     "caddis_tidy.py",

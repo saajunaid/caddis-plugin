@@ -19,12 +19,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cliRoot = path.resolve(here, '..');
 export const DEFAULT_ASSETS = path.resolve(cliRoot, 'ui', 'fonts-src');
-export const LICENCES = ['OFL-Atkinson.txt', 'OFL-MapleMono.txt', 'LICENSE-Lucide.txt'];
+export const LICENCES = ['OFL-IBMPlexSans.txt', 'OFL-IBMPlexMono.txt', 'LICENSE-Lucide.txt'];
 
 const FACE_RE = /@font-face\{([^}]*)\}/g;
 const DATA_RE = /url\(data:font\/woff2;base64,([A-Za-z0-9+/=]+)\)/;
 
-const slug = (family) => (family.startsWith('Atkinson') ? 'atkinson' : family.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+const slug = (family) => family.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
 /** Returns the list of written font file names. Throws when the source holds no fonts. */
 export function buildFonts({ assetsDir = DEFAULT_ASSETS, publicDir, cssOut }) {

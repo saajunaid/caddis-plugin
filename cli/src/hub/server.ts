@@ -4,9 +4,12 @@ import { readFile, stat } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import type { Actions } from './actions.js';
 import { MAX_ACTION_BODY_BYTES } from './actions.js';
-import { AuthStore, hostAllowed, originAllowed, parseCookies, safeEqual } from './auth.js';
+import { AuthStore, SESSION_MAX_MS, hostAllowed, originAllowed, parseCookies, safeEqual } from './auth.js';
+import { findPhaseSection, stripPhaseText } from './phaseText.js';
 
 export const SESSION_COOKIE = 'caddis_hub_session';
 export const KEY_HEADER = 'x-caddis-hub-key';
@@ -35,6 +38,7 @@ const MIME: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
@@ -91,6 +95,8 @@ export interface ServerOptions {
   onStop?: () => void;
   /** The owner actions (R32). Not set: `POST /api/actions` answers 404. */
   actions?: Actions;
+  /** Where logins are saved (hashed). Not set: memory only (tests). */
+  sessionsFile?: string;
 }
 
 export interface HubServer {
@@ -98,6 +104,8 @@ export interface HubServer {
   address: string;
   close: () => Promise<void>;
 }
+
+const gzipAsync = promisify(gzip);
 
 class BodyTooLarge extends Error {}
 
@@ -109,6 +117,36 @@ function send(res: http.ServerResponse, status: number, body: unknown, extra: ht
     ...extra,
   });
   res.end(text);
+}
+
+export function acceptsGzip(header: string | string[] | undefined): boolean {
+  if (!header) return false;
+  const raw = Array.isArray(header) ? header.join(',') : header;
+  for (const token of raw.split(',')) {
+    const parts = token.split(';').map((p) => p.trim());
+    const name = (parts[0] ?? '').toLowerCase();
+    if (name !== 'gzip') continue;
+    const qPart = parts.slice(1).find((p) => p.startsWith('q='));
+    const q = qPart !== undefined ? Number(qPart.slice(2)) : 1;
+    if (q > 0) return true;
+  }
+  return false;
+}
+
+async function sendState(req: http.IncomingMessage, res: http.ServerResponse, state: unknown): Promise<void> {
+  const text = JSON.stringify(state);
+  if (acceptsGzip(req.headers['accept-encoding'])) {
+    const zipped = await gzipAsync(text);
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Encoding': 'gzip',
+      'Content-Length': zipped.length,
+      Vary: 'Accept-Encoding',
+    });
+    res.end(zipped);
+    return;
+  }
+  return send(res, 200, state, { Vary: 'Accept-Encoding' });
 }
 
 const fail = (res: http.ServerResponse, status: number, error: string): void => send(res, status, { schema: 1, error });
@@ -192,6 +230,7 @@ function keyOk(req: http.IncomingMessage, key: string): boolean {
  * - `GET /api/health`, `POST /api/hub/code`, `POST /api/hub/stop`: the key header only (no cookie).
  * - every other non-GET: Origin, then session, then CSRF token.
  * - `GET /api/session`, `GET /api/state`: a session cookie AND its tab token in `X-Caddis-Hub-Tab`.
+ * - `GET /api/plan-phase`: one plan phase section, with the same session cookie AND tab token check.
  */
 export async function startServer(opts: ServerOptions): Promise<HubServer> {
   const host = opts.host ?? '127.0.0.1';
@@ -199,7 +238,7 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
   if (typeof opts.key !== 'string' || Buffer.byteLength(opts.key, 'utf8') < MIN_KEY_BYTES) {
     throw new Error(`the hub server key must be at least ${MIN_KEY_BYTES} bytes`);
   }
-  const auth = new AuthStore(opts.now ?? Date.now);
+  const auth = new AuthStore(opts.now ?? Date.now, opts.sessionsFile);
   const { key, versions } = opts;
   const uiDir = opts.uiDir ?? defaultUiDir();
   let port = opts.port;
@@ -311,7 +350,7 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       }
       // R20 (H1): logout. R32 (H3): /api/actions, above.
       if (path === '/api/logout' && method === 'POST') {
-        auth.deleteSession(session.id);
+        auth.deleteSession(parseCookies(req.headers.cookie)[SESSION_COOKIE] ?? '');
         return send(res, 200, { schema: 1, ok: true }, {
           'Set-Cookie': `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
         });
@@ -334,7 +373,7 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       // X-Caddis-Hub-Tab. A cookie alone opens nothing. The server never logs the token.
       res.writeHead(303, {
         Location: `/#tab=${session.tab}`,
-        'Set-Cookie': `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/`,
+        'Set-Cookie': `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_MAX_MS / 1000)}`,
         'Content-Length': 0,
       });
       res.end();
@@ -353,7 +392,22 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       } catch {
         return fail(res, 500, 'state_failed');
       }
-      return send(res, 200, state);
+      return sendState(req, res, stripPhaseText(state));
+    }
+    if (path === '/api/plan-phase') {
+      if (!tabSessionOf(req)) return fail(res, 401, 'unauthorized');
+      const repo = url.searchParams.get('repo') ?? '';
+      const plan = url.searchParams.get('plan') ?? '';
+      const phaseKey = url.searchParams.get('key') ?? '';
+      if (!repo || !plan || !phaseKey) return fail(res, 400, 'bad_request');
+      let state: unknown;
+      try {
+        state = await opts.getState();
+      } catch {
+        return fail(res, 500, 'state_failed');
+      }
+      const sec = findPhaseSection(state, repo, plan, phaseKey);
+      return sec ? send(res, 200, { schema: 1, ...sec }) : fail(res, 404, 'not_found');
     }
     return fail(res, 404, 'not_found');
   }

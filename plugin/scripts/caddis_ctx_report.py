@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -90,6 +91,91 @@ def session_series(path: Path | str) -> list[int]:
     return series
 
 
+WARN_TOKENS = 200_000
+STOP_TOKENS = 280_000
+
+
+def _is_checkpoint_call(rec: dict) -> bool:
+    """True when rec is a main-thread assistant tool call that runs ``caddis_handoff.py checkpoint``.
+
+    Only a shell ``command`` input counts: the hook text, a Read of a plan and a Write of a plan also
+    hold the command string.
+    """
+    msg = rec.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if not isinstance(content, list):
+        return False
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") != "tool_use":
+            continue
+        inp = item.get("input")
+        command = inp.get("command") if isinstance(inp, dict) else None
+        if isinstance(command, str) and "caddis_handoff.py" in command and "checkpoint" in command:
+            return True
+    return False
+
+
+def obey_events(path: Path | str) -> tuple[list[int], list[int]]:
+    """Return (series, checkpoint_positions) for the main thread.
+
+    A checkpoint position is the number of usage records seen before that checkpoint call.
+    Sidechain records never count.
+    """
+    series: list[int] = []
+    checkpoints: list[int] = []
+    seen_ids: set[str] = set()
+    try:
+        with Path(path).open(encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                if "caddis_handoff.py" not in line and '"usage"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(rec, dict) or rec.get("isSidechain"):
+                    continue
+                if "caddis_handoff.py" in line and _is_checkpoint_call(rec):
+                    checkpoints.append(len(series))
+                msg = rec.get("message")
+                usage = msg.get("usage") if isinstance(msg, dict) else None
+                if not isinstance(usage, dict) or context_tokens(usage) == 0:
+                    continue
+                msg_id = msg.get("id")
+                if msg_id is not None:
+                    if msg_id in seen_ids:
+                        continue
+                    seen_ids.add(msg_id)
+                series.append(context_tokens(usage))
+    except OSError:
+        return [], []
+    return series, checkpoints
+
+
+def obey_summary(sessions: Sequence[tuple[list[int], list[int]]]) -> dict[str, int]:
+    """Count how sessions that crossed the warn line acted on it."""
+    crossed = ran = passed = 0
+    calls_to_checkpoint: list[int] = []
+    for series, checkpoints in sessions:
+        first_warn = next((i for i, n in enumerate(series) if n >= WARN_TOKENS), None)
+        if first_warn is None:
+            continue
+        crossed += 1
+        after = [c for c in checkpoints if c > first_warn]
+        limit = after[0] if after else len(series)
+        if after:
+            ran += 1
+            calls_to_checkpoint.append(after[0] - first_warn)
+        if any(n >= STOP_TOKENS for n in series[:limit]):
+            passed += 1
+    return {
+        "crossed_warn": crossed,
+        "ran_checkpoint": ran,
+        "median_calls_to_checkpoint": int(statistics.median(calls_to_checkpoint)) if calls_to_checkpoint else 0,
+        "passed_280k_without_checkpoint": passed,
+    }
+
+
 def _has_relay_before_first_usage(path: Path) -> bool:
     """Return True if path contains 'Workstream index' or 'relay.md' before the first usage line."""
     found = False
@@ -138,7 +224,7 @@ def _iter_transcripts(root: Path, days: float) -> list[Path]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Report Claude Code session context sizes.")
-    parser.add_argument("mode", choices=("peak", "first", "resume"))
+    parser.add_argument("mode", choices=("peak", "first", "resume", "calls", "obey"))
     parser.add_argument("--days", type=float, default=14.0)
     parser.add_argument(
         "--root",
@@ -160,6 +246,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"p75: {_percentile(peaks, 0.75)}")
         print(f"p90: {_percentile(peaks, 0.9)}")
         print(f"max: {peaks[-1] if peaks else 0}")
+        print(f"over_280k: {sum(1 for x in peaks if x > 280_000)}")
         print(f"over_350k: {sum(1 for x in peaks if x > 350_000)}")
         print(f"over_500k: {sum(1 for x in peaks if x > 500_000)}")
         return 0
@@ -174,6 +261,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"sessions: {len(firsts)}")
         print(f"median: {_percentile(firsts, 0.5)}")
         print(f"p90: {_percentile(firsts, 0.9)}")
+        return 0
+
+    if args.mode == "calls":
+        sessions = 0
+        calls: list[int] = []
+        for f in files:
+            series = session_series(f)
+            if series:
+                sessions += 1
+                calls.extend(series)
+        print(f"sessions: {sessions}")
+        print(f"calls: {len(calls)}")
+        print(f"mean_context: {round(statistics.fmean(calls)) if calls else 0}")
+        print(f"median_context: {int(statistics.median(calls)) if calls else 0}")
+        print(f"calls_over_200k: {sum(1 for x in calls if x > WARN_TOKENS)}")
+        print(f"calls_over_280k: {sum(1 for x in calls if x > STOP_TOKENS)}")
+        return 0
+
+    if args.mode == "obey":
+        for key, value in obey_summary([obey_events(f) for f in files]).items():
+            print(f"{key}: {value}")
         return 0
 
     resumed_series: list[list[int]] = []

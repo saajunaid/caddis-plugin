@@ -51,7 +51,7 @@ describe.skipIf(!inSource || (guide === undefined && !inCi))('guide counts equal
     const status = guideStatus(guide);
     if (status.kind !== 'ok') throw new Error('guide not ok');
     const counts = status.guide.counts!;
-    const html = renderToStaticMarkup(createElement(Guide, { guide, versions: { hub: '0.0.0', pool: null, plugin: null } }));
+    const html = renderToStaticMarkup(createElement(Guide, { guide, versions: { hub: '0.0.0', pool: null, plugin: null }, tab: 'details' }));
     const shown = (id: string): number => Number(new RegExp(`data-testid="guide-count-${id}">(\\d+)<`).exec(html)?.[1]);
     expect(shown('commands')).toBe(counts.commands);
     expect(shown('agents')).toBe(counts.agents);

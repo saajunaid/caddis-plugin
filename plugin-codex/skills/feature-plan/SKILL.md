@@ -105,18 +105,32 @@ those phases. Put what the scan actually shows into the plan's `## Risks` table.
 Before writing the plan, consider dispatching the **preflight** subagent to validate your assumptions
 (paths, symbols, APIs, primitives) against the codebase — it routinely catches wrong assumptions early.
 
-### Assign a model tier + effort per phase (don't default everything to the priciest)
-Match capability to each phase's difficulty — not one model for the whole plan. Use Claude Code's
-evergreen `/model` aliases so this never rots as model names change:
-- **cheap** (`/model haiku`) — mechanical, fully-specced, repeat-of-an-existing-pattern phases.
-- **mid** (`/model sonnet`) — standard feature work with clear specs. **This is the default.**
-- **frontier** (`/model opus`) — novel architecture, tricky algorithms, security-sensitive or
-  judgment-heavy seams; also recommend a `code-reviewer` pass.
-- **ultra** (`/model fable`) — RARE: long-horizon / multi-step / can't-self-verify work (large-codebase
-  reasoning, scientific). ~2× opus's rate-limit burn — reserve for the few phases that truly need it.
-Default to **mid**; reserve frontier/ultra for phases that earn them. Effort is a secondary knob: leave
-it at your session default and note **"bump to `high`"** only on a genuinely hard phase. `max` is manual
-escalation, never a planned default.
+### Assign a model and an effort per phase (don't default everything to the priciest)
+Match capability to each phase's difficulty — not one model for the whole plan. Every `**Model:**` line
+names the model AND the effort, in this form:
+`**Model:** <model>, effort <low|medium|high> — <one-line reason tied to this phase's difficulty>`.
+Take the default from the session table. It prints `<model> <effort>`:
+```
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.173/scripts/caddis_routing.py" session --role <role>
+```
+(Source checkout: `claude-harness/scripts/caddis_routing.py`.) Pick the role by the phase:
+- `mechanical-phase` — mechanical, fully specified phases that repeat an existing pattern.
+- `coding-phase` — standard code with a clear spec and literal tests.
+- `critical-phase` — novel architecture, tricky algorithms, security-sensitive or judgment-heavy seams;
+  also recommend a `code-reviewer` pass.
+- `measure` — measurement and screenshot work.
+The table also holds the session roles `orchestrator`, `plan-writer` and `coordinator`. Use Claude Code's
+evergreen `/model` aliases (`haiku`, `sonnet`, `opus`) so a line never rots as model names change.
+`/model fable` is RARE: long-horizon work that cannot verify itself, at about 2× opus's rate-limit burn.
+Change the default only with a reason on the line. `max` effort is manual escalation, never a planned
+default. If the command fails, write the model and the effort by hand and say why.
+
+**Escalation.** Escalate to Opus through a SMALL subagent (by-reference brief, reply ≤ 10 lines), never `/model opus` mid-session (the prompt cache is per model, so a switch at 200k re-writes the whole cache), when: a card fails again after its one fix card; a measurement fails a rule (isolate the cause first, then give the owner options); a plan amendment changes the design, not only facts; a risk-high phase reaches review. A fresh Opus session only to write a new plan or a redesign.
+
+### Size rule: a phase fits one sitting
+One agy card ≤ 6 files; one phase ≤ 12 files and ≤ 6 cards or tasks. Bigger: split (7a, 7b, each with a
+Tracker row) or mark `**Programme phase:** yes — <why>`. A phase that grows past 6 cards during work is
+split in the Tracker first.
 
 ### Assign an execution LANE per phase (which harness runs it — not just which model)
 A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
@@ -134,7 +148,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   - `ui`: `claude`, `codex-astra`
   - `tests`: `codex-sol`, `glm`, `claude`
   - `docs`: `agy`, `glm`, `claude`
-  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.172/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.173/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
   --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
   has budget, give any phase the `claude` lane. Override chains and model pins per project in
   `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
@@ -156,7 +170,7 @@ work; a headless one records the deviation in the Tracker. Write the launch comm
 phase — it is executed verbatim.
 
 **Choose each phase's Lane from the routing table.** Run
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.172/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.173/scripts/caddis_routing.py" show --json`. A phase the orchestrator
 does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
 Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
 of that role and write its Lane line as follows:
@@ -165,12 +179,13 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.172/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.173/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
 always starts with `caddis_spend.py run`: it books the call against the global EUR spend cap, and
 `caddis_gate.py lane-check` refuses a bare `agy` Lane line. If the routing command fails
-or exits 3, use `claude — this session` and state the reason in that phase.
+or exits 3, use `claude — this session` and state the reason in that phase. When a phase has cards, a
+prompt for one card names it by reference ("then Phase N card B"). Never paste card text into a prompt.
 
 #### A phase may take a no-escalation lane only if its exit gate would fail on a spec error
 `glm-headless` cannot escalate: it does what the phase says. So completeness is only half the test —
@@ -281,8 +296,10 @@ to the phase or task that owns the code. Write "none found" only after you check
 
 **Session rules for the orchestrator** (measured 24-25 Oct 2026: long Opus sessions re-read 400-600k tokens
 on every turn). Keep the context small: subagent replies under about 200 words, full reports in files,
-never paste or tail large outputs. At each phase end, write the handoff; continue in the same session only
-while the conversation is under about 200k tokens. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k. Run the phase review as
+never paste or tail large outputs. Context rule: Above 200k: checkpoint at the next card end when 2 or more
+cards are left; else finish the phase and run the full handoff. At 280k: checkpoint at the first moment no
+agent or background command runs. (The checkpoint is the "Checkpoint" section of `/caddis:handoff`; the
+context_size hook prints its exact command.) At each phase end that ends a sitting, write the full handoff. Run the phase review as
 `/caddis:cross-review --range <base>..HEAD`. Send a task marked mechanical (literal tests, moves, deletes,
 renames) to agy through `caddis_spend.py run`. Run one `ci-watch` per PR head; on a queued-run timeout watch
 that run once with `--run <id>`; write no "still waiting" turns.
@@ -291,11 +308,13 @@ that run once with `--run <id>`; write no "still waiting" turns.
 > ⚠️ **Switch model/lane BEFORE starting this phase** — the *active* model does the work, not the
 > one named here. Lane `claude`: run `/model <alias>`. Lane `glm-headless`: run the exact command below.
 **Milestone:** M1  *(omit on plans without milestones)*
-**Model:** <tier> (`/model <alias>`) — <one-line rationale tied to this phase's difficulty>. Orchestrator: Sonnet to run the plan (Opus only to write plans and designs).
+**Model:** <model>, effort <low|medium|high> — <one-line rationale tied to this phase's difficulty>  *(default: `caddis_routing.py session --role <role>`; the orchestrator runs on the `orchestrator` row, plans and designs on the `plan-writer` row)*
 **Lane:** claude — this session  |  glm-headless — `claude-glm -p "/caddis:implement <this plan's path> — Phase 1 only"`
 **Type:** backend | hard | ui | tests | docs  *(required when the Lane runs through caddis_lanes.py)*
 **Execution:** inline | per-task  *(the rule in Step 2; per-task phases list their tasks below)*
 **Session:** continue | **fresh** (start a new session for this phase — note why: lane change / heavy context)
+**Programme phase:** yes — <why>  *(omit unless the phase breaks the size rule: one agy card ≤ 6 files; one phase ≤ 12 files and ≤ 6 cards or tasks)*
+**Depends on:** Phase <x>  *(optional: write it only when this phase does NOT need the phase before it; name the phase it does need, or "nothing". It is not a wave marker: the executor picks waves at run time, `/caddis:implement` "Waves")*
 **Risk:** high — token-verification seam; a wrong answer here is a silent auth bypass  *(omit this line when normal)*
 **Goal:** <one sentence>
 **Touches:** `<files>`
@@ -329,7 +348,7 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 Three rules: one attempt, one review.
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.172/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.173/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -340,12 +359,13 @@ Three rules: one attempt, one review.
   review between tasks. One cross-review, by one other vendor, runs at the end of the phase.
 - **Session boundaries:** the executor WRITES the handoff (durable `relay.md` + Tracker) after any
   phase that ends a sitting — it performs the work, it does not suggest the command. Start a FRESH
-  session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or whenever
-  context feels heavy. Resume with exactly: `read <this plan's path> and implement the next ⏳ phase`.
+  session (or `/clear`) before any phase marked `Session: fresh`, before a lane change, or when the
+  context rule says so (Session rules above: checkpoint above 200k at a card end, the full handoff at a
+  phase end). Resume with exactly: `read <this plan's path> and implement the next ⏳ phase`.
 - **Run to a boundary, not to a phase.** The executor implements phase after phase, committing each,
   and stops only at a marked boundary. Do not plan a stop after every phase — that is the friction
   this structure exists to remove.
-- **The four halts, and nothing else:**
+- **The five halts, and nothing else:**
   1. **A milestone boundary** — its `Gate:` passed and it is ready to ship.
   2. **A phase marked `Session: fresh`** — context is heavy or the work changes shape.
   3. **After a `risk: high` phase** — *after*, never before. The phase is executed and committed
@@ -358,6 +378,9 @@ Three rules: one attempt, one review.
      on it. A headless marker (`CADDIS_HEADLESS=1`) alone does not lift the halt.
   4. **A failed or blocked phase** — tests red, exit gate unmet, or the plan turned out wrong. Stop;
      do not build on it.
+  5. **The checkpoint after the 200k warning** — at a card end, when 2 or more cards are left in the
+     phase (`/caddis:handoff`, "Checkpoint"). Interactive sessions only: a headless session never
+     checkpoints; at 280k it ends `BLOCKED context <n>`.
 - **A lane change is NOT a halt.** `/caddis:implement` spawns the assigned lane itself and verifies
   the result. It used to need a human only because the routing was inert.
 - **At every halt, leave both:** the executor PERFORMS the handoff (writes `relay.md`, updates the
@@ -398,6 +421,11 @@ Three rules: one attempt, one review.
 Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
 `in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell
 that says `pending` is never done.
+
+## Per-symbol grep preflight (before the plan is committed)
+Check every name a card gives: each symbol, file, line number and CSS variable. Use one grep per name
+(Grep, or `git grep -n`) before you commit the plan. Fix the card when a name or a line number differs.
+The orchestrator re-checks a card's names the same way, one grep per name, before it sends the card.
 
 ## Plan quality gate — local-coder ready (MANDATORY)
 The plan must be executable by a **low-capability local coder model** (the planner→coder handoff: a

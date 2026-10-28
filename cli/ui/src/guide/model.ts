@@ -5,10 +5,18 @@ export const SUPPORTED_GUIDE_SCHEMA = 1;
 
 export const STAGE_ORDER = ['setup', 'plan', 'build', 'review', 'ship', 'continuity', 'knowledge'] as const;
 
+export type GuideKind = 'command' | 'agent' | 'skill' | 'skillCategory' | 'hook';
+
+export function anchorId(kind: GuideKind, name: string): string {
+  return `g-${kind}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+}
+
 export interface GuideCommand {
   name: string;
   description: string;
   hint: string;
+  steps: [string, string][];
+  scripts: string[];
   noArgs: boolean;
   stage: string;
   daily: boolean;
@@ -61,7 +69,12 @@ export function guideStatus(raw: unknown): GuideStatus {
     if (!Array.isArray(raw[key])) return { kind: 'error', message: `The guide data has no "${key}" list.` };
   }
   if (!isObj(raw.coverage)) return { kind: 'error', message: 'The guide data has no "coverage" list.' };
-  return { kind: 'ok', guide: raw as unknown as Guide };
+  const commands = (raw.commands as Record<string, unknown>[]).map((c) => ({
+    ...c,
+    steps: Array.isArray(c.steps) ? c.steps : [],
+    scripts: Array.isArray(c.scripts) ? c.scripts : [],
+  }));
+  return { kind: 'ok', guide: { ...(raw as unknown as Guide), commands: commands as unknown as GuideCommand[] } };
 }
 
 export type SectionId = 'commands' | 'agents' | 'skills' | 'hooks' | 'runtimes';

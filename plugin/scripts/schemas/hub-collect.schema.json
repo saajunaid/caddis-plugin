@@ -341,6 +341,29 @@
                       "source": {
                         "type": "string"
                       },
+                      "commit": {
+                        "type": "string"
+                      },
+                      "fetched_at": {
+                        "oneOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "commit_at": {
+                        "oneOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "plans": {
                         "type": "array",
                         "items": {
@@ -590,6 +613,25 @@
               },
               "error": {
                 "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "fingerprint",
+              "unchanged"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "fingerprint": {
+                "type": "string"
+              },
+              "unchanged": {
+                "type": "boolean"
               }
             }
           }

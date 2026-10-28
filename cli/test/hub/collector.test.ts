@@ -29,6 +29,14 @@ const okScript = (schema: number, fp: string, marker = 'a') =>
   `process.stdout.write(JSON.stringify({schema:${schema},generated_at:"2026-10-24T10:00:00Z",` +
   `repos:[{path:"acme/shop",fingerprint:"${fp}",roadmaps:{m:"${marker}"},plans:{},relays:{}}],` +
   `spend:{s:1},guide:{g:1}}))`;
+const echoScript = (fp = 'f1', extraRepos = '') =>
+  `process.stdout.write(JSON.stringify({schema:1,generated_at:"2026-10-24T10:00:00Z",` +
+  `repos:[{path:"acme/shop",fingerprint:"${fp}",roadmaps:{argv:process.argv.slice(2)},plans:{},relays:{}}${extraRepos}],` +
+  `spend:{s:1},guide:{g:1}}))`;
+const unchangedScript =
+  `process.stdout.write(JSON.stringify({schema:1,generated_at:"2026-10-24T10:00:00Z",` +
+  `repos:[{path:"acme/shop",fingerprint:"f1",unchanged:true}],` +
+  `spend:{s:1},guide:{g:1}}))`;
 
 const emptyOut = JSON.stringify({ schema: 1, generated_at: 'z', repos: [], spend: {}, guide: {} });
 const fakeRun = (stdout: string) => async () => ({ ok: true, code: 0, stdout, stderr: '', timedOut: false });
@@ -207,6 +215,87 @@ describe('collector source', () => {
     });
     await src.refresh();
     expect(src.get().last_error).toMatch(/timed out/i);
+  });
+
+  it('the first run sends no --known', async () => {
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: node,
+      scriptPath: fake(echoScript()),
+    });
+    await src.refresh();
+    const argv = src.get().data?.repos[0]?.roadmaps?.argv as string[];
+    expect(argv).not.toContain('--known');
+  });
+
+  it('the second run sends --known with the cached fingerprint', async () => {
+    const first = fake(echoScript('f1'));
+    const second = fake(echoScript('f2'));
+    let script = first;
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: node,
+      get scriptPath() {
+        return script;
+      },
+    });
+    await src.refresh();
+    script = second;
+    await src.refresh();
+    const argv = src.get().data?.repos[0]?.roadmaps?.argv as string[];
+    const idx = argv.indexOf('--known');
+    expect(idx).toBeGreaterThan(-1);
+    expect(argv[idx + 1]).toBe('acme/shop=f1');
+    expect(argv[argv.length - 1]).toBe('--json');
+  });
+
+  it('an unchanged entry keeps the cached data', async () => {
+    const first = fake(okScript(1, 'f1', 'first'));
+    const second = fake(unchangedScript);
+    let script = first;
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: node,
+      get scriptPath() {
+        return script;
+      },
+    });
+    await src.refresh();
+    script = second;
+    await src.refresh();
+    const repo = src.get().data?.repos[0];
+    expect(repo).toMatchObject({ fingerprint: 'f1', roadmaps: { m: 'first' } });
+    expect(repo && 'unchanged' in repo).toBe(false);
+  });
+
+  it('an unchanged entry with no cached data is ignored', async () => {
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: node,
+      scriptPath: fake(unchangedScript),
+    });
+    await src.refresh();
+    expect(src.get().data?.repos).toHaveLength(0);
+  });
+
+  it('a repo whose cached entry is an error is not in --known', async () => {
+    const first = fake(echoScript('f1', ',{path:"acme/bad",fingerprint:"f2",error:"broken"}'));
+    const second = fake(echoScript('f3', ',{path:"acme/bad",fingerprint:"f2",error:"broken"}'));
+    let script = first;
+    const src = createCollectorSource({
+      repos: () => ['acme/shop', 'acme/bad'],
+      python: node,
+      get scriptPath() {
+        return script;
+      },
+    });
+    await src.refresh();
+    script = second;
+    await src.refresh();
+    const argv = src.get().data?.repos[0]?.roadmaps?.argv as string[];
+    expect(argv).toContain('--known');
+    expect(argv).toContain('acme/shop=f1');
+    expect(argv.some((a) => a.startsWith('acme/bad='))).toBe(false);
   });
 
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  anchorId,
   buildGuide,
   guideSections,
   guideStatus,
@@ -13,12 +14,37 @@ import {
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/hub-state/guide.json', import.meta.url), 'utf8')).guide as Guide;
 
+describe('anchorId', () => {
+  it('builds anchor ids from kind and name', () => {
+    expect(anchorId('command', 'feature-plan')).toBe('g-command-feature-plan');
+    expect(anchorId('skillCategory', 'UI & UX')).toBe('g-skillCategory-ui-ux');
+    expect(anchorId('agent', '--Debug--')).toBe('g-agent-debug');
+  });
+});
+
 describe('guideStatus', () => {
   it('reads the four states', () => {
     expect(guideStatus(null)).toEqual({ kind: 'missing' });
     expect(guideStatus({ error: 'relay read failed' })).toEqual({ kind: 'error', message: 'relay read failed' });
     expect(guideStatus({ ...fixture, schema: SUPPORTED_GUIDE_SCHEMA + 1 })).toEqual({ kind: 'newer', schema: 2 });
     expect(guideStatus(fixture).kind).toBe('ok');
+  });
+  it('fills missing command steps and scripts with empty arrays', () => {
+    const noSteps = {
+      ...fixture,
+      commands: fixture.commands.map((c) => {
+        const { steps: _steps, scripts: _scripts, ...rest } = c as unknown as Record<string, unknown>;
+        return rest;
+      }),
+    };
+    const res = guideStatus(noSteps);
+    expect(res.kind).toBe('ok');
+    if (res.kind === 'ok') {
+      for (const c of res.guide.commands) {
+        expect(c.steps).toEqual([]);
+        expect(c.scripts).toEqual([]);
+      }
+    }
   });
   it('turns bad data into an error, not a crash', () => {
     expect(guideStatus('text').kind).toBe('error');

@@ -140,3 +140,26 @@ describe('sessions unknown when claude agents fails', () => {
     expect(deriveLanes(s, now(s)).every((l) => l.github === null)).toBe(true);
   });
 });
+
+describe('sessions of other agents', () => {
+  it('marks an agy card by its agent', () => {
+    const s = load('full');
+    const repo = s.repos[0]!;
+    s.sessions.push({
+      ...s.sessions[0]!,
+      key: 'agy:conv-1',
+      session_id: 'conv-1',
+      name: null,
+      agent: 'agy',
+      repo_path: repo.path,
+      status: 'working',
+      waiting_for: null,
+      waiting_class: null,
+      waiting_since: null,
+    });
+    const card = col(deriveLane(s, repo, now(s)), 'sessions').cards.find((c) => c.key === 'sconv-1')!;
+    expect(card).toMatchObject({ title: 'conv-1', sub: 'agy · busy', tone: 'good' });
+    const claude = col(deriveLane(s, repo, now(s)), 'sessions').cards.find((c) => c.key !== 'sconv-1')!;
+    expect(claude.sub.startsWith('agy')).toBe(false);
+  });
+});

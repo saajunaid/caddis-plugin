@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { apiHeaders, captureTab, getTab, TAB_KEY } from '../../ui/src/api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { apiHeaders, captureTab, getState, getTab, TAB_KEY } from '../../ui/src/api';
 import { bannersFor } from '../../ui/src/shell/bannerRules';
 import { ageText, anySourceDown, dataAgeText, quotaLow, spendView, titleFor } from '../../ui/src/shell/format';
 import { repoTone } from '../../ui/src/shell/Nav';
-import { parseRoute, repoTabHref } from '../../ui/src/shell/route';
+import { guideHref, parseRoute, repoTabHref } from '../../ui/src/shell/route';
 import { loadTheme, resolveTheme, saveTheme, THEME_KEY } from '../../ui/src/shell/theme';
 import type { HubState } from '../../ui/src/types';
 
@@ -82,6 +82,12 @@ describe('routes', () => {
     expect(parseRoute('#/repo/acme__shop/nope')).toMatchObject({ tab: 'flow' });
     expect(parseRoute('#/repo/')).toEqual({ page: 'inbox' });
     expect(parseRoute('#/nope')).toEqual({ page: 'inbox' });
+    expect(parseRoute('#/guide')).toEqual({ page: 'guide', tab: 'poster', item: null });
+    expect(parseRoute('#/guide/details')).toEqual({ page: 'guide', tab: 'details', item: null });
+    expect(parseRoute('#/guide/details/g-command-handoff')).toEqual({ page: 'guide', tab: 'details', item: 'g-command-handoff' });
+    expect(parseRoute('#/guide/bogus')).toEqual({ page: 'guide', tab: 'poster', item: null });
+    expect(guideHref('details', 'g-agent-debug')).toBe('#/guide/details/g-agent-debug');
+    expect(guideHref('poster')).toBe('#/guide');
   });
 
   it('round-trips repo tab links (R47)', () => {
@@ -122,6 +128,29 @@ describe('tab token (controller ruling)', () => {
     expect(apiHeaders('t1')).toMatchObject({ 'X-Caddis-Hub-Tab': 't1' });
     expect(apiHeaders(null)).not.toHaveProperty('X-Caddis-Hub-Tab');
     expect(apiHeaders('t1', 'c1')).toMatchObject({ 'X-CSRF-Token': 'c1' });
+  });
+  const origWindow = globalThis.window;
+  const origFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.window = origWindow;
+    globalThis.fetch = origFetch;
+  });
+  it('safeStorage uses localStorage', () => {
+    const local = mem();
+    local.setItem(TAB_KEY, 'from-local');
+    const session = mem();
+    session.setItem(TAB_KEY, 'from-session');
+    globalThis.window = { localStorage: local, sessionStorage: session } as unknown as Window & typeof globalThis;
+    expect(getTab()).toBe('from-local');
+  });
+  it('a 401 after logout rejects with status 401 and does not retry', async () => {
+    const local = mem();
+    local.setItem(TAB_KEY, 't1');
+    const session = mem();
+    globalThis.window = { localStorage: local, sessionStorage: session } as unknown as Window & typeof globalThis;
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 401 })) as unknown as typeof fetch;
+    await expect(getState()).rejects.toMatchObject({ status: 401 });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 

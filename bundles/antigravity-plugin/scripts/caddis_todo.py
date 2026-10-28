@@ -182,6 +182,32 @@ def _plan_files(root: Path) -> list[Path]:
     return sorted(p for p in plans_dir.glob("*.md") if p.is_file() and not p.is_symlink())
 
 
+_PHASE_HEADING = re.compile(r"^(#{2,3})\s+Phase\s+([^\s:—]+)\s*[:—-]?\s*(.*)$", re.M | re.I)
+
+
+def phase_key(cell: str) -> str:
+    s = cell.replace("`", "").replace("*", "").strip()
+    s = re.sub(r"^phase\s+", "", s, flags=re.I)
+    s = re.split(r" -|[\s:—]", s, maxsplit=1)[0]
+    return s.rstrip(".").lower()
+
+
+def phase_sections(text: str) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for m in _PHASE_HEADING.finditer(text):
+        key = phase_key(m.group(2))
+        if key in out:
+            continue
+        title = m.group(3).rstrip(" \t\r\n⏳🔲✅\ufe0f").strip()
+        rest = text[m.end():]
+        stop = re.search(rf"^#{{1,{len(m.group(1))}}} ", rest, re.M)
+        body = (rest[:stop.start()] if stop else rest).strip()
+        if len(body) > 2000:
+            body = body[:2000] + "…"
+        out[key] = {"title": title, "text": body}
+    return out
+
+
 def _plan_entry(root: Path, path: Path) -> dict:
     return _plan_entry_text(path.relative_to(Path(root)).as_posix(), path.read_text(encoding="utf-8"))
 
@@ -205,15 +231,22 @@ def _plan_entry_text(rel: str, text: str) -> dict:
     if table is not None:
         columns, lines = table
         status_at = columns.index("status")
+        ms_at = columns.index("milestone") if "milestone" in columns else None
         for line in lines:
             if not line.strip().startswith("|") or caddis_tidy._TABLE_RULE_RE.match(line.strip()):
                 continue
             cells = caddis_tidy._row_cells(line)
             if cells:
                 cell = cells[status_at] if len(cells) > status_at else ""
-                tracker.append({"phase": cells[0], "status": cell, "state": status_state(cell)})
+                row: dict = {"phase": cells[0], "key": phase_key(cells[0])}
+                if ms_at is not None:
+                    row["milestone"] = cells[ms_at].strip() if len(cells) > ms_at else ""
+                row["status"] = cell
+                row["state"] = status_state(cell)
+                tracker.append(row)
     return {"path": rel, "title": title,
             "status": meta.get("status"), "feature": meta.get("feature"),
+            "phases": phase_sections(text),
             "tracker": tracker, "open_rows": sum(1 for row in tracker if not _is_done(row["status"]))}
 
 
@@ -263,16 +296,27 @@ def _tree_blobs(tree: bytes, oid_len: int) -> list[tuple[str, str]]:
     return out
 
 
-def _origin_plan_texts(root: Path, branch: str) -> list[tuple[str, str]] | None:
-    """[(path, text)] of the plan files on origin/<branch>: `.caddis/plans/*.md`, else `.github/plans/*.md`, never
-    `done/`. One git process for the whole read. None when git cannot read the ref."""
+def _origin_plan_texts(root: Path, branch: str) -> tuple[str, int | None, list[tuple[str, str]]] | None:
+    """(commit_oid, commit_at, [(path, text)]) of the plan files on origin/<branch>: `.caddis/plans/*.md`, else
+    `.github/plans/*.md`, never `done/`. One git process for the whole read. None when git cannot read the ref."""
     try:
         batch = _Batch(root)
     except OSError:
         return None
     try:
-        if batch.get(f"refs/remotes/origin/{branch}") is None:
+        commit_obj = batch.get(f"refs/remotes/origin/{branch}")
+        if commit_obj is None:
             return None
+        commit_oid = commit_obj[0]
+        commit_at: int | None = None
+        for line in commit_obj[2].decode("utf-8", errors="replace").splitlines():
+            if not line:
+                break
+            if line.startswith("committer "):
+                try:
+                    commit_at = int(line.split()[-2])
+                except (IndexError, ValueError):
+                    commit_at = None
         for folder in (".caddis/plans", ".github/plans"):
             tree = batch.get(f"refs/remotes/origin/{branch}:{folder}")
             if tree is None or tree[1] != "tree":
@@ -286,8 +330,8 @@ def _origin_plan_texts(root: Path, branch: str) -> list[tuple[str, str]] | None:
                 if blob is None:
                     return None
                 texts.append((f"{folder}/{name}", blob[2].decode("utf-8", errors="replace").replace("\r\n", "\n")))
-            return texts
-        return []
+            return commit_oid, commit_at, texts
+        return commit_oid, commit_at, []
     except (OSError, ValueError):
         return None
     finally:
@@ -345,14 +389,15 @@ def plans_json(root: Path, branch: str | None = None) -> dict:
     does not parse gives `{"path", "error"}`; the other plans still come back.
     """
     root = Path(root)
-    texts = _origin_plan_texts(root, branch) if branch else None
-    if texts is not None:
+    origin = _origin_plan_texts(root, branch) if branch else None
+    if origin is not None:
+        commit, commit_at, texts = origin
         plans = [_entry_or_error(rel, lambda rel=rel, text=text: _plan_entry_text(rel, text)) for rel, text in texts]
         times = _origin_plan_times(root, branch, texts[0][0].rsplit("/", 1)[0]) if texts else {}
         for plan in plans:
             if "error" not in plan:
                 plan["changed_at"] = times.get(plan["path"])
-        return {"schema": 1, "source": f"origin/{branch}", "plans": plans}
+        return {"schema": 1, "source": f"origin/{branch}", "commit": commit[:12], "commit_at": commit_at, "plans": plans}
     plans = []
     for path in _plan_files(root):
         plan = _entry_or_error(path.relative_to(root).as_posix(), lambda path=path: _plan_entry(root, path))

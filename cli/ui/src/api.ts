@@ -29,7 +29,7 @@ interface HistLike {
 
 function safeStorage(): StorageLike | null {
   try {
-    return window.sessionStorage;
+    return window.localStorage;
   } catch {
     return null;
   }
@@ -38,7 +38,7 @@ function safeStorage(): StorageLike | null {
 let memoryTab: string | null = null;
 
 /**
- * Run once at start. The login redirect sends `/#tab=<token>`. Read the token, keep it in sessionStorage
+ * Run once at start. The login redirect sends `/#tab=<token>`. Read the token, keep it in localStorage: the origin is 127.0.0.1:<port>, so the token stays port-scoped; a new tab needs no new login.
  * (and in memory, in case storage is blocked), then remove the hash so it stays out of history and screenshots.
  */
 export function captureTab(
@@ -90,6 +90,22 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const getSession = (): Promise<SessionInfo> => getJson<SessionInfo>('/api/session');
 export const getState = (): Promise<HubState> => getJson<HubState>('/api/state');
+
+export interface PlanPhaseSection {
+  schema: number;
+  title: string;
+  text: string;
+}
+
+export const getPlanPhase = (repo: string, plan: string, key: string): Promise<PlanPhaseSection> =>
+  getJson<PlanPhaseSection>(
+    '/api/plan-phase?repo=' +
+      encodeURIComponent(repo) +
+      '&plan=' +
+      encodeURIComponent(plan) +
+      '&key=' +
+      encodeURIComponent(key),
+  );
 
 let csrfCache: string | null = null;
 

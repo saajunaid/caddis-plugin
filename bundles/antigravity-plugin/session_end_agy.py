@@ -2,7 +2,8 @@
 """caddis `session_end` hook for agy (Antigravity) — Stop event.
 
 Ports claude-harness/hooks/session_end.py to agy's contract. On Stop, appends ONE session-end record to
-the workspace's usage log (`<workspace>/.caddis/usage-log.jsonl`). Self-contained (the agy bundle does not
+the workspace's usage log (`<workspace>/.caddis/usage-log.jsonl`), and marks the session `waiting` in
+its status file `~/.caddis/sessions/<conversationId>.json` (the caddis hub's session list). Self-contained (the agy bundle does not
 ship claudster_config.py), stdlib-only, and fully defensive:
 a Stop hook must never fail the turn, and must not print a non-JSON line to stdout (agy parses Stop-hook
 stdout as a `{"decision":…}` object — a stray string trips its "unsupported hook decision" path). So this
@@ -86,6 +87,28 @@ def _hook_note(feature, exc, root=None):
         pass
 
 
+
+def _status_beat(data, status):
+    """Write this agy session's status for the caddis hub (~/.caddis/sessions/). Never raises, never prints.
+
+    caddis_heartbeat.py ships under scripts/ in the agy bundle; in the source repo it is in
+    claude-harness/scripts/. Headless runs (review and lane runs) write nothing.
+    """
+    try:
+        if str(os.environ.get("CADDIS_HEADLESS", "")).strip():
+            return
+        _here = os.path.dirname(os.path.abspath(__file__))
+        for _cand in (os.path.join(_here, "scripts"),
+                      os.path.join(os.path.dirname(_here), "scripts")):
+            if os.path.isfile(os.path.join(_cand, "caddis_heartbeat.py")):
+                if _cand not in sys.path:
+                    sys.path.insert(0, _cand)
+                break
+        import caddis_heartbeat as _hb  # noqa: E402
+        _hb.agy_beat(data, status, plugin_root=_here)  # the bundle's plugin.json sits beside the hook
+    except Exception as _exc:
+        _hook_note("agy session status", _exc)
+
 def _workspace_roots(data):
     """Every workspace root in the payload, as a list. Empty when the payload has none.
 
@@ -119,6 +142,8 @@ def main() -> None:
         data = {}
     if _headless():
         return
+    # The turn ended: the session waits for the user. `fullyIdle: false` means agy is not idle yet: it stays working.
+    _status_beat(data, "working" if isinstance(data, dict) and data.get("fullyIdle") is False else "waiting")
     try:
         roots = _workspace_roots(data) or [os.getcwd()]
         # A workspace folder may sit inside a repo: the artifact dir is the REPO ROOT's, not the sub-folder's.

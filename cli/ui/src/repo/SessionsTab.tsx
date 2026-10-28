@@ -46,7 +46,12 @@ export function Sessions({ state, repo, nowMs }: { state: HubState; repo: RepoSt
             <li key={s.key} className="flow-row" data-testid="session-row">
               <div className="flow-row-head">
                 <span className="flow-title mono">{s.name}</span>
-                <span className={`chip tone-${s.status === 'waiting' ? 'warn' : s.status === 'busy' ? 'good' : 'muted'}`}>{s.status}</span>
+                {s.agent && (
+                  <span className="chip tone-muted" data-testid="session-agent">
+                    {s.agent}
+                  </span>
+                )}
+                <span className={`chip tone-${s.status === 'waiting' ? 'warn' : s.status === 'busy' || s.status === 'working' ? 'good' : 'muted'}`}>{s.status}</span>
                 {s.copyWarning && (
                   <span className="chip tone-bad" data-testid="session-copies">
                     {s.copyWarning}

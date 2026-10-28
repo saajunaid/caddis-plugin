@@ -11,6 +11,7 @@ import { setFavicon } from './shell/favicon';
 import { titleFor } from './shell/format';
 import { parseRoute } from './shell/route';
 import { useTheme } from './shell/useTheme';
+import { useMotion } from './shell/useMotion';
 import { useHubState } from './useHubState';
 
 // The guide page loads on demand, so its code and CSS stay out of the first bundle (G6).
@@ -43,6 +44,7 @@ export function App(): JSX.Element {
   const nowMs = useNow(5_000);
   const route = useRoute();
   const [theme, setTheme] = useTheme();
+  const [motion, setMotion] = useMotion();
   const [menu, setMenu] = useState(false);
   const api = useInbox(state, nowMs);
   const count = api.model.items.length;
@@ -81,7 +83,7 @@ export function App(): JSX.Element {
   } else if (route.page === 'guide') {
     body = (
       <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
-        <Guide guide={state.guide} versions={state.versions} />
+        <Guide guide={state.guide} versions={state.versions} tab={route.tab} item={route.item} />
       </Suspense>
     );
   } else {
@@ -96,7 +98,7 @@ export function App(): JSX.Element {
   return (
     <div className="app-shell">
       <Nav route={route} state={state} inbox={count} open={menu} onToggle={setMenu}>
-        <Footer state={state} nowMs={nowMs} theme={theme} onTheme={setTheme} />
+        <Footer state={state} nowMs={nowMs} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />
       </Nav>
       <main className="main-area" id="main-content">
         <div className="page-wrap">

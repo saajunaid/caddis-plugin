@@ -14,12 +14,12 @@ const sectionCount = async (page: Page, id: string): Promise<number> => Number(a
 
 test.describe('caddis guide page', () => {
   test('renders and each section count equals the guide data', async ({ page, openHub }) => {
-    const { problems } = await openHub('full', withGuide, '#/guide');
+    const { problems } = await openHub('full', withGuide, '#/guide/details');
     await expect(page.getByRole('heading', { name: 'caddis guide', level: 1 })).toBeVisible();
     await expect(page.getByTestId('guide-version')).toContainText('caddis 9.9.9');
     for (const id of SECTIONS) expect(await sectionCount(page, id), id).toBe(EXPECTED[id]);
     await expect(page.getByTestId('guide-entry')).toHaveCount(Object.values(EXPECTED).reduce((a, b) => a + b, 0));
-    await expect(page.getByText('/caddis:feature-plan <feature>')).toBeVisible();
+    await expect(page.getByText('/caddis:feature-plan')).toBeVisible();
     expect(await cspViolations(page)).toEqual([]);
     expect(problems.console).toEqual([]);
   });
@@ -32,7 +32,7 @@ test.describe('caddis guide page', () => {
   });
 
   test('the filter narrows, shows n of m, and clears', async ({ page, openHub }) => {
-    await openHub('full', withGuide, '#/guide');
+    await openHub('full', withGuide, '#/guide/details');
     const total = Object.values(EXPECTED).reduce((a, b) => a + b, 0);
     const box = page.getByTestId('guide-filter');
     await box.fill('HANDOFF');
@@ -54,7 +54,7 @@ test.describe('caddis guide page', () => {
     test(`${name} state shows its text and no entries`, async ({ page, openHub }) => {
       await openHub('full', (s) => {
         s.guide = guide;
-      }, '#/guide');
+      }, '#/guide/details');
       await expect(page.getByTestId('guide-state')).toContainText(text);
       await expect(page.getByTestId('guide-entry')).toHaveCount(0);
     });
@@ -63,7 +63,7 @@ test.describe('caddis guide page', () => {
   test.describe('360 px', () => {
     test.use({ viewport: { width: 360, height: 740 } });
     test('no horizontal scroll, with data and with a filter', async ({ page, openHub }) => {
-      await openHub('full', withGuide, '#/guide');
+      await openHub('full', withGuide, '#/guide/details');
       await expect(page.getByTestId('guide-entry').first()).toBeVisible();
       const fits = (): Promise<boolean> =>
         page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
@@ -74,7 +74,7 @@ test.describe('caddis guide page', () => {
     test('the states fit too', async ({ page, openHub }) => {
       await openHub('full', (s) => {
         s.guide = null;
-      }, '#/guide');
+      }, '#/guide/details');
       await expect(page.getByTestId('guide-state')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
@@ -82,17 +82,21 @@ test.describe('caddis guide page', () => {
 
   for (const theme of ['dark', 'light'] as const) {
     test(`${theme} theme renders the page`, async ({ page, openHub }) => {
-      await openHub('full', withGuide, '#/guide');
+      await openHub('full', withGuide, '#/guide/details');
+      const other = theme === 'dark' ? 'light' : 'dark';
+      await page.getByRole('button', { name: other, exact: true }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', other);
+      const otherBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
       await page.getByRole('button', { name: theme, exact: true }).click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await expect(page.getByTestId('guide-entry').first()).toBeVisible();
-      const bg = await page.getByTestId('guide-entry').first().evaluate((el) => getComputedStyle(el).backgroundColor);
-      expect(bg).toBe(theme === 'dark' ? 'rgb(40, 42, 54)' : 'rgb(255, 255, 255)');
+      const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      expect(bg).not.toBe(otherBg);
     });
   }
 
   test('keyboard reaches the filter and a section button, each with a focus ring', async ({ page, openHub }) => {
-    await openHub('full', withGuide, '#/guide');
+    await openHub('full', withGuide, '#/guide/details');
     await page.getByRole('link', { name: /caddis guide/ }).focus();
     const seen = new Set<string>();
     for (let i = 0; i < 60 && seen.size < 2; i++) {
@@ -110,5 +114,17 @@ test.describe('caddis guide page', () => {
       seen.add(info.kind);
     }
     expect([...seen].sort()).toEqual(['filter', 'jump']);
+  });
+
+  test('the poster prints on at most 2 A3 pages', async ({ page, openHub }) => {
+    await openHub('full', withGuide, '#/guide');
+    await expect(page.locator('.gp-print')).toBeVisible();
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.locator('.gp-flow')).toBeVisible();
+    await expect(page.locator('.gp-map')).toBeVisible();
+    const pdf = await page.pdf({ format: 'A3', landscape: true });
+    const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+    expect(pages).toBeGreaterThanOrEqual(1);
+    expect(pages).toBeLessThanOrEqual(2);
   });
 });

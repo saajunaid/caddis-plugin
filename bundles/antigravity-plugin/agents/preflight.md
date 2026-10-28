@@ -23,6 +23,10 @@ For the plan (or the named phase) check each claim against the codebase:
    its own? Flag any phase that leaves a judgment call open, names a file/symbol vaguely, omits exact
    data bindings, or has a non-literal exit gate. (Supports the planner→coder handoff.)
 
+**One size check, always reported as `severity: warning` (category `conventions`), never a blocker:** a phase
+over 12 files or over 6 cards or tasks, an agy card over 6 files (unless the phase says
+`**Programme phase:** yes`), and a `**Model:**` line that names no effort (`<model>, effort <low|medium|high>`).
+
 ## Method
 - Read the plan. For each claim, run the cheapest check that confirms or refutes it (Glob/Grep/Read).
 - Don't trust the plan's prose — verify against files. A claim you can't verify is a finding, not a pass.

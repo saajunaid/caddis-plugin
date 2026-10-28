@@ -45,4 +45,46 @@ describe('repoSessions (P20, R50)', () => {
     expect(m.error).toBe('claude agents failed');
     expect(m.rows).toHaveLength(3);
   });
+  const agy = (s: HubState, over: Partial<HubState['sessions'][number]> = {}): HubState['sessions'][number] => ({
+    key: 'agy:conv-1',
+    pid: null,
+    session_id: 'conv-1',
+    name: null,
+    kind: 'interactive',
+    agent: 'agy',
+    cwd: s.repos[0]!.path,
+    repo_path: s.repos[0]!.path,
+    status: 'working',
+    waiting_for: null,
+    waiting_class: null,
+    waiting_since: null,
+    copies: 1,
+    ...over,
+  });
+  it('marks an agy session by its agent; a Claude session has no agent mark', () => {
+    const s = load('full');
+    s.sessions.push(agy(s));
+    const rows = repoSessions(s, s.repos[0]!).rows;
+    expect(rows.find((row) => row.key === 'agy:conv-1')).toMatchObject({ agent: 'agy', name: 'conv-1', status: 'working' });
+    expect(rows.filter((row) => row.key !== 'agy:conv-1').every((row) => row.agent === null)).toBe(true);
+  });
+  it('ranks a working session with the busy ones', () => {
+    const s = load('full');
+    s.sessions.push(agy(s, { name: 'a-agy' }));
+    expect(repoSessions(s, s.repos[0]!).rows.map((row) => row.name)).toEqual([
+      'demo-session-api',
+      'demo-session-peer',
+      'a-agy',
+      'demo-session-web',
+    ]);
+  });
+  it('keeps the agy sessions when the claude list never loaded', () => {
+    const s = load('full');
+    s.sessions.push(agy(s));
+    s.sources.agents = { ok: false, last_ok_at: null, last_error: 'claude agents failed', stale: true };
+    const m = repoSessions(s, s.repos[0]!);
+    expect(m.unknown).toBe(false);
+    expect(m.error).toBe('claude agents failed');
+    expect(m.rows.map((row) => row.key)).toEqual(['agy:conv-1']);
+  });
 });

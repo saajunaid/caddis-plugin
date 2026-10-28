@@ -1,18 +1,23 @@
-import { Clock, Monitor, Moon, Sun } from 'lucide-react';
+import { Clock, Monitor, Moon, Pause, Play, Sun } from 'lucide-react';
 import type { HubState } from '../types';
 import { dataAgeText, clockText, quotaLow, quotaLowest, spendView } from './format';
+import { MOTION_CHOICES, type MotionChoice } from './motion';
 import { THEME_CHOICES, type ThemeChoice } from './theme';
 
 const ICON = { dark: Moon, light: Sun, system: Monitor } as const;
+const MOTION_ICON = { on: Play, off: Pause } as const;
+const MOTION_LABEL = { on: 'motion', off: 'still' } as const;
 
 interface Props {
   state: HubState | null;
   nowMs: number;
   theme: ThemeChoice;
   onTheme: (t: ThemeChoice) => void;
+  motion: MotionChoice;
+  onMotion: (m: MotionChoice) => void;
 }
 
-export function Footer({ state, nowMs, theme, onTheme }: Props): JSX.Element {
+export function Footer({ state, nowMs, theme, onTheme, motion, onMotion }: Props): JSX.Element {
   const spend = spendView(state?.spend);
   const v = state?.versions;
   const quota = quotaLow(state);
@@ -66,6 +71,24 @@ export function Footer({ state, nowMs, theme, onTheme }: Props): JSX.Element {
             <button key={c} type="button" className={`theme-btn${theme === c ? ' active' : ''}`} aria-pressed={theme === c} title={c} onClick={() => onTheme(c)}>
               <Icon size={15} aria-hidden="true" />
               <span>{c}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="theme-switch" role="group" aria-label="Logo animation">
+        {MOTION_CHOICES.map((m) => {
+          const Icon = MOTION_ICON[m];
+          return (
+            <button
+              key={m}
+              type="button"
+              className={`theme-btn${motion === m ? ' active' : ''}`}
+              aria-pressed={motion === m}
+              title={m === 'on' ? 'Animate the logo' : 'Stop the logo animation'}
+              onClick={() => onMotion(m)}
+            >
+              <Icon size={15} aria-hidden="true" />
+              <span>{MOTION_LABEL[m]}</span>
             </button>
           );
         })}

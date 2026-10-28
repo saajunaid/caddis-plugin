@@ -18,3 +18,7 @@ export const keyPath = (home?: string): string => path.join(hubDir(home), 'key')
 export const lockPath = (home?: string): string => path.join(hubDir(home), 'hub.lock');
 /** The one audit file: the action route writes it and the state reads it, so both use `hubHome`. */
 export const auditPath = (home?: string): string => path.join(hubHome(home), 'audit.jsonl');
+
+export function sessionsPath(home?: string): string {
+  return path.join(hubDir(home), 'sessions.json');
+}

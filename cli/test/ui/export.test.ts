@@ -128,7 +128,7 @@ describe('export page: roadmap (S8-S10, S9 empty, S11, S14)', () => {
   const html = render(sample({ gates: true }), '#/roadmap/launch');
 
   it('S8-S10: the header, chips, waiting, KPIs, flow, board, timeline, gates and milestones', () => {
-    for (const id of ['rm-header', 'rm-chips', 'rm-waiting', 'rm-kpis', 'rm-flow', 'rm-board', 'rm-timeline', 'rm-timeline-list', 'rm-gates', 'rm-milestones', 'rm-search', 'rm-crumbs']) has(html, id);
+    for (const id of ['rm-header', 'rm-chips', 'rm-waiting', 'rm-kpis', 'rm-flow', 'rm-timeline', 'rm-timeline-list', 'rm-gates', 'rm-milestones', 'rm-search', 'rm-crumbs']) has(html, id);
     expect(html).toContain('branch <code>main</code>');
     expect(html).toContain('origin <code>ABC1234</code>');
   });

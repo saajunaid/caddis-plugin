@@ -1,4 +1,4 @@
-import { mergingPr, queueOf, repoLabel, samePath, type QueueEntry } from '../inbox/derive';
+import { mergingPr, otherAgent, queueOf, repoLabel, samePath, type QueueEntry } from '../inbox/derive';
 import type { HubState, RepoState } from '../types';
 
 export type Tone = 'good' | 'warn' | 'bad' | 'muted';
@@ -81,7 +81,8 @@ export function deriveLane(state: HubState, repo: RepoState, now: number): Lane 
     .filter((s) => samePath(s.repo_path, repo.path))
     .map((s) => {
       const v = sessionSub(s.status, s.waiting_for, s.waiting_class);
-      return { key: `s${s.session_id}`, title: s.name ?? s.session_id.slice(0, 8), sub: v.sub, tone: v.tone };
+      const agent = otherAgent(s);
+      return { key: `s${s.session_id}`, title: s.name ?? s.session_id.slice(0, 8), sub: agent ? `${agent} · ${v.sub}` : v.sub, tone: v.tone };
     });
 
   const blocked: Card[] = [];

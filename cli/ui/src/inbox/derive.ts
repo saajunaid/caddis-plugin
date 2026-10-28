@@ -72,6 +72,9 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 export const repoLabel = (r: RepoState): string => r.github?.repo ?? r.name;
 
 const normPath = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+/** The agent of a session when it is not Claude Code (`agy`). Old state has no `agent`: Claude, so null. */
+export const otherAgent = (s: SessionEntry): string | null => (s.agent && s.agent !== 'claude' ? s.agent : null);
+
 export const samePath = (a: string | null | undefined, b: string | null | undefined): boolean =>
   !!a && !!b && normPath(a) === normPath(b);
 
@@ -250,12 +253,13 @@ export function deriveInbox(state: HubState, now: number): InboxModel {
   for (const s of ownerSessions(state.sessions)) {
     const repo = repoByPath(s.repo_path);
     const name = s.name ?? s.session_id.slice(0, 8);
+    const agent = otherAgent(s);
     add({
       id: `waiting:${s.session_id}`,
       kind: 'waiting',
       folder: 'needs',
       repo: repo ? repoLabel(repo) : 'no repo',
-      title: `${name} waits on ${s.waiting_for ?? 'you'}`,
+      title: `${name}${agent ? ` (${agent})` : ''} waits on ${s.waiting_for ?? 'you'}`,
       why: 'The session cannot continue until you answer.',
       next: 'Open the session and answer.',
       cmd: name,

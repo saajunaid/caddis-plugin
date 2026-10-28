@@ -3,6 +3,10 @@
  *
  * Keeps the last good list when a run fails. A session counts as waiting only after it
  * has been `waiting` for 45 s across refreshes, so the Inbox does not flap.
+ *
+ * With a `home`, each refresh also reads the status files other agents (agy) write to
+ * `~/.caddis/sessions/` (beats.ts) and lists those sessions after the Claude ones. A session id that
+ * `claude agents` lists is never listed twice.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -10,6 +14,8 @@ import { findBin } from '../../util/which.js';
 import { withTimeout } from '../bounded.js';
 import { spawnBounded, type SpawnFn } from '../spawn.js';
 import { normalizeRepoPath } from '../config.js';
+import { pidAlive } from '../../util/sessions.js';
+import { readAgentBeats } from './beats.js';
 
 export const STALE_AFTER_MS = 3 * 60_000;
 export const WAIT_DEBOUNCE_MS = 45_000;
@@ -23,6 +29,8 @@ export interface SessionEntry {
   session_id: string;
   name: string | null;
   kind: string;
+  /** The agent that runs the session: `claude`, or another agent such as `agy`. Absent in old state: `claude`. */
+  agent?: string;
   cwd: string | null;
   repo_path: string | null;
   status: string;
@@ -46,6 +54,9 @@ export interface AgentsOptions {
   now?: () => number;
   spawn?: SpawnFn;
   findClaude?: () => Promise<string | null>;
+  /** The home folder whose `.caddis/sessions/` holds other agents' status files. Unset: none are read. */
+  home?: string;
+  alive?: (pid: number) => boolean;
 }
 
 export function classifyWaiting(waitingFor: string | null): 'owner' | 'peer' {
@@ -115,8 +126,10 @@ export function createAgentsSource(opts: AgentsOptions = {}): AgentsSource {
   const now = opts.now ?? Date.now;
   const spawn = opts.spawn ?? spawnBounded;
   const find = opts.findClaude ?? (() => findBin('claude'));
+  const alive = opts.alive ?? pidAlive;
   const waitingSince = new Map<string, number>();
   let sessions: SessionEntry[] | null = null;
+  let others: SessionEntry[] = [];
   let lastOkAt: number | null = null;
   let lastError: string | null = null;
   let lastRunOk = false;
@@ -163,6 +176,7 @@ export function createAgentsSource(opts: AgentsOptions = {}): AgentsSource {
         session_id: sessionId,
         name: str(e.name),
         kind,
+        agent: 'claude',
         cwd,
         repo_path: repoPathFor(cwd),
         status,
@@ -202,6 +216,11 @@ export function createAgentsSource(opts: AgentsOptions = {}): AgentsSource {
       if (!running) {
         running = run()
           .catch((error) => fail(error instanceof Error ? error.message : String(error)))
+          .then(() => {
+            if (opts.home === undefined) return;
+            const exclude = new Set((sessions ?? []).map((s) => s.session_id));
+            others = readAgentBeats({ home: opts.home, now: now(), alive, exclude });
+          })
           .finally(() => {
             running = null;
           });
@@ -214,7 +233,7 @@ export function createAgentsSource(opts: AgentsOptions = {}): AgentsSource {
         last_ok_at: lastOkAt === null ? null : new Date(lastOkAt).toISOString(),
         last_error: lastError,
         stale: lastOkAt === null || now() - lastOkAt > STALE_AFTER_MS,
-        data: sessions,
+        data: sessions === null && others.length === 0 ? null : [...(sessions ?? []), ...others],
       };
     },
   };

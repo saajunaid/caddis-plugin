@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import RoadmapTab from '../../ui/src/repo/RoadmapTab';
 import {
   deriveRoadmaps,
   planColumns,
@@ -10,7 +13,16 @@ import {
   listRow,
   opensDirectly,
   readyGates,
+  roadmapModel,
   roadmapTabLabel,
+  planStemOf,
+  planRoadmapModel,
+  phaseDetail,
+  phaseMeta,
+  planSourceText,
+  stageOf,
+  TILE_LABEL,
+  type PlanView,
   type RoadmapModel,
 } from '../../ui/src/repo/roadmap';
 import type { HubState, RepoState } from '../../ui/src/types';
@@ -160,10 +172,11 @@ describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () =>
         path: '.caddis/plans/p-docs.md',
         title: 'p-docs',
         rows: [
-          { phase: '1', status: 'done', state: 'done' },
-          { phase: '2', status: 'not started', state: 'todo' },
-          { phase: '3', status: 'not started', state: 'todo' },
+          { phase: '1', status: 'done', state: 'done', key: '1', milestone: null },
+          { phase: '2', status: 'not started', state: 'todo', key: '2', milestone: null },
+          { phase: '3', status: 'not started', state: 'todo', key: '3', milestone: null },
         ],
+        phases: {},
         open: 2,
         changedAt: null,
       },
@@ -186,16 +199,16 @@ describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () =>
     expect(planKpis(side)).toEqual({ total: 4, done: 2, inProgress: 0, blocked: 1, todo: 1, pct: 50 });
   });
   it('a plan with no Tracker rows has 0 % done, not NaN', () => {
-    const plan = { path: 'a.md', title: 'a', rows: [], open: 0, changedAt: null };
+    const plan = { path: 'a.md', title: 'a', rows: [], phases: {}, open: 0, changedAt: null };
     expect(planKpis(plan).pct).toBe(0);
   });
   it('the open plan that changed last starts open; finished or unknown-time plans do not win', () => {
-    const row = (state: 'todo' | 'done') => ({ phase: 'x', status: state, state });
+    const row = (state: 'todo' | 'done') => ({ phase: 'x', status: state, state, key: 'x', milestone: null });
     const plans = [
-      { path: 'old.md', title: 'old', rows: [row('todo')], open: 1, changedAt: 100 },
-      { path: 'new.md', title: 'new', rows: [row('todo')], open: 1, changedAt: 300 },
-      { path: 'all-done.md', title: 'd', rows: [row('done')], open: 0, changedAt: 900 },
-      { path: 'no-time.md', title: 'n', rows: [row('todo')], open: 1, changedAt: null },
+      { path: 'old.md', title: 'old', rows: [row('todo')], phases: {}, open: 1, changedAt: 100 },
+      { path: 'new.md', title: 'new', rows: [row('todo')], phases: {}, open: 1, changedAt: 300 },
+      { path: 'all-done.md', title: 'd', rows: [row('done')], phases: {}, open: 0, changedAt: 900 },
+      { path: 'no-time.md', title: 'n', rows: [row('todo')], phases: {}, open: 1, changedAt: null },
     ];
     expect(initiallyOpenPlan(plans)).toBe('new.md');
     expect(initiallyOpenPlan([plans[3]!, plans[2]!])).toBe('no-time.md');
@@ -303,5 +316,180 @@ describe('search (P16)', () => {
     const m = filterRoadmap(launch(), 'zzz-nothing')!;
     expect(m.count).toBe(0);
     expect(m.milestones.size).toBe(0);
+  });
+});
+
+describe('planSourceText', () => {
+  const NOW = Date.parse('2026-10-28T12:00:00Z');
+
+  it('formats plan provenance and marks fetches older than 24 h as old', () => {
+    expect(planSourceText(null, NOW)).toBeNull();
+    expect(planSourceText({}, NOW)).toBeNull();
+    expect(planSourceText({ source: 'working-tree' }, NOW)).toEqual({
+      text: 'Plans from the working tree (no origin branch found)',
+      old: false,
+    });
+    expect(planSourceText({ source: 'origin/main' }, NOW)).toEqual({
+      text: 'Plans from origin/main · fetch time unknown',
+      old: false,
+    });
+    expect(
+      planSourceText({ source: 'origin/main', commit: '78d7d82e1234', fetched_at: NOW / 1000 - 5 * 3600 }, NOW),
+    ).toEqual({
+      text: 'Plans from origin/main @ 78d7d82 · last fetch 5 h ago',
+      old: false,
+    });
+    expect(
+      planSourceText(
+        {
+          source: 'origin/main',
+          commit: '78d7d82e1234',
+          commit_at: NOW / 1000 - 2 * 86400,
+          fetched_at: NOW / 1000 - 5 * 3600,
+        },
+        NOW,
+      ),
+    ).toEqual({
+      text: 'Plans from origin/main @ 78d7d82 · commit 2 d ago · last fetch 5 h ago',
+      old: false,
+    });
+    const stale = planSourceText(
+      {
+        source: 'origin/main',
+        commit: '78d7d82e1234',
+        commit_at: NOW / 1000 - 2 * 86400,
+        fetched_at: NOW / 1000 - 3 * 86400,
+      },
+      NOW,
+    );
+    expect(stale?.text.endsWith('· last fetch 3 d ago')).toBe(true);
+    expect(stale?.old).toBe(true);
+  });
+
+  it('renders rm-source on the hub RoadmapTab', () => {
+    const repo = repoOf(load('full'), 'docs');
+    const plans = repo.plans as Record<string, unknown>;
+    plans.commit = '78d7d82e1234';
+    plans.fetched_at = NOW / 1000 - 3600;
+    const html = renderToStaticMarkup(createElement(RoadmapTab, { repo, slug: null, nowMs: NOW }));
+    expect(html).toContain('data-testid="rm-source"');
+    expect(html).toContain('Plans from origin/main @ 78d7d82 · last fetch 1 h ago');
+  });
+
+  it('omits rm-source in the site variant', () => {
+    const repo = repoOf(load('full'), 'docs');
+    const plans = repo.plans as Record<string, unknown>;
+    plans.commit = '78d7d82e1234';
+    plans.fetched_at = NOW / 1000 - 3600;
+    const html = renderToStaticMarkup(createElement(RoadmapTab, { repo, slug: null, nowMs: NOW, variant: 'site' }));
+    expect(html).not.toContain('rm-source');
+  });
+});
+
+describe('plan roadmap view model (Phase 15)', () => {
+  const repo = (): RepoState => repoOf(load('full'), 'shop');
+
+  it('a plan with Tracker milestones M1, M1, M2 gives milestone ids M1 and M2', () => {
+    const plan: PlanView = {
+      path: '.caddis/plans/p-test.md',
+      title: 'Test plan',
+      rows: [
+        { phase: 'C0 coordinator design', status: 'done', state: 'done', key: 'c0', milestone: 'M1' },
+        { phase: '1 Login wiring', status: 'done: #171 merged', state: 'done', key: '1', milestone: 'M1' },
+        { phase: '2 UI switch', status: 'in progress', state: 'in-progress', key: '2', milestone: 'M2' },
+      ],
+      phases: {
+        c0: { title: 'Coordinator design', text: 'Section text for c0' },
+      },
+      open: 1,
+      changedAt: null,
+    };
+    const m = planRoadmapModel(repo(), plan);
+    expect(planStemOf(plan.path)).toBe('p-test');
+    expect(m.kind).toBe('plan');
+    expect(m.slug).toBe('p-test');
+    expect(m.milestones.map((ms) => ms.id)).toEqual(['M1', 'M2']);
+    expect(m.milestones.map((ms) => ms.depends)).toEqual([[], ['M1']]);
+    expect(m.milestones.map((ms) => ms.status)).toEqual(['done', 'in-progress']);
+    expect(m.milestones[0]!.phases[1]!.prs).toEqual([
+      { number: 171, url: 'https://github.com/acme/shop/pull/171', stage: null, detail: null },
+    ]);
+    expect(phaseDetail(m, [plan], 'p-test#c0')).toEqual({
+      title: 'Coordinator design',
+      text: 'Section text for c0',
+      hasSection: true,
+      planPath: plan.path,
+      key: 'c0',
+      phase: m.milestones[0]!.phases[0]!,
+    });
+    expect(phaseDetail(m, [plan], 'p-test#1')).toEqual({
+      title: '1 Login wiring',
+      text: null,
+      hasSection: false,
+      planPath: plan.path,
+      key: '1',
+      phase: m.milestones[0]!.phases[1]!,
+    });
+    expect(phaseDetail(m, [plan], 'p-test#unknown')).toBeNull();
+  });
+
+  it('a plan whose phase entry is { title: "T" } (no text) gives hasSection: true, text: null', () => {
+    const plan: PlanView = {
+      path: '.caddis/plans/p-notext.md',
+      title: 'No text plan',
+      rows: [
+        { phase: '1 First', status: 'not started', state: 'todo', key: '1', milestone: null },
+      ],
+      phases: { '1': { title: 'T' } },
+      open: 1,
+      changedAt: null,
+    };
+    const m = planRoadmapModel(repo(), plan);
+    expect(phaseDetail(m, [plan], 'p-notext#1')).toEqual({
+      title: 'T',
+      text: null,
+      hasSection: true,
+      planPath: plan.path,
+      key: '1',
+      phase: m.milestones[0]!.phases[0]!,
+    });
+  });
+
+  it('a plan without Tracker milestones gives Phases and roadmapModel has kind roadmap', () => {
+    const plan: PlanView = {
+      path: '.caddis/plans/p-plain.md',
+      title: 'Plain plan',
+      rows: [
+        { phase: '1 First', status: 'not started', state: 'todo', key: '1', milestone: null },
+      ],
+      phases: {},
+      open: 1,
+      changedAt: null,
+    };
+    const m = planRoadmapModel(repo(), plan);
+    expect(m.milestones.map((ms) => ms.id)).toEqual(['Phases']);
+    expect(m.milestones[0]!.status).toBe('todo');
+    expect(launch().kind).toBe('roadmap');
+    expect(roadmapModel(repo(), { roadmap: 'r1', milestones: [] }).kind).toBe('roadmap');
+  });
+});
+
+describe('stageOf and phaseMeta', () => {
+  it('formats stageOf and phaseMeta', () => {
+    expect(stageOf([], 'todo')).toBe(TILE_LABEL.todo);
+    expect(
+      stageOf(
+        [
+          { number: 7, url: null, stage: 'merged', detail: null },
+          { number: 8, url: null, stage: null, detail: null },
+        ],
+        'done',
+      ),
+    ).toBe('#7 merged');
+    expect(stageOf([{ number: 9, url: null, stage: 'in review', detail: 'required checks pending' }], 'todo')).toBe(
+      '#9 in review (required checks pending)',
+    );
+    expect(phaseMeta({ model: 'sonnet', lane: 'agy foo', risk: 'high' })).toBe('model sonnet · lane agy · risk high');
+    expect(phaseMeta({ model: '', lane: '', risk: '' })).toBe('');
   });
 });

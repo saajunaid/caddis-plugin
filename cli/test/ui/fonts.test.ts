@@ -14,21 +14,25 @@ describe('build-ui-fonts (R27)', () => {
   it('writes woff2 files and a CSS file with no data: URL', () => {
     const cssOut = path.join(tmp, 'fonts.generated.css');
     const names = buildFonts({ publicDir: tmp, cssOut });
-    expect(names.length).toBeGreaterThanOrEqual(3);
+    expect(LICENCES).toEqual(['OFL-IBMPlexSans.txt', 'OFL-IBMPlexMono.txt', 'LICENSE-Lucide.txt']);
+    expect(names.length).toBe(6);
     const files = readdirSync(path.join(tmp, 'fonts'));
     expect(files.filter((f) => f.endsWith('.woff2')).length).toBe(names.length);
     for (const n of names) {
+      expect(n).toMatch(/^(ibm-plex-sans-|ibm-plex-mono-)/);
       const head = readFileSync(path.join(tmp, 'fonts', n)).subarray(0, 4).toString('latin1');
       expect(head).toBe('wOF2');
     }
     const css = readFileSync(cssOut, 'utf8');
     expect(css).not.toContain('data:');
     expect(css).toContain('url(/fonts/');
-    expect(css).toContain('Atkinson Hyperlegible Next');
-    expect(css).toContain('Maple Mono');
+    expect(css).toContain('IBM Plex Sans');
+    expect(css).toContain('IBM Plex Mono');
+    expect(css).not.toContain(['Atkin', 'son'].join(''));
+    expect(css).not.toContain('Maple');
   });
 
-  it('ships the three licences in licenses/, not in fonts/ (dist/ui/licenses, R61)', () => {
+  it('ships the licences in licenses/, not in fonts/ (dist/ui/licenses, R61)', () => {
     buildFonts({ publicDir: tmp, cssOut: path.join(tmp, 'f.css') });
     for (const f of LICENCES) {
       expect(readFileSync(path.join(tmp, 'licenses', f)).equals(readFileSync(path.join(DEFAULT_ASSETS, f))), f).toBe(true);
@@ -40,8 +44,8 @@ describe('build-ui-fonts (R27)', () => {
     const src = path.join(tmp, 'src');
     mkdirSync(src);
     copyFileSync(path.join(DEFAULT_ASSETS, 'fonts.css'), path.join(src, 'fonts.css'));
-    for (const f of LICENCES.slice(0, 2)) copyFileSync(path.join(DEFAULT_ASSETS, f), path.join(src, f));
-    expect(() => buildFonts({ assetsDir: src, publicDir: path.join(tmp, 'out'), cssOut: path.join(tmp, 'f.css') })).toThrow(LICENCES[2]);
+    for (const f of LICENCES.slice(0, 1)) copyFileSync(path.join(DEFAULT_ASSETS, f), path.join(src, f));
+    expect(() => buildFonts({ assetsDir: src, publicDir: path.join(tmp, 'out'), cssOut: path.join(tmp, 'f.css') })).toThrow(LICENCES[1]);
   });
 });
 

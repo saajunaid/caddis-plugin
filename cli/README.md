@@ -132,6 +132,52 @@ caddis update --extras     # add extras to an existing install
 The first run. Detects, shows exactly what it is about to run, asks, then installs. `--yes` skips
 the prompt for CI.
 
+### `caddis hub`
+
+A local web page (127.0.0.1 only) with your repos, PRs, plans and live sessions. `caddis hub start`
+starts it in the background; `caddis hub stop` stops it.
+
+**Logins that last.** Run `caddis hub open` to get a one-time login code and open the hub. Your session lasts 7 days without use and 30 days at most, and it survives a hub restart.
+
+**Timeline first, Board second.** Roadmaps and plans open on the Timeline view by default, with the Board view as the second option. Click any phase tile on the Timeline to open the phase panel and read its Tracker status, PR links and plan section text.
+
+**Guide Poster and Details.** The Guide page has a `Poster` tab (with `Workflow` and `Mind map` views, plus a `Print` button for a two-page A3 landscape wall poster) and a `Details` tab. Every item on the poster links to its entry in Details.
+
+**Sessions from more than one agent.** Claude Code sessions come from `claude agents --json`. agy
+(Antigravity) sessions come from the caddis agy hooks: each agy turn writes a status file, and the
+hub lists that session with an `agy` chip. A turn that starts sets `working`. A turn that ends sets
+`waiting` (waiting for you, after 45 s). A session that has not written for 10 minutes shows as
+`idle`, unless it waits and its agy process still runs. The hub drops a session when its process
+stops or when it has not written for 24 hours. Headless runs (`CADDIS_HEADLESS`) write nothing.
+
+Any other agent can show its sessions the same way. Write one JSON file per session to
+`~/.caddis/sessions/<session-id>.json` (`CADDIS_HOME` replaces the home folder). Write a temp file
+in that folder, then rename it over the target:
+
+```json
+{
+  "session_id": "c0ffee-1234",
+  "harness": "my-agent",
+  "caddis_version": "1.3.200",
+  "pid": 4242,
+  "started": 1793000000.0,
+  "last_seen": 1793000300.0,
+  "status": "waiting",
+  "status_since": 1793000300.0,
+  "cwd": "/work/shop",
+  "repo_path": "/work/shop",
+  "waiting_for": "input needed"
+}
+```
+
+- Times are Unix seconds. `status` is `working` or `waiting`; the hub ignores a file without one.
+- `pid` is the agent's own process, or `null` when it is not known. With a pid, the hub drops the
+  session when that process stops. Without one, only the times count.
+- `harness` names the agent. The hub skips `claude`, because Claude Code sessions come from
+  `claude agents`.
+- `cwd` puts the session under its repo. `waiting_for` is a short reason; it is shown when waiting.
+- The first six keys are the session heartbeat that `caddis doctor` already reads. Do not remove them.
+
 ### Removing caddis
 
 **There is no `caddis remove`.** This CLI installs and updates; it never uninstalls. Removal goes

@@ -1,3 +1,4 @@
+import { ageText } from '../shell/format';
 import type { HubState, RepoState } from '../types';
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -96,6 +97,7 @@ export interface Board {
 }
 export interface RoadmapModel {
   slug: string;
+  kind: 'roadmap' | 'plan';
   branch: string | null;
   originCommit: string | null;
   milestones: MilestoneView[];
@@ -118,11 +120,14 @@ export interface PlanRow {
   status: string;
   /** The collector's state for the Status cell (caddis_status.py); `todo` when the data has none. */
   state: Tile;
+  key: string;
+  milestone: string | null;
 }
 export interface PlanView {
   path: string;
   title: string;
   rows: PlanRow[];
+  phases: Record<string, { title: string; text?: string }>;
   open: number;
   /** Unix time of the plan's last change (collector `changed_at`); null when unknown. */
   changedAt: number | null;
@@ -203,6 +208,15 @@ function prLinks(repo: RepoState, numbers: unknown): PrLink[] {
   });
 }
 
+export function stageOf(prs: PrLink[], tile: Tile): string {
+  const stages = prs.filter((l) => l.stage).map((l) => `#${l.number} ${l.stage}${l.detail ? ` (${l.detail})` : ''}`);
+  return stages.length ? stages.join(', ') : TILE_LABEL[tile];
+}
+
+export function phaseMeta(p: Pick<PhaseView, 'model' | 'lane' | 'risk'>): string {
+  return [p.model && `model ${p.model}`, p.lane && `lane ${p.lane.split(' ')[0]}`, p.risk && `risk ${p.risk}`].filter(Boolean).join(' · ');
+}
+
 function phaseView(repo: RepoState, raw: unknown): PhaseView {
   const p = rec(raw);
   const ref = str(p.ref);
@@ -211,7 +225,6 @@ function phaseView(repo: RepoState, raw: unknown): PhaseView {
   const tile: Tile = TILES.has(str(p.tile)) ? (str(p.tile) as Tile) : state === 'done' ? 'done' : 'todo';
   const risk = str(p.risk);
   const prs = prLinks(repo, p.prs);
-  const stages = prs.filter((l) => l.stage).map((l) => `#${l.number} ${l.stage}${l.detail ? ` (${l.detail})` : ''}`);
   return {
     ref,
     plan: str(p.plan) || (hash > 0 ? ref.slice(0, hash) : ''),
@@ -224,7 +237,7 @@ function phaseView(repo: RepoState, raw: unknown): PhaseView {
     tracker: str(p.tracker),
     tile,
     prs,
-    stage: stages.length ? stages.join(', ') : TILE_LABEL[tile],
+    stage: stageOf(prs, tile),
   };
 }
 
@@ -311,6 +324,7 @@ export function roadmapModel(repo: RepoState, raw: unknown): RoadmapModel {
     : milestones.filter((m) => !FINISHED.has(m.status)).flatMap((m) => m.blockers.filter((b) => b.type === 'owner-gate'));
   return {
     slug: str(r.roadmap),
+    kind: 'roadmap',
     branch: strOrNull(r.branch),
     originCommit: strOrNull(r.origin_commit),
     milestones,
@@ -333,21 +347,152 @@ export function roadmapModel(repo: RepoState, raw: unknown): RoadmapModel {
 }
 
 const tileOf = (v: unknown): Tile => (typeof v === 'string' && TILES.has(v) ? (v as Tile) : 'todo');
+const defaultKey = (phase: string): string => phase.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
 
 /** The file stem of a plan path: the name a roadmap lane uses. */
-const planStem = (path: string): string => (path.split('/').pop() ?? '').replace(/\.md$/, '');
+export function planStemOf(path: string): string {
+  return (path.split('/').pop() ?? '').replace(/\.md$/, '');
+}
+
+export function planRoadmapModel(repo: RepoState, plan: PlanView): RoadmapModel {
+  const slug = planStemOf(plan.path);
+  const msIds: string[] = [];
+  let hasUnassigned = false;
+  for (const row of plan.rows) {
+    const ms = row.milestone?.trim() || null;
+    if (ms) {
+      if (!msIds.includes(ms)) msIds.push(ms);
+    } else {
+      hasUnassigned = true;
+    }
+  }
+  if (hasUnassigned || msIds.length === 0) {
+    if (!msIds.includes('Phases')) msIds.push('Phases');
+  }
+  const byMs = new Map<string, PhaseView[]>(msIds.map((id) => [id, []]));
+  const allPhases: PhaseView[] = plan.rows.map((row, index) => {
+    const key = row.key || defaultKey(row.phase);
+    const prNums = Array.from(row.status.matchAll(/#(\d+)/g), (m) => Number(m[1]));
+    const prs = prLinks(repo, prNums);
+    const tile = row.state;
+    const pv: PhaseView = {
+      ref: `${slug}#${key}`,
+      plan: slug,
+      num: index + 1,
+      name: row.phase,
+      model: '',
+      lane: '',
+      risk: '',
+      highRisk: false,
+      tracker: row.status,
+      tile,
+      prs,
+      stage: stageOf(prs, tile),
+    };
+    const msId = row.milestone?.trim() || 'Phases';
+    byMs.get(msId)?.push(pv);
+    return pv;
+  });
+  const milestones: MilestoneView[] = msIds.map((id, i) => {
+    const phases = byMs.get(id) ?? [];
+    const done = phases.filter((p) => isDone(p.tile)).length;
+    const total = phases.length;
+    const status =
+      total > 0 && done === total
+        ? 'done'
+        : phases.some((p) => p.tile === 'in-progress' || isDone(p.tile))
+          ? 'in-progress'
+          : 'todo';
+    return {
+      id,
+      status,
+      owner: '',
+      target: null,
+      depends: i > 0 ? [msIds[i - 1]!] : [],
+      phases,
+      blockers: [],
+      done,
+      total,
+      tone: msTone(status, []),
+    };
+  });
+  const phasesDone = allPhases.filter((p) => isDone(p.tile)).length;
+  const phasesTotal = allPhases.length;
+  return {
+    slug,
+    kind: 'plan',
+    branch: null,
+    originCommit: null,
+    milestones,
+    lanes: [{ plan: slug, done: phasesDone, total: phasesTotal }],
+    gates: [],
+    blockers: [],
+    kpis: {
+      phasesDone,
+      phasesTotal,
+      milestonesDone: milestones.filter((m) => FINISHED.has(m.status)).length,
+      milestonesTotal: milestones.length,
+      inProgress: allPhases.filter((p) => p.tile === 'in-progress').map((p) => p.ref),
+      highRisk: 0,
+      next: allPhases.find((p) => !isDone(p.tile))?.name ?? '',
+    },
+    board: buildBoard(milestones),
+    runner: { running: null, staleBatch: null, lastStop: null, lastStopAt: null, stopReason: null, errors: [], next: null },
+    detailError: null,
+  };
+}
+
+export function phaseDetail(
+  m: RoadmapModel,
+  plans: PlanView[],
+  ref: string,
+): { title: string; text: string | null; hasSection: boolean; planPath: string | null; key: string; phase: PhaseView } | null {
+  const phase = m.milestones.flatMap((ms) => ms.phases).find((p) => p.ref === ref);
+  if (!phase) return null;
+  const plan = plans.find((p) => planStemOf(p.path) === phase.plan);
+  const hash = ref.lastIndexOf('#');
+  const key = (hash >= 0 ? ref.slice(hash + 1) : ref).toLowerCase();
+  const hasSection = Boolean(plan?.phases && Object.prototype.hasOwnProperty.call(plan.phases, key));
+  const sec = hasSection ? plan?.phases[key] : undefined;
+  return {
+    title: sec?.title ? sec.title : phase.name,
+    text: typeof sec?.text === 'string' && sec.text.length > 0 ? sec.text : null,
+    hasSection,
+    planPath: plan?.path ?? null,
+    key,
+    phase,
+  };
+}
 
 function planViews(raw: unknown): PlanView[] {
   return asArray(rec(raw).plans)
     .map((p) => rec(p))
     .filter((p) => !p.error && !['done', 'closed', 'archived'].includes(str(p.status).toLowerCase()))
-    .map((p) => ({
-      path: str(p.path),
-      title: str(p.title) || str(p.path),
-      rows: asArray(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status), state: tileOf(rec(t).state) })),
-      open: int(p.open_rows),
-      changedAt: typeof p.changed_at === 'number' && Number.isFinite(p.changed_at) ? p.changed_at : null,
-    }));
+    .map((p) => {
+      const phases: Record<string, { title: string; text?: string }> = {};
+      for (const [k, v] of Object.entries(rec(p.phases))) {
+        const sec = rec(v);
+        phases[k] = typeof sec.text === 'string' ? { title: str(sec.title), text: sec.text } : { title: str(sec.title) };
+      }
+      return {
+        path: str(p.path),
+        title: str(p.title) || str(p.path),
+        rows: asArray(p.tracker).map((t) => {
+          const r = rec(t);
+          const phase = str(r.phase);
+          return {
+            phase,
+            status: str(r.status),
+            state: tileOf(r.state),
+            key: str(r.key) || defaultKey(phase),
+            milestone: str(r.milestone).trim() || null,
+          };
+        }),
+        phases,
+        open: int(p.open_rows),
+        changedAt: typeof p.changed_at === 'number' && Number.isFinite(p.changed_at) ? p.changed_at : null,
+      };
+    });
 }
 
 /** The Roadmap tab model of one repo (R48, R49). */
@@ -363,7 +508,7 @@ export function deriveRoadmaps(repo: RepoState): RepoRoadmaps {
   }
   const plans = planViews(repo.plans);
   const named = new Set(roadmaps.flatMap((r) => r.lanes.map((l) => l.plan)));
-  const otherPlans = plans.filter((p) => p.rows.length > 0 && p.open > 0 && !named.has(planStem(p.path)));
+  const otherPlans = plans.filter((p) => p.rows.length > 0 && p.open > 0 && !named.has(planStemOf(p.path)));
   const base = { roadmaps, errors, plans, otherPlans, repoError };
   if (roadmaps.length || errors.length) return { mode: 'roadmaps', ...base };
   if (repoError && !repo.roadmaps && !repo.plans) return { mode: 'error', ...base };
@@ -485,3 +630,44 @@ export function roadmapTabLabel(repo: RepoState): string {
 
 /** The data of the Roadmap tab is old when the collector source is down or stale (spec section 6). */
 export const collectorStale = (state: HubState): boolean => !state.sources.collector.ok || state.sources.collector.stale;
+
+export const OLD_FETCH_S = 24 * 3600;
+
+export function planSourceText(slot: unknown, nowMs: number): { text: string; old: boolean } | null {
+  const s = rec(slot);
+  const source = str(s.source);
+  if (!source) return null;
+  if (source === 'working-tree') {
+    return { text: 'Plans from the working tree (no origin branch found)', old: false };
+  }
+  const commit = str(s.commit).slice(0, 7);
+  const commitAt = typeof s.commit_at === 'number' ? s.commit_at : null;
+  const at = typeof s.fetched_at === 'number' ? s.fetched_at : null;
+  const text =
+    `Plans from ${source}` +
+    (commit ? ` @ ${commit}` : '') +
+    (commitAt !== null ? ` · commit ${ageText(new Date(commitAt * 1000).toISOString(), nowMs)}` : '') +
+    (at === null ? ' · fetch time unknown' : ` · last fetch ${ageText(new Date(at * 1000).toISOString(), nowMs)}`);
+  return { text, old: at !== null && nowMs / 1000 - at > OLD_FETCH_S };
+}
+
+export type RoadmapView = 'timeline' | 'board';
+export const VIEW_KEY = 'caddis.hub.roadmapView';
+
+export function readView(s: Pick<Storage, 'getItem'> | null): RoadmapView {
+  if (!s) return 'timeline';
+  try {
+    return s.getItem(VIEW_KEY) === 'board' ? 'board' : 'timeline';
+  } catch {
+    return 'timeline';
+  }
+}
+
+export function writeView(s: Pick<Storage, 'setItem'> | null, v: RoadmapView): void {
+  if (!s) return;
+  try {
+    s.setItem(VIEW_KEY, v);
+  } catch {
+    // ignore storage errors
+  }
+}

@@ -29,11 +29,13 @@ Argument: **$ARGUMENTS**
 ## Keep this session cheap
 
 Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation.
-- Start the coordinator on Sonnet with low effort: `claude --model sonnet --effort low --name coordinator`,
-  then `/caddis:coordinate start`.
+- Start the coordinator on the model and effort of the session table:
+  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" session --role coordinator` prints `<model> <effort>`
+  (today `sonnet low`). Then run `claude --model <model> --effort <effort> --name coordinator`, then
+  `/caddis:coordinate start`.
 - Post a peer message only when the queue or a PR state changes. Send no acknowledgement of an
   acknowledgement. The watcher already prints a line only on a change, so a quiet cycle wakes nobody.
-- Restart (handoff, `/clear`, `/caddis:coordinate`) when this conversation passes about 200k tokens, or once a day. The context_size hook prints a [caddis] warning at 200k and a restart notice at 350k.
+- Restart with the full handoff (`/caddis:handoff`, `/clear`, `/caddis:coordinate`) when this conversation passes about 200k tokens, or once a day. The coordinator never runs the checkpoint: `caddis_handoff.py checkpoint` refuses the coordinator's relay. The context_size hook prints a [caddis] warning at 200k and a stop line at 280k.
 
 ## How to call the script
 

@@ -24,6 +24,13 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
+try:
+    import caddis_routing  # SESSION_DEFAULTS: the model and effort each start line names
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_routing":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+    import caddis_routing
 
 ACK_FIELDS = ("name", "role", "machine", "folder", "relay", "tasks", "mode", "owns-watchers", "worktrees")
 NO_ACK = "no ack"
@@ -198,8 +205,21 @@ def start_line(ack: Ack, stamp: datetime) -> str:
     claude named for the role at the sheet's hour, with `/caddis:fleet-open <role>` as the first prompt.
 
     No permission or Remote Control flags: every start reads `defaultMode` and `remoteControlAtStartup` from the
-    owner's settings (owner, 16 Oct). caddis starts no process; the owner does (`claude --bg` decided against)."""
-    return f'cd "{ack.folder}"; claude --name {new_name(ack.role, stamp)} "/caddis:fleet-open {ack.role}"'
+    owner's settings (owner, 16 Oct). caddis starts no process; the owner does (`claude --bg` decided against).
+    `--model` and `--effort` come from `caddis_routing.session_start` (the role's SESSION_DEFAULTS row)."""
+    return (f'cd "{ack.folder}"; claude {_model_flags(ack.role)} --name {new_name(ack.role, stamp)} '
+            f'"/caddis:fleet-open {ack.role}"')
+
+
+def _model_flags(role: str) -> str:
+    model, effort = caddis_routing.session_start(role)
+    return f"--model {model} --effort {effort}"
+
+
+def model_line(role: str) -> str:
+    """The first line of every resume block: the model and effort the next session starts on."""
+    model, effort = caddis_routing.session_start(role)
+    return f"Model for next session: {model}, effort {effort}\n"
 
 
 def render_sheet(acks: list[Ack], coordinator: str, stamp: datetime) -> str:
@@ -477,8 +497,8 @@ def render_resume(session: str, session_id: str, workstream: str, prompt: str, r
         name = new_name(role, stamp)
         if announce_script is not None:
             prompt = f"{prompt}\n{announce_text(announce_script, name, folder)}"
-        start = f"Start line:\nclaude --name {name} {shell_arg(prompt)}"
-    return (f"=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
+        start = f"Start line:\nclaude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
+    return (f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
             f"{_fenced(shown)}\n{start}\n")
 
 
@@ -486,7 +506,7 @@ def render_coordinator_resume(session: str, session_id: str, workstream: str) ->
     """The resume block for the repo's coordinator: three lines to type, no prompt and no start line.
 
     `/caddis:coordinate start` reads the coordinator's relay and tasks itself, so a pasted prompt would only race it."""
-    return (f"=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
+    return (f"{model_line('coordinator')}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
             "This session is the repo's coordinator. To resume, type these three lines in this window, one at a time:\n"
             "/clear\n/rename coordinator\n/caddis:coordinate start\n"
             f"Do not paste a resume prompt; /caddis:coordinate start reads .caddis/relay/{workstream}.md "
@@ -592,7 +612,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--name", required=True, help="the relay's workstream name")
     p.add_argument("--session-id", required=True)
     p.add_argument("--root", default=".", type=Path)
-    p.add_argument("--role", help="role for the new session's name (default: the session name's role, else the relay name)")
+    p.add_argument("--role", help="role for the new session's name and its SESSION_DEFAULTS model and effort, e.g. "
+                   "plan-writer for plan or design work (default: the session name's role, else the relay name; "
+                   "a role with no Claude row starts as the orchestrator)")
     p.add_argument("--fleet", action="store_true", help="fleet close: print no start line (the restart sheet has it)")
     p.add_argument("--coordinator", action="store_true",
                    help="this session holds the repo's coordinator lock: print the three restart lines, no prompt")

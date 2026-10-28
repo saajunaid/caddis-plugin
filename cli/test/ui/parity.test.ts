@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import RoadmapTab, { collectorStale } from '../../ui/src/repo/RoadmapTab';
+import type { RoadmapView } from '../../ui/src/repo/roadmap';
 import { Sessions } from '../../ui/src/repo/SessionsTab';
 import type { HubState, RepoState } from '../../ui/src/types';
 
@@ -14,7 +15,7 @@ import type { HubState, RepoState } from '../../ui/src/types';
 const load = (name: string): HubState =>
   JSON.parse(readFileSync(new URL(`../fixtures/hub-state/${name}.json`, import.meta.url), 'utf8')) as HubState;
 const repoOf = (s: HubState, name: string): RepoState => s.repos.find((r) => r.name === name)!;
-const render = (s: HubState, repo: RepoState, slug: string | null, extra: { variant?: 'hub' | 'site' } = {}): string =>
+const render = (s: HubState, repo: RepoState, slug: string | null, extra: { variant?: 'hub' | 'site'; initialView?: RoadmapView; initialOpenAll?: boolean } = {}): string =>
   renderToStaticMarkup(createElement(RoadmapTab, { repo, slug, stale: collectorStale(s), lastOkAt: s.sources.collector.last_ok_at, ...extra }));
 
 /** Row of the checklist -> the test ids its element carries. */
@@ -24,7 +25,7 @@ const DETAIL_ROWS: Record<string, string[]> = {
   P3: ['rm-waiting'],
   P5: ['rm-kpis'],
   P6: ['rm-flow'],
-  P7: ['rm-board'],
+
   P8: ['rm-timeline'],
   P9: ['rm-legend'],
   P10: ['rm-timeline-list'],
@@ -45,6 +46,13 @@ describe('parity checklist against the old roadmap page', () => {
       for (const id of ids) expect(html, `${row} lost data-testid="${id}"`).toContain(`data-testid="${id}"`);
     });
   }
+
+  it('P7: the Board view carries rm-board', () => {
+    const boardHtml = render(s, repoOf(s, 'shop'), 'launch', { initialView: 'board' });
+    expect(boardHtml).toContain('data-testid="rm-board"');
+    expect(html).not.toContain('data-testid="rm-board"');
+    expect(html).toContain('data-testid="rm-timeline"');
+  });
 
   it('P14, P17, P18: the list has cards and the read errors, and a stale source adds its note', () => {
     const list = render(s, repoOf(s, 'shop'), null);
@@ -87,8 +95,26 @@ describe('parity checklist against the old roadmap page', () => {
   it('empty states: a plan fallback, and no roadmap or plan with the command', () => {
     const plans = render(s, repoOf(s, 'docs'), null);
     expect(plans).toContain('data-testid="rm-plans"');
-    expect(plans).toContain('data-testid="rm-plan-board"');
-    expect(plans).toContain('To do · 2');
+    for (const id of ['rm-timeline', 'rm-kpis', 'rm-milestones', 'rm-view']) {
+      expect(plans).toContain(`data-testid="${id}"`);
+    }
+    for (const bad of ['rm-crumbs', 'rm-waiting', 'rm-flow', 'rm-gates', 'rm-runner', 'Next batch for the runner', 'Roadmap p-docs']) {
+      expect(plans).not.toContain(bad);
+    }
+    for (const keep of ['rm-crumbs', 'rm-waiting', 'rm-flow', 'rm-gates', 'rm-runner', 'Next batch for the runner']) {
+      expect(html).toContain(keep);
+    }
+    expect(plans).toContain('rm-plan-only');
+    expect(plans).toContain('plan only, no runner');
+    const board = render(s, repoOf(s, 'docs'), null, { initialView: 'board' });
+    expect(board).toContain('data-testid="rm-plan-board"');
+    expect(board).toContain('To do · 2');
+    const emptyPlanState = load('full');
+    const emptyDocs = repoOf(emptyPlanState, 'docs');
+    (emptyDocs.plans as { plans: { tracker: unknown[]; open_rows: number }[] }).plans[0]!.tracker = [];
+    (emptyDocs.plans as { plans: { tracker: unknown[]; open_rows: number }[] }).plans[0]!.open_rows = 0;
+    const emptyBoard = render(emptyPlanState, emptyDocs, null, { initialView: 'board', initialOpenAll: true });
+    expect(emptyBoard).toContain('This plan has no Tracker table.');
     const e = load('full');
     const docs = repoOf(e, 'docs');
     docs.roadmaps = null;
@@ -96,6 +122,25 @@ describe('parity checklist against the old roadmap page', () => {
     const none = render(e, docs, null);
     expect(none).toContain('No roadmap or plan');
     expect(none).toContain('/caddis:roadmap');
+  });
+
+  it('plans: only the open plan builds its page', () => {
+    const two = load('full');
+    const docs = repoOf(two, 'docs');
+    (docs.plans as { plans: unknown[] }).plans.push({
+      path: '.caddis/plans/p-two.md',
+      title: 'p-two',
+      status: 'active',
+      feature: null,
+      tracker: [{ phase: '1', status: 'not started', state: 'todo' }],
+      open_rows: 1,
+    });
+    const out = render(two, docs, null);
+    expect(out).toContain('p-docs');
+    expect(out).toContain('p-two');
+    expect(out.match(/data-testid="rm-detail"/g)).toHaveLength(1);
+    const all = render(two, docs, null, { initialOpenAll: true });
+    expect(all.match(/data-testid="rm-detail"/g)).toHaveLength(2);
   });
 
   it('P20: the Sessions tab shows the table, the copy button and the empty text', () => {
