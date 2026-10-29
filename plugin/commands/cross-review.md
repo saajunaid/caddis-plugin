@@ -125,6 +125,7 @@ change, so a batch does not report the others as missing.
   emitted by this tool** — across caddis 2 always means an advisory note, and a review
   has no advisory verdict.
 - A different vendor means a different style; weigh its findings on merit, don't cargo-cult them.
+- Save review notes in `.caddis/reviews/`, never in `.caddis/parking-lot/`: that folder holds only items to do later, one item per file, `type: parking-lot` (`/caddis:park`).
 - **Never use `find`, `Get-ChildItem -Recurse`, or any other filesystem-wide search to locate
   `oss_review.py`.** Check only the two paths above. On Git Bash under Windows, `find /` (or any
   search rooted at `/`) walks every mounted drive, not just the repo — it can hang or take minutes.

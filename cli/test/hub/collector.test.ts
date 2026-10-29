@@ -249,6 +249,67 @@ describe('collector source', () => {
     expect(argv[argv.length - 1]).toBe('--json');
   });
 
+  describe('an older script that does not know --known', () => {
+    const good = JSON.stringify({ schema: 1, generated_at: 'z', repos: [{ path: 'acme/shop', fingerprint: 'f1' }], spend: {}, guide: {} });
+    const unknownKnown = { ok: false, code: 2, stdout: '', stderr: 'caddis_hub_collect.py: error: unrecognized arguments: --known acme/shop=f1', timedOut: false };
+    const okRun = { ok: true, code: 0, stdout: good, stderr: '', timedOut: false };
+
+    it('retries once without --known and stops sending it', async () => {
+      const calls: string[][] = [];
+      const logs: string[] = [];
+      const src = createCollectorSource({
+        repos: () => ['acme/shop'],
+        python: node,
+        scriptPath: 'x.py',
+        log: (t) => logs.push(t),
+        spawn: async (_c, args) => {
+          calls.push(args);
+          return args.includes('--known') ? unknownKnown : okRun;
+        },
+      });
+      await src.refresh(); // first cycle: no --known
+      await src.refresh(); // second cycle: --known, exit 2, retry without it
+      await src.refresh(); // third cycle: never sends --known again
+      expect(src.get().ok).toBe(true);
+      expect(calls.map((a) => a.includes('--known'))).toEqual([false, true, false, false]);
+      expect(logs).toHaveLength(1);
+    });
+
+    it('does not retry on exit 2 with other stderr', async () => {
+      let n = 0;
+      const src = createCollectorSource({
+        repos: () => ['acme/shop'],
+        python: node,
+        scriptPath: 'x.py',
+        spawn: async () => {
+          n += 1;
+          return n === 1 ? okRun : { ok: false, code: 2, stdout: '', stderr: 'error: the following arguments are required: --repos', timedOut: false };
+        },
+      });
+      await src.refresh();
+      await src.refresh();
+      expect(n).toBe(2);
+      expect(src.get().ok).toBe(false);
+      expect(src.get().last_error).toMatch(/exit 2.*required/);
+    });
+
+    it('a normal script keeps getting --known', async () => {
+      const calls: string[][] = [];
+      const src = createCollectorSource({
+        repos: () => ['acme/shop'],
+        python: node,
+        scriptPath: 'x.py',
+        spawn: async (_c, args) => {
+          calls.push(args);
+          return okRun;
+        },
+      });
+      await src.refresh();
+      await src.refresh();
+      expect(calls.map((a) => a.includes('--known'))).toEqual([false, true]);
+    });
+  });
+
   it('an unchanged entry keeps the cached data', async () => {
     const first = fake(okScript(1, 'f1', 'first'));
     const second = fake(unchangedScript);

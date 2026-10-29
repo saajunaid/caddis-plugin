@@ -485,21 +485,26 @@ def announce_text(script: Path, name: str, folder: str) -> str:
 
 
 def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
-                  fleet_mode: bool = False, announce_script: Path | None = None, folder: str = "") -> str:
+                  fleet_mode: bool = False, announce_script: Path | None = None, folder: str = "",
+                  root: Path | None = None) -> str:
     """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line.
 
     With `announce_script`, the start line (not the fenced block, which stays the relay's text) ends with the
-    whoami + announce sentence: the start line is what the new session receives with its name."""
+    whoami + announce sentence: the start line is what the new session receives with its name.
+    With `root`, the block names the repo and the start line first changes to it, because the relay's paths are
+    repo-relative. `;`, as in the restart sheet: Windows PowerShell 5.1 has no `&&`."""
     shown = prompt  # the fenced block stays the relay text
+    repo = f"Repo: {root.as_posix()}\n" if root is not None else ""
+    cd = f'cd "{root.as_posix()}"; ' if root is not None else ""
     if fleet_mode:
         start = "Start line: from the restart sheet"
     else:
         name = new_name(role, stamp)
         if announce_script is not None:
             prompt = f"{prompt}\n{announce_text(announce_script, name, folder)}"
-        start = f"Start line:\nclaude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
+        start = f"Start line:\n{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
     return (f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
-            f"{_fenced(shown)}\n{start}\n")
+            f"{repo}{_fenced(shown)}\n{start}\n")
 
 
 def render_coordinator_resume(session: str, session_id: str, workstream: str) -> str:
@@ -575,7 +580,7 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
         sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
         return caddis_exit.BLOCKED
     print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet,
-                        Path(__file__).resolve(), root.name), end="")
+                        Path(__file__).resolve(), root.name, root), end="")
     return caddis_exit.CLEAN
 
 

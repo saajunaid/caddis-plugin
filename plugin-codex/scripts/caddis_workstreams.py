@@ -30,6 +30,10 @@ _BAD_REF = re.compile(r"[\x00-\x20\x7f~^:?*\[\\]")
 _NEXT = re.compile(r"^## Next step[^\n]*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 _MAX_INDEX = 800
 _INDEX_MARKER = "<!-- caddis-workstream-index-v1 -->\n"
+# `generated.by` of a relay that migrate-legacy writes.
+_MIGRATED_BY = "caddis_workstreams.py migrate-legacy"
+# The relay size budget in scripts/caddis_budget.py (`.caddis/relay/*.md`, chars).
+_RELAY_BUDGET_CHARS = 4000
 
 
 @dataclass(frozen=True)
@@ -468,6 +472,20 @@ class MigrationReport(dict):
         return self["backups"]
 
 
+def _utc_z(value: object = None) -> str:
+    """`value` (an ISO time; naive means UTC) or now, as relay headers write it: UTC, seconds, `Z`.
+    An unreadable value gives now, as the migration did before."""
+    when = datetime.now(timezone.utc)
+    if value:
+        try:
+            when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def migrate_legacy(root: Path) -> MigrationReport:
     """Run the locked migration, then make sure an index exists when there was nothing to do.
 
@@ -550,10 +568,10 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
             # No header, or an opening --- with no closing one: keep the whole file as the body.
             header_closed = split_document(candidate_text)[1] != candidate_text
             if not candidate_text.startswith("---\n") or not header_closed:
-                now_iso = datetime.now(timezone.utc).isoformat()
                 candidate_text = (
                     f"---\ntype: relay\nworkstream: {relay_name}\nbranch: main\n"
-                    f"session_id: legacy-migrated\nplan:\ngenerated:\n  at: {now_iso}\n---\n\n"
+                    f"session_id: legacy-migrated\nplan:\ngenerated:\n  by: {_MIGRATED_BY}\n"
+                    f"  at: {_utc_z()}\n---\n\n"
                     f"# Relay — {relay_name}\n\n## Next step (exact)\n{raw_relay}\n"
                 )
             else:
@@ -575,9 +593,13 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
                     meta["plan"] = ""
                     modified = True
                 if not isinstance(meta.get("generated"), dict) or not meta["generated"].get("at"):
-                    # Keep the original time from an inline "{ by: x, at: y }" map; else now.
-                    inline = re.search(r"\bat:\s*([0-9][0-9T:.+\-Z]+)", str(meta.get("generated", "")))
-                    meta["generated"] = {"at": inline.group(1) if inline else datetime.now(timezone.utc).isoformat()}
+                    # Keep the original author and time from an inline "{ by: x, at: y }" map; else
+                    # this script, now.
+                    inline = str(meta.get("generated", ""))
+                    by = re.search(r"\bby:\s*([^,}\n]+)", inline)
+                    at = re.search(r"\bat:\s*([0-9][0-9T:.+\-Z]+)", inline)
+                    meta["generated"] = {"by": by.group(1).strip() if by else _MIGRATED_BY,
+                                         "at": _utc_z(at.group(1) if at else None)}
                     modified = True
                 if modified:
                     # Plain writer: the plugin ships no YAML library, and this runs in user installs.
@@ -629,17 +651,11 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
                 branch = frame.get("branch") or "main"
                 session_id = frame.get("session_id") or "legacy-migrated"
                 resume = frame.get("resumePointer") or "next step unrecorded"
-                pushed = frame.get("pushedAt") or datetime.now(timezone.utc).isoformat()
-                try:
-                    datetime.fromisoformat(str(pushed).replace("Z", "+00:00"))
-                except ValueError:
-                    pushed = datetime.now(timezone.utc).isoformat()
-
                 # _header_text folds every value to one line: a newline in workstreams.json
                 # must not add or break header fields.
                 header = _header_text({"type": "relay", "workstream": frame_name, "branch": str(branch),
                                        "session_id": str(session_id), "plan": str(plan or ""),
-                                       "generated": {"at": str(pushed)}})
+                                       "generated": {"by": _MIGRATED_BY, "at": _utc_z(frame.get("pushedAt"))}})
                 candidate_text = (f"---\n{header}---\n\n# Relay — {frame_name}\n\n"
                                   f"## Next step (exact)\n{' '.join(str(resume).split())}\n")
                 try:
@@ -850,6 +866,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Migration status: {report.status}")
         for conflict in report.conflicts:
             print(f"  conflict: {conflict}")
+        # The old relay is kept verbatim, so it can be over the relay budget. Say so once, here;
+        # caddis_budget.py keeps reporting it until someone trims it.
+        for name in report.migrated:
+            size = len(read_relay(args.root, name)[0])
+            if size > _RELAY_BUDGET_CHARS:
+                print(f"  note: .caddis/relay/{name}.md is {size} chars, over the {_RELAY_BUDGET_CHARS}-char "
+                      "relay budget (the old relay is kept verbatim); trim it to the current state or delete it")
         return 0 if report.status in ("clean", "migrated") else 1
     elif args.command == "list":
         try:

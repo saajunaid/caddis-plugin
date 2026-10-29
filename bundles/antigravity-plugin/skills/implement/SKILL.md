@@ -68,6 +68,18 @@ and 95-154 turns per session were started by background events. Each turn re-rea
   below). **Headless (`CADDIS_HEADLESS` set): never checkpoint** (the script refuses). At 280k, start no new
   card, commit only finished cards, write `BLOCKED context <n>` and your state (cards done, commits, next
   card) in the review file, and end with the JSON block.
+- **Unattended runs.** The mode is on when the marker file `~/.caddis/UNATTENDED` exists and is under 16 hours
+  old, or when the env variable `CADDIS_UNATTENDED` is set. Do not stop and do not ask for /clear. At the WARN
+  card end and at FORCE, run the checkpoint, then go on with the next card. Auto-compact brings the relay back
+  into the session. The limit is `CADDIS_UNATTENDED_MAX_FORCE` (default 6 FORCE cycles). After that, write the
+  relay and stop. For overnight work, prefer `caddis_roadmap_run.py --plan <slug>`: the runner starts a fresh
+  session for the same batch.
+  **Owner rule (28 Oct):** when the owner says "unattended", "overnight" or "I will be gone", ask ALL open
+  questions BEFORE the run starts. Use one `AskUserQuestion` round with every open choice (merge policy, PR
+  handling, spend limit, pending owner gates, any other decision the plan leaves to the owner). Make each
+  question self-contained. Start the run only after the answers. If a question comes up DURING the run, park
+  the work it blocks in the relay, go on with work that does not need the answer, and never stop the whole run
+  for it.
 - **Model.** Take the model and effort from the session table:
   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" session --role orchestrator` prints `<model> <effort>`
   (source checkout: `claude-harness/scripts/caddis_routing.py`). Opus stays for plans, designs and
@@ -350,6 +362,12 @@ reasons — a **milestone boundary**, a phase marked `Session: fresh`, **after**
 a **failed/blocked** phase, or (interactive only) **the checkpoint after the 200k warning** at a card end
 (the context rule above). A lane change is not one of them: you spawn the lane yourself (Step 1).
 
+**Unattended mode** (see "Unattended runs"): the 200k-checkpoint halt and the `Session: fresh` halt do not apply
+in unattended mode. Run the checkpoint, then go on. After a `risk: high` phase, run `/caddis:cross-review` by
+tier (owner decision OG3 (c), `.caddis/decisions/2026-10-28-unattended-runs.md`) and go on when it has no
+blocking finding. If it has one, write one fix card, then halt. A milestone boundary and a failed/blocked phase
+still halt.
+
 The `risk: high` halt is deliberately *after*, not before. Execute and commit the phase normally; the
 halt exists to stop the **next** phase building on it before a human has looked, so the blast radius
 stays one reviewable, revertable commit. One exception: when your session prompt itself says the runner
@@ -417,7 +435,7 @@ runs `caddis_tidy.py --check` on the PR's files and stops on a plan whose Tracke
 status is not, so a skipped tidy is caught before the PR opens.
 
 **5. Write a concise review file** to `.caddis/reviews/<slug>.md`, where `<slug>` is the plan file's
-name without `.md`. Create `.caddis/reviews/` if needed.
+name without `.md`. Create `.caddis/reviews/` if needed. Never put a review in `.caddis/parking-lot/`: park only follow-up items, one item per file, `type: parking-lot`.
 Keep it short and scannable — this is what the human reviewer reads before merging the branch:
 
 ```markdown

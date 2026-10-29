@@ -61,6 +61,8 @@ Check for:
 
 ## Review Output Format
 
+In a caddis repo, save a review note in `.caddis/reviews/`, never in `.caddis/parking-lot/`: that folder holds only items to do later, one item per file, `type: parking-lot`.
+
 ```markdown
 ## Code Review Summary
 

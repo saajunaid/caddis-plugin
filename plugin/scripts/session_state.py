@@ -1049,7 +1049,7 @@ def write_tasks_file(state_path: str, out_path: str, relay_name: str, session_id
         return 0
     saved = datetime.now(timezone.utc).isoformat(timespec="seconds")
     lines = [
-        "---", "type: todo", "status: active", "relay: " + relay_name,
+        "---", "type: todo", "status: open", "relay: " + relay_name,
         "session: " + session_id, "saved: " + saved, "---",
         "# %s - open tasks" % relay_name, "",
         "| Old # | Status | Subject |", "|---|---|---|",
@@ -1090,7 +1090,10 @@ def main(argv=None) -> int:
     tasks_p = sub.add_parser("tasks-file", help="save this session's open tasks beside its relay")
     tasks_p.add_argument("--session-id", required=True)
     tasks_p.add_argument("--relay", required=True, help="the workstream relay name")
-    tasks_p.add_argument("--root", default="")
+    tasks_p.add_argument("--root", default="", help="the work repo: the tasks file is written here")
+    tasks_p.add_argument("--state-root", default="",
+                         help="the folder the session started in, which holds its session-state file "
+                              "(default: --root)")
     args = parser.parse_args(argv)
     root = args.root or find_repo_root(os.getcwd())
     try:
@@ -1099,10 +1102,15 @@ def main(argv=None) -> int:
             if not sid or any(sep in args.relay for sep in ("/", "\\", "..")):
                 print("[TASKS] skipped: bad session id or relay name")
                 return 0
-            art = _artifact_dir(root)
-            out = os.path.join(art, "relay", args.relay + ".tasks.md")
-            n = write_tasks_file(os.path.join(art, "session-state", sid + ".md"), out,
-                                 args.relay, args.session_id)
+            out = os.path.join(_artifact_dir(root), "relay", args.relay + ".tasks.md")
+            # The Stop hook writes the state file under the folder the session started in, which
+            # can differ from the work repo that owns the relay.
+            state = os.path.join(_artifact_dir(args.state_root or root), "session-state", sid + ".md")
+            if not os.path.isfile(state):
+                print("[TASKS] no session-state file at %s; nothing saved (pass --state-root "
+                      "<the folder the session started in>)" % state)
+                return 0
+            n = write_tasks_file(state, out, args.relay, args.session_id)
             print("[TASKS] %d open task(s) -> %s" % (n, out) if n else "[TASKS] none open")
         elif args.cmd == "usage":
             transcript = args.transcript or find_transcript(args.session_id)

@@ -58,7 +58,8 @@ async function serve(dir: string, requested: string[]): Promise<{ server: Server
 const HAVE_PYTHON = spawnSync('python', ['-c', 'print(1)'], { stdio: 'ignore' }).status === 0;
 
 const test = base.extend<{ site: Site; problems: { console: string[]; foreign: string[]; csp: string[] } }>({
-  site: async ({}, use) => {
+  // `page` is listed so it is set up before `site`; fixtures tear down in reverse, so the page would outlive the server.
+  site: async ({ page }, use) => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'caddis-hub-export-e2e-'));
     const requested: string[] = [];
     let server: Server | undefined;
@@ -74,7 +75,14 @@ const test = base.extend<{ site: Site; problems: { console: string[]; foreign: s
       server = s.server;
       await use({ base: `${s.origin}${PREFIX}`, origin: s.origin, requested });
     } finally {
-      server?.close();
+      // Stop the page first (a late favicon or 404 request must not reach a server whose folder is gone),
+      // then drop every connection and wait for the close, then remove the folder.
+      await page.close().catch(() => {});
+      const srv = server;
+      if (srv) {
+        srv.closeAllConnections();
+        await new Promise<void>((resolve) => srv.close(() => resolve()));
+      }
       rmSync(tmp, { recursive: true, force: true });
     }
   },

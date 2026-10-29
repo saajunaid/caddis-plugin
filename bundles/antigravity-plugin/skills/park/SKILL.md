@@ -67,6 +67,7 @@ Park it only if it is work **we** will do later. Redirect these instead, and say
 | An interrupted task you will come back to this session | `/caddis:digress` |
 | Blocked on a person outside this repo | `.caddis/comms/` + its `register.md` |
 | A fact about the environment, not a task | the KB (`/caddis:kb`) |
+| A review (findings, a verdict) | `.caddis/reviews/`, `type: review`; park only each item to do later, one per file |
 
 ### Step 2 — do not duplicate
 

@@ -110,6 +110,7 @@ change, so a batch does not report the others as missing.
   the main thread after reading the findings.
 - Treat exit 3/4 as blocking-unknown, never as approval (the tool is fail-closed by design).
 - Different vendor ⇒ different style; weigh its findings on merit, don't cargo-cult them.
+- Save review notes in `.caddis/reviews/`, never in `.caddis/parking-lot/`: that folder holds only items to do later, one item per file, `type: parking-lot` (`/caddis:park`).
 - **Never use `find`, `Get-ChildItem -Recurse`, or any other filesystem-wide search to locate
   `oss_review.py`.** Check only the two paths above. On Git Bash under Windows, `find /` (or any
   search rooted at `/`) walks every mounted drive, not just the repo — it can hang or take minutes.

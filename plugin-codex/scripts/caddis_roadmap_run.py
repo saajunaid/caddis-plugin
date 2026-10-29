@@ -38,6 +38,16 @@ folder, never the `--repo` checkout); when the roadmap is finished the runner re
 origin: `rollup` when every phase of the milestone is merged, then the next batch. A relay `STATUS: OWNER-GATE <r>`
 becomes an `owner-gate` blocker, `STATUS: BLOCKED <r>` an `external` one, and the loop goes on.
 
+Context restarts (context-handoff Phase 15): a headless session at the 280k stop line ends `STATUS: BLOCKED context
+<n>` (the context_size hook tells it to). The runner then starts a fresh session for the SAME batch when HEAD moved
+in the session's cwd (`git rev-parse HEAD` before and after; no git or no change: no restart), the batch has restarts
+left (`CONTEXT_RESTARTS`, 2 per batch) and, in roadmap mode, the worktree has no uncommitted work and is still on the
+runner's branch. Plan mode reuses the same prompt; the count resets when a Tracker row closes. Roadmap mode runs the
+same `<plan>#<phase>` on the same branch in the same worktree: no `next`, no branch reset. The session record gets
+`status` `BLOCKED context (restart <k>)` and `context_restart` <k>; no toast, no push, no blocker row; every cap and
+the stuck rule still apply. With no restart, the record gets `context_restart` `no commits`, `limit 2`, `dirty tree`
+or `off branch`, and the stop goes on as for any other `BLOCKED` line.
+
 Review gate (caddis-next Phase 11): a phase is pending review when its Tracker row is done in the working copy of
 the plan (its path, or `.caddis/plans/done/` after tidy moved it), not done on origin/<default>, marked
 `**Risk:** high` in any copy (working, origin, the copy from before the session; `caddis_review.phase_risk`), and not
@@ -147,6 +157,8 @@ ENGINES: dict[str, dict] = {
 }
 PROMPT_ON_STDIN = {"claude"}
 STUCK_SESSIONS = 3
+CONTEXT_RESTARTS = 2  # fresh sessions per batch after `STATUS: BLOCKED context <n>` (context-handoff Phase 15)
+_CONTEXT_RE = re.compile(r"context\b")
 PLAN_PROMPT_NAME = "plan-resume-prompt.md"
 # CLAUDE_CODE_FORK_SUBAGENT=0: since 2.1.302 fork subagents are on by default in `claude -p`. A fork can run in the
 # background, and a print-mode session can end before it finishes, so its work is lost; the session prompt already
@@ -1332,6 +1344,7 @@ def _run_plan(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callable[
         print(f"caddis_roadmap_run: engine {ctx.engine} is an adapter, not live-tested", file=sys.stderr)
 
     sessions, spent, stuck, pushed = 0, 0.0, 0, False
+    restarts = 0  # context restarts of the current batch; reset when a Tracker row closes
     plan_before = ""
     start = ctx.clock()
     try:
@@ -1356,6 +1369,7 @@ def _run_plan(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callable[
             working = _working_plan(repo, slug)
             plan_before = working[1] if working else ""
             state_before = state_snapshot(repo, "plan", slug)
+            head_before = _git_out(repo, "rev-parse", "HEAD")  # a context block restarts only when HEAD moved
             s = _one_session(ctx, prompt, slug, sessions + 1, spent, elapsed, slug)
             _check_state(repo, "plan", slug, state_before)
             sessions += 1
@@ -1366,12 +1380,24 @@ def _run_plan(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callable[
                 if stop is None:
                     closed = _closed(target)
                     stuck = 0 if closed > closed_before else stuck + 1
+                    restarts = 0 if closed > closed_before else restarts
                     s.record["status"] = "CONTINUE"
                     if stuck >= STUCK_SESSIONS:
                         raise _Stop("BLOCKED stuck", caddis_exit.BLOCKED)
                 else:
-                    s.record["status"] = stop.reason
-                    raise stop
+                    restart = None
+                    if _context_block(stop):
+                        restarts = 0 if _closed(target) > closed_before else restarts
+                        restart = _context_restart(stop, repo, head_before, restarts)
+                    if isinstance(restart, int):  # a fresh session for the same plan, with the same prompt
+                        restarts = restart
+                        s.record.update({"status": f"BLOCKED context (restart {restart})",
+                                         "context_restart": restart})
+                    else:
+                        if restart is not None:
+                            s.record["context_restart"] = restart
+                        s.record["status"] = stop.reason
+                        raise stop
             finally:
                 s.record.setdefault("status", "FAILED")
                 ctx.log(s.record)
@@ -1964,6 +1990,7 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
     relay_slug: str | None = None
     last_write: tuple[str, str] | None = None
     wt: Path | None = None
+    rerun = restarts = 0  # rerun > 0: the next session runs the same batch again (context restart number)
     start = ctx.clock()
 
     try:
@@ -2022,68 +2049,74 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
                     if rollup(mid) == 0:  # nothing written: a recorded stop, and recheck must not retry it
                         _write_record(failed_file, {**_read_record(failed_file), mid: _roadmap_sha(snap.text)})
                         raise _Stop(f"BLOCKED rollup of {mid} wrote nothing; the owner decides", caddis_exit.BLOCKED)
-            with _claim(repo):  # choose and claim atomically: no other runner can choose the same batch
-                try:
-                    batch, snap = caddis_roadmap.next_with_snapshot(repo, slug)
-                except caddis_roadmap.RoadmapError as exc:
-                    raise _Stop(f"FAILED roadmap changed: the origin copy no longer loads: "
-                                f"{str(exc).splitlines()[0]}", caddis_exit.BLOCKED) from None
-                baseline.observe(snap)
-                if batch is not None:
-                    lock.set_batch(f"{batch['plan']}#{batch['phase']}")
-            if batch is None:
-                detail = _status_line(repo, slug)
-                if snap.roadmap.milestones and all(ms.status in caddis_roadmap.FINISHED
-                                                   for ms in snap.roadmap.milestones):
-                    gone = remove_worktree_if_clean(repo, slug, worktree_root)
-                    detail += "; roadmap finished; " + gone
-                    if gone.startswith(("worktree removed", "no worktree")):
-                        detail += "; " + _cleanup_finished_branches(repo, slug, snap.branch, pr_merged,
-                                                                     delete_remote_branch)
-                raise _Stop(RESTARTABLE_STOP, caddis_exit.BLOCKED, detail=detail,
-                            record={"held": _held_batches(repo, slug, snap)})
-            mid, plan, phase = batch["milestone"], batch["plan"], batch["phase"]
-            ref = f"{plan}#{phase}"
-            print(f"next: {mid} {ref}")
-            if last_write == (mid, ref):  # the runner's own block did not take the batch off `next`
-                raise _Stop(f"FAILED roadmap unchanged after the runner's write for {mid} {ref}",
-                            caddis_exit.BLOCKED)
-            relay_slug = plan
-            plan_text = _plan_text(snap, plan)
-            lane = phase_lane(plan_text, phase) or "none"  # no Lane line: not the runner's (fail closed)
-            if not lane_runs_here(lane, ctx.engine):
-                reason = f"phase {phase} lane: {' '.join(lane.split())[:160]}".strip()
-                write(["block", "--id", mid, "--type", "owner-gate", "--reason", reason],
-                      ("blocker", mid, "owner-gate", reason))
-                last_write = (mid, ref)
-                continue
-            last_write = None
-            if snap.roadmap.get(mid).status == "todo":
-                write(["set", "--id", mid, "--col", "Status", "--value", "in-progress"],
-                      ("status", mid, "in-progress"))
-                snap = _load_observed(repo, slug, baseline)  # the write window is guarded too
-            # Every session runs in the roadmap's own worktree, on a fresh branch made from origin/<default>.
-            wt = wt or ensure_worktree(repo, slug, snap.branch, worktree_root)
-            branch = session_branch(slug, plan, phase)
-            if branch not in made_branches and _branch_on_origin(repo, branch):
-                raise _Stop(f"BLOCKED branch {branch} is on origin and this runner did not make it",
-                            caddis_exit.BLOCKED)
-            for ref_name in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
-                if _git_out(wt, "rev-parse", "--verify", "--quiet", ref_name) is None:
-                    continue
-                ahead = _git_out(wt, "rev-list", "--count", f"origin/{snap.branch}..{ref_name}")
-                if ahead is None or ahead != "0":  # an earlier session's work: never reset it
-                    raise _Stop(f"BLOCKED {branch} has unpublished commits from an earlier session",
+            if not rerun:  # a new batch: choose it, then a fresh branch (a context restart keeps both)
+                with _claim(repo):  # choose and claim atomically: no other runner can choose the same batch
+                    try:
+                        batch, snap = caddis_roadmap.next_with_snapshot(repo, slug)
+                    except caddis_roadmap.RoadmapError as exc:
+                        raise _Stop(f"FAILED roadmap changed: the origin copy no longer loads: "
+                                    f"{str(exc).splitlines()[0]}", caddis_exit.BLOCKED) from None
+                    baseline.observe(snap)
+                    if batch is not None:
+                        lock.set_batch(f"{batch['plan']}#{batch['phase']}")
+                if batch is None:
+                    detail = _status_line(repo, slug)
+                    if snap.roadmap.milestones and all(ms.status in caddis_roadmap.FINISHED
+                                                       for ms in snap.roadmap.milestones):
+                        gone = remove_worktree_if_clean(repo, slug, worktree_root)
+                        detail += "; roadmap finished; " + gone
+                        if gone.startswith(("worktree removed", "no worktree")):
+                            detail += "; " + _cleanup_finished_branches(repo, slug, snap.branch, pr_merged,
+                                                                         delete_remote_branch)
+                    raise _Stop(RESTARTABLE_STOP, caddis_exit.BLOCKED, detail=detail,
+                                record={"held": _held_batches(repo, slug, snap)})
+                mid, plan, phase = batch["milestone"], batch["plan"], batch["phase"]
+                ref = f"{plan}#{phase}"
+                print(f"next: {mid} {ref}")
+                if last_write == (mid, ref):  # the runner's own block did not take the batch off `next`
+                    raise _Stop(f"FAILED roadmap unchanged after the runner's write for {mid} {ref}",
                                 caddis_exit.BLOCKED)
-            left = _worktree_work(wt)  # a blocked session's uncommitted work must never ride into another branch
-            if left is None or left:
-                was = _git_out(wt, "rev-parse", "--abbrev-ref", "HEAD") or "?"
-                raise _Stop(f"BLOCKED roadmap worktree has uncommitted work from {was} ({wt})", caddis_exit.BLOCKED)
-            made = _git_out(wt, "checkout", "-q", "-B", branch, f"origin/{snap.branch}")
-            if made is None:
-                raise _Stop(f"FAILED cannot make the session branch {branch} in {wt} (is it clean?)",
-                            caddis_exit.BLOCKED)
-            head_before = _git_out(wt, "rev-parse", "HEAD")
+                relay_slug = plan
+                plan_text = _plan_text(snap, plan)
+                lane = phase_lane(plan_text, phase) or "none"  # no Lane line: not the runner's (fail closed)
+                if not lane_runs_here(lane, ctx.engine):
+                    reason = f"phase {phase} lane: {' '.join(lane.split())[:160]}".strip()
+                    write(["block", "--id", mid, "--type", "owner-gate", "--reason", reason],
+                          ("blocker", mid, "owner-gate", reason))
+                    last_write = (mid, ref)
+                    continue
+                last_write = None
+                if snap.roadmap.get(mid).status == "todo":
+                    write(["set", "--id", mid, "--col", "Status", "--value", "in-progress"],
+                          ("status", mid, "in-progress"))
+                    snap = _load_observed(repo, slug, baseline)  # the write window is guarded too
+                # Every session runs in the roadmap's own worktree, on a fresh branch made from origin/<default>.
+                wt = wt or ensure_worktree(repo, slug, snap.branch, worktree_root)
+                branch = session_branch(slug, plan, phase)
+                if branch not in made_branches and _branch_on_origin(repo, branch):
+                    raise _Stop(f"BLOCKED branch {branch} is on origin and this runner did not make it",
+                                caddis_exit.BLOCKED)
+                for ref_name in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+                    if _git_out(wt, "rev-parse", "--verify", "--quiet", ref_name) is None:
+                        continue
+                    ahead = _git_out(wt, "rev-list", "--count", f"origin/{snap.branch}..{ref_name}")
+                    if ahead is None or ahead != "0":  # an earlier session's work: never reset it
+                        raise _Stop(f"BLOCKED {branch} has unpublished commits from an earlier session",
+                                    caddis_exit.BLOCKED)
+                left = _worktree_work(wt)  # a blocked session's uncommitted work must never ride into another branch
+                if left is None or left:
+                    was = _git_out(wt, "rev-parse", "--abbrev-ref", "HEAD") or "?"
+                    raise _Stop(f"BLOCKED roadmap worktree has uncommitted work from {was} ({wt})", caddis_exit.BLOCKED)
+                made = _git_out(wt, "checkout", "-q", "-B", branch, f"origin/{snap.branch}")
+                if made is None:
+                    raise _Stop(f"FAILED cannot make the session branch {branch} in {wt} (is it clean?)",
+                                caddis_exit.BLOCKED)
+                head_before = _git_out(wt, "rev-parse", "HEAD")
+                restarts = 0  # context restarts of this batch
+            else:
+                print(f"again: {mid} {ref} (context restart {rerun})")
+            rerun = 0
+            session_head = _git_out(wt, "rev-parse", "HEAD")  # a context block restarts only when HEAD moved
             done_before = _done_phases(snap, plan)
             state_before = state_snapshot(repo, "roadmap", slug)
             s = _one_session(ctx, render_prompt(template, plan, phase), plan, sessions + 1, spent,
@@ -2098,7 +2131,14 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
                 s.record["status"] = "CONTINUE" if stop is None else stop.reason
                 after = _load_observed(repo, slug, baseline)  # one read after the session (no merge wait)
                 stuck = 0 if _done_phases(after, plan) > done_before else stuck + 1
-                if stop is not None:
+                restart = _context_restart(stop, wt, session_head, restarts, branch)
+                if isinstance(restart, int):  # the same batch again: same branch, same worktree, no blocker row
+                    restarts = rerun = restart
+                    snap = after
+                    s.record.update({"status": f"BLOCKED context (restart {restart})", "context_restart": restart})
+                elif stop is not None:
+                    if restart is not None:
+                        s.record["context_restart"] = restart
                     if stop.status is None or stop.status[0] not in ("OWNER-GATE", "BLOCKED"):
                         raise stop
                     btype = "owner-gate" if stop.status[0] == "OWNER-GATE" else "external"
@@ -2383,6 +2423,33 @@ def _decide(engine: str, outcome: _Outcome, result: dict | None, relay_text: str
     if kind == "FAILED":
         return _Stop(f"FAILED {arg}", caddis_exit.BLOCKED, from_relay=True, status=(kind, arg))
     return _Stop(f"{kind} {arg}", caddis_exit.CLEAN, from_relay=True, status=(kind, arg))
+
+
+def _context_block(stop: _Stop | None) -> bool:
+    """True for a relay `STATUS: BLOCKED context <n>` (the context_size hook's 280k stop line, headless)."""
+    return (stop is not None and stop.status is not None and stop.status[0] == "BLOCKED"
+            and _CONTEXT_RE.match(stop.status[1]) is not None)
+
+
+def _context_restart(stop: _Stop | None, cwd: Path, head_before: str | None, used: int,
+                     branch: str | None = None) -> int | str | None:
+    """For a `STATUS: BLOCKED context <n>` stop: the restart number (1, 2) when the runner starts a fresh session for
+    the same batch, else why not (`no commits`, `limit 2`, `dirty tree`, `off branch`). None for any other stop.
+    `used` is the restarts this batch had; `branch` (roadmap mode) is the runner's branch in the worktree `cwd`."""
+    if not _context_block(stop):
+        return None
+    head_after = _git_out(cwd, "rev-parse", "HEAD")
+    if head_before is None or head_after is None or head_after == head_before:  # no git, or nothing committed
+        return "no commits"
+    if used >= CONTEXT_RESTARTS:
+        return f"limit {CONTEXT_RESTARTS}"
+    if branch is not None:
+        work = _worktree_work(cwd)
+        if work is None or work:
+            return "dirty tree"
+        if _git_out(cwd, "rev-parse", "--abbrev-ref", "HEAD") != branch:
+            return "off branch"
+    return used + 1
 
 
 def _session_failed(engine: str, outcome: _Outcome, result: dict | None) -> _Stop | None:

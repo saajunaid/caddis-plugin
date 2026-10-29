@@ -18,7 +18,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -26,6 +25,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { packageInfo } from '../../util/pkg.js';
+import { renameWithRetry } from '../config.js';
 import { spawnBounded, type SpawnFn } from '../spawn.js';
 import { defaultScriptPath, resolvePython } from '../sources/collector.js';
 import { derivedDeny, exportData, GITHUB_RE, type Machine } from './data.js';
@@ -294,7 +294,7 @@ export async function hubExport(args: ExportArgs, deps: ExportDeps = {}): Promis
 
     mkdirSync(path.dirname(outDir), { recursive: true });
     if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
-    renameSync(staging, outDir);
+    renameWithRetry(staging, outDir);
     writeFileSync(path.join(outDir, MARKER), 'written by caddis hub export\n');
     out(`[EXPORT] ${countFiles(outDir)} file(s) in ${outDir}`);
     return 0;

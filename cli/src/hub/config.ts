@@ -52,7 +52,8 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function renameWithRetry(from: string, to: string): void {
+/** Rename, and on Windows retry a short while when a scanner or indexer briefly holds the path (EPERM, EBUSY). */
+export function renameWithRetry(from: string, to: string): void {
   const retryable = new Set(['EPERM', 'EBUSY', 'EACCES']);
   const attempts = isWin() ? 6 : 1;
   for (let i = 0; ; i++) {

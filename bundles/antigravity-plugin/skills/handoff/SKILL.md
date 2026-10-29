@@ -311,7 +311,9 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/session_state.py" tasks-file --session-id 
 ```
 It reads the `## Tasks` table of `.caddis/session-state/<session-id>.md`, keeps the rows that are
 not `done` or `deleted`, and prints `[TASKS] <n> open task(s) -> <path>` or `[TASKS] none open`
-(with no open task it deletes an old `.caddis/relay/<name>.tasks.md`). When it wrote a file, the
+(with no open task it deletes an old `.caddis/relay/<name>.tasks.md`). The state file is in the
+folder the session started in; if that is not the work repo, add `--state-root <start folder>`
+(the tasks file still goes under `--root`). A missing state file prints the path it tried. When it wrote a file, the
 relay's resume prompt must hold the sentence
 `Load every row of .caddis/relay/<name>.tasks.md with TaskCreate.`: Step 5 blocks a relay whose
 tasks file exists and is not named. If you wrote the relay before running this, rewrite it with
@@ -503,11 +505,13 @@ Model for next session: <model>, effort <effort>
 === RESUME ===
 Session: <session name> (<session id>)
 Workstream: <name>
+Repo: <absolute repo root>
 <the resume prompt, in a fenced block>
 Start line:
-claude --model <model> --effort <effort> --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
+cd "<absolute repo root>"; claude --model <model> --effort <effort> --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
 ```
 `<model>` and `<effort>` come from `caddis_routing.py session` (Rules, "Model for the next session").
+The `cd` makes the relay's repo-relative paths work from any terminal folder (`;`, not `&&`: Windows PowerShell 5.1 has no `&&`).
 - **The announce sentence.** In a normal handoff the one-line start line also ends with a sentence that tells
   the new session to run `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send
   each named live peer in the same repo (the checkout and its worktrees) one `SendMessage`:

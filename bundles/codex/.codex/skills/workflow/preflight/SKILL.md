@@ -302,6 +302,7 @@ Produce a structured report (see Output Format below).
 ## Output Format
 
 The report is written to the path specified by the invoking agent. Default: `.github/agent-docs/preflight-report.md`
+Never write it in `.caddis/parking-lot/`: that folder holds only items to do later, one item per file, `type: parking-lot`.
 
 Apply `.github/instructions/document-frontmatter.instructions.md` when creating or updating the report. The YAML frontmatter block must be the first content in the file. New reports require `Original Author`, `Creation Date`, and `Creating Model`; revised reports must preserve those fields and add or update `Last Author`, `Last Updated`, and `Last Model Used`.
 

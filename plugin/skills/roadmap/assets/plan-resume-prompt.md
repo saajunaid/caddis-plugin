@@ -23,6 +23,9 @@ The relay can be old. Before you act, compare it with the real state: the plan t
 pull requests and remote branches. If they disagree, trust the real state. Fix the relay and the tracker. Do not build on a
 guess.
 
+If the relay ends `STATUS: BLOCKED context`, an earlier session of this batch ran out of context: go on from its Next
+step; its commits are on your branch.
+
 ## 3. Pick the batch
 
 A batch is ONE tracker phase (the first row that is not done and not blocked), or ONE named batch that the plan or the relay
@@ -64,13 +67,17 @@ STATUS: BLOCKED <owner>
 STATUS: FAILED <reason>
 ```
 
+`STATUS: BLOCKED context <n>` is a `BLOCKED` line: use it only when the context_size hook tells you to. The runner then
+starts a fresh session for the same batch. Your relay must name the cards done, their commits and the next card. Do not
+call PushNotification for it.
+
 Use `STATUS: CONTINUE` only when the next batch can start with no owner input. A missing or bad line counts as FAILED.
 An owner gate id has the form `<P>-OG<n>`: the plan's 2 to 4 capital-letter prefix (for example `PM-OG1`). Name the gate
 in the plan's decisions with that id. Any other form is a bad line.
 
 ## 6. Notify and end
 
-When the status is not CONTINUE, call the `PushNotification` tool as your last action. Put the plan, the status line and the
+When the status is not CONTINUE and not `BLOCKED context`, call the `PushNotification` tool as your last action. Put the plan, the status line and the
 next step in the message. After the call succeeds, print the line `PUSH-SENT`. The runner looks for that marker. Without it,
 the runner sends the notification itself.
 

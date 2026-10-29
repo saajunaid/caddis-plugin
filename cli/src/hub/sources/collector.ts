@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { bundlePath, packageInfo } from '../../util/pkg.js';
 import { findBin } from '../../util/which.js';
+import { errorLine } from '../../util/log.js';
 import { withTimeout } from '../bounded.js';
 import { spawnBounded, type SpawnFn } from '../spawn.js';
 
@@ -52,6 +53,8 @@ export interface CollectorOptions {
   scriptPath?: string;
   now?: () => number;
   spawn?: SpawnFn;
+  /** Where a short note goes. Default: stderr. */
+  log?: (text: string) => void;
 }
 
 /** The script in the npm bundle, or the repo's `scripts/` folder in a dev checkout, or the mirror's bundles/ folder. */
@@ -88,6 +91,7 @@ export async function resolvePython(): Promise<{ cmd: string; pre: string[] } | 
 export function createCollectorSource(opts: CollectorOptions): CollectorSource {
   const now = opts.now ?? Date.now;
   const spawn = opts.spawn ?? spawnBounded;
+  const log = opts.log ?? errorLine;
   const cache = new Map<string, RepoData>();
   let spend: Slot | null = null;
   let guide: Slot | null = null;
@@ -98,6 +102,8 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
   let updateNeeded = false;
   let lastRunOk = false;
   let running: Promise<void> | null = null;
+  // An older plugin script exits 2 on `--known`. Once seen, the hub stops sending it.
+  let knownUnsupported = false;
 
   const fail = (message: string): void => {
     lastError = message;
@@ -157,7 +163,7 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
     }
     const script = opts.scriptPath ?? defaultScriptPath();
     const known = [...cache.values()]
-      .filter((r) => r.error === undefined && typeof r.fingerprint === 'string' && repos.includes(r.path))
+      .filter((r) => !knownUnsupported && r.error === undefined && typeof r.fingerprint === 'string' && repos.includes(r.path))
       .map((r) => `${r.path}=${r.fingerprint}`);
     // The collector needs `--repos`. With none, ask for spend and guide on a path that does not exist.
     const args = repos.length
@@ -165,7 +171,12 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
         ? [...pre, script, '--repos', ...repos, '--known', ...known, '--json']
         : [...pre, script, '--repos', ...repos, '--json']
       : [...pre, script, '--repos', path.join(os.tmpdir(), 'caddis-hub-no-repos'), '--only', 'spend,guide', '--json'];
-    const result = await spawn(cmd, args, { timeoutMs: RUN_TIMEOUT_MS });
+    let result = await spawn(cmd, args, { timeoutMs: RUN_TIMEOUT_MS });
+    if (!result.ok && result.code === 2 && known.length && repos.length && /unrecognized arguments:.*--known/.test(result.stderr)) {
+      knownUnsupported = true;
+      log('caddis hub: the collector script does not know --known (old plugin); sending full runs. Update the plugin.');
+      result = await spawn(cmd, [...pre, script, '--repos', ...repos, '--json'], { timeoutMs: RUN_TIMEOUT_MS });
+    }
     if (result.timedOut) return fail(`collector timed out after ${RUN_TIMEOUT_MS / 1000} s`);
     if (!result.ok) {
       const detail = (result.stderr || result.stdout).trim().slice(0, 500);
