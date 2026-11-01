@@ -13,6 +13,7 @@ tracked, so a worktree carries the line too, but the worktree is the safe place 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 from pathlib import Path
 import re
@@ -21,12 +22,25 @@ import sys
 
 try:
     import caddis_exit
+    from claudster_config import ARTIFACT_DIRS
 except ModuleNotFoundError as exc:
-    if exc.name != "caddis_exit":
+    if exc.name not in {"caddis_exit", "claudster_config"}:
         raise
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_exit
+    from claudster_config import ARTIFACT_DIRS
+
+# What caddis writes into its artifact folder at run time: the generated index, logs, caches, locks and backups. It
+# is the scaffold's `.caddis/.gitignore` (setup_project_ai.ARTIFACT_GITIGNORE; a test keeps the two in step), minus
+# PROJECT-FACTS.md, which a person writes. In a repo scaffolded before an entry existed, git shows these as dirty,
+# and they are not another session's edit. Patterns are fnmatch on the path inside the artifact folder; `*` crosses `/`.
+GENERATED_DIRS = ("relay/", "session-state/", "context-window/", ".relay-injected/")
+GENERATED_PATTERNS = (
+    "relay.md", "usage-log.jsonl*", "agent-log.jsonl*", ".last-usage-review", "session-state.md",
+    "context-window.json*", ".session-state-*.tmp", "hook-errors.jsonl", "memory.jsonl", "reviews/*.html",
+    "*.lock", "*.bak",
+)
 
 
 def get_porcelain_lines(repo: Path) -> tuple[int, list[str]]:
@@ -84,6 +98,17 @@ def _norm(path: str) -> str:
     return path.strip().replace("\\", "/")
 
 
+def is_generated_path(path: str) -> bool:
+    """True for a file caddis writes at run time inside its artifact folder (see GENERATED_PATTERNS)."""
+    norm = _norm(path)
+    for folder in ARTIFACT_DIRS:
+        prefix = folder + "/"
+        if norm.startswith(prefix):
+            inside = norm[len(prefix):]
+            return inside.startswith(GENERATED_DIRS) or any(fnmatch.fnmatchcase(inside, pat) for pat in GENERATED_PATTERNS)
+    return False
+
+
 class CheckoutStatusError(OSError):
     """`git status` could not run in the checkout, so foreign changes cannot be ruled out."""
 
@@ -125,6 +150,7 @@ def checkout_is_shared(root: Path) -> bool:
 
 def foreign_changes(root: Path, own_files: set[str] | None = None) -> list[str]:
     """The dirty paths in `root` that are not in `own_files`, in `git status` order. A rename counts both paths.
+    Files caddis writes itself (`is_generated_path`) never count.
 
     Without session tracking (`own_files` None or empty), every dirty path counts. Raises CheckoutStatusError
     when `git status` fails: the caller must then treat the checkout as unsafe."""
@@ -134,7 +160,10 @@ def foreign_changes(root: Path, own_files: set[str] | None = None) -> list[str]:
     own = {_norm(p) for p in (own_files or set())}
     foreign: list[str] = []
     for entry in lines:
-        for path in entry_paths(entry):
+        paths = entry_paths(entry)
+        if all(is_generated_path(p) for p in paths):
+            continue  # caddis's own index, log or lock: not another session's edit
+        for path in paths:
             if _norm(path) not in own and path not in foreign:
                 foreign.append(path)
     return foreign

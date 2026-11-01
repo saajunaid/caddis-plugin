@@ -183,7 +183,8 @@ unattended; `-Plan <slug>` runs one plain plan instead (the two are exclusive). 
    and deletes the claim.
    CONTINUE with the phase already merged on origin: `rollup` when every phase is merged, then back to 1. CONTINUE
    with no new commits and nothing merged stops FAILED. `STATUS: OWNER-GATE <r>` becomes an `owner-gate` blocker,
-   `STATUS: BLOCKED <r>` an `external` one; then back to 1. `STATUS: FAILED` stops.
+   `STATUS: BLOCKED <r>` an `external` one; then back to 1. `STATUS: FAILED` stops. A relay the session did not
+   change (the same hash as before it, whatever its status line) stops `FAILED no relay written`.
 5. Every `**Risk:** high` phase done on the branch and not yet reviewed clean (record in the runner's own folder:
    `<git common dir>/caddis-runner/roadmap-<slug>/reviewed/<plan>.json`; another runner's record does not count) is
    reviewed BEFORE step 4 writes the claim and publishes

@@ -259,7 +259,10 @@ row, visible to any later reader without anyone having to catch it live.
    refusal). If you checked the finding and it is false, add
    `--override-review "<why the finding is false>"`. For a `MISSING` review, re-run the review
    first; add the override only if the owner accepts a phase with no vendor verdict. The reason
-   must not be empty. The script records it in the packet.
+   must not be empty. The script records it in the packet. It also refuses a `PARTIAL` review
+   (the secret filter dropped files, so CLEAN covers only part of the diff); review the dropped
+   files yourself before you add an override. A lane that committed gets no review
+   (`COMMITTED`, `NEXT: redo`), and accept refuses any lane commit, even with an override.
 4. Allow at most **2 attempts** per phase on a non-Claude lane. An out-of-budget switch is not an
    attempt. The owner can request TAKEOVER at any time.
 5. A UI phase needs a `ui-design-reviewer` screenshot review before ACCEPT. This rule applies

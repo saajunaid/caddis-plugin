@@ -908,8 +908,47 @@ def oss_review_path() -> Path | None:
     return source if source.exists() else None
 
 
-def run_review(worktree: Path, env: dict, timeout_s: int = 900) -> ReviewResult:
-    fake_review = os.environ.get("CADDIS_REVIEW_FAKE")
+# The lane review timeout. oss_review cannot tell the lane its batch count in advance, so the bound is generous:
+# every batch may take one full agy call, plus a margin for the 429 waits, the HTTP fallbacks and start-up.
+# Mirrors of `.github/tools/oss_review.py` (AGY_TIMEOUT_S, MAX_REVIEW_BATCHES); a test fails if they drift.
+# A timeout before the last batch would always kill a review of 2+ batches (the old 900 s equalled one agy call).
+REVIEW_AGY_CALL_TIMEOUT_S = 15 * 60
+REVIEW_MAX_BATCHES = 12
+REVIEW_TIMEOUT_MARGIN_S = 600
+LANE_REVIEW_TIMEOUT_S = REVIEW_MAX_BATCHES * REVIEW_AGY_CALL_TIMEOUT_S + REVIEW_TIMEOUT_MARGIN_S
+# oss_review prints this line before its verdict when the secret filter dropped files: CLEAN then covers only part.
+_PARTIAL_SCOPE = re.compile(r"(?m)^REVIEW-SCOPE: PARTIAL\b")
+
+
+def _review_fake() -> str | None:
+    """CADDIS_REVIEW_FAKE, honoured only inside a pytest run (pytest sets PYTEST_CURRENT_TEST, and child processes
+    inherit it). A copy left exported in a shell would otherwise fake every later real lane review."""
+    fake = os.environ.get("CADDIS_REVIEW_FAKE")
+    if not fake:
+        return None
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return fake
+    print("[caddis-lanes] CADDIS_REVIEW_FAKE is ignored outside a pytest run; running the real review",
+          file=sys.stderr)
+    return None
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill the child and everything it started (taskkill /T on Windows, the process group on POSIX)."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            proc.kill()
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+
+
+def run_review(worktree: Path, env: dict, timeout_s: int = LANE_REVIEW_TIMEOUT_S) -> ReviewResult:
+    fake_review = _review_fake()
     if fake_review:
         return ReviewResult(fake_review, 0 if fake_review == "CLEAN" else 1, f"fake review: {fake_review}")
 
@@ -917,26 +956,56 @@ def run_review(worktree: Path, env: dict, timeout_s: int = 900) -> ReviewResult:
     if path is None:
         return ReviewResult("MISSING", None, "oss_review.py not found")
 
+    # Its own process group (Windows) or session (POSIX): a timeout kills caddis_spend and agy too, not only
+    # oss_review, so nothing runs on and spends after the lane gave up.
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32"
+             else {"start_new_session": True})
+    argv = [sys.executable, str(path), "--cwd", str(worktree)]
     try:
-        completed = subprocess.run(
-            [sys.executable, str(path), "--cwd", str(worktree)],
+        proc = subprocess.Popen(
+            argv,
             cwd=worktree,
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout_s,
+            **group,
         )
-    except subprocess.TimeoutExpired as exc:
-        captured = _as_text(exc.stdout) + _as_text(exc.stderr)
-        tail = (captured + f"\ntimed out after {timeout_s}s").lstrip("\n")[-3000:]
-        return ReviewResult("MISSING", None, tail)
     except OSError as exc:
         return ReviewResult("MISSING", None, str(exc)[-3000:])
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+        captured = _as_text(stdout) + _as_text(stderr)
+        tail = (captured + f"\ntimed out after {timeout_s}s; process tree killed").lstrip("\n")[-3000:]
+        return ReviewResult("MISSING", None, tail)
 
-    status = {0: "CLEAN", 1: "BLOCKING"}.get(completed.returncode, "MISSING")
-    return ReviewResult(status, completed.returncode, _combined_output(completed)[-3000:])
+    output = _combined_output(subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr))
+    status = {0: "CLEAN", 1: "BLOCKING"}.get(proc.returncode, "MISSING")
+    if status == "CLEAN" and _PARTIAL_SCOPE.search(output):
+        status = "PARTIAL"
+    return ReviewResult(status, proc.returncode, output[-3000:])
+
+
+def lane_commit_reason(worktree: Path, branch: str, base_sha: str) -> str:
+    """Why the lane worktree holds commits the review did not see, or ''.
+
+    The review covers uncommitted work only, and accept merges the whole lane branch. So both the worktree HEAD
+    and the branch tip must still be the base: a new commit, an amended base, or a commit on a detached HEAD
+    (or on the branch before a detach back to the base) all fail one of the two."""
+    head = _git_output(worktree, "rev-parse", "HEAD")
+    tip = _git_output(worktree, "rev-parse", "--verify", f"refs/heads/{branch}")
+    if head == base_sha and tip == base_sha:
+        return ""
+    return (f"the lane committed work that was not reviewed (worktree HEAD {head[:7]}, branch {branch} at "
+            f"{tip[:7]}, base {base_sha[:7]}); the review covers uncommitted work only")
 
 
 def changed_files(worktree: Path) -> list[str]:
@@ -1964,7 +2033,12 @@ def _run_post_checks(
         return "stop", EXIT_NOT_RUN
 
     review_started = time.monotonic()
-    review = run_review(worktree, dict(os.environ))
+    committed = lane_commit_reason(worktree, str(packet["branch"]), str(packet["base_sha"]))
+    if committed:
+        # No review: it would cover only the uncommitted part and could print CLEAN over the commit.
+        review = ReviewResult("COMMITTED", None, committed)
+    else:
+        review = run_review(worktree, dict(os.environ))
     review_s = time.monotonic() - review_started
     pythons = list(before)
     if pythons:
@@ -1979,7 +2053,7 @@ def _run_post_checks(
         freeze_unchanged = None
 
     gates_passed = all(gate.passed for gate in gates)
-    if gates_passed and freeze_unchanged is not False:
+    if gates_passed and freeze_unchanged is not False and not committed:
         next_step = "review"
         exit_code = EXIT_OK
     else:
@@ -2255,6 +2329,9 @@ def _accept_command(
     if review_status != "CLEAN" and not override_reason:
         if review_status == "BLOCKING":
             print("refusing: review BLOCKING; pass --override-review with a reason")
+        elif review_status == "PARTIAL":
+            print("refusing: review PARTIAL (the secret filter dropped files, so CLEAN covers only part of "
+                  "the diff); review the dropped files, or pass --override-review with a reason")
         else:
             # MISSING = no verdict (provider down, 429, secret-filter refusal). Anything else
             # that is not CLEAN (absent, null, unknown, lowercase) is also no valid verdict.
@@ -2272,6 +2349,11 @@ def _accept_command(
 
     wt = _worktree_from_packet(packet)
     _validate_packet_worktree(repo, plan, args.phase, args.attempt, wt)
+    # Not overridable: --override-review accepts a verdict, and no verdict covers a lane commit.
+    committed = lane_commit_reason(wt.path, wt.branch, wt.base_sha)
+    if committed:
+        print(f"refusing: {_printable(committed)}; abandon and redo the phase")
+        return EXIT_FAIL
     files = packet.get("changed_files")
     if not isinstance(files, list) or not files:
         print("refusing: packet has no changed files")

@@ -31,12 +31,21 @@ Exit codes (fail-closed):
   1  REVIEW: BLOCKING   — one or more blocking issues
   2  unused             — advisory is not a review verdict
   3  could not run      — REVIEW_API_KEY missing, OR the pre-send secret filter refused (a
-                          denylisted path / possible secret; see secret_filter.py), OR every
+                          denylisted path / possible secret; see secret_filter.py), OR an explicit
+                          --range has no changes (a review of nothing is not CLEAN), OR every
                           provider failed with a PROVIDER failure: HTTP 429, any 5xx, a timeout, a
-                          connection error, an empty reply, an agy error status, or the agy spend
-                          cap refused — actionable message on stderr/stdout either way
+                          connection error, an empty reply, an agy error status, the agy spend
+                          cap refused, or a one-file prompt too long for agy with no other provider
+                          — actionable message on stderr/stdout either way
   4  error              — no diff verdict parsed, git failure, other endpoint/parse failure, or the diff
                           exceeds REVIEW_MAX_DIFF_CHARS (see below — never silently downgraded to CLEAN)
+
+Verdict: only the LAST non-empty line of each reply counts, and it must be exactly `REVIEW: CLEAN` or
+`REVIEW: BLOCKING` (backticks, asterisks and whitespace around it are allowed). Anything else is no
+verdict (exit 4). When the secret filter drops some files, the output ends with
+`REVIEW-SCOPE: PARTIAL (<n> file(s) excluded by the secret filter: <names>)` and then the overall
+`REVIEW:` line. The exit code is unchanged; a caller that needs the whole change reviewed looks
+for that exact text.
 
 Provider chain (owner policy, 2026-10-21; was deepseek first from 2026-10-16): agy-argon -> deepseek -> glm.
 A named --provider goes first, then the rest in policy order; a provider with no key (or no agy on PATH)
@@ -57,6 +66,12 @@ the verdict is CLEAN only if every batch is clean (aggregation is fail-closed). 
 narrower case: a SINGLE file larger than the ceiling, which cannot be split, or more batches than
 MAX_REVIEW_BATCHES. Refusal was the original behaviour and is kept for those two - a silent false
 CLEAN is the worst outcome this tool has - but it no longer fires on an ordinary large phase diff.
+
+agy limit: when agy-argon is anywhere in the provider chain, each batch is ALSO packed so its whole
+prompt (fixed text, the file list of a multi-batch run, the diff) fits AGY_MAX_PROMPT_CHARS (28,000)
+as quoted on the command line, so batches are smaller (under about 27,000 diff chars; fewer when the diff has many `"`). A single file
+whose prompt cannot fit gets its own batch: agy skips it and the next provider reviews it; with no
+other provider that is exit 3. With no agy in the chain the 60,000 ceiling alone applies.
 
 Stdlib-only (urllib) so it runs anywhere with no pip install.
 """
@@ -130,7 +145,12 @@ REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 AGY_MODEL = "gemini-4-argon-high"
 AGY_TIMEOUT_S = 15 * 60
 # The prompt is one command-line argument (`--print=<prompt>`). A Windows command line holds at most
-# 32,767 characters, so a larger prompt skips agy instead of failing to start.
+# 32,767 characters, so a larger prompt skips agy instead of failing to start. The limit applies to the
+# argument AS QUOTED (`agy_prompt_chars`): quoting escapes every `"`, so a diff of string literals costs more
+# than len(prompt). Each hop (oss_review -> caddis_spend -> caddis_hidden_desktop -> agy) quotes the same
+# argument once, not nested, so the cost is the same at every hop. The 4,767 chars left over hold the rest of
+# the longest command line: python, two script paths, the agy path and the fixed flags.
+WINDOWS_CMDLINE_MAX = 32_767
 AGY_MAX_PROMPT_CHARS = 28_000
 # `caddis_spend.py run` refusal codes: 75 over the cap or no lock, 78 cap not configured. Never agy's own.
 SPEND_REFUSED = (75, 78)
@@ -460,8 +480,11 @@ def changed_paths(diff_text: str) -> list[str]:
     return paths
 
 
-def batch_diff(diff_text: str, max_chars: int) -> list[str]:
+def batch_diff(diff_text: str, max_chars: int, fits=None) -> list[str]:
     """Pack whole files into as few batches as possible, each under `max_chars`.
+
+    `fits(batch) -> bool`, when given, is a second test every batch must also pass (main() uses it to keep
+    each whole agy prompt within the agy command-line limit).
 
     A single file larger than the ceiling gets its own batch and is sent anyway — it is
     over the limit either way, and reviewing it is strictly better than skipping it. The
@@ -473,11 +496,12 @@ def batch_diff(diff_text: str, max_chars: int) -> list[str]:
     batches: list[str] = []
     current = ""
     for chunk in files:
-        if current and len(current) + len(chunk) > max_chars:
+        candidate = current + chunk
+        if current and (len(candidate) > max_chars or (fits is not None and not fits(candidate))):
             batches.append(current)
             current = chunk
         else:
-            current += chunk
+            current = candidate
     if current:
         batches.append(current)
     return batches
@@ -530,7 +554,8 @@ def build_review_prompt(diff_text: str, branch: str, rng: str | None,
         )
     return part_note + (
         f"Perform an adversarial code review of the changes on branch '{branch}' ({scope}). "
-        "The unified diff is provided below. Judge, in priority order: (1) correctness — logic "
+        "The full unified diff is provided below. Do not run any commands or tools: headless "
+        "agy auto-denies them and then returns an empty reply. Judge, in priority order: (1) correctness — logic "
         "bugs, wrong results, missed edge cases; (2) tests — would a test fail without this "
         "change, and are the stated behaviors covered; (3) security — injection, auth, secret "
         "exposure, unvalidated input; (4) conventions — the repo's stated rules; (5) simplicity. "
@@ -545,13 +570,16 @@ def build_review_prompt(diff_text: str, branch: str, rng: str | None,
 
 
 def classify_verdict(text: str) -> bool | None:
-    """CLEAN→True, BLOCKING→False, neither→None. Fail-closed: any blocking signal wins."""
-    u = text.upper()
-    if "REVIEW: BLOCKING" in u:
-        return False
-    if "REVIEW: CLEAN" in u:
-        return True
-    return None
+    """CLEAN→True, BLOCKING→False, anything else→None (fail-closed: exit 4).
+
+    Only the LAST non-empty line counts, as the prompt asks, and it must be exactly `REVIEW: CLEAN` or
+    `REVIEW: BLOCKING` (surrounding backticks, asterisks and whitespace are allowed). A substring match
+    anywhere counted a reply that QUOTES the marker as a verdict (audit, 29 Oct 2026)."""
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    last = lines[-1].strip().strip("`*").strip()
+    return {"REVIEW: CLEAN": True, "REVIEW: BLOCKING": False}.get(last)
 
 
 def call_llm(base_url: str, api_key: str, model: str, prompt: str, timeout: int = 180) -> str:
@@ -670,14 +698,20 @@ def _agy_document(stdout: str) -> dict | None:
     return found
 
 
+def agy_prompt_chars(prompt: str) -> int:
+    """What the prompt costs on the command line: the `--print=<prompt>` argument as subprocess quotes it."""
+    return len(subprocess.list2cmdline([f"--print={prompt}"]))
+
+
 def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S) -> str:
     """One review by agy Argon through the spend cap -> the reply text.
 
     ProviderSkipped: the cap refused, agy is missing, or the prompt is too long for one argument.
     ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no JSON
     document, or an empty reply."""
-    if len(prompt) > AGY_MAX_PROMPT_CHARS:
-        raise ProviderSkipped(f"prompt is {len(prompt):,} chars, over the {AGY_MAX_PROMPT_CHARS:,}-char "
+    cost = agy_prompt_chars(prompt)
+    if cost > AGY_MAX_PROMPT_CHARS:
+        raise ProviderSkipped(f"prompt is {cost:,} chars once quoted, over the {AGY_MAX_PROMPT_CHARS:,}-char "
                               "agy command-line limit", for_run=False)
     argv = [*launcher, "--model", AGY_MODEL, "--mode", "plan", "--output-format", "json",
             f"--print={prompt}"]
@@ -826,6 +860,11 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         print("REVIEW: REFUSED — every changed file is excluded")
         return EXIT_CONFIG
     diff_text = filter_result.kept_diff
+    # A verdict on the rest of the change is not a verdict on the whole change. This line goes just before
+    # the final `REVIEW:` line. Callers look for this exact text (lanes must not accept a partial review).
+    dropped = filter_result.dropped_paths
+    scope_line = (f"REVIEW-SCOPE: PARTIAL ({len(dropped)} file(s) excluded by the secret filter: "
+                  f"{', '.join(dropped)})" if dropped else "")
 
     named = named_provider(args, env)
     # A custom ENDPOINT names exactly who reviews (REVIEW_BASE_URL/REVIEW_MODEL, the documented
@@ -878,6 +917,13 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         sys.stderr.write(f"{exc}\n")
         return EXIT_CONFIG
 
+    if not diff_text.strip() and args.range:
+        # An explicit range with no changes is a wrong range far more often than a finished one (for example
+        # HEAD..HEAD after a commit). A review of nothing is not CLEAN: could not run.
+        sys.stderr.write(f"could not run: the range {args.range} has no changes, so there is nothing to review. "
+                         "A review of nothing is not CLEAN. Check the range (for example origin/main..HEAD), "
+                         "or leave out --range to review the working tree.\n")
+        return EXIT_CONFIG
     if not diff_text.strip():
         # Says what was scanned, not just that nothing was found. This branch used to fire
         # on a tree full of NEW files (they are invisible to `git diff HEAD`) and report
@@ -892,7 +938,18 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     if max_diff_chars is None:
         env_val = (env.get("REVIEW_MAX_DIFF_CHARS") or "").strip()
         max_diff_chars = int(env_val) if env_val.isdigit() else DEFAULT_MAX_DIFF_CHARS
-    batches = batch_diff(diff_text, max_diff_chars) or [diff_text]
+    branch = current_branch(args.cwd)
+    whole_change = changed_paths(diff_text)
+    # With agy in the chain, every batch must also fit agy: the WHOLE prompt (fixed text, the file list of
+    # a multi-batch run, the diff) as quoted on the command line. Without this, a 36k phase diff was one
+    # 60k-ceiling batch that agy skipped, and a machine with no other key got exit 3 and no review.
+    # A single file that cannot fit still gets its own batch: agy skips it, and the next provider reviews it.
+    agy_in_chain = any(name == AGY_PROVIDER for name, *_ in chain)
+
+    def _fits_agy(batch: str) -> bool:
+        return agy_prompt_chars(build_review_prompt(batch, branch, args.range, whole_change)) <= AGY_MAX_PROMPT_CHARS
+
+    batches = batch_diff(diff_text, max_diff_chars, _fits_agy if agy_in_chain else None) or [diff_text]
     # Batching only helps when the diff HAS file boundaries to cut on. A single file (or a
     # blob with no `diff --git` headers) larger than the ceiling cannot be split, and sending
     # it anyway would reintroduce exactly the silent false-CLEAN the ceiling exists to stop.
@@ -933,16 +990,18 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             "reporting a verdict that looks whole.\n"
             "  Narrow --range to a smaller commit span, or raise --max-diff-chars if you know "
             "your endpoint's real limit.\n"
+            + (f"  agy-argon is in the provider chain, so each batch prompt is also kept within "
+               f"{AGY_MAX_PROMPT_CHARS:,} command-line chars.\n" if agy_in_chain else "")
         )
         return EXIT_ERROR
     if len(batches) > 1:
         print(
-            f"[cross-review] diff is {len(diff_text):,} chars, over the {max_diff_chars:,} "
-            f"ceiling — reviewing in {len(batches)} batches split on file boundaries. "
-            "Verdict is CLEAN only if every batch is clean."
+            f"[cross-review] diff is {len(diff_text):,} chars — reviewing in {len(batches)} batches split on "
+            f"file boundaries (ceiling {max_diff_chars:,} diff chars"
+            + (f"; agy-argon is in the chain, so each whole prompt also stays within {AGY_MAX_PROMPT_CHARS:,} "
+               "command-line chars" if agy_in_chain else "")
+            + "). Verdict is CLEAN only if every batch is clean."
         )
-
-    branch = current_branch(args.cwd)
 
     # Per run: a provider that failed (429, 5xx, timeout, empty reply, cap refusal) gets no more calls,
     # and each provider waits for a 429 Retry-After at most once. Hammering a throttled provider with
@@ -1024,7 +1083,6 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             out += got
         return out, []
 
-    whole_change = changed_paths(diff_text)
     verdicts: list[bool | None] = []
     for batch_no, batch in enumerate(batches, 1):
         label = f" (batch {batch_no}/{len(batches)})" if len(batches) > 1 else ""
@@ -1044,6 +1102,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             if any(v is False for v in verdicts):
                 # An earlier batch already found a blocking issue. A later failure must not hide it behind
                 # NOT_RUN (3), which reads as "nothing found, retry". Fail closed and report the finding.
+                if scope_line:
+                    print(scope_line)
                 print("REVIEW: BLOCKING  (an earlier batch blocked; the remaining batches were not reviewed)")
                 return EXIT_BLOCKING
             return EXIT_CONFIG if not_run else EXIT_ERROR
@@ -1066,6 +1126,11 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         if unparsed:
             print("[cross-review] a chunk with no verdict is NOT a pass — the overall result "
                   "below is fail-closed.")
+    if scope_line and verdict is not None:
+        # The model's own verdict line came earlier (and the ledger may follow it), so restate the overall
+        # verdict here: the scope line sits directly above the last `REVIEW:` line.
+        print(scope_line)
+        print("REVIEW: CLEAN" if verdict else "REVIEW: BLOCKING")
     if verdict is True:
         return EXIT_CLEAN
     if verdict is False:

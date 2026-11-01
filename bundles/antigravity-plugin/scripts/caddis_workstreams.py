@@ -202,6 +202,27 @@ def _free_backup(path: Path) -> Path:
     raise ValueError(f"too many backups next to {path.name}")
 
 
+def _over_budget(name: str, text: str) -> str | None:
+    """The refusal message when ``text`` is over the relay size budget; None when it fits.
+
+    ``.caddis/relay/`` is git-ignored, so git keeps no history of an old relay: the message says to back up first."""
+    if len(text) <= _RELAY_BUDGET_CHARS:
+        return None
+    return (f"relay rejected: {len(text)} chars is over the {_RELAY_BUDGET_CHARS}-char relay budget. "
+            f"Rewrite it to the current state only. Back up the old text first (copy .caddis/relay/{name}.md to "
+            f".caddis/relay/{name}.md.bak): .caddis/relay/ is git-ignored, so git keeps no history.")
+
+
+def _pointer_body(name: str, backup: str) -> str:
+    """A short relay body for a migrated relay that is over the budget: the full text stays in ``backup``."""
+    return (f"# Relay — {name}\n\n## Current workstream\n"
+            f"Migrated from the old relay. It was over the {_RELAY_BUDGET_CHARS}-char relay budget, "
+            "so only this pointer is kept here.\n\n"
+            f"## Next step (exact)\nRead `.caddis/{backup}` (the full old relay), then rewrite this relay to the "
+            "current state only.\n\n"
+            f"## Read first on resume\n- `.caddis/{backup}` — the full old relay text\n")
+
+
 def _header_text(meta: dict) -> str:
     """Relay header lines in the shape caddis_frontmatter.parse reads back: scalars, one nested
     map or one list per key. Every value is folded to one line, so no value can add a field."""
@@ -471,6 +492,11 @@ class MigrationReport(dict):
     def backups(self) -> list[str]:
         return self["backups"]
 
+    @property
+    def trimmed(self) -> list[str]:
+        """Migrated relays that were over the budget and now hold a pointer to the backup."""
+        return self.get("trimmed", [])
+
 
 def _utc_z(value: object = None) -> str:
     """`value` (an ISO time; naive means UTC) or now, as relay headers write it: UTC, seconds, `Z`.
@@ -542,6 +568,8 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
 
         candidates: dict[str, str] = {}
         conflicts: list[str] = []
+        trimmed: list[str] = []
+        legacy_bak: Path | None = None
 
         # 1. Process legacy relay.md
         if has_legacy_relay:
@@ -565,14 +593,19 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
                 relay_name = "legacy"
 
             candidate_text = raw_relay
+            # The full old text is saved here before any relay is written; an oversized relay points to it.
+            legacy_bak = _free_backup(artifact / "relay.md.bak")
             # No header, or an opening --- with no closing one: keep the whole file as the body.
             header_closed = split_document(candidate_text)[1] != candidate_text
             if not candidate_text.startswith("---\n") or not header_closed:
-                candidate_text = (
-                    f"---\ntype: relay\nworkstream: {relay_name}\nbranch: main\n"
-                    f"session_id: legacy-migrated\nplan:\ngenerated:\n  by: {_MIGRATED_BY}\n"
-                    f"  at: {_utc_z()}\n---\n\n"
-                    f"# Relay — {relay_name}\n\n## Next step (exact)\n{raw_relay}\n"
+                head = (f"---\ntype: relay\nworkstream: {relay_name}\nbranch: main\n"
+                        f"session_id: legacy-migrated\nplan:\ngenerated:\n  by: {_MIGRATED_BY}\n"
+                        f"  at: {_utc_z()}\n---\n\n")
+                # The old text keeps its own headings, so it gets its own section, not the Next step.
+                candidate_text = head + (
+                    f"# Relay — {relay_name}\n\n## Next step (exact)\n"
+                    "Read the migrated notes below, then rewrite this relay to the current state only.\n\n"
+                    f"## Migrated notes\n{raw_relay}\n"
                 )
             else:
                 meta = parse(candidate_text)
@@ -610,6 +643,11 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
                 _validate_relay(relay_name, candidate_text)
             except Exception as exc:
                 return MigrationReport(status="conflict", migrated=[], conflicts=[f"invalid-legacy-relay: {exc}"], backups=[])
+            if len(candidate_text) > _RELAY_BUDGET_CHARS:
+                # Keep the header; the body becomes a pointer. The full text is in the backup, outside the budget scope.
+                head = candidate_text[:len(candidate_text) - len(split_document(candidate_text)[1])]
+                candidate_text = head.rstrip("\n") + "\n\n" + _pointer_body(relay_name, legacy_bak.name)
+                trimmed.append(relay_name)
 
             target_path = relay_dir / f"{_name(relay_name)}.md"
             if target_path.is_file() and not target_path.is_symlink():
@@ -681,6 +719,8 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
 
         # Write candidates
         relay_dir.mkdir(parents=True, exist_ok=True)
+        if legacy_bak is not None:  # before any relay: a pointer in a relay must never name a missing file
+            legacy_bak.write_bytes(index_file.read_bytes())
         migrated: list[str] = []
         for name, text in candidates.items():
             # Locked compare-and-swap on the target: a session that wrote this relay after the
@@ -709,15 +749,13 @@ def _migrate_legacy_locked(root: Path) -> MigrationReport:
             legacy_ws.unlink()
             backups.append(bak_path.name)
 
-        if has_legacy_relay:
-            bak_path = _free_backup(artifact / "relay.md.bak")
-            bak_path.write_bytes(index_file.read_bytes())
+        if legacy_bak is not None:  # already saved above; the old relay.md goes now
             index_file.unlink()
-            backups.append(bak_path.name)
+            backups.append(legacy_bak.name)
 
     # Render index outside the lock so render_index can acquire its own lock
     render_index(root, None, None)
-    return MigrationReport(status="migrated", migrated=migrated, conflicts=[], backups=backups)
+    return MigrationReport(status="migrated", migrated=migrated, conflicts=[], backups=backups, trimmed=trimmed)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -792,6 +830,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "write":
         content = args.file.read_text(encoding="utf-8")
         expected = None if args.expected_hash in (None, "none") else args.expected_hash
+        refusal = _over_budget(args.name, content)
+        if refusal:
+            sys.stderr.write(refusal + "\n")
+            return 1
         res = write_relay(args.root, args.name, content, expected)
         if res.status != "written":
             # The caller must see what changed; nothing was written.
@@ -842,6 +884,10 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError as exc:
                 sys.stderr.write(f"cannot read existing relay: {exc}\n")
                 return 1
+        refusal = _over_budget(args.name, content)
+        if refusal:
+            sys.stderr.write(refusal + "\n")
+            return 1
         try:
             res = write_relay(args.root, args.name, content, expected)
         except ValueError as exc:
@@ -866,13 +912,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Migration status: {report.status}")
         for conflict in report.conflicts:
             print(f"  conflict: {conflict}")
-        # The old relay is kept verbatim, so it can be over the relay budget. Say so once, here;
-        # caddis_budget.py keeps reporting it until someone trims it.
-        for name in report.migrated:
-            size = len(read_relay(args.root, name)[0])
-            if size > _RELAY_BUDGET_CHARS:
-                print(f"  note: .caddis/relay/{name}.md is {size} chars, over the {_RELAY_BUDGET_CHARS}-char "
-                      "relay budget (the old relay is kept verbatim); trim it to the current state or delete it")
+        # An oversized old relay is cut to a pointer; say once where the full text went.
+        for name in report.trimmed:
+            print(f"  note: .caddis/relay/{name}.md was over the {_RELAY_BUDGET_CHARS}-char relay budget, so it holds "
+                  f"a pointer; the full old text is in .caddis/{report.backups[0]}")
         return 0 if report.status in ("clean", "migrated") else 1
     elif args.command == "list":
         try:

@@ -203,6 +203,21 @@ TRUST_STATUS_VALUES: frozenset[str] = frozenset({
     "open", "doing", "dropped",                           # caddis parking-lot (`done` shared above)
 })
 
+# Words writers reach for that are not in the vocabulary, mapped to the nearest known word. An explicit map, not
+# fuzzy matching: "in-progress" is not close to "doing" by spelling. `open`/`doing`/`done` are the parking-lot
+# words, `proposed` is the plan word for "written, not yet agreed".
+STATUS_SYNONYMS: dict[str, str] = {
+    "in-progress": "doing", "in_progress": "doing", "inprogress": "doing", "in progress": "doing",
+    "active": "doing", "wip": "doing", "started": "doing",
+    "final": "done", "complete": "done", "completed": "done", "closed": "done", "finished": "done",
+    "resolved": "done",
+    "todo": "open", "new": "open", "pending": "open", "backlog": "open",
+    "planned": "proposed", "proposal": "proposed",
+    "cancelled": "dropped", "canceled": "dropped", "abandoned": "dropped", "rejected": "dropped",
+    "obsolete": "superseded", "replaced": "superseded",
+    "approved": "ready",
+}
+
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ISO_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})?$")
@@ -300,9 +315,11 @@ def trust_signal_warnings(text: str) -> list[str]:
         # sentence ("DRAFT — approved shape (Option 2), awaiting go"); vetting those would nag
         # about prose that predates the field's vocabulary. A one-word typo still surfaces.
         if value and " " not in value and value.lower() not in TRUST_STATUS_VALUES:
+            hint = STATUS_SYNONYMS.get(value.lower())
             warns.append(
                 f"`status: {value}` is not a known value "
                 f"({', '.join(sorted(TRUST_STATUS_VALUES))})"
+                + (f"; did you mean `{hint}`?" if hint else "")
             )
 
     if "stale_after" in meta:

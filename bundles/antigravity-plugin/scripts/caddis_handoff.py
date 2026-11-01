@@ -5,10 +5,16 @@ BEFORE the model composes the new relay, and prints the exact FINISH command. FI
 writes the relay with `put --require-status --expected-hash`, so a peer's change made in between is never
 overwritten, runs the cheap checklist rows, and prints the resume block as its last output.
 
+Every repo path (relay, session state, plan, sub-tool `--root`) is under the git top level of the cwd, resolved once
+(`git rev-parse --show-toplevel`; outside a git repo, the cwd), so a checkpoint run from a subfolder writes the relay
+where the next session's inject_relay hook reads it. Every sibling runs with that root as its cwd. A relative `--plan`
+is relative to the root; a relative `--relay-file` is relative to the cwd.
+
 Refusals (exit 1): a headless session (`CADDIS_HEADLESS`), the coordinator's relay, a coordinator check that
 cannot run or cannot be read (the safe side is to refuse), FINISH without `--idle`, a failed relay write, and a
 relay over the 4,000-character budget. After the relay is written, a late error (no resume block, an exception)
-exits 1 with the last line `ERROR after relay write: ...`; FINISH still prints the resume block when it can. In a shared checkout the checkpoint changes
+exits 1 with the last line `ERROR after relay write: ...`; FINISH still prints the resume block when it can. Any
+other internal error exits 1 with `CHECKPOINT: internal error: ...` on stderr. In a shared checkout the checkpoint changes
 no tracked file (the Tracker row is skipped; card state goes in the local relay). Siblings run as subprocesses
 with `sys.executable`, found in this script's dir, then `<dir>/../claude-harness/scripts` (source tree).
 A missing sibling degrades open (`skipped: <script> not installed`), except the relay write, the coordinator
@@ -43,12 +49,12 @@ def _sibling(name: str) -> Path | None:
     return None
 
 
-def _run(script: str, *args: str) -> subprocess.CompletedProcess | None:
-    """Run a sibling script; None when it is not installed. Never `python -I` (siblings import siblings)."""
+def _run(root: Path, script: str, *args: str) -> subprocess.CompletedProcess | None:
+    """Run a sibling script in `root`; None when it is not installed. Never `python -I` (siblings import siblings)."""
     path = _sibling(script)
     if path is None:
         return None
-    return subprocess.run([sys.executable, str(path), *args], capture_output=True, text=True,
+    return subprocess.run([sys.executable, str(path), *args], cwd=root, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
 
 
@@ -60,24 +66,39 @@ def _headless() -> bool:
     return os.environ.get("CADDIS_HEADLESS", "").strip().lower() in HEADLESS_VALUES
 
 
-def _git(*args: str) -> str | None:
+def _git(cwd: Path, *args: str) -> str | None:
     try:
-        res = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        res = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, encoding="utf-8",
+                             errors="replace")
     except OSError:
         return None
     return res.stdout.strip() if res.returncode == 0 else None
 
 
+def _repo_root() -> Path:
+    """The git top level of the cwd (a worktree's own folder in a worktree), else the cwd. inject_relay.py reads the
+    relay at the same place, so a checkpoint from a subfolder lands where the next session looks."""
+    cwd = Path.cwd()
+    top = _git(cwd, "rev-parse", "--show-toplevel")
+    return Path(top) if top else cwd
+
+
+def _plan_path(root: Path, plan: str) -> Path:
+    path = Path(plan)
+    return path if path.is_absolute() else root / path
+
+
 def _resolve_name(args: argparse.Namespace) -> str | None:
     if args.name:
         return args.name
+    root = args.root
     extra = ["--plan", Path(args.plan).stem] if args.plan else []
-    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
     if not extra and branch and branch != "HEAD":
         # On the default branch there is no workstream name: without --default-branch the resolver names it `branch.main`.
-        head = _git("symbolic-ref", "--short", "refs/remotes/origin/HEAD") or ""
+        head = _git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD") or ""
         extra = ["--branch", branch, "--default-branch", head.split("/", 1)[-1] if head else "main"]
-    res = _run("caddis_workstreams.py", "resolve", *extra)
+    res = _run(root, "caddis_workstreams.py", "resolve", *extra)
     if res is None or res.returncode != 0:
         return None
     return res.stdout.strip() or None
@@ -86,9 +107,9 @@ def _resolve_name(args: argparse.Namespace) -> str | None:
 _NO_COORDINATOR = "no coordinator config"
 
 
-def _coordinator_relay() -> tuple[bool, str | None]:
+def _coordinator_relay(root: Path) -> tuple[bool, str | None]:
     """(known, relay). known is False when the check cannot run or its answer cannot be read."""
-    res = _run("caddis_coordinate.py", "config", "show", "--path", ".", "--json")
+    res = _run(root, "caddis_coordinate.py", "config", "show", "--path", str(root), "--json")
     if res is None:
         return False, "caddis_coordinate.py not installed"
     if res.returncode != 0:
@@ -106,9 +127,9 @@ def _coordinator_relay() -> tuple[bool, str | None]:
     return True, relay if isinstance(relay, str) else None
 
 
-def _own_files(session_id: str) -> list[str]:
+def _own_files(root: Path, session_id: str) -> list[str]:
     """The `## Files changed this session` list of the session state file (handoff Step 0, point 1)."""
-    path = Path(".caddis") / "session-state" / f"{session_id}.md"
+    path = root / ".caddis" / "session-state" / f"{session_id}.md"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, ValueError):
@@ -122,13 +143,13 @@ def _own_files(session_id: str) -> list[str]:
     return out
 
 
-def _shared(session_id: str) -> str:
+def _shared(root: Path, session_id: str) -> str:
     """`no`, `yes <reason>`, or `unknown (<why>)`. FINISH treats anything but `no` as shared."""
     fd, tmp = tempfile.mkstemp(prefix="caddis-own-files-", suffix=".txt")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(_own_files(session_id)) + "\n")
-        res = _run("caddis_checkout_guard.py", "shared", "--root", ".", "--own-files", tmp)
+            handle.write("\n".join(_own_files(root, session_id)) + "\n")
+        res = _run(root, "caddis_checkout_guard.py", "shared", "--root", str(root), "--own-files", tmp)
     finally:
         try:
             os.unlink(tmp)
@@ -142,26 +163,27 @@ def _shared(session_id: str) -> str:
     return "unknown (" + (_output(res)[:200] or "no answer") + ")"
 
 
-def _tasks_file(session_id: str, name: str) -> tuple[str, str]:
+def _tasks_file(root: Path, session_id: str, name: str) -> tuple[str, str]:
     """Run `session_state.py tasks-file`; return (row status, tasks line text)."""
-    res = _run("session_state.py", "tasks-file", "--session-id", session_id, "--relay", name)
+    res = _run(root, "session_state.py", "tasks-file", "--session-id", session_id, "--relay", name,
+               "--root", str(root))
     if res is None:
         status = "skipped: session_state.py not installed"
     elif res.returncode != 0:
         status = "failed: " + (_output(res)[:200] or f"exit {res.returncode}")
     else:
         status = "done"
-    rel = f".caddis/relay/{name}.tasks.md"
-    if Path(rel).is_file():
+    rel = f".caddis/relay/{name}.tasks.md"  # printed repo-relative, checked under the root
+    if (root / rel).is_file():
         return status, f"{rel} (put this line in the resume prompt: Load every row of {rel} with TaskCreate.)"
     return status, "none"
 
 
-def _refusals(name: str) -> int | None:
+def _refusals(root: Path, name: str) -> int | None:
     if _headless():
         print("CHECKPOINT: refused headless: return BLOCKED with your state")
         return 1
-    known, relay = _coordinator_relay()
+    known, relay = _coordinator_relay(root)
     if not known:
         print(f"CHECKPOINT: cannot tell if {name} is the coordinator relay ({relay}): run /caddis:handoff")
         return 1
@@ -179,17 +201,18 @@ def prepare(args: argparse.Namespace) -> int:
     if not name:
         print("CHECKPOINT: no workstream name: pass --name <ws>")
         return 1
-    refused = _refusals(name)
+    root = args.root
+    refused = _refusals(root, name)
     if refused is not None:
         return refused
-    hashed = _run("caddis_workstreams.py", "hash", name, "--root", ".")
+    hashed = _run(root, "caddis_workstreams.py", "hash", name, "--root", str(root))
     if hashed is None or hashed.returncode != 0:
         why = "caddis_workstreams.py not installed" if hashed is None else _output(hashed)[:200]
         print(f"CHECKPOINT: cannot read the relay hash: {why}")
         return 1
     digest = hashed.stdout.strip() or "none"
-    shared = _shared(args.session_id)
-    _status, tasks = _tasks_file(args.session_id, name)
+    shared = _shared(root, args.session_id)
+    _status, tasks = _tasks_file(root, args.session_id, name)
     plan = f" --plan {args.plan} --phase {args.phase}" if args.plan and args.phase else ""
     print(f"workstream: {name}")
     print(f"relay: .caddis/relay/{name}.md")
@@ -203,13 +226,13 @@ def prepare(args: argparse.Namespace) -> int:
     return 0
 
 
-def _tracker_row(plan: str | None, phase: str | None, shared: str) -> str:
+def _tracker_row(root: Path, plan: str | None, phase: str | None, shared: str) -> str:
     if shared != "no":
         return SHARED_SKIP
     if not plan or not phase:
         return "skipped: no --plan and --phase"
     try:
-        lines = Path(plan).read_text(encoding="utf-8").splitlines()
+        lines = _plan_path(root, plan).read_text(encoding="utf-8").splitlines()
     except (OSError, ValueError) as exc:
         return f"failed: cannot read {plan}: {exc}"
     pattern = re.compile(rf"^(phase\s+)?{re.escape(phase)}(\s|$)", re.IGNORECASE)
@@ -250,18 +273,20 @@ def finish(args: argparse.Namespace) -> int:
     if not args.name or not args.expected_hash:
         print("CHECKPOINT: finish needs --name and --expected-hash (run prepare first)")
         return 1
-    refused = _refusals(args.name)
+    root = args.root
+    refused = _refusals(root, args.name)
     if refused is not None:
         return refused
     name, rows = args.name, {}
     try:
         rows["knowledge-transfer"] = _kt_row(args.kt)
-        rows["plan-tracker"] = _tracker_row(args.plan, args.phase, _shared(args.session_id))
+        rows["plan-tracker"] = _tracker_row(root, args.plan, args.phase, _shared(root, args.session_id))
 
         # `put` accepts `none` (lower case) or a lower-case SHA-256 hex digest.
         expected = args.expected_hash.strip().lower()
-        put = _run("caddis_workstreams.py", "put", name, args.relay_file, "--require-status",
-                   "--expected-hash", expected, "--session-id", args.session_id, "--root", ".")
+        # The sibling runs in the root: a relative --relay-file is made absolute against the caller's cwd first.
+        put = _run(root, "caddis_workstreams.py", "put", name, os.path.abspath(args.relay_file), "--require-status",
+                   "--expected-hash", expected, "--session-id", args.session_id, "--root", str(root))
     except Exception as exc:  # no traceback: the next step must be a clear line, and nothing was written
         print(f"CHECKPOINT: error before the relay write: {type(exc).__name__}: {exc}; the relay was not written")
         return 1
@@ -276,7 +301,7 @@ def finish(args: argparse.Namespace) -> int:
     except Exception as exc:  # the relay is written: never exit 0 without the resume text
         if not state["resume"]:
             try:
-                _resume_block(name, args.session_id, state)
+                _resume_block(root, name, args.session_id, state)
             except Exception:
                 pass
         _late_error(f"{type(exc).__name__}: {exc}")
@@ -287,9 +312,10 @@ def _late_error(reason: str) -> None:
     print(f"ERROR after relay write: {reason}; the relay IS written, resume with the printed relay path")
 
 
-def _resume_block(name: str, session_id: str, state: dict) -> str | None:
+def _resume_block(root: Path, name: str, session_id: str, state: dict) -> str | None:
     """Print the resume block; return None when printed, else the reason it could not be built."""
-    block = _run("caddis_fleet.py", "resume-block", "--name", name, "--session-id", session_id, "--root", ".")
+    block = _run(root, "caddis_fleet.py", "resume-block", "--name", name, "--session-id", session_id,
+                 "--root", str(root))
     if block is None:
         return "caddis_fleet.py not installed, no resume block"
     sys.stdout.write(block.stdout)
@@ -301,15 +327,16 @@ def _resume_block(name: str, session_id: str, state: dict) -> str | None:
 
 
 def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state: dict) -> int:
+    root = args.root
     rows["relay"] = "done"
-    index = _run("caddis_workstreams.py", "render-index", "--session-id", args.session_id, "--root", ".")
+    index = _run(root, "caddis_workstreams.py", "render-index", "--session-id", args.session_id, "--root", str(root))
     if index is not None and index.returncode != 0:
         rows["relay"] = "done (render-index failed: " + _output(index)[:160] + ")"
 
-    rows["tasks-file"], _tasks = _tasks_file(args.session_id, name)
+    rows["tasks-file"], _tasks = _tasks_file(root, args.session_id, name)
 
-    gate = _run("caddis_gate.py", "handover-check", "--doc", f".caddis/relay/{name}.md", "--repo-root", ".",
-                "--max-chars", str(BUDGET))
+    gate = _run(root, "caddis_gate.py", "handover-check", "--doc", str(root / ".caddis" / "relay" / f"{name}.md"),
+                "--repo-root", str(root), "--max-chars", str(BUDGET))
     if gate is None:
         rows["handover-check"] = "skipped: caddis_gate.py not installed"
     elif gate.returncode != 0:
@@ -322,7 +349,7 @@ def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state:
     else:
         rows["handover-check"] = "done"
 
-    usage = _run("session_state.py", "usage", "--session-id", args.session_id)
+    usage = _run(root, "session_state.py", "usage", "--session-id", args.session_id, "--root", str(root))
     if usage is None:
         rows["usage-record"] = "skipped: session_state.py not installed"
     elif usage.returncode != 0:
@@ -332,10 +359,10 @@ def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state:
     for row in CHECKPOINT_TIER_ROWS:
         rows[row] = "skipped: checkpoint tier"
 
-    if args.plan and _git("status", "--porcelain", "--", args.plan):
+    if args.plan and _git(root, "status", "--porcelain", "--", str(_plan_path(root, args.plan))):
         print("plan file modified, not committed")
     _checklist(rows)
-    failed = _resume_block(name, args.session_id, state)
+    failed = _resume_block(root, name, args.session_id, state)
     if failed is not None:
         _late_error(failed)
         return 1
@@ -360,10 +387,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--idle", action="store_true", help="FINISH: no agent or background command runs")
     args = parser.parse_args(argv)
     try:
+        args.root = _repo_root()  # once: every path and every sibling call uses it
         return finish(args) if args.relay_file else prepare(args)
-    except Exception as exc:  # documented: internal errors exit 0, with no RESUME block
-        print(f"CHECKPOINT: internal error: {exc}")
-        return 0
+    except Exception as exc:  # documented: an internal error exits 1, with no RESUME block
+        print(f"CHECKPOINT: internal error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

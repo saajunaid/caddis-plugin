@@ -50,18 +50,22 @@ def _read_input() -> dict:
 
 
 def _repo_root(start: str):
-    """Git repo root for `start`, or None when `start` is in no git repository."""
+    """Git repo root for `start`, or None when git says `start` is in no repository.
+
+    When git cannot answer at all (timeout on a loaded machine, git missing) the answer is `start`
+    itself: the log line is still written where the session runs, instead of being dropped.
+    """
     try:
         out = subprocess.run(
             ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
+            capture_output=True, text=True, timeout=10, **NO_WINDOW_KW,
         )
         root = out.stdout.strip()
         if out.returncode == 0 and root:
             return root
+        return None
     except Exception:
-        pass
-    return None
+        return start
 
 
 def _agent_type_from_meta(transcript_path: str) -> str:

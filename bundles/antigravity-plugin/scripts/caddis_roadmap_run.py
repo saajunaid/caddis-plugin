@@ -7,7 +7,8 @@ thin shim over this file. The programme layer (programme folders, ledger, budget
 One session: stop checks (STOP file, session, hour and dollar caps); for agy, a reservation under the global spend cap
 (`caddis_spend.py`, settled after the session); read the relay hash; launch ONE session through the governor with the
 resume prompt and `CADDIS_HEADLESS=1` in its environment; parse its JSON result (cost, error); read the relay status
-line; decide. CONTINUE with an unchanged relay is `FAILED no progress`; three sessions in a row with no newly closed
+line; decide. A relay the session did not change (same hash as before it, any status line) is `FAILED no relay
+written`, so a status an earlier session wrote is never acted on again; three sessions in a row with no newly closed
 row is `BLOCKED stuck`.
 
 Plan mode (`--plan <slug>`, decision D-I, design section 8.5) runs `.caddis/plans/<slug>.md`. A closed row in its
@@ -2406,19 +2407,20 @@ def _launch(cmd: list[str], cwd: Path, timeout_s: float, stdin_text: str | None 
 
 def _decide(engine: str, outcome: _Outcome, result: dict | None, relay_text: str, hash_before: str | None,
             hash_after: str | None) -> _Stop | None:
-    """None to go on; else the stop. A missing or bad status line is FAILED, never CONTINUE (design 8.1)."""
+    """None to go on; else the stop. A missing or bad status line is FAILED, never CONTINUE (design 8.1). A relay
+    this session did not change is FAILED whatever its status: its line belongs to an earlier session (audit 10)."""
     failed = _session_failed(engine, outcome, result)
     if failed is not None:
         return failed
     if hash_after is None:
         return _Stop("FAILED no relay", caddis_exit.BLOCKED)
+    if hash_after == hash_before:
+        return _Stop("FAILED no relay written", caddis_exit.BLOCKED)
     try:
         kind, arg = caddis_workstreams.parse_status(relay_text)
     except ValueError as exc:
         return _Stop(f"FAILED bad status line: {exc}", caddis_exit.BLOCKED)
     if kind == "CONTINUE":
-        if hash_after == hash_before:
-            return _Stop("FAILED no progress", caddis_exit.BLOCKED)
         return None
     if kind == "FAILED":
         return _Stop(f"FAILED {arg}", caddis_exit.BLOCKED, from_relay=True, status=(kind, arg))

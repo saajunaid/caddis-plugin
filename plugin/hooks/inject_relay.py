@@ -156,7 +156,7 @@ def _repo_root(start: str) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
+            capture_output=True, text=True, timeout=10, **NO_WINDOW_KW,
         )
         root = out.stdout.strip()
         if out.returncode == 0 and root:
@@ -255,9 +255,10 @@ def _resolve_relay(session_id: str = "") -> tuple[str, str | None]:
     try:
         branch = subprocess.run(
             ["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=3, **NO_WINDOW_KW,
+            capture_output=True, text=True, timeout=10, **NO_WINDOW_KW,
         ).stdout.strip()
-    except Exception:
+    except Exception as _exc:  # a timeout here falls back to the index relay; leave a trace
+        _hook_note("git branch lookup", _exc)
         branch = ""
 
     default_branches = {"main", "master", "trunk", "develop", "HEAD", ""}

@@ -80,10 +80,10 @@ python "$TOOL" --range origin/main..HEAD                   # review a branch's c
 ```
 Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the env).
 
-**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). Exit 4 means a *single unsplittable file* over the ceiling, or too many batches — not an ordinary large diff. Previously it was refused before any LLM call
-*before* any LLM call — an oversized diff has been observed to come back either an empty response, or
-worse, a `REVIEW: CLEAN` with zero real engagement. If you hit this, narrow `--range` or review in
-smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint's real limit.
+**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). When agy Argon is anywhere in the provider chain, each batch is also kept small enough that its **whole prompt** fits the agy command line (28,000 chars once quoted, so under about 27,000 diff chars, fewer when the diff has many `"`). A *single file* too big for agy gets its own batch: agy skips it and the next provider reviews it; with no other provider (no DeepSeek or GLM key) that is exit 3. Exit 4 means a *single unsplittable file* over the 60,000 ceiling, or too many batches — not an ordinary large diff. The ceiling exists because an oversized diff has been observed to come back either an empty response, or
+worse, a `REVIEW: CLEAN` with zero real engagement. If you hit this, review that file separately or narrow `--range`; don't just raise `--max-diff-chars` without knowing the endpoint's real limit.
+
+**Verdict and scope.** Only the last non-empty line of the reply counts, and it must be exactly `REVIEW: CLEAN` or `REVIEW: BLOCKING`; a reply that quotes the marker earlier and ends some other way has no verdict (exit 4). An explicit `--range` with no changes is exit 3 (a review of nothing is not CLEAN); the working tree with no changes is still CLEAN. When the secret filter drops some files, the output ends with `REVIEW-SCOPE: PARTIAL (<n> file(s) excluded by the secret filter: <names>)` and then the overall `REVIEW:` line. The exit code does not change, but those files were not reviewed: say so, and never report it as a full CLEAN.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
@@ -92,7 +92,7 @@ smaller chunks; don't just raise `--max-diff-chars` without knowing the endpoint
   Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, a git failure, or an endpoint/parse failure. Read stderr; do not
   treat this as CLEAN — investigate.
-- **3 — could not run** → no reviewer is available (no agy on PATH and no API key), or every provider failed. Fix it (see Prerequisites) and re-run.
+- **3 — could not run** → no reviewer is available (no agy on PATH and no API key), an explicit `--range` has no changes, or every provider failed. Fix it (see Prerequisites) and re-run.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).

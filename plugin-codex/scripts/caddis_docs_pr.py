@@ -20,6 +20,9 @@ handoff must not commit there. Instead:
 not the main worktree, it is under the temp folder, and its branch is `docs/handoff-<utc>[-n]`. Anything else
 is refused (exit 4) and left as it is.
 
+A repo with no `origin` remote cannot make a docs PR: `start` exits 3 with "no remote: commit explicit paths in
+place (git add <named files>; git commit)". It commits nothing itself.
+
 Exit codes (caddis_exit): 0 clean (PR opened, or no change), 1 blocked (the PR could not be opened),
 3 could not run (git or the push failed, no GitHub origin), 4 error (bad usage, not a docs-PR worktree).
 """
@@ -74,8 +77,13 @@ def _utc() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
 
 
+NO_REMOTE = "no remote: commit explicit paths in place (git add <named files>; git commit)"
+
+
 def start(repo: Path, out=print) -> int:
     repo = Path(repo).resolve()
+    if not _git(repo, "remote", "get-url", "origin", check=False).stdout.strip():
+        raise DocsPrError(NO_REMOTE, caddis_exit.NOT_RUN)  # a docs PR needs origin; say what to do instead
     base = roadmap.fetch(repo)
     stamp = _utc()
     tmp_root = Path(tempfile.gettempdir())

@@ -27,7 +27,7 @@ What the keys mean:
 | `reviews.count` | How many reviews a PR needs before it is ready. |
 | `reviews.stop_on` | Which review findings stop a merge. `blocking`: only blocking findings. |
 | `peer_ack.warning_min` | Minutes between the merge warning and the merge. |
-| `peer_ack.ack_file` | Where each peer writes its ack: `{head, acked[], at}`. An ack older than 30 minutes does not count. |
+| `peer_ack.ack_file` | Where each peer writes its ack: `{head, acked[], at}`. An ack older than 30 minutes does not count. Only a peer with a stake in the repo must ack: its folder is in the repo or a worktree of it, or the coordinator lists one of its PRs, branches or plan phases, or it sent `ready` or `phase`. A peer with no stake is not warned and is not in `acked[]`. |
 | `deploy.event` | The event that starts the deploy run (for example `push`). |
 | `deploy.jobs` | The number of jobs in the deploy run. |
 | `deploy.tag` | The release tag scheme. With `calver`, the tag must point at the merge SHA. |

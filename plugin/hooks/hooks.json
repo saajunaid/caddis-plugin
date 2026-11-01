@@ -73,7 +73,7 @@
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_log.py\"",
-            "timeout": 10
+            "timeout": 20
           }
         ]
       }
@@ -98,7 +98,7 @@
         ]
       },
       {
-        "matcher": "Bash|PowerShell|Read|Grep|Agent|Task|WebFetch",
+        "matcher": "Bash|PowerShell|Read|Grep|Glob|Edit|Write|MultiEdit|Agent|Task|WebFetch",
         "hooks": [
           {
             "type": "command",

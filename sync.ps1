@@ -39,6 +39,12 @@ $POOL_FOLDERS = @("agents", "skills", "prompts", "instructions", "hooks", "diagr
 $POOL_FILES = @("runtime-targets.json", "pool.manifest.yml")
 $ROOT_PUSH_FILES = @("export_runtime_resources.py", "validate_agents.py", "validate_pool.py", "sync.ps1", ".env.example")
 $ROOT_SYNC_FILES = @("LICENSE", "NOTICE.md")
+# Every source path a caddis-push reads into the public mirror: the pool (.github), the export's extra
+# roots (runtime-targets.json extra_roots: claude-harness, scripts), the npm source (cli), the guide that
+# build_reference.py renders (docs/guide), and the root files above. Assert-ReleasePreflight refuses a
+# release while any of them has an uncommitted change. scripts/tests/test_sync_release_preflight.py
+# fails when the export gains a root that is not listed here.
+$RELEASE_SOURCE_PATHS = @(".github", "claude-harness", "scripts", "cli", "docs/guide") + $ROOT_PUSH_FILES + $ROOT_SYNC_FILES
 # PRIVACY IS MOSTLY STRUCTURAL. This repo (caddis) holds ONLY public, publishable source -
 # there is no private vmie/ root and no vmie skill category to purge (they live in the separate,
 # private caddis repo and never came across in the extraction). $PRIVATE_ROOT_FOLDERS is therefore
@@ -1145,6 +1151,223 @@ function Test-ShipPreflight {
     return $true
 }
 
+function Get-GitHubRepoFromRemoteUrl {
+    # "owner/name" from a github.com remote URL (https, ssh or scp form), or "" for any other remote.
+    param([string]$Url = "")
+    $m = [regex]::Match(([string]$Url).Trim(), '^(?:https?://(?:[^@/]+@)?|ssh://git@|git@)github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$')
+    if (-not $m.Success) { return "" }
+    return "$($m.Groups[1].Value)/$($m.Groups[2].Value)"
+}
+
+function Assert-ReleasePreflight {
+    # Release preflight (audit finding 7, 2026-10-29). caddis-push publishes the LOCAL working tree to the
+    # public mirror and npm. Before anything is staged, copied or committed, this checks that the tree is
+    # the reviewed, pushed, green code:
+    #   fetch                git fetch origin worked, so origin/<Branch> is current
+    #   clean-tree           no modified, staged or untracked path under -ReleasePaths (the whole tree when
+    #                        none are given). A peer session's edit in the shared checkout would otherwise ship.
+    #   head-matches-origin  HEAD is origin/<Branch>: not ahead (unreviewed), not behind (stale)
+    #   gh                   gh is on PATH and has a token for -GitHubAccount. Fails closed.
+    #   ci-at-head           the newest run of every workflow for HEAD finished with success (skipped and
+    #                        neutral count as passed). No run yet is a refusal: GitHub can take a moment to
+    #                        register a run after a push.
+    #   main-ci-idle         no other run on <Branch> is queued or in progress
+    # gh runs with GH_TOKEN from `gh auth token -u <account>`, never `gh auth switch`; the caller's GH_TOKEN
+    # is put back afterwards. Read-only: it never stages, commits or pushes.
+    # Without -Force: one [REFUSE] line per failed check, returns $false. With -Force: the same lines as
+    # [WARN], one [FORCE] line that names every check that failed or did not run, returns $true.
+    # Runs under Windows PowerShell 5.1 (the profile that dot-sources this file).
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string[]]$ReleasePaths = @(),
+        [string[]]$AllowDirty = @(),
+        [string]$Branch = "main",
+        [string]$GitHubRepo = "",
+        [string]$GitHubAccount = "",
+        [switch]$Force
+    )
+
+    # Local to this function. Under Windows PowerShell 5.1 a native command's stderr becomes an error record,
+    # which would stop a caller that runs with ErrorActionPreference = Stop.
+    $ErrorActionPreference = "Continue"
+    $failed = New-Object System.Collections.Generic.List[string]
+    $notRun = New-Object System.Collections.Generic.List[string]
+    $messages = New-Object System.Collections.Generic.List[string]
+
+    # -- fetch
+    $fetch = Invoke-ShipGit -RepoPath $RepoRoot -GitArgs @("fetch", "--quiet", "origin")
+    $fetched = ($fetch.ExitCode -eq 0)
+    if (-not $fetched) {
+        $why = @(([string]$fetch.Error).Trim() -split "`r?`n")[0]
+        $failed.Add("fetch")
+        $messages.Add("git fetch origin failed ($why). Check the network and the remote, then retry.")
+    }
+
+    # -- clean-tree
+    $statusArgs = @("status", "--porcelain=v1", "-z", "--untracked-files=all")
+    if ($ReleasePaths.Count -gt 0) { $statusArgs += @("--") + $ReleasePaths }
+    $status = Invoke-ShipGit -RepoPath $RepoRoot -GitArgs $statusArgs
+    if ($status.ExitCode -ne 0) {
+        $failed.Add("clean-tree")
+        $messages.Add("git status failed in $RepoRoot ($(([string]$status.Error).Trim())). Fix the checkout, then retry.")
+    } else {
+        $allowed = @($AllowDirty | ForEach-Object { ([string]$_).Trim().Replace("\", "/") })
+        $dirty = New-Object System.Collections.Generic.List[string]
+        foreach ($entry in @(Get-ShipStatusEntries -StatusRaw $status.Output)) {
+            foreach ($p in @($entry.Paths)) {
+                if (($allowed -notcontains $p) -and (-not $dirty.Contains($p))) { $dirty.Add($p) }
+            }
+        }
+        if ($dirty.Count -gt 0) {
+            $shown = (@($dirty) | Select-Object -First 5) -join ", "
+            if ($dirty.Count -gt 5) { $shown += ", and $($dirty.Count - 5) more" }
+            $failed.Add("clean-tree")
+            $messages.Add("The release folders have uncommitted changes ($($dirty.Count) path(s): $shown). Commit them through a PR, or wait for the session that owns them, then retry.")
+        }
+    }
+
+    # -- head-matches-origin
+    $headSha = ([string](Invoke-ShipGit -RepoPath $RepoRoot -GitArgs @("rev-parse", "HEAD")).Output).Trim()
+    $shortSha = $headSha.Substring(0, [Math]::Min(7, $headSha.Length))
+    $remoteRef = "refs/remotes/origin/$Branch"
+    if (-not $fetched) {
+        $notRun.Add("head-matches-origin")
+    } else {
+        $remote = Invoke-ShipGit -RepoPath $RepoRoot -GitArgs @("rev-parse", "--verify", "--quiet", $remoteRef)
+        $remoteSha = ([string]$remote.Output).Trim()
+        if ($remote.ExitCode -ne 0 -or $remoteSha -eq "") {
+            $failed.Add("head-matches-origin")
+            $messages.Add("origin/$Branch does not exist after the fetch. Check the remote, then retry.")
+        } elseif ($remoteSha -ne $headSha) {
+            $counts = @(([string](Invoke-ShipGit -RepoPath $RepoRoot -GitArgs @("rev-list", "--left-right", "--count", "$remoteRef...HEAD")).Output).Trim() -split "\s+")
+            $behind = 0
+            $ahead = 0
+            if ($counts.Count -ge 2) {
+                $behind = [int]$counts[0]
+                $ahead = [int]$counts[1]
+            }
+            $failed.Add("head-matches-origin")
+            if ($ahead -gt 0 -and $behind -gt 0) {
+                $messages.Add("HEAD has diverged from origin/$Branch ($ahead commit(s) ahead, $behind behind). Put the local commits through a PR, update to origin/$Branch, then retry.")
+            } elseif ($behind -gt 0) {
+                $messages.Add("HEAD is $behind commit(s) behind origin/$Branch. Run: git pull --ff-only, then retry.")
+            } else {
+                $messages.Add("HEAD is $ahead commit(s) ahead of origin/$Branch (not pushed, so not reviewed). Merge them through a PR, then retry.")
+            }
+        }
+    }
+
+    # -- gh, ci-at-head, main-ci-idle
+    if ([string]::IsNullOrWhiteSpace($GitHubRepo)) {
+        $originUrl = ([string](Invoke-ShipGit -RepoPath $RepoRoot -GitArgs @("remote", "get-url", "origin")).Output).Trim()
+        $GitHubRepo = Get-GitHubRepoFromRemoteUrl -Url $originUrl
+        if ($GitHubRepo -eq "") {
+            $failed.Add("gh")
+            $messages.Add("origin ($originUrl) is not a github.com URL, so CI at HEAD cannot be checked. Release from the GitHub checkout, then retry.")
+        }
+    }
+    $token = ""
+    if ($GitHubRepo -ne "") {
+        if ([string]::IsNullOrWhiteSpace($GitHubAccount)) {
+            $failed.Add("gh")
+            $messages.Add("No gh account is set for the CI check. Fix: [Environment]::SetEnvironmentVariable('CADDIS_RELEASE_GH_ACCOUNT', '<GitHub login>', 'User'), open a new shell, then retry.")
+        } elseif (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+            $failed.Add("gh")
+            $messages.Add("gh (GitHub CLI) is not on PATH, so CI at HEAD cannot be checked. Fix: winget install --id GitHub.cli, then gh auth login --hostname github.com, then retry.")
+        }
+    }
+    $ghOk = ($GitHubRepo -ne "") -and (-not $failed.Contains("gh"))
+    if ($ghOk) {
+        $hadToken = Test-Path Env:GH_TOKEN
+        $oldToken = $env:GH_TOKEN
+        try {
+            # Clear GH_TOKEN first: gh prefers it over the stored login, and it may belong to another account.
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $token = ((& gh auth token -u $GitHubAccount 2>$null) | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $token -eq "") {
+                $ghOk = $false
+                $failed.Add("gh")
+                $messages.Add("gh has no token for $GitHubAccount, so CI at HEAD cannot be checked. Fix: gh auth login --hostname github.com (sign in as $GitHubAccount), then retry.")
+            } else {
+                $env:GH_TOKEN = $token
+                $fields = "databaseId,workflowName,status,conclusion,headSha"
+                $headJson = (& gh run list --repo $GitHubRepo --commit $headSha --limit 50 --json $fields 2>$null) | Out-String
+                $headExit = $LASTEXITCODE
+                $mainJson = (& gh run list --repo $GitHubRepo --branch $Branch --limit 30 --json $fields 2>$null) | Out-String
+                $mainExit = $LASTEXITCODE
+            }
+        } finally {
+            if ($hadToken) { $env:GH_TOKEN = $oldToken } else { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
+        }
+    }
+    if (-not $ghOk) {
+        $notRun.Add("ci-at-head")
+        $notRun.Add("main-ci-idle")
+    } else {
+        $headRuns = $null
+        $mainRuns = $null
+        try {
+            if ($headExit -eq 0 -and $mainExit -eq 0) {
+                $parsedHead = @()
+                $parsedMain = @()
+                if ($headJson.Trim() -ne "") { $parsedHead = $headJson | ConvertFrom-Json }
+                if ($mainJson.Trim() -ne "") { $parsedMain = $mainJson | ConvertFrom-Json }
+                $headRuns = @($parsedHead | Where-Object { $_ })
+                $mainRuns = @($parsedMain | Where-Object { $_ })
+            }
+        } catch {
+            $headRuns = $null
+        }
+        if ($null -eq $headRuns -or $null -eq $mainRuns) {
+            $failed.Add("ci-at-head")
+            $failed.Add("main-ci-idle")
+            $messages.Add("gh run list failed for $GitHubRepo, so CI cannot be checked. Run: gh auth status, then retry.")
+        } else {
+            # The newest run of each workflow decides: a re-run that passed replaces the run that failed.
+            $latest = @($headRuns | Group-Object -Property workflowName | ForEach-Object {
+                $_.Group | Sort-Object -Property { [long]$_.databaseId } -Descending | Select-Object -First 1
+            })
+            $passed = @("success", "skipped", "neutral")
+            $bad = @($latest | Where-Object { $_.status -eq "completed" -and ($passed -notcontains [string]$_.conclusion) })
+            $running = @($latest | Where-Object { $_.status -ne "completed" })
+            if ($latest.Count -eq 0) {
+                $failed.Add("ci-at-head")
+                $messages.Add("No CI run found for HEAD $shortSha on $GitHubRepo. CI has not started or is still being registered; wait and retry.")
+            } elseif ($bad.Count -gt 0) {
+                $failed.Add("ci-at-head")
+                $names = ($bad | ForEach-Object { "$($_.workflowName): $($_.conclusion)" }) -join ", "
+                $messages.Add("CI at HEAD $shortSha did not pass ($names). Fix $Branch first; a red head must not be released.")
+            } elseif ($running.Count -gt 0) {
+                $failed.Add("ci-at-head")
+                $names = ($running | ForEach-Object { "$($_.workflowName): $($_.status)" }) -join ", "
+                $messages.Add("CI at HEAD $shortSha is still running ($names). Wait for it to finish, then retry.")
+            }
+            # Runs for HEAD itself are reported above; this catches a newer push or another workflow on main.
+            $active = @($mainRuns | Where-Object { $_.status -ne "completed" -and [string]$_.headSha -ne $headSha })
+            if ($active.Count -gt 0) {
+                $a = $active[0]
+                $aSha = [string]$a.headSha
+                $aShort = $aSha.Substring(0, [Math]::Min(7, $aSha.Length))
+                $failed.Add("main-ci-idle")
+                $messages.Add("A CI run on $Branch is in progress ($($a.workflowName) at $($aShort): $($a.status)). Wait for it to finish, then retry.")
+            }
+        }
+    }
+
+    if ($messages.Count -eq 0) {
+        Write-Host "  [OK]  release preflight: release folders clean, HEAD $shortSha = origin/$Branch, CI passed at HEAD" -ForegroundColor Green
+        return $true
+    }
+    if ($Force) {
+        foreach ($m in $messages) { Write-Host "  [WARN]  $m" -ForegroundColor Yellow }
+        $skipped = @(@($failed) + @($notRun) | Select-Object -Unique)
+        Write-Host "  [FORCE]  -Force given: release preflight checks skipped: $($skipped -join ', '). This release is NOT verified." -ForegroundColor Red
+        return $true
+    }
+    foreach ($m in $messages) { Write-Host "  [REFUSE]  $m" -ForegroundColor Red }
+    return $false
+}
+
 function Commit-RepoIfDirty {
     # Used for junai-vscode, a repo a person edits by hand. Commits the named files only; throws when
     # the repo holds any other change, so a hand edit is never swept into a ship.
@@ -1366,9 +1589,13 @@ function caddis-push {
         [switch]$SkipProfileSync,
         [switch]$SkipAgySync,
         [switch]$SkipNpm,
-        # Push to the public mirror even when a pre-push validator fails. Deliberate
-        # override for a known-bad check you have decided to ship past; it has to be typed.
-        [switch]$Force
+        # Push to the public mirror even when the release preflight or a pre-push validator fails.
+        # Deliberate override for a known-bad check you have decided to ship past; it has to be typed,
+        # and it prints which checks were skipped.
+        [switch]$Force,
+        # Release paths the CALLER changed on purpose just before this call (caddis-publish-cli sets the
+        # CLI version), so the preflight's clean-tree check does not refuse them. Not for interactive use.
+        [string[]]$PreflightAllowDirty = @()
     )
 
     if ($PSBoundParameters.ContainsKey("McpVersion")) {
@@ -1411,6 +1638,16 @@ function caddis-push {
     Write-Host ""
     Write-Host "  CADDIS PUSH  $(Split-Path $ProjectRoot -Leaf) --> caddis-plugin" -ForegroundColor Magenta
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
+
+    # RELEASE PREFLIGHT (audit finding 7, 2026-10-29). Everything below copies the LOCAL tree to the public
+    # mirror and npm, so first prove the tree is the reviewed, pushed, green code: release folders clean,
+    # HEAD = origin/main after a fetch, CI passed at HEAD, no CI run on main in progress. A refusal THROWS,
+    # so callers (caddis-revert, caddis-ship, caddis-publish-cli) stop too, and nothing has been changed yet.
+    # -Force overrides with a warning that names the skipped checks.
+    $preflightOk = Assert-ReleasePreflight -RepoRoot $ProjectRoot -ReleasePaths $RELEASE_SOURCE_PATHS -AllowDirty $PreflightAllowDirty -Branch "main" -GitHubAccount (Get-CaddisEnvValue -Name "CADDIS_RELEASE_GH_ACCOUNT") -Force:$Force
+    if (-not $preflightOk) {
+        throw "caddis-push refused by the release preflight (see [REFUSE] above). Nothing was changed."
+    }
 
     # Taken BEFORE caddis-push makes any source commit of its own (manifest bump, portfolio
     # numbers), so the source push at the end can ship exactly those and nothing else. A shared
@@ -2134,7 +2371,9 @@ function caddis-push {
                 Write-Host "  Source repo pushed ($srcOwnCommits caddis-push commit(s))." -ForegroundColor Magenta
             }
         } else {
-            Write-Host "  [WARN]  Source repo holds other unpushed commits (ahead $srcAheadNow, $srcOwnCommits from this publish) -- NOT pushed, so no unreviewed work ships. Push it by hand." -ForegroundColor Yellow
+            # The release preflight already refused a source HEAD ahead of origin/main (unless -Force), so
+            # these extra commits came in during the publish or under -Force. They are left local: review them.
+            Write-Host "  [WARN]  Source repo holds other unpushed commits (ahead $srcAheadNow, $srcOwnCommits from this publish) -- NOT pushed, so this publish does not push them to the source repo. Review them and push by hand." -ForegroundColor Yellow
         }
         Pop-Location
     }
@@ -2460,11 +2699,20 @@ function caddis-publish-cli {
         Pop-Location
     }
 
+    # The release preflight runs here, BEFORE the version edit below, so a refusal leaves package.json as it
+    # was. caddis-push runs it again and is told that the two version files are this function's own edit.
+    # (-Force here means "re-tag an existing version"; it does not override the preflight. Use caddis-push -Force.)
+    $cliOwnFiles = @("cli/package.json", "cli/package-lock.json")
+    if (-not (Assert-ReleasePreflight -RepoRoot $ProjectRoot -ReleasePaths $RELEASE_SOURCE_PATHS -Branch "main" -GitHubAccount (Get-CaddisEnvValue -Name "CADDIS_RELEASE_GH_ACCOUNT"))) {
+        Write-Host "  [ABORT]  release preflight refused; cli/package.json was not changed." -ForegroundColor Red
+        return $false
+    }
+
     Write-Host "  Releasing @caddis/cli v$targetVer to npm..." -ForegroundColor Magenta
 
     Set-CliPackageVersion -CliDir $cliSrc -VersionString $targetVer
 
-    $result = caddis-push -ProjectRoot $ProjectRoot -Message "chore(cli): release @caddis/cli v$targetVer"
+    $result = caddis-push -ProjectRoot $ProjectRoot -Message "chore(cli): release @caddis/cli v$targetVer" -PreflightAllowDirty $cliOwnFiles
     return $result
 }
 

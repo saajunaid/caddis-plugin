@@ -424,6 +424,11 @@ Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merg
 `in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell
 that says `pending` is never done.
 
+The plan's frontmatter `status:` is a different axis from these cells. Use only the known words:
+`draft` (being written), `proposed` (written, not agreed), `ready` (agreed, waiting), `current` (work is under
+way), then `done` or `superseded`. Never `in-progress`, `active` or `wip`: `check_doc_coverage.py` warns on
+them and suggests the nearest known word.
+
 ## Per-symbol grep preflight (before the plan is committed)
 Check every name a card gives: each symbol, file, line number and CSS variable. Use one grep per name
 (Grep, or `git grep -n`) before you commit the plan. Fix the card when a name or a line number differs.

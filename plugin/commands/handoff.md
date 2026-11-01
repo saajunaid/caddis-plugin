@@ -26,6 +26,8 @@ them into its commit, so check first, before Step 1.
    ```
    It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the root `AGENTS.md`
    has a line `Shared checkout: yes`, or when `git status` lists a path this session did not change.
+   Files that caddis writes itself (the generated index `.caddis/relay.md`, `*.jsonl` logs, locks and `.bak`
+   copies in `.caddis/`) never count as another session's change.
 3. **On `SHARED: no`,** do the steps below as written.
 4. **On `SHARED: yes`,** write NO tracked file in this checkout. Run:
    ```
@@ -33,6 +35,11 @@ them into its commit, so check first, before Step 1.
    ```
    It makes a new worktree from `origin/<default>` on a `docs/handoff-<utc>` branch and prints
    `WORKTREE: <path>`. That worktree is this session's only; no other session's edits can enter it.
+   **If the repo has no `origin` remote,** it exits 3 and prints
+   `no remote: commit explicit paths in place (git add <named files>; git commit)`. A docs PR needs a
+   remote, so skip the worktree path: name each file this session changed, `git add` those files only
+   (never `-A` or a directory), commit them, and leave every other dirty path alone. The tool commits nothing
+   itself. Then do the steps below as written, in this checkout.
    Then, in the steps below:
    - Step 1: tell the `knowledge-transfer` subagent to edit files ONLY under the `WORKTREE:` path.
    - Step 3, point 4: make the plan's Tracker edit in `<worktree>/.caddis/plans/<feature>.md`, and write
@@ -202,8 +209,11 @@ Nothing to say is the normal answer. Say nothing and move on — this must not b
 <!-- /shared:harness-friction-question -->
 
 ## Step 3 — write the resume doc (overwrite) with exactly these sections
-Write the relay from scratch with the current state only. Never append to the old text: git keeps the
-history, and the relay has a 4,000-character budget (`caddis_budget.py`).
+Write the relay from scratch with the current state only. Never append to the old text. The relay has a
+4,000-character budget (`caddis_budget.py`), and `put`/`write` refuse a longer relay. `.caddis/relay/` is
+git-ignored, so git keeps no history of it: before you rewrite a long relay, copy it to
+`.caddis/relay/<name>.md.bak`. Keep any other note in `.caddis/relay/` under the same 4,000 characters (the
+budget covers every `*.md` file there); put a longer note elsewhere, for example under `.caddis/kb/`.
 
 > **Where to write:** this session's own workstream relay, `.caddis/relay/<name>.md`, through the
 > locked script — never with a plain file edit, which would skip the conflict check. `.caddis/relay.md`

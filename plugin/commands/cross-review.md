@@ -82,10 +82,21 @@ writes. This line used to prefix the flag itself, which turned that into a doubl
 Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
 
 **A large diff is batched, not refused.** Over `REVIEW_MAX_DIFF_CHARS` (default 60,000) the tool splits
-on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. Exit **4**
-now means the narrower case — a **single file** too big to split, or more batches than the cap. When you
-see it, the fix is usually to review that one file separately, not to narrow `--range`; don't raise
-`--max-diff-chars` blind.
+on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. When agy
+Argon is anywhere in the provider chain, each batch is also kept small enough that its **whole prompt** fits
+the agy command line (28,000 chars once quoted, so under about 27,000 diff chars, fewer when the diff has many `"`). A **single file** too
+big for agy gets its own batch: agy skips it and the next provider reviews it. With no other provider (no
+DeepSeek or GLM key), that file gives exit **3**. Exit **4** means a **single file** over the 60,000 ceiling,
+or more batches than the cap. When you see either, review that one file separately (or add a key for an
+HTTP provider), not a narrower `--range`; don't raise `--max-diff-chars` blind.
+
+**The verdict is the last line.** Only the last non-empty line of the reply counts, and it must be
+exactly `REVIEW: CLEAN` or `REVIEW: BLOCKING`. A reply that quotes the marker earlier and ends some other
+way has no verdict (exit 4). An explicit `--range` with no changes is exit **3** (a review of nothing is not
+CLEAN); the working tree with no changes is still CLEAN. When the secret filter drops some files, the
+output ends with `REVIEW-SCOPE: PARTIAL (<n> file(s) excluded by the secret filter: <names>)` and then the
+overall `REVIEW:` line. The exit code does not change, but the excluded files were **not reviewed**: say so,
+and never report the result as a full CLEAN.
 
 **Do not alternate providers on a schedule.** The order is the owner policy (21 Oct 2026): **agy Argon,
 then DeepSeek, then GLM** (`REVIEW_ORDER` in `oss_review.py`). A named `--provider` goes first; on a provider failure
@@ -104,7 +115,8 @@ a reason.
 - **1 — REVIEW: BLOCKING** → read the printed findings, then **FIX each blocking item** (or explicitly
   justify why one is a false positive). Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, or a git/endpoint failure. Read stderr; do NOT treat as clean.
-- **3 — could not run** → no key (see Prerequisite), the secret filter refused, or every provider
+- **3 — could not run** → no key (see Prerequisite), the secret filter refused, an explicit `--range` has
+  no changes, or every provider
   failed (429, 5xx, timeout, empty reply). Read stderr. A provider failure is not a verdict: re-run later.
 
 ## Three rules: one attempt, one review

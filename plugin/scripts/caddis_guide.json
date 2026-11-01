@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.173",
- "generated": "2026-10-29 01:50 UTC",
+ "version": "1.3.174",
+ "generated": "2026-11-01 00:26 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -2358,7 +2358,7 @@
   },
   {
    "event": "PostToolUse",
-   "matcher": "Bash|PowerShell|Read|Grep|Agent|Task|WebFetch",
+   "matcher": "Bash|PowerShell|Read|Grep|Glob|Edit|Write|MultiEdit|Agent|Task|WebFetch",
    "handler": "context_size.py"
   },
   {

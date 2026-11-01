@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
+import subprocess
 import sys
 from typing import NamedTuple
 
@@ -38,7 +39,7 @@ BUDGETS: tuple[Budget, ...] = (
         ".caddis/relay/*.md",
         "chars",
         4000,
-        "rewrite: current state only, git keeps history",
+        "rewrite: current state only",
     ),
     Budget(
         ".caddis/relay/*.tasks.md",
@@ -199,6 +200,29 @@ def check(root: Path) -> list[Over]:
     return overs
 
 
+def _git_ignored(root: Path, rel: str) -> bool:
+    """True when git ignores ``rel``. Where git cannot say (no repo, no git), the relay folder counts as ignored:
+    every caddis scaffold ignores it."""
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", "--", rel],
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return rel.startswith(".caddis/relay/")
+    if proc.returncode in (0, 1):  # 0 ignored, 1 not ignored; anything else is "git cannot say"
+        return proc.returncode == 0
+    return rel.startswith(".caddis/relay/")
+
+
+def fix_text(root: Path, over: Over) -> str:
+    """The fix line for ``over``. A rewrite of a git-ignored file loses the old text for good, so say back up first."""
+    if not over.rule.startswith("rewrite"):
+        return over.rule
+    if _git_ignored(root, over.path):
+        return (f"{over.rule}. Back up first: copy {over.path} to {over.path}.bak "
+                "(git-ignored, so git keeps no history)")
+    return f"{over.rule}; git keeps history"
+
+
 def main(argv: list[str] | None = None) -> int:
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         try:
@@ -235,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         return caddis_exit.CLEAN
 
     for over in overs:
-        print(f"OVER {over.path}: {over.value} {over.unit} > {over.limit}; fix: {over.rule}")
+        print(f"OVER {over.path}: {over.value} {over.unit} > {over.limit}; fix: {fix_text(args.root, over)}")
     if args.report:
         return caddis_exit.CLEAN
     return caddis_exit.BLOCKED

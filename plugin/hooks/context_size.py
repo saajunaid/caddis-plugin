@@ -132,6 +132,21 @@ def _message(
     )
 
 
+def _env_int(name: str, default: int) -> int:
+    """Integer from the environment. A bad value is named on stderr and the default is used.
+
+    Before, a bad value raised inside main(), the blanket except swallowed it, and the hook went silent.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"[caddis] {name}={raw!r} is not a whole number; using the default {default}.", file=sys.stderr)
+        return default
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -145,8 +160,8 @@ def main() -> None:
         if "/" in session_id or "\\" in session_id or session_id in (".", ".."):
             return
 
-        WARN = int(os.environ.get("CADDIS_CTX_WARN", 200000))
-        FORCE = int(os.environ.get("CADDIS_CTX_FORCE", 280000))
+        WARN = _env_int("CADDIS_CTX_WARN", 200000)
+        FORCE = _env_int("CADDIS_CTX_FORCE", 280000)
 
         n = last_context(transcript_path)
         if n is None:
@@ -187,7 +202,7 @@ def main() -> None:
             return
 
         unattended = _unattended()
-        unattended_max = int(os.environ.get("CADDIS_UNATTENDED_MAX_FORCE", 6))
+        unattended_max = _env_int("CADDIS_UNATTENDED_MAX_FORCE", 6)
         unattended_count = 0
         if unattended and level == "force":
             count_file = os.path.join(sessions_dir, f"{session_id}.unattended")

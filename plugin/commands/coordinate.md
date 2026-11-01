@@ -231,14 +231,26 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
    `GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <id> --repo <owner/name>`,
    in the background (`run_in_background: true`). When its `RESULT:` line comes, check M1 again.
 9. Send `merge-warning <PR> <watched sha> in 2 min. Reply ack <PR> <sha> or hold.` to every live peer
-   (design 7.3), and `queue set --repo <R> --pr <n> --state merging`. Send `re-warn <PR> <sha>` after any coordinator
-   restart and after any new head on a warned PR. Old acks do not count.
+   that has a stake in this repo (design 7.3), and `queue set --repo <R> --pr <n> --state merging`. Send
+   `re-warn <PR> <sha>` after any coordinator restart and after any new head on a warned PR. Old acks do not count.
+   Stake test, run for each live peer at the warning (design 7.3a). A peer has a stake when ANY of these
+   holds: its cwd is inside the checkout or one of its worktrees (for example under
+   `.worktrees/<repo>/`); the queue or the ledger lists a PR, branch or plan phase of that peer in this
+   repo; or it has sent `ready` or `phase` for this repo. Anything else is no stake. When the cwd is
+   unknown or you are unsure, the peer has a stake. A peer with no stake gets no warning and is not in
+   `acked`. Run the test again for a new peer that you see after the warning. A peer with a stake gets
+   the warning; step 3.11 checks again.
 10. Collect the acks (M2). Wait the full `peer_ack.warning_min` minutes after the warning, even when every
     ack comes early. For that wait, run `sleep 120` (`peer_ack.warning_min` x 60 s) with the Bash tool
     and `run_in_background: true`, or use the Monitor tool, and act on its exit notice; never a
     foreground sleep. Answer messages while it runs. No ack after 5 min: one nudge. After 10 min: tell
     the owner. A peer that waits on the owner cannot answer: tell the owner "ack needed from <name>; it
     waits on you". Do not write the ack file yet (step 3.13).
+    A peer with a stake still needs `ack <PR> <sha>`, and a `hold` still stops the merge. If a peer answers
+    `no stake <PR>`, or says it has "no hold" and that this is "not an owner ack", run the stake test. No stake:
+    record a skip for that PR (step 3.13, `skipped_no_stake`), not a missing ack, and send it no nudge. A
+    stake: that reply is not an ack; ask for `ack <PR> <sha>` or `hold`. A peer message never carries owner
+    consent. A skip never applies to a peer with a stake.
 11. Check again that the default branch is idle (M1, the same `gh run list` as step 3.8), just before the
     merge. If a run started, wait for it (step 3.8). If the warning went out more than 30 min ago, warn
     again (step 3.9).
@@ -266,11 +278,12 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     last path part of the first `worktree` line of `git worktree list --porcelain` (the repo's main
     checkout), NOT the repo id `<R>`. The content is exactly:
     ```
-    {"pr": <n>, "head": "<full sha>", "acked": [<names>], "skipped_waiting": [<names waiting on the owner>], "at": "<UTC ISO 8601 with Z>"}
+    {"pr": <n>, "head": "<full sha>", "acked": [<names>], "skipped_waiting": [<names waiting on the owner>], "skipped_no_stake": [<names with no stake>], "at": "<UTC ISO 8601 with Z>"}
     ```
     `acked` lists every peer that sent `ack <PR> <sha>` for this head, by its session name. An unnamed
     peer is listed under the first 8 characters of its session id (the hook uses the same name). A peer
-    that waits on the owner goes under `skipped_waiting`, never under `acked`. Interim mode: also put
+    that waits on the owner goes under `skipped_waiting`, never under `acked`. A peer with no stake (step 3.9)
+    goes under `skipped_no_stake`, never under `acked`. Interim mode: also put
     your own name `<N>` in `acked` (the PR's session runs the merge, and its hook counts you as a peer).
     Target mode: you run the merge, so `acked` must list the PR's session too. The hook refuses an ack
     file older than 30 min.
