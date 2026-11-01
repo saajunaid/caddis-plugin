@@ -22,7 +22,7 @@ DEFAULT_ROUTING: dict[str, list[str]] = {
     "critical": ["opus"],
     "light": ["sonnet"],
     "coding": ["agy"],
-    "review": ["deepseek", "glm"],  # owner order 2026-10-16; an agy review runs through caddis_spend.py
+    "review": ["deepseek", "glm"],  # owner order 2026-10-16; an agy review runs through caddis_spend.py run (no cap)
     "consult": ["agy", "glm"],
     "ci-watch": ["agy"],
     "mechanical": ["haiku"],

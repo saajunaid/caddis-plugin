@@ -9,7 +9,9 @@
 #   3. `caddis_roadmap.py recheck` cleared a blocker (exit 0); in a `merged:`, `freed:` or `rollup-ready:` tick
 #      recheck is NOT run (the
 #      merge is the change, and a cleared blocker would change the roadmap the restart checks against its hash);
-#   4. agy engine only (the recorded launch options): `caddis_spend.py check` exits 0.
+#   4. agy engine only (the recorded launch options): `caddis_spend.py check` exits 0. There is no spend cap (1 Nov
+#      2026), so check always exits 0 and prints the usage line (with ADVISORY at the advise level); a non-zero
+#      exit now means the script itself failed.
 # It restarts with the launch options the last run recorded (`--restart-args`: engine, model, caps), never the
 # defaults. A run that holds the lock records the last stop `running`, so a run killed without a stop (a crash, a
 # reboot) is never restarted here: it needs the owner.
@@ -72,7 +74,7 @@ $options = @(& $py $runnerPy --roadmap $Roadmap --repo $Repo --restart-args | Wh
 if ($LASTEXITCODE -ne 0) { Write-Output "roadmap-recheck: launch options not readable; runner not started"; exit 1 }
 if ($GhAccount -and $options -notcontains '-GhAccount') { $options += @('-GhAccount', $GhAccount) }
 
-# The global agy spend cap applies to the agy engine only (a claude run needs no spend-cap file).
+# agy engine only: print the agy usage line (no cap; check exits 0 unless the script itself fails).
 $engineAt = [array]::IndexOf($options, '-Engine')
 $engine = if ($engineAt -ge 0 -and $engineAt + 1 -lt $options.Count) { $options[$engineAt + 1] } else { 'claude' }
 if ($engine -eq 'agy') {

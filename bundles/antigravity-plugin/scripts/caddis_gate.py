@@ -90,7 +90,7 @@ def launch_command(block: str) -> str:
     """The literal command for a non-claude lane, if the phase names one.
 
     Also matches a caddis_lanes.py run command, a direct codex/agy command, and an agy command
-    wrapped in the spend cap (`python .../caddis_spend.py run --caller X -- agy ...`).
+    wrapped in the spend wrapper (`python .../caddis_spend.py run --caller X -- agy ...`).
     """
     m = re.search(
         r'`((?:claude-(?:glm|oss|deepseek)\b|' + _LANES_RUN + r'\b|' + _SPEND_RUN
@@ -101,13 +101,13 @@ def launch_command(block: str) -> str:
 
 
 _LANES_RUN = r'python\s+"?\$\{CLAUDE_PLUGIN_ROOT\}/scripts/caddis_lanes\.py"?\s+run'
-# Every agy lane goes through the global spend cap (caddis-next Phase 4). Any path that ends in
+# Every agy lane goes through `caddis_spend.py run` (usage log, timeout, depth guard; no EUR cap). Any path that ends in
 # scripts/caddis_spend.py: `${CLAUDE_PLUGIN_ROOT}/...`, an expanded plugin-cache path (the codex bundle
 # rewrites the variable), or the bare repo-relative `scripts/caddis_spend.py` - which gate_lane accepts
 # only in the caddis source repo, because in an app repo that path is a file the agent can write.
 _SPEND_RUN = r'python3?\s+"?[^"\s`]*scripts/caddis_spend\.py"?\s+run'
 _SPEND_PATH = re.compile(r'python3?\s+"?([^"\s`]*scripts/caddis_spend\.py)"?\s+run')
-# Shell control characters outside the quoted prompt would chain a second, uncapped command.
+# Shell control characters outside the quoted prompt would chain a second, unwrapped command.
 _SHELL_CHAIN = re.compile(r"[;&|`\n]|\$\(")
 
 
@@ -155,7 +155,7 @@ def gate_lane(plan: Path, phase: int) -> int:
         return EXIT_MALFORMED
     if re.match(r"agy\b", cmd):
         sys.stderr.write(
-            f"[caddis-gate] phase {phase}'s agy command is not wrapped in the spend cap: {cmd}\n"
+            f"[caddis-gate] phase {phase}'s agy command is not wrapped in caddis_spend.py run: {cmd}\n"
             "  agy lanes must go through caddis_spend.py run --caller <name> -- agy ... Refusing to run it.\n")
         return EXIT_MALFORMED
     inner = cmd
@@ -163,7 +163,7 @@ def gate_lane(plan: Path, phase: int) -> int:
         wrapped = re.match(_SPEND_RUN + r'\s+--caller\s+\S+\s+--\s+(agy\b.*)$', cmd, re.S)
         if not wrapped:
             sys.stderr.write(
-                f"[caddis-gate] phase {phase}'s spend-cap command is malformed: {cmd}\n"
+                f"[caddis-gate] phase {phase}'s caddis_spend command is malformed: {cmd}\n"
                 "  Expected: caddis_spend.py run --caller <name> -- agy ... Refusing to run it.\n")
             return EXIT_MALFORMED
         inner = wrapped.group(1)
@@ -173,13 +173,13 @@ def gate_lane(plan: Path, phase: int) -> int:
                 or "${" in inner):
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s agy command chains another command: {cmd}\n"
-                "  A second command after the wrapped agy would run outside the spend cap. Refusing to run it.\n")
+                "  A second command after the wrapped agy would run outside caddis_spend.py run. Refusing to run it.\n")
             return EXIT_MALFORMED
         formats = re.findall(r"--output-format(?:\s+|=)(\S+)", _QUOTED.sub('""', inner))
         if formats != ["json"]:
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s agy command must have exactly one --output-format json: {cmd}\n"
-                "  Without JSON output the spend cap cannot read the token counts. Refusing to run it.\n")
+                "  Without JSON output the usage log cannot read the token counts. Refusing to run it.\n")
             return EXIT_MALFORMED
         path = _SPEND_PATH.match(cmd).group(1)
         norm = path.replace("\\", "/")
@@ -608,7 +608,7 @@ _STEERING_FILENAMES = {"conftest.py", "pytest.ini", "pyproject.toml", "setup.cfg
 def is_review_steering_file(path: str) -> bool:
     """True for config that steers reviews, merges or tests: never tier 0, and never a 0-reviewer "1-small".
 
-    `.caddis/*.toml` (review/implement routing, merge-chain checks, spend cap), any `conftest.py`, the pytest and
+    `.caddis/*.toml` (review/implement routing, merge-chain checks), any `conftest.py`, the pytest and
     packaging config, and `.github/workflows/**`. A fix diff that changes these can turn a gate off, so it is reviewed.
     """
     norm = path.replace("\\", "/").lower().removeprefix("./")

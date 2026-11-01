@@ -9,7 +9,7 @@ description: "Track milestones across plans in .caddis/roadmaps/<slug>/: next ba
 small docs PR, so it is ordered and recorded in git history. The tool's PRs are merged automatically on green checks
 by `caddis_merge_chain.py --docs-only`; a repo that wants a human to review them protects its default branch.
 
-`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.175/scripts` in an installed plugin, `scripts/` in
+`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.176/scripts` in an installed plugin, `scripts/` in
 the caddis source repo.
 
 ## The folder
@@ -193,9 +193,9 @@ unattended; `-Plan <slug>` runs one plain plan instead (the two are exclusive). 
    code `BLOCKED review not run` (neither restartable); the review cost counts against the USD caps.
 
 Stops (each one notifies and releases the lock): a STOP file (`~/.caddis/STOP` or `.local/STOP`), any cap (10 h,
-12 sessions, 120 min and USD 25 per session, USD 150 total; per run, in memory; the global agy spend cap of
-`caddis_spend.py` still counts across runs), a lock or batch claim that cannot be written
-(`BLOCKED claim not written`, before any session), the agy spend cap refusing a reservation, three sessions
+12 sessions, 120 min and USD 25 per session, USD 150 total; per run, in memory; there is no agy EUR cap since
+1 Nov 2026, only the usage log of `caddis_spend.py` and its ADVISORY line), a lock or batch claim that cannot be written
+(`BLOCKED claim not written`, before any session), an agy usage log that cannot be locked or written, three sessions
 with no newly merged phase, a roadmap write that fails, and the **snapshot guard**: one baseline for the whole run.
 The Milestones and Blockers tables (every cell of every row, rows added, removed or moved), the `Runner host` line
 and the `**Exit setup:**` line are frozen. Every origin read (each `next`, after the runner's own writes, after each session) is compared with the
@@ -250,8 +250,8 @@ the owner edits the roadmap during a merge wait, the restart stops `FAILED roadm
 recovery: `roadmap-run.ps1 -Roadmap <slug> -AcceptRoadmap` (owner only, refused headless) takes the runner lock (a live
 runner refuses it), prints the diff from the published baseline, asks you to type `accept` (or `--yes`), and accepts
 the origin roadmap as the new baseline of the wait; the next start goes on. With `-DryRun` it prints the diff only. `--last-stop` uses `--gh-account`, else the account the run recorded
-in its launch options. In all cases the lock must be absent or stale; for the agy engine `caddis_spend.py check` must exit 0 too (a
-claude-engine roadmap needs no spend-cap file). A restart after a merge writes `pending-rollup.json` in its runner
+in its launch options. In all cases the lock must be absent or stale; for the agy engine `caddis_spend.py check` must exit 0 too (it
+always does unless the script fails; there is no spend cap). A restart after a merge writes `pending-rollup.json` in its runner
 folder, runs the rollup first, then removes the claim and the branch, and only then the file. Every stop records
 itself: a failed rollup, a crash or a STOP file before that is not restartable (the owner decides), and the next start
 finds the file and does the rollup first. A merged
@@ -272,7 +272,7 @@ Sessions are cooperative (our own sessions): the runner guards against mistakes 
 deliberately hostile session, which runs as the same OS user and could change anything the runner can. The state
 tripwire catches accidents in a runner's own state only. In particular, a session in another worktree of the repo can
 delete or rewrite ANOTHER runner's claim or lock under `<git common dir>/caddis-runner/`; that is not caught while it
-happens, and the victim runner fails closed only at its next restart (own claim missing or changed, orphaned claim). Caps are per run; the agy spend cap is the only limit across runs. Each roadmap has one
+happens, and the victim runner fails closed only at its next restart (own claim missing or changed, orphaned claim). Caps are per run; nothing limits spend across runs (the agy usage log only advises). Each roadmap has one
 worktree, removed when the roadmap is finished and the worktree is clean.
 
 Owner-only rules are enforced by this tool; a direct PR that edits `roadmap.md` bypasses them; the runner stops

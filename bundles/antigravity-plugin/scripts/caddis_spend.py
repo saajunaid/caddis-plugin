@@ -1,47 +1,39 @@
 #!/usr/bin/env python3
-"""caddis_spend - one global spend cap for agy, in EUR per rolling 24 hours, on this machine.
+"""caddis_spend - the agy usage log and the `run` wrapper for every agy launch caddis makes.
 
-Why: on 7 Oct 2026 two unsupervised overnight agy runs cost EUR 793 in one billing day. Nothing in
-caddis capped money (caddis_governor caps CPU and memory only). Every agy launch that caddis makes
-through a lane (`caddis_lanes.run_lane`, which ci-watch also uses) or a plan Lane line
-(`caddis_spend.py run -- agy ...`) goes through `reserve()` before it starts and `settle()` after it ends.
-The roadmap/plan runner (`caddis_roadmap_run.py --engine agy`) reserves before each agy session and settles after it.
+History: on 7 Oct 2026 two unattended overnight agy runs cost EUR 793 in one billing day. caddis then
+had a spend cap here (EUR per rolling 24 h). The owner removed the cap on 1 Nov 2026. The usage log stays,
+so agy spend stays visible, and the owner's rule "cost-heavy runs need approval first" stays as text.
+Nothing in this file refuses an agy launch because of money. Instead, at or above an advise level (EUR 300
+committed in 24 h, or CADDIS_SPEND_ADVISE_EUR), `run` prints one `caddis_spend: ADVISORY:` line to stderr before
+the launch and after the settle, and `status` / `check` add ` - ADVISORY (>= EUR <level>)`. Exit codes do not
+change. The committed EUR comes from the prices below, so with no prices it stays 0 and no advisory shows.
 
-Config `~/.caddis/spend-cap.toml` (the owner writes it; caddis never does):
-
-    [agy]
-    eur_per_24h = 200
-    reserve_eur_per_call = 10            # what a call still running, or killed, is assumed to cost
-    eur_per_million_input_tokens = 0     # from Google Cloud billing; 0 = unset
-    eur_per_million_output_tokens = 0
-
-Every value must be a finite number above 0. Anything else means NOT CONFIGURED, and every agy launch is
-refused (fail closed).
+Every agy launch that caddis makes through a lane (`caddis_lanes.run_lane`, which ci-watch also uses), a
+plan Lane line (`caddis_spend.py run -- agy ...`) or the roadmap/plan runner (`caddis_roadmap_run.py
+--engine agy`) calls `reserve()` before it starts and `settle()` after it ends.
 
 Log `~/.caddis/spend/agy.jsonl`, append-only. A `pending` line is written under a file lock before the
-launch and a `settled` line with the same id after it. A pending line with no valid settled line keeps
-counting its reserve for 24 h, so a killed or crashed call is never free, and two callers cannot both
-pass the check with the last EUR of the cap.
+launch and a `settled` line with the same id after it. A settled line holds the token counts and an EUR
+estimate. A pending line with no settled line (a crash) counts its `reserve_eur` (now 0) for 24 h.
 
-Limits (by design, see .caddis/plans/caddis-next.md Phase 4):
-- The cap is per machine. The only cap across machines is a Google Cloud budget alert.
-- agy started by hand, or by a script outside caddis, is not covered.
-- The cap file and the log are plain files of this user: any process of this user, including an agy
-  session started with --dangerously-skip-permissions, can edit them. The cap stops accidents and
-  runaway loops; it is not a security boundary against a hostile local process.
-- The check runs at launch. A long call can cost more than its reserve before it is settled; an
-  estimated settle records its duration so the overshoot is visible.
+Prices (optional): when `~/.caddis/spend-cap.toml` has an `[agy]` table with
+`eur_per_million_input_tokens` and `eur_per_million_output_tokens` (finite numbers above 0), a settled
+line records EUR from the token counts. Every other key in that file (an old `eur_per_24h`, a reserve) is
+ignored, and with no valid prices EUR is recorded as 0 with `estimated: true`. caddis never writes the file.
+
+Limits:
+- The log is per machine. agy started by hand, or by a script outside caddis, is not logged.
 - EUR is an estimate from token counts and the owner's prices, not the real bill.
 
 CLI:
-    python caddis_spend.py check                 exit 0 allowed, 1 over cap, 3 not configured
-    python caddis_spend.py status                prints the committed spend of the last 24 h
+    python caddis_spend.py check                 always exit 0; prints the status line
+    python caddis_spend.py status [--json]       prints the logged spend of the last 24 h
     python caddis_spend.py run --caller X -- agy ...
-        reserve, run, settle. Returns agy's own exit code, or 75 over the cap / could not lock,
-        or 78 not configured, or 124 when the command ran past its time limit (--timeout-s, else
-        CADDIS_SPEND_RUN_TIMEOUT_S, else 3600 s) and its process tree was killed. 75 and 78 are never
-        agy's own codes for a refusal, so a caller can tell "the cap refused" from "agy failed". Each
-        refusal also prints a `caddis_spend:` line.
+        log, run, settle. Returns agy's own exit code, or 75 when the headless depth is at its limit or the
+        log could not be locked or written, or 124 when the command ran past its time limit (--timeout-s,
+        else CADDIS_SPEND_RUN_TIMEOUT_S, else 3600 s) and its process tree was killed. Each refusal also
+        prints a `caddis_spend:` line.
         On Windows the command runs on a hidden desktop (caddis_hidden_desktop.py), so the console windows agy opens
         for its tools never show; CADDIS_AGY_VISIBLE=1 runs it on the normal desktop.
 """
@@ -58,30 +50,43 @@ import sys
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 EXIT_OK = 0
-EXIT_OVER_CAP = 1          # `check` only
-EXIT_NOT_CONFIGURED = 3    # `check` only
-RUN_REFUSED = 75           # `run`: over the cap, or could not lock (EX_TEMPFAIL)
-RUN_NOT_CONFIGURED = 78    # `run`: not configured (EX_CONFIG)
+EXIT_LOG_ERROR = 1         # `status` only: the log could not be read
+RUN_REFUSED = 75           # `run`: headless depth at its limit, or the log could not be locked or written (EX_TEMPFAIL)
 RUN_TIMEOUT = 124          # `run`: the child ran past its time limit and its process tree was killed (as timeout(1))
 DEFAULT_RUN_TIMEOUT_S = 3600.0   # one hour: a run over about 1 hour needs the owner's approval anyway
 # No console window for the child on Windows (robustness #19; see no_window.py: never DETACHED_PROCESS).
 _NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 LOCK_TIMEOUT_S = 10.0
-NOT_CONFIGURED_MESSAGE = ("caddis_spend: spend cap not configured: set eur_per_24h, reserve_eur_per_call and both "
-                          "token prices (finite, above 0) in ~/.caddis/spend-cap.toml; every agy launch is refused "
-                          "until then")
+# Advisory, never a refusal: at or above this committed EUR in 24 h, `run` and `status` say so. The owner may change it
+# with CADDIS_SPEND_ADVISE_EUR (a finite number above 0; anything else means this default).
+ADVISE_EUR_PER_24H = 300.0
+ADVISE_VAR = "CADDIS_SPEND_ADVISE_EUR"
+
+
+def advise_eur(env=None) -> float:
+    """The advisory level in EUR per 24 h: CADDIS_SPEND_ADVISE_EUR when it is a finite number above 0, else 300."""
+    env = os.environ if env is None else env
+    try:
+        value = float(str(env.get(ADVISE_VAR, "")).strip())
+    except ValueError:
+        return ADVISE_EUR_PER_24H
+    return value if math.isfinite(value) and value > 0 else ADVISE_EUR_PER_24H
+
+
+def advisory_line(committed: float, level: float) -> str:
+    return (f"caddis_spend: ADVISORY: EUR {committed:.2f} committed in the last 24 h on this machine "
+            f"(advise level EUR {level:g}). No cap applies. Tell the owner.")
 
 
 # Recursion guard on headless starts (robustness #19). Every launcher of a headless caddis session passes
 # CADDIS_HEADLESS_DEPTH one higher than it got, and refuses to launch once the depth is at the limit, so a
 # headless session that starts a headless session that starts one... ends after MAX_HEADLESS_DEPTH levels.
 # The owner may change the limit with CADDIS_HEADLESS_MAX_DEPTH. This stops accidents and loops; a hostile
-# process can reset the variable, like the cap file (see the Limits above).
+# process can reset the variable.
 HEADLESS_DEPTH_VAR = "CADDIS_HEADLESS_DEPTH"
 MAX_HEADLESS_DEPTH = 3
 
@@ -112,19 +117,8 @@ def bump_headless_depth(env) -> dict:
     return out
 
 
-class NotConfigured(Exception):
-    """The cap file is missing, unreadable, or holds a value that is not a finite number above 0."""
-
-
-@dataclass
-class Cap:
-    eur_per_24h: float
-    reserve: float
-    price_in: float
-    price_out: float
-
-
-def _cap_path(home: Path) -> Path:
+def _prices_path(home: Path) -> Path:
+    """The optional price file. Only its two token prices are read; any cap value in it is ignored."""
     return home / ".caddis" / "spend-cap.toml"
 
 
@@ -132,26 +126,24 @@ def _log_path(home: Path) -> Path:
     return home / ".caddis" / "spend" / "agy.jsonl"
 
 
-def _positive(value) -> float:
-    """A finite float above 0, or ValueError (bool and NaN/inf rejected)."""
-    if isinstance(value, bool):
-        raise ValueError(f"not a number: {value!r}")
-    number = float(value)
-    if not math.isfinite(number) or number <= 0:
-        raise ValueError(f"must be a finite number above 0: {value!r}")
-    return number
-
-
-def load_cap(home: Path) -> Cap:
+def load_prices(home: Path) -> tuple[float, float] | None:
+    """(EUR per million input tokens, EUR per million output tokens) from the `[agy]` table of the optional price
+    file, or None when the file is missing or unreadable, or a price is not a finite number above 0."""
     import tomllib
 
-    path = _cap_path(home)
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8")).get("agy", {})
-        return Cap(_positive(data["eur_per_24h"]), _positive(data.get("reserve_eur_per_call", 10)),
-                   _positive(data["eur_per_million_input_tokens"]), _positive(data["eur_per_million_output_tokens"]))
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, tomllib.TOMLDecodeError) as exc:
-        raise NotConfigured(f"{path}: {exc}") from exc
+        data = tomllib.loads(_prices_path(home).read_text(encoding="utf-8")).get("agy", {})
+        prices = (data["eur_per_million_input_tokens"], data["eur_per_million_output_tokens"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, tomllib.TOMLDecodeError):
+        return None
+    numbers = []
+    for value in prices:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if not math.isfinite(value) or value <= 0:
+            return None
+        numbers.append(float(value))
+    return numbers[0], numbers[1]
 
 
 @contextmanager
@@ -251,10 +243,10 @@ def _amount(value) -> float | None:
 
 def committed_last_24h(home: Path, now: datetime) -> float:
     """Valid settled EUR, plus the reserve of every pending call with no valid settled line, newer than 24 h.
+    This is a report only; nothing refuses a launch on it.
 
-    A settled line with a bad `eur` does not count as settled, so its pending reserve keeps counting.
-    A pending line with a bad reserve (only a hand edit can write one; reserve() always writes a valid
-    value) counts as 0."""
+    A settled line with a bad `eur` does not count as settled, so its pending reserve keeps counting (reserve()
+    now writes 0; older lines may hold a reserve). A pending line with a bad reserve (a hand edit) counts as 0."""
     since = now - timedelta(hours=24)
     records = _read(home)
     settled: dict[str, float] = {}
@@ -275,36 +267,33 @@ def committed_last_24h(home: Path, now: datetime) -> float:
     return total
 
 
-def reserve(home: Path, caller: str, now: datetime) -> str | None:
-    """Book a pending call. None when it would go over the cap. Raises NotConfigured or TimeoutError."""
-    cap = load_cap(home)
+def reserve(home: Path, caller: str, now: datetime) -> str:
+    """Write a `pending` line for a call about to start and return its id. Never refuses for money.
+    Raises TimeoutError when the log cannot be locked, OSError when it cannot be written."""
     with _locked(home):
-        if committed_last_24h(home, now) + cap.reserve > cap.eur_per_24h:
-            return None
         rid = uuid.uuid4().hex
         _append(home, {"kind": "pending", "id": rid, "ts": now.isoformat(), "caller": caller,
-                       "pid": os.getpid(), "reserve_eur": cap.reserve})
+                       "pid": os.getpid(), "reserve_eur": 0})
         return rid
 
 
 def settle(home: Path, rid: str, tokens: tuple[int, int] | None, now: datetime,
            duration_s: float | None = None) -> float:
-    """Record the real cost of a reserved call; with no token counts, its reserve (estimated, with duration)."""
-    try:
-        cap = load_cap(home)
-    except NotConfigured:
-        cap = None
+    """Write the `settled` line of a call. With token counts and valid prices: the EUR from the counts. With counts
+    but no prices: the counts and EUR 0, estimated. With no counts: the pending line's reserve (0 for new lines),
+    estimated. The duration is recorded when given."""
+    prices = load_prices(home)
     record: dict = {"kind": "settled", "id": rid, "ts": now.isoformat()}
-    if tokens is None or cap is None:
+    if tokens is None:
         pending = next((r for r in _read(home) if r.get("kind") == "pending" and r.get("id") == rid), {})
-        eur = _amount(pending.get("reserve_eur"))
-        if eur is None:
-            eur = cap.reserve if cap else 0.0
+        eur = _amount(pending.get("reserve_eur")) or 0.0
         record.update({"tokens_in": 0, "tokens_out": 0, "eur": round(eur, 4), "estimated": True})
     else:
         t_in, t_out = tokens
-        eur = t_in / 1e6 * cap.price_in + t_out / 1e6 * cap.price_out
-        record.update({"tokens_in": t_in, "tokens_out": t_out, "eur": round(eur, 4), "estimated": False})
+        eur = 0.0 if prices is None else t_in / 1e6 * prices[0] + t_out / 1e6 * prices[1]
+        # Zero tokens cost exactly 0 (nothing ran); other counts with no prices are an estimate.
+        estimated = prices is None and (t_in, t_out) != (0, 0)
+        record.update({"tokens_in": t_in, "tokens_out": t_out, "eur": round(eur, 4), "estimated": estimated})
     if duration_s is not None:
         record["duration_s"] = round(duration_s, 1)
     with _locked(home):
@@ -344,7 +333,7 @@ def _count(value) -> int | None:
 def tokens_from_output(stdout: str) -> tuple[int, int] | None:
     """(usage.input_tokens, usage.output_tokens) from agy's JSON document; output_tokens includes thinking
     tokens (sample: 27249 in, 85 out of which 84 thinking, total 27334). None when not readable, or when a
-    count is not a non-negative integer (then the call settles at its reserve)."""
+    count is not a non-negative integer (then the call settles as estimated)."""
     doc = _agy_document(stdout)
     usage = doc.get("usage") if doc else None
     if not isinstance(usage, dict):
@@ -426,35 +415,30 @@ def _run_child(argv: list[str], env: dict, timeout_s: float) -> tuple[int | None
     except BaseException:
         # Ctrl-C or any other error while waiting: the child (agy, spending) must not outlive us. It runs in its
         # own session/group, so it does not get our SIGINT. Kill the tree, then let the exception go on; run()
-        # settles the reserve in its `finally`.
+        # settles the call in its `finally`.
         _kill_tree(proc)
         raise
 
 
 def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None) -> int:
-    """Reserve, run agy, settle. Returns agy's exit code, or RUN_REFUSED (75) / RUN_NOT_CONFIGURED (78) /
-    RUN_TIMEOUT (124: the child ran past `timeout_s`, default run_timeout_s(); its process tree was killed and the
-    call is booked at its reserve)."""
+    """Log, run agy, settle. Returns agy's exit code, or RUN_REFUSED (75: headless depth at its limit, or the log
+    could not be locked or written) / RUN_TIMEOUT (124: the child ran past `timeout_s`, default run_timeout_s(); its
+    process tree was killed and the call is settled as estimated). Money never refuses a start."""
     now = lambda: datetime.now(timezone.utc)  # noqa: E731
     try:
-        env = bump_headless_depth(os.environ)  # before the reserve: a refused start costs nothing
+        env = bump_headless_depth(os.environ)  # before the pending line: a refused start writes nothing
     except HeadlessDepthExceeded as exc:
         print(str(exc), file=sys.stderr)
         return RUN_REFUSED
     try:
         rid = reserve(home, caller, now())
-    except NotConfigured:
-        print(NOT_CONFIGURED_MESSAGE, file=sys.stderr)
-        return RUN_NOT_CONFIGURED
     except TimeoutError as exc:
         print(str(exc), file=sys.stderr)
         return RUN_REFUSED
-    except Exception as exc:  # an unreadable log or file error: refuse with the refusal code, never exit 1
-        print(f"caddis_spend: could not check the spend cap: {exc!r}", file=sys.stderr)
+    except Exception as exc:  # a file error on the log: refuse with the refusal code, never exit 1
+        print(f"caddis_spend: could not write the spend log: {exc!r}", file=sys.stderr)
         return RUN_REFUSED
-    if rid is None:
-        print(f"caddis_spend: over cap: agy refused ({status_line(home, now())})", file=sys.stderr)
-        return RUN_REFUSED
+    advise(home, now())  # already at the level before the launch: say so, then start anyway
     out = ""
     counts: tuple[int, int] | None = None
     started = time.monotonic()
@@ -465,7 +449,7 @@ def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None
             sys.stdout.write(out)
             sys.stderr.write(err)
             print(f"caddis_spend: {argv[0]} timed out after {limit:g}s; its process tree was killed "
-                  f"(booked at the reserve). Set CADDIS_SPEND_RUN_TIMEOUT_S or --timeout-s to change the limit.",
+                  f"(settled as estimated). Set CADDIS_SPEND_RUN_TIMEOUT_S or --timeout-s to change the limit.",
                   file=sys.stderr)
             return RUN_TIMEOUT
         # Tokens only from JSON mode: in text mode the model's own lines could pose as a usage document.
@@ -481,29 +465,38 @@ def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None
     finally:
         try:
             settle(home, rid, counts, now(), duration_s=time.monotonic() - started)
-        except Exception as exc:  # the pending reserve keeps counting; never lose agy's own result
+        except Exception as exc:  # the pending line stays unsettled; never lose agy's own result
             print(f"caddis_spend: could not settle {rid}: {exc}", file=sys.stderr)
+        advise(home, now())
+
+
+def advise(home: Path, now: datetime) -> None:
+    """Print the ADVISORY line to stderr when the committed EUR of the last 24 h is at or above the advise level.
+    Advice only: it never changes an exit code, and a log it cannot read prints nothing."""
+    try:
+        committed, level = committed_last_24h(home, now), advise_eur()
+    except Exception:
+        return
+    if committed >= level:
+        print(advisory_line(committed, level), file=sys.stderr)
 
 
 def status_line(home: Path, now: datetime) -> str:
-    try:
-        cap = f"{load_cap(home).eur_per_24h:g}"
-    except NotConfigured:
-        cap = "NOT CONFIGURED"
-    return f"agy: EUR {committed_last_24h(home, now):.2f} of {cap} in the last 24 h on this machine"
+    committed, level = committed_last_24h(home, now), advise_eur()
+    line = f"agy: EUR {committed:.2f} in the last 24 h on this machine (no cap)"
+    return line + (f" - ADVISORY (>= EUR {level:g})" if committed >= level else "")
 
 
 def spend_json(home: Path, now: datetime | None = None) -> dict:
-    """The spend status as one JSON-ready dict. It holds no key, no prompt and no caller name."""
+    """The spend status as one JSON-ready dict. It holds no key, no prompt and no caller name.
+    There is no cap: `configured` is always False and `cap_eur` and `reserve_eur` are always None (the keys stay for
+    the hub schema, scripts/schemas/hub-spend.schema.json). `advise_eur` is the advise level and `advisory` is True at
+    or above it."""
     now = now or datetime.now(timezone.utc)
-    try:
-        cap = load_cap(home)
-        cap_eur, reserve_eur = float(cap.eur_per_24h), float(cap.reserve)
-    except NotConfigured:
-        cap_eur = reserve_eur = None
-    return {"schema": 1, "configured": cap_eur is not None, "cap_eur": cap_eur,
-            "committed_eur": round(committed_last_24h(home, now), 6), "reserve_eur": reserve_eur,
-            "window_h": 24}
+    committed, level = committed_last_24h(home, now), advise_eur()
+    return {"schema": 1, "configured": False, "cap_eur": None,
+            "committed_eur": round(committed, 6), "reserve_eur": None,
+            "window_h": 24, "advise_eur": level, "advisory": committed >= level}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -514,7 +507,7 @@ def main(argv: list[str] | None = None) -> int:
     if "--" in raw:
         i = raw.index("--")
         raw, tail = raw[:i], raw[i + 1:]
-    parser = argparse.ArgumentParser(description="global agy spend cap (EUR per rolling 24 h, this machine)")
+    parser = argparse.ArgumentParser(description="agy usage log and run wrapper (EUR per rolling 24 h, this machine)")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
     p_status = sub.add_parser("status")
@@ -532,23 +525,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(spend_json(home, now)) if args.json else status_line(home, now))
         except Exception as exc:
             print(f"caddis_spend: could not read the spend log: {exc!r}", file=sys.stderr)
-            return EXIT_NOT_CONFIGURED
+            return EXIT_LOG_ERROR
         return EXIT_OK
-    if args.cmd == "check":
+    if args.cmd == "check":  # there is no cap: always 0, so no caller is blocked by it
         try:
-            cap = load_cap(home)
-        except NotConfigured:
-            print(NOT_CONFIGURED_MESSAGE, file=sys.stderr)
-            return EXIT_NOT_CONFIGURED
-        try:
-            committed = committed_last_24h(home, now)
+            print(f"ok: {status_line(home, now)}")
         except Exception as exc:
-            print(f"caddis_spend: could not read the spend log: {exc!r}", file=sys.stderr)
-            return EXIT_NOT_CONFIGURED
-        if committed + cap.reserve > cap.eur_per_24h:
-            print(f"over cap: {status_line(home, now)}")
-            return EXIT_OVER_CAP
-        print(f"ok: {status_line(home, now)}")
+            print(f"ok: caddis_spend: could not read the spend log: {exc!r}")
         return EXIT_OK
     if not tail:
         parser.error("run needs the agy command after --")

@@ -34,8 +34,9 @@ Exit codes (fail-closed):
                           denylisted path / possible secret; see secret_filter.py), OR an explicit
                           --range has no changes (a review of nothing is not CLEAN), OR every
                           provider failed with a PROVIDER failure: HTTP 429, any 5xx, a timeout, a
-                          connection error, an empty reply, an agy error status, the agy spend
-                          cap refused, or a one-file prompt too long for agy with no other provider
+                          connection error, an empty reply, an agy error status, caddis_spend
+                          refused agy (headless depth or log lock), or a one-file prompt too
+                          long for agy with no other provider
                           — actionable message on stderr/stdout either way
   4  error              — no diff verdict parsed, git failure, other endpoint/parse failure, or the diff
                           exceeds REVIEW_MAX_DIFF_CHARS (see below — never silently downgraded to CLEAN)
@@ -52,7 +53,7 @@ A named --provider goes first, then the rest in policy order; a provider with no
 is skipped. With no provider named, the chain starts at the first provider that is available. A provider failure
 moves to the next provider and never splits the diff. On HTTP 429 a `Retry-After` is honoured ONCE per
 provider (capped at 60 s), then the next provider is tried. A provider that failed gets no more calls in
-the same run. agy runs through `caddis_spend.py run` (the EUR spend cap), in plan mode, with the diff in
+the same run. agy runs through `caddis_spend.py run` (usage log, timeout, depth guard; no EUR cap), in plan mode, with the diff in
 the prompt (no tools needed). The secret filter runs once, before any provider, agy included. The
 provider that gave each verdict is printed.
 
@@ -141,7 +142,7 @@ AGY_PROVIDER = "agy-argon"
 DEFAULT_PROVIDER = AGY_PROVIDER
 REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 
-# agy runs headless through the spend cap: plan mode (it needs no tools, the diff is in the prompt).
+# agy runs headless through caddis_spend.py run: plan mode (it needs no tools, the diff is in the prompt).
 AGY_MODEL = "gemini-4-argon-high"
 AGY_TIMEOUT_S = 15 * 60
 # The prompt is one command-line argument (`--print=<prompt>`). A Windows command line holds at most
@@ -152,8 +153,9 @@ AGY_TIMEOUT_S = 15 * 60
 # the longest command line: python, two script paths, the agy path and the fixed flags.
 WINDOWS_CMDLINE_MAX = 32_767
 AGY_MAX_PROMPT_CHARS = 28_000
-# `caddis_spend.py run` refusal codes: 75 over the cap or no lock, 78 cap not configured. Never agy's own.
-SPEND_REFUSED = (75, 78)
+# `caddis_spend.py run` refusal code: 75 = headless depth at its limit, or the usage log could not be locked or
+# written. Never agy's own. (78 "cap not configured" is gone with the cap, 1 Nov 2026.)
+SPEND_REFUSED = (75,)
 
 # On HTTP 429, wait for `Retry-After` once per provider per run, at most this long.
 RETRY_AFTER_CAP_S = 60.0
@@ -213,7 +215,7 @@ class ProviderFailure(RuntimeError):
 
 
 class ProviderSkipped(Exception):
-    """The provider is not available for this run (the spend cap refused agy, agy is missing, the prompt
+    """The provider is not available for this run (caddis_spend refused agy, agy is missing, the prompt
     is too long for the agy command line). The chain moves on; nothing was reviewed. `for_run=False`: skip only
     this prompt (it was too long), so a smaller batch may still use the provider."""
 
@@ -635,8 +637,8 @@ def _spend_script() -> Path | None:
 
 
 def agy_launcher() -> list[str] | None:
-    """The command prefix that runs agy under the spend cap, or None when agy or caddis_spend is missing.
-    Every agy call goes through `caddis_spend.py run` (owner policy: agy only through the spend cap)."""
+    """The command prefix that runs agy through `caddis_spend.py run`, or None when agy or caddis_spend is missing.
+    Every agy call goes through `caddis_spend.py run` (usage log, timeout and depth guard; there is no EUR cap)."""
     agy = shutil.which("agy")
     spend = _spend_script()
     if not agy or spend is None:
@@ -704,9 +706,9 @@ def agy_prompt_chars(prompt: str) -> int:
 
 
 def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S) -> str:
-    """One review by agy Argon through the spend cap -> the reply text.
+    """One review by agy Argon through `caddis_spend.py run` -> the reply text.
 
-    ProviderSkipped: the cap refused, agy is missing, or the prompt is too long for one argument.
+    ProviderSkipped: caddis_spend refused (exit 75), agy is missing, or the prompt is too long for one argument.
     ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no JSON
     document, or an empty reply."""
     cost = agy_prompt_chars(prompt)
@@ -717,7 +719,7 @@ def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S) -
             f"--print={prompt}"]
     code, stdout, stderr = _run_capped(argv, timeout)
     if code in SPEND_REFUSED:
-        raise ProviderSkipped(f"the agy spend cap refused the call (caddis_spend exit {code}): "
+        raise ProviderSkipped(f"caddis_spend refused the agy call (exit {code}): "
                               f"{stderr.strip()[-300:]}")
     if code == 127:
         raise ProviderSkipped(f"agy could not start: {stderr.strip()[-300:]}")
@@ -1003,7 +1005,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             + "). Verdict is CLEAN only if every batch is clean."
         )
 
-    # Per run: a provider that failed (429, 5xx, timeout, empty reply, cap refusal) gets no more calls,
+    # Per run: a provider that failed (429, 5xx, timeout, empty reply, caddis_spend refusal) gets no more calls,
     # and each provider waits for a 429 Retry-After at most once. Hammering a throttled provider with
     # more, smaller calls is the 18-19 Oct 2026 failure.
     down: set[str] = set()

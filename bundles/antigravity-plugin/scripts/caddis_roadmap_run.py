@@ -4,8 +4,8 @@ the next batches of a roadmap.
 Design: programme-method-design.md sections 8.1 to 8.5 and 9.2; caddis-next Phases 7 and 9. `roadmap-run.ps1` is a
 thin shim over this file. The programme layer (programme folders, ledger, budget block) is gone (caddis-next Phase 7).
 
-One session: stop checks (STOP file, session, hour and dollar caps); for agy, a reservation under the global spend cap
-(`caddis_spend.py`, settled after the session); read the relay hash; launch ONE session through the governor with the
+One session: stop checks (STOP file, session, hour and dollar caps); for agy, a pending line in the usage log
+(`caddis_spend.py`, settled after the session; there is no EUR cap, only an ADVISORY line); read the relay hash; launch ONE session through the governor with the
 resume prompt and `CADDIS_HEADLESS=1` in its environment; parse its JSON result (cost, error); read the relay status
 line; decide. A relay the session did not change (same hash as before it, any status line) is `FAILED no relay
 written`, so a status an earlier session wrote is never acted on again; three sessions in a row with no newly closed
@@ -101,10 +101,10 @@ Session output, relay text and every log line, printed stop line, toast and push
 The runner never passes an owner gate, never raises a cap and never deletes a STOP file.
 
 Exit codes: 0 stopped at a status the session wrote (plan mode: OWNER-GATE, BLOCKED), or at a STOP file after a
-session; 1 a FAILED stop, a cap, the agy spend cap, a usage limit, `BLOCKED stuck`, `BLOCKED nothing ready`,
+session; 1 a FAILED stop, a cap, an agy spend log error, a usage limit, `BLOCKED stuck`, `BLOCKED nothing ready`,
 `BLOCKED waiting for merge`, `BLOCKED review`, `BLOCKED review not run`, `BLOCKED rollup not run` (a rollup exit 3,
 for example an exit check that cannot run in the merged checkout; not restartable by the recheck task), or the
-snapshot guard; 3 never started (lock, STOP file, no governor, agy spend cap not configured, another host, a plan a roadmap runner holds); 4 bad input (no plan or roadmap, both, a bad slug, no prompt template,
+snapshot guard; 3 never started (lock, STOP file, no governor, another host, a plan a roadmap runner holds); 4 bad input (no plan or roadmap, both, a bad slug, no prompt template,
 bad engine).
 
 Engines: `claude` is built and live-tested. `agy` and `codex` are command-line adapters with unit tests only (not
@@ -912,7 +912,7 @@ def _one_session(ctx: _Ctx, prompt: str, relay_slug: str, n: int, spent: float, 
     usd = min(caps.max_usd_per_session, caps.max_usd_total - spent)
     cmd = build_command(ctx.engine, ctx.model, prompt, usd=usd, timeout_min=remaining_s / 60, governor=ctx.governor,
                         engine_cmd=ctx.engine_cmd, worktree=cwd)
-    rid = _spend_reserve(ctx.home, spend_slug, ctx.now(), n > 1) if ctx.engine == "agy" else None
+    rid = _spend_reserve(ctx.home, spend_slug, ctx.now()) if ctx.engine == "agy" else None
     if ctx.engine == "agy":  # agy's tool consoles open on a hidden desktop, not on the owner's screen
         g = len(ctx.governor)
         cmd = [*cmd[:g], *caddis_spend.hidden_argv(cmd[g:], session_env())]
@@ -1318,8 +1318,6 @@ def _run_plan(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callable[
                 raise held
             _dry_lock_check(lock.path)
             ctx.checks(0, 0.0, 0.0)
-            if ctx.engine == "agy":
-                _spend_preview(ctx.home, ctx.now())
         except _Stop as stop:
             print(f"would stop: {caddis_redact.redact(stop.reason, masks)}")
             return caddis_exit.NOT_RUN
@@ -1855,8 +1853,6 @@ def _run_roadmap(ctx: _Ctx, template: Path, dry_run: bool, after_session: Callab
         try:
             _dry_lock_check(lock.path)
             ctx.checks(0, 0.0, 0.0)
-            if ctx.engine == "agy":
-                _spend_preview(ctx.home, ctx.now())
             try:
                 batch, snap = caddis_roadmap.next_with_snapshot(repo, slug)
             except caddis_roadmap.RoadmapError as exc:
@@ -2332,28 +2328,25 @@ def _publish_and_wait(ctx: _Ctx, repo: Path, slug: str, mid: str, plan: str, pha
     raise _Stop(f"{WAITING_PREFIX} {ref} {url}", caddis_exit.BLOCKED)
 
 
-def _spend_reserve(home: Path, slug: str, moment: datetime, started: bool) -> str:
-    """Book one agy session under the global spend cap (caddis_spend.py); _Stop when the cap refuses it or cannot be
-    read (a file error never crashes the runner: the stop is logged and notified, redacted, like any other).
-    The caller name in the spend log is `runner-<slug>`."""
+def _spend_reserve(home: Path, slug: str, moment: datetime) -> str:
+    """Write the pending line of one agy session to the usage log (caddis_spend.py; there is no cap). _Stop only when
+    the log cannot be locked or written (a file error never crashes the runner: the stop is logged and notified,
+    redacted, like any other). The caller name in the spend log is `runner-<slug>`. At or above the advise level it
+    prints the ADVISORY line and goes on."""
     try:
         rid = caddis_spend.reserve(home, f"runner-{slug}", moment)
-    except caddis_spend.NotConfigured:
-        code = caddis_exit.BLOCKED if started else caddis_exit.NOT_RUN
-        raise _Stop("FAILED spend cap not configured", code) from None
     except TimeoutError:
-        raise _Stop("BLOCKED spend cap lock busy", caddis_exit.BLOCKED) from None
+        raise _Stop("BLOCKED spend log lock busy", caddis_exit.BLOCKED) from None
     except Exception as exc:
-        raise _Stop(f"FAILED spend cap error: {exc!r}", caddis_exit.BLOCKED) from None
-    if rid is None:
-        raise _Stop("BLOCKED spend cap", caddis_exit.BLOCKED)
+        raise _Stop(f"FAILED spend log error: {exc!r}", caddis_exit.BLOCKED) from None
+    caddis_spend.advise(home, moment)
     return rid
 
 
 def _spend_settle(home: Path, rid: str, cmd: Sequence[str], outcome: "_Outcome | None", moment: datetime,
                   duration_s: float) -> None:
-    """Record the session's real cost: (0, 0) when it never started, its reserve (estimated) when there is no outcome
-    (an exception) or no readable token counts."""
+    """Record the session's real cost: (0, 0) when it never started, estimated when there is no outcome (an
+    exception) or no readable token counts."""
     try:
         if outcome is None:
             usage_counts = None
@@ -2364,21 +2357,8 @@ def _spend_settle(home: Path, rid: str, cmd: Sequence[str], outcome: "_Outcome |
         else:
             usage_counts = None
         caddis_spend.settle(home, rid, usage_counts, moment, duration_s=duration_s)
-    except Exception as exc:  # the pending reserve keeps counting for 24 h; never lose the session's result
+    except Exception as exc:  # the pending line stays unsettled; never lose the session's result
         print(f"caddis_roadmap_run: could not settle spend {rid}: {exc}", file=sys.stderr)
-
-
-def _spend_preview(home: Path, moment: datetime) -> None:
-    """The dry run's read-only spend check: the same stops as _spend_reserve, with no pending line written."""
-    try:
-        cap = caddis_spend.load_cap(home)
-        over = caddis_spend.committed_last_24h(home, moment) + cap.reserve > cap.eur_per_24h
-    except caddis_spend.NotConfigured:
-        raise _Stop("FAILED spend cap not configured", caddis_exit.NOT_RUN) from None
-    except Exception as exc:
-        raise _Stop(f"FAILED spend cap error: {exc!r}", caddis_exit.NOT_RUN) from None
-    if over:
-        raise _Stop("BLOCKED spend cap", caddis_exit.BLOCKED)
 
 
 @dataclass

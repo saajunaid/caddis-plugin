@@ -101,7 +101,7 @@ and never report the result as a full CLEAN.
 then DeepSeek, then GLM** (`REVIEW_ORDER` in `oss_review.py`). A named `--provider` goes first; on a provider failure
 (HTTP 429, any 5xx, a timeout, a connection error, an empty reply) the tool moves to the next one in
 that order and prints which provider gave the verdict. A provider with no key is skipped. agy runs
-through `caddis_spend.py run` (the spend cap); if the cap refuses, agy is skipped. On a 429 the tool
+through `caddis_spend.py run` (usage log, time limit, depth guard; no spend cap); if it refuses (exit 75), agy is skipped. On a 429 the tool
 waits for `Retry-After` once (at most 60 s); it never splits the diff because of a 429 or an empty
 reply. A custom endpoint (`--base-url`/`--model`) never falls back. Name a provider only when you have
 a reason.

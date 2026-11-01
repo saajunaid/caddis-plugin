@@ -685,7 +685,7 @@ def launch_claude(prompt: str, worktree: Path, out: Path) -> str:
     # No `--allowedTools`: unscoped, it approves files outside the worktree (smoke run 18 Oct 2026: without it a
     # Read in the worktree ran, a Read of ~/.caddis/spend-cap.toml was refused).
     try:
-        import caddis_spend  # the recursion guard lives beside the spend cap (robustness #19)
+        import caddis_spend  # the recursion guard lives beside the agy usage log (robustness #19)
         env_depth = caddis_spend.bump_headless_depth(os.environ)
     except ImportError:
         env_depth = None

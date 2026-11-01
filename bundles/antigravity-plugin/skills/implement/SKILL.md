@@ -122,8 +122,8 @@ not hold the child's work. So these rules keep briefs and replies small:
 7. **Merge:** one member at a time into the feature branch. Run the whole test folder after each merge, and
    the phase gates. A conflict stops that member only.
 8. **Cost:** wave cost is the sum of its members, each on the cheapest fitting model from the session table
-   (`caddis_routing.py session`). Before the wave, `caddis_spend.py status` headroom must cover the members
-   × the per-call reserve. Exit 75 means "not run", not "failed".
+   (`caddis_routing.py session`). There is no spend cap: `caddis_spend.py status` shows the agy spend; if it
+   ends with ` - ADVISORY`, tell the owner before the wave. Exit 75 means "not run", not "failed".
 9. **No plan-time marker.** Pick the wave from the CURRENT `Files:` lists: at most 3 phases, disjoint, one
    worktree each. Safety comes from this run-time check and the whole test folder after each merge, not
    from the plan: phases often touch files outside their `Files:`. A plan adds only an optional
@@ -307,10 +307,11 @@ row, visible to any later reader without anyone having to catch it live.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
     `codex exec ...` or `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
     using the same form that `/feature-plan` writes. Never start agy without the `caddis_spend.py run`
-    prefix: it is the global spend cap. Its own refusals have their own exit codes, never agy's:
-    **75** = over the cap or could not lock (treat like out of budget: switch lane, not an attempt);
-    **78** = the cap is not configured (stop and tell the owner to write `~/.caddis/spend-cap.toml`).
-    Each refusal also prints a `caddis_spend:` line on stderr. Any other exit code is agy's own.
+    prefix: it logs the usage, sets the time limit and guards the headless depth (there is no spend cap).
+    Its own exit codes are never agy's: **75** = headless depth at its limit or the usage log could not
+    be locked (treat like out of budget: switch lane, not an attempt); **124** = the call ran past its
+    time limit and was killed. Each refusal also prints a `caddis_spend:` line on stderr. A
+    `caddis_spend: ADVISORY:` line is advice only: the call ran; tell the owner. Any other exit code is agy's own.
     An out-of-budget switch is not an attempt (item 4). Record the fallback in the Tracker
     `Lane` column, for example `sonnet -> agy (claude out of budget)`.
     If `next-lane` exits 3, stop and report that no lane is left. As a last resort, the owner can

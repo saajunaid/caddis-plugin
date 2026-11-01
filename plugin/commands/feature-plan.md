@@ -184,7 +184,7 @@ of that role and write its Lane line as follows:
 - `agy`: agy — `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
-always starts with `caddis_spend.py run`: it books the call against the global EUR spend cap, and
+always starts with `caddis_spend.py run`: it logs the call's usage and sets its time limit (there is no spend cap), and
 `caddis_gate.py lane-check` refuses a bare `agy` Lane line. If the routing command fails
 or exits 3, use `claude — this session` and state the reason in that phase. When a phase has cards, a
 prompt for one card names it by reference ("then Phase N card B"). Never paste card text into a prompt.

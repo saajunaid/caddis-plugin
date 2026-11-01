@@ -127,9 +127,8 @@ BUDGET_PATTERNS: dict[str, tuple[str, ...]] = {
         r"Quota exceeded\. Check your plan",
         r"workspace is out of credits",
     ),
-    # caddis_spend refusing over the global EUR cap: the chain moves on, like a provider quota.
-    "agy": (r"RESOURCE_EXHAUSTED.*quota", r"Individual quota reached", r"(?m)^caddis_spend: over cap",
-            r"(?m)^caddis_spend: could not lock"),
+    # caddis_spend could not lock its usage log (another launch holds it): the chain moves on, like a provider quota.
+    "agy": (r"RESOURCE_EXHAUSTED.*quota", r"Individual quota reached", r"(?m)^caddis_spend: could not lock"),
 }
 CONFIG_PATTERNS: dict[str, tuple[str, ...]] = {
     "claude": (),
@@ -147,8 +146,7 @@ CONFIG_PATTERNS: dict[str, tuple[str, ...]] = {
         r"Model metadata for .* not found",
     ),
     "agy": (r"invalid model selection", r"is not recognized as a known model",
-            r"(?m)^caddis_spend: spend cap not configured",
-            r"(?m)^caddis_spend: could not check the spend cap"),
+            r"(?m)^caddis_spend: could not write the spend log"),
 }
 LOAD_WORDING = (
     r"(?i)\bcpu\s+burner",
@@ -613,7 +611,7 @@ def _windows_process_names(pids: list[int]) -> dict[int, str]:
 
 
 def _refused_run(returncode: int, message: str) -> LaneRun:
-    """A lane that never started: the spend cap refused it. pid 0, no time spent."""
+    """A lane that never started: the spend log could not be locked or written. pid 0, no time spent."""
     return LaneRun(returncode=returncode, output=message + "\n", timed_out=False, duration_s=0.0,
                    pid=0, started=time.time())
 
@@ -631,23 +629,18 @@ def run_lane(
     probe=default_probe,
     spend_caller: str = "lane",
 ) -> LaneRun:
-    # Every agy launch is booked against the global spend cap first (caddis_spend). ci_watch reaches
-    # agy through here too, so each call is booked exactly once. Any spend problem refuses the lane
-    # (fail closed) and never crashes the unattended chain.
+    # Every agy launch is written to the usage log first (caddis_spend; there is no cap). ci_watch reaches
+    # agy through here too, so each call is logged exactly once. A log that cannot be locked or written
+    # refuses the lane (the spend would go unseen) and never crashes the unattended chain.
     spend_id = None
     if Path(argv[0]).stem.lower() == "agy":
         spend_home = Path.home()
         try:
             spend_id = caddis_spend.reserve(spend_home, spend_caller, datetime.now(timezone.utc))
-        except caddis_spend.NotConfigured:
-            return _refused_run(3, caddis_spend.NOT_CONFIGURED_MESSAGE)
         except TimeoutError as exc:
             return _refused_run(3, str(exc))
-        except Exception as exc:  # an unreadable log or file error: refuse, never crash
-            return _refused_run(3, f"caddis_spend: could not check the spend cap: {exc!r}")
-        if spend_id is None:
-            return _refused_run(1, "caddis_spend: over cap: agy refused ("
-                                + caddis_spend.status_line(spend_home, datetime.now(timezone.utc)) + ")")
+        except Exception as exc:  # a file error on the log: refuse, never crash
+            return _refused_run(3, f"caddis_spend: could not write the spend log: {exc!r}")
         argv = caddis_spend.hidden_argv(argv, env)  # agy's tool consoles open on a hidden desktop, not on screen
     job_name = f"Local\\caddis-governor-{os.getpid()}-{secrets.token_hex(8)}" if sys.platform == "win32" else None
     full = governed_argv(argv, job_name)
@@ -781,8 +774,15 @@ def run_lane(
         try:
             caddis_spend.settle(spend_home, spend_id, counts, datetime.now(timezone.utc),
                                 duration_s=clock() - monotonic_started)
-        except Exception as exc:  # the pending reserve keeps counting; never lose the lane's result
+        except Exception as exc:  # the pending line stays unsettled; never lose the lane's result
             output += f"\ncaddis_spend: could not settle {spend_id}: {exc!r}\n"
+        try:  # advice only: at or above the advise level the lane's output says so; nothing is refused
+            committed = caddis_spend.committed_last_24h(spend_home, datetime.now(timezone.utc))
+            level = caddis_spend.advise_eur()
+            if committed >= level:
+                output += "\n" + caddis_spend.advisory_line(committed, level) + "\n"
+        except Exception:
+            pass
     return LaneRun(
         returncode=proc.returncode,
         output=output,

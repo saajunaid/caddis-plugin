@@ -44,8 +44,8 @@ publish a branch that does). Commit the phase there, with its tracker row set to
 ## 4. Work
 
 - Do ONE batch with `/caddis:implement` discipline: tests first, the phase's exit gate, a commit per phase.
-- agy sessions only: run `python {{scripts}}/caddis_spend.py check` before each agy call. Stop at the cap (exit 1 over
-  the cap, 3 not configured).
+- agy sessions only: run `python {{scripts}}/caddis_spend.py check` before each agy call. There is no spend cap (it
+  always exits 0); if its line ends with ` - ADVISORY`, say so in the relay for the owner.
 - You may do everything except pass an owner gate. Never pass an owner gate. Never raise a cap. Never delete a STOP file.
 - The runner reviews `risk: high` phases. A phase marked `**Risk:** high`: do not halt for it and do not run the
   review yourself. When its exit gate is green, set its row `done` and end with `STATUS: CONTINUE`. The runner then

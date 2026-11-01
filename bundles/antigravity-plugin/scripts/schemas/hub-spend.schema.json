@@ -34,6 +34,12 @@
     },
     "window_h": {
       "type": "integer"
+    },
+    "advise_eur": {
+      "type": "number"
+    },
+    "advisory": {
+      "type": "boolean"
     }
   }
 }
