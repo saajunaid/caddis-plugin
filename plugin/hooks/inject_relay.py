@@ -405,6 +405,50 @@ if _session_id and not _is_headless():
     # the model has no other way to know it.
     print(f"[caddis] this session's id: {_session_id}")
 
+# Skill precedence when the superpowers plugin is also on (hybrid model). caddis OWNS the routing-critical
+# skills: brainstorming, plans (/caddis:feature-plan), running plans (/caddis:implement) and worktrees. Their
+# superpowers twins are blocked by user-scope deny rules, which `/setup-project-ai` writes (a deny rule blocks
+# without a prompt). Every other superpowers skill is used directly. ONE short block, printed only when
+# superpowers is enabled (its key in settings.json `enabledPlugins`; when that key is unreadable, when its plugin
+# cache folder exists). If a deny rule is missing, one more line says how to add it. Two local file reads, no
+# network. Not printed under Codex (it has no ~/.claude plugins). Fail-open and silent like every block here.
+# _SP_DENY re-states setup_project_ai.SUPERPOWERS_DENY (the hook cannot rely on importing it); a test keeps them equal.
+_SP_DENY = (
+    "Skill(superpowers:brainstorming)",
+    "Skill(superpowers:writing-plans)",
+    "Skill(superpowers:executing-plans)",
+    "Skill(superpowers:subagent-driven-development)",
+    "Skill(superpowers:using-git-worktrees)",
+)
+try:
+    from pathlib import Path as _SpPath
+
+    _sp_claude = _SpPath.home() / ".claude"
+    _sp_settings = None
+    try:
+        with open(_sp_claude / "settings.json", encoding="utf-8") as _fh:
+            _sp_settings = json.load(_fh)
+    except (OSError, ValueError):
+        pass
+    _sp_plugins = _sp_settings.get("enabledPlugins") if isinstance(_sp_settings, dict) else None
+    if isinstance(_sp_plugins, dict):
+        _sp_on = any(str(k).split("@", 1)[0] == "superpowers" and v is True for k, v in _sp_plugins.items())
+    else:
+        _sp_on = any(_sp_claude.glob("plugins/cache/*/superpowers"))
+    if _sp_on and not _under_codex():
+        _sp_perms = _sp_settings.get("permissions") if isinstance(_sp_settings, dict) else None
+        _sp_deny = _sp_perms.get("deny") if isinstance(_sp_perms, dict) else None
+        _sp_have = set(_sp_deny) if isinstance(_sp_deny, list) else set()
+        print(
+            "[caddis] superpowers is also on. caddis owns brainstorming, plans (/caddis:feature-plan), running plans\n"
+            "(/caddis:implement) and worktrees; their superpowers twins are blocked by deny rules.\n"
+            "Use superpowers directly for debugging, verification, TDD, review feedback and writing skills."
+        )
+        if not set(_SP_DENY) <= _sp_have:
+            print("The deny rules are missing from ~/.claude/settings.json: run `/setup-project-ai` to add them.")
+except Exception as _exc:
+    _hook_note("superpowers precedence", _exc)
+
 # Session heartbeat (robustness audit #18): ~/.caddis/sessions/<id>.json records which caddis version this
 # session loaded, so `caddis doctor` can name live sessions that an update has not reached. SessionStart writes
 # it; PreCompact refreshes last_seen. Headless runs are short and nobody restarts them, so they write nothing.
@@ -769,6 +813,20 @@ try:
 except Exception as _exc:
     _hook_note("todo-tools env enable", _exc)
 
+# Stable script launcher: keep ~/.caddis/bin/caddis_run.py equal to this plugin's scripts/caddis_run.py.
+# Text that a LATER session reads (a relay resume prompt, a restart sheet, a roadmap prompt) names that
+# path, never the versioned plugin folder, which is gone after the next update. A copy only when the
+# content differs (temp file + os.replace); prints nothing. Fail-open & silent like every block here.
+try:
+    _sc4 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if _sc4 not in sys.path:
+        sys.path.insert(0, _sc4)
+    import caddis_run as _cr  # noqa: E402
+
+    _cr.install_launcher(os.path.join(_sc4, "caddis_run.py"))
+except Exception as _exc:
+    _hook_note("stable launcher refresh", _exc)
+
 # Mid-week cadence nudge: suggest /usage-review when overdue (>7 days) or never run (enough data exists).
 # Prefer the current artifact dir, then the older .claude path.
 _STAMP = _first_existing(
@@ -799,6 +857,53 @@ try:
             print("\n[USAGE-REVIEW] You have usage data — run `/usage-review` to review patterns and right-size your harness.\n")
 except Exception as _exc:
     _hook_note("usage-review nudge", _exc)
+
+# Preload-review nudge: ONE line when the last /preload-review is older than 30 days (or never ran, or the
+# stamp is broken), and ONE line when the enabled-plugin set differs from the one stored in the stamp.
+# Pure file check: reads the artifact-dir stamp .last-preload-review (two lines: `date:` and `plugins:`) and
+# the `enabledPlugins` key of the user's settings.json. Prints nothing when both are fresh. Never blocks,
+# never edits. Fail-open & silent like every block here.
+# The stamp format and the hash are the ones in scripts/caddis_preload_review.py (read_stamp, plugins_hash).
+# They are re-stated here, not imported: in a source checkout this hook's sibling scripts/ folder is
+# claude-harness/scripts, which does not hold that module. A hook test checks that the two hashes agree.
+try:
+    import hashlib as _hashlib
+    from datetime import date as _date
+    from pathlib import Path as _PPath
+
+    _pr_fields = {}
+    _pr_path = _first_existing(_art(".last-preload-review"), _art_default(".last-preload-review"))
+    try:
+        with open(_pr_path, encoding="utf-8", errors="replace") as _fh:
+            for _ln in _fh.read().splitlines():
+                _k, _sep, _v = _ln.partition(":")
+                if _sep:
+                    _pr_fields[_k.strip()] = _v.strip()
+        _pr_when = _date.fromisoformat(_pr_fields["date"])
+        _pr_hash = _pr_fields.get("plugins", "")
+    except (OSError, KeyError, ValueError):
+        _pr_when = None
+        _pr_hash = ""
+    if _pr_when is None or not _pr_hash:
+        print("\nPreload review is more than 30 days old (no valid stamp): run /preload-review.")
+    else:
+        _pr_days = (_date.today() - _pr_when).days  # noqa: DTZ011 - the stamp date is a local calendar day
+        if _pr_days > 30:
+            print(f"\nPreload review is {_pr_days} days old: run /preload-review.")
+        _pr_now = "unknown"
+        try:
+            with open(_PPath.home() / ".claude" / "settings.json", encoding="utf-8") as _fh:
+                _pr_plugins = json.load(_fh).get("enabledPlugins")
+            if isinstance(_pr_plugins, dict):
+                _pr_now = _hashlib.sha256(
+                    "\n".join(sorted(k for k, v in _pr_plugins.items() if v is True)).encode("utf-8")
+                ).hexdigest()
+        except (OSError, ValueError, AttributeError):
+            pass
+        if _pr_now != _pr_hash:
+            print("\nEnabled plugins changed since the last review: run /context once.")
+except Exception as _exc:
+    _hook_note("preload-review nudge", _exc)
 
 # Hook health: one line when something has been failing quietly. Throttled to one record
 # per hook/feature/error per day, so a hook broken on every call reports once, not always.

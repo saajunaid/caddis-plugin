@@ -37,7 +37,7 @@ except ModuleNotFoundError as exc:
 # and they are not another session's edit. Patterns are fnmatch on the path inside the artifact folder; `*` crosses `/`.
 GENERATED_DIRS = ("relay/", "session-state/", "context-window/", ".relay-injected/")
 GENERATED_PATTERNS = (
-    "relay.md", "usage-log.jsonl*", "agent-log.jsonl*", ".last-usage-review", "session-state.md",
+    "relay.md", "usage-log.jsonl*", "agent-log.jsonl*", ".last-usage-review", ".last-preload-review", "session-state.md",
     "context-window.json*", ".session-state-*.tmp", "hook-errors.jsonl", "memory.jsonl", "reviews/*.html",
     "*.lock", "*.bak",
 )

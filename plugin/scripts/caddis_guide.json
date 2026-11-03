@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.175",
- "generated": "2026-11-01 21:33 UTC",
+ "version": "1.3.176",
+ "generated": "2026-11-03 23:27 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -338,7 +338,6 @@
     ]
    ],
    "scripts": [
-    "caddis_gate.py",
     "caddis_lanes.py",
     "caddis_routing.py",
     "caddis_spend.py",
@@ -497,6 +496,16 @@
    ],
    "noArgs": true,
    "stage": "knowledge",
+   "daily": false
+  },
+  {
+   "name": "graph-email",
+   "description": "Send a Markdown file as an email through Microsoft Graph or SMTP, as set in ~/.caddis/email.toml. Default recipient is the owner.",
+   "hint": "<file.md> [subject words] [--to address] [--attach file]",
+   "steps": [],
+   "scripts": [],
+   "noArgs": false,
+   "stage": "ship",
    "daily": false
   },
   {
@@ -933,6 +942,43 @@
    "scripts": [],
    "noArgs": false,
    "stage": "plan",
+   "daily": false
+  },
+  {
+   "name": "preload-review",
+   "description": "Show what loads before the first prompt in every repo (rules, memory index, skills, MCP names) and list what to shorten",
+   "hint": "[--root PATH]",
+   "steps": [
+    [
+     "1",
+     "find the script"
+    ],
+    [
+     "2",
+     "run it"
+    ],
+    [
+     "3",
+     "show the output"
+    ],
+    [
+     "4",
+     "point to /context"
+    ],
+    [
+     "5",
+     "offer actions only"
+    ],
+    [
+     "6",
+     "record the review"
+    ]
+   ],
+   "scripts": [
+    "caddis_preload_review.py"
+   ],
+   "noArgs": false,
+   "stage": "setup",
    "daily": false
   },
   {
@@ -1766,6 +1812,12 @@
    "core": true
   },
   {
+   "name": "graph-email",
+   "category": "devops",
+   "description": "Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note.",
+   "core": false
+  },
+  {
    "name": "monorepo",
    "category": "devops",
    "description": "Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting.",
@@ -2218,7 +2270,7 @@
   {
    "name": "brainstorming",
    "category": "workflow",
-   "description": "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation.",
+   "description": "Use before any creative work: new features, components or behavior changes, or planning anything new. Finds what the user wants first.",
    "core": true
   },
   {
@@ -2409,9 +2461,9 @@
   ]
  },
  "counts": {
-  "commands": 39,
+  "commands": 41,
   "agents": 12,
-  "skills": 133,
+  "skills": 134,
   "core": 50,
   "hooks": 17
  }

@@ -83,7 +83,10 @@ Then these close rules, in the message:
    the action after the stop).
 4. Your resume prompt must load your tasks file, greet peers with `<role> is now <your new name>`, and,
    in a shared checkout, say: "read code facts from origin/main; a worktree needs its own fresh
-   dependencies".
+   dependencies". A script command in the prompt is written
+   `python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is your home folder, forward
+   slashes), never the expanded plugin path: the sheet is read after the next update, when a versioned
+   `.../caddis/caddis/<version>/` folder is gone. `ack add` refuses a prompt that holds one.
 5. Reply to `<coordinator>` with this block (one line, every field filled), then your full resume prompt:
    ```
    FLEET-ACK name=<n> role=<r> machine=<m> folder=<abs> relay=<path> tasks=<path|none> mode=<new|keeps-running|restore-on:<machine>|nothing> owns-watchers=<yes|no> worktrees=<abs;abs|none>

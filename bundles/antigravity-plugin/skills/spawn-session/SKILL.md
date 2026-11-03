@@ -166,6 +166,11 @@ Then add the four things the inventory cannot derive:
 **Nothing may be written from recall.** Every number comes from a command run during this capture,
 or from a file quoted by path.
 
+**Script commands.** The successor reads this handover after an update, so write a script command as
+`python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is the user's home folder, forward
+slashes), never the expanded plugin path (`${CLAUDE_PLUGIN_ROOT}` holds the plugin version).
+`caddis_spawn.py check` refuses a versioned path.
+
 ### Then check what you wrote
 
 ```bash

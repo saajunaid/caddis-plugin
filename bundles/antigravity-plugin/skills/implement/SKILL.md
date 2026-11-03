@@ -340,6 +340,9 @@ report — do not redo completed work.
      result) under `## Task progress` in the review file. Then run the phase's normal gates: VERIFY,
      the ONE `review-tier` review by one other vendor at the end of the phase, COMMIT and the Tracker.
      Re-check a fix only when it fixes a blocking finding and changes logic.
+     After an auto-compact, re-read this EXECUTION item and `## Task progress` before the next task. Do not
+     trust your memory of the rules. Resume at the first task with no entry there (adapted from superpowers
+     7.0.2 `subagent-driven-development`).
    - **RED** — write the failing test(s) the phase names (`<test file>::<case>`). Run them; confirm they
      fail for the right reason (the missing behavior, not an import error). If a phase genuinely has no
      testable surface, say so in the review file and implement the minimal change directly.

@@ -1201,6 +1201,7 @@ agent-log.jsonl
 usage-log.jsonl.1
 agent-log.jsonl.1
 .last-usage-review
+.last-preload-review
 relay.md
 relay/
 session-state.md
@@ -1490,6 +1491,68 @@ def ensure_user_env(dry: bool, home: Path | None = None) -> list[str]:
             + ("" if not raw else " (previous version saved as settings.json.caddis-bak)")]
 
 
+# ── superpowers twins that caddis replaces ──────────────────────────────────────────────────
+# caddis owns the routing-critical skills: brainstorming, plans (/caddis:feature-plan), running plans
+# (/caddis:implement) and worktrees. The superpowers plugin ships skills with the same names; its
+# writing-plans and executing-plans skip the caddis model routing. A deny rule blocks such a skill
+# ("Skill execution blocked by permission rules") WITHOUT a prompt, so it keeps the zero-prompt setup
+# (an `ask` rule would prompt every time). Every other superpowers skill is used straight from the plugin.
+# inject_relay.py re-states this list to warn when a rule is missing; a test keeps the two equal.
+SUPERPOWERS_DENY = (
+    "Skill(superpowers:brainstorming)",
+    "Skill(superpowers:writing-plans)",
+    "Skill(superpowers:executing-plans)",
+    "Skill(superpowers:subagent-driven-development)",
+    "Skill(superpowers:using-git-worktrees)",
+)
+
+
+def ensure_superpowers_deny(dry: bool, home: Path | None = None) -> str:
+    """Add the SUPERPOWERS_DENY rules to the user's `permissions.deny`, additively and idempotently.
+
+    Other deny entries (and every other setting) are never removed or reordered. Same safety rules as
+    ensure_user_env: a file that does not parse is never rewritten, a backup is kept
+    (`settings.json.caddis-deny-bak`, its own name so it cannot overwrite another function's backup), the
+    write is atomic, and `CADDIS_NO_SETTINGS_ENV` skips it. Known limit, as for ensure_user_env: a write by
+    Claude Code between this read and the replace is lost."""
+    if os.environ.get("CADDIS_NO_SETTINGS_ENV"):
+        return "superpowers deny rules: skipped (CADDIS_NO_SETTINGS_ENV set)"
+    path = _user_settings_path(home)
+    if path.is_file():
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return (f"superpowers deny rules: {path} is NOT VALID JSON ({exc.msg}, line {exc.lineno}) — "
+                    "left untouched; fix it by hand.")
+        if not isinstance(data, dict):
+            return f"superpowers deny rules: {path} is not a JSON object — left untouched"
+    else:
+        raw, data = "", {}
+    perms = data.get("permissions")
+    if perms is None:
+        perms = {}
+    elif not isinstance(perms, dict):
+        return f"superpowers deny rules: {path} has a non-object `permissions` — left untouched"
+    deny = perms.get("deny")
+    if deny is None:
+        deny = []
+    elif not isinstance(deny, list):
+        return f"superpowers deny rules: {path} has a non-list `permissions.deny` — left untouched"
+    missing = [rule for rule in SUPERPOWERS_DENY if rule not in deny]
+    if not missing:
+        return f"superpowers deny rules: all {len(SUPERPOWERS_DENY)} already in {path}"
+    perms["deny"] = deny + missing
+    data["permissions"] = perms
+    if not dry:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if raw:
+            path.with_suffix(".json.caddis-deny-bak").write_text(raw, encoding="utf-8")
+        _atomic_write_json(path, data)
+    verb = "would add" if dry else "added"
+    return f"superpowers deny rules: {verb} {len(missing)} to permissions.deny in {path}"
+
+
 CLEANUP_PERIOD_KEY = "cleanupPeriodDays"
 CLEANUP_PERIOD_DAYS = 120
 
@@ -1534,7 +1597,7 @@ def scaffold_artifact_dir(target: Path, dry: bool) -> list[str]:
     """Create the harness-owned .caddis/ artifact tree + a default .gitignore + a config example.
 
     Committed subdirs: plans, handoffs, agent-docs, prd, kb, prompts, comms. Transient state
-    (reviews/*.html, usage-log.jsonl, .last-usage-review, relay*, session-state.md,
+    (reviews/*.html, usage-log.jsonl, .last-usage-review, .last-preload-review, relay*, session-state.md,
     PROJECT-FACTS.md) is gitignored. .caddis/ is the default home for every working-artifact kind (Track A
     Phase A3) — kb/ and prompts/ round out plans/prd/agent-docs/reviews so nothing has to
     scatter to the repo root or .github/. Also drops a documented `config.toml.example`
@@ -1832,6 +1895,7 @@ def main() -> int:
     for line in ensure_user_env(args.dry_run):
         print(f"   {line}")
     print(f"   {ensure_cleanup_period(args.dry_run)}")
+    print(f"   {ensure_superpowers_deny(args.dry_run)}")
 
     print("-- doc-coverage discipline (DOC-MAP + page guide + checker)")
     for line in emit_doc_discipline(target, ident, args.force, args.dry_run):

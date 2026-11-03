@@ -1,11 +1,12 @@
 export type RepoTab = 'flow' | 'roadmap' | 'sessions';
+export type GuideTab = 'poster' | 'details' | 'wall' | 'map';
 
 export type Route =
   | { page: 'inbox' }
   | { page: 'overview' }
   | { page: 'repo'; id: string; tab: RepoTab; roadmap: string | null }
   | { page: 'activity' }
-  | { page: 'guide'; tab: 'poster' | 'details'; item: string | null };
+  | { page: 'guide'; tab: GuideTab; item: string | null };
 
 /** Hash routes, no router library: `#/inbox`, `#/overview`, `#/repo/<id>[/<tab>[/<slug>]]`. Unknown gives the Inbox. */
 export function parseRoute(hash: string): Route {
@@ -15,7 +16,7 @@ export function parseRoute(hash: string): Route {
   if (head === 'activity') return { page: 'activity' };
   if (head === 'guide') {
     try {
-      const tab = parts[1] === 'details' ? 'details' : 'poster';
+      const tab: GuideTab = parts[1] === 'details' || parts[1] === 'wall' || parts[1] === 'map' ? parts[1] : 'poster';
       const item = parts[2] ? decodeURIComponent(parts[2]) : null;
       return { page: 'guide', tab, item };
     } catch {
@@ -45,7 +46,9 @@ export function repoTabHref(id: string, tab: RepoTab, roadmap?: string | null): 
   return `${repoHref(id)}/${tab}${tab === 'roadmap' && roadmap ? `/${encodeURIComponent(roadmap)}` : ''}`;
 }
 
-export function guideHref(tab: 'poster' | 'details', item?: string | null): string {
+export function guideHref(tab: GuideTab, item?: string | null): string {
   if (tab === 'poster') return '#/guide';
+  if (tab === 'wall') return '#/guide/wall';
+  if (tab === 'map') return '#/guide/map';
   return `#/guide/details${item ? `/${encodeURIComponent(item)}` : ''}`;
 }

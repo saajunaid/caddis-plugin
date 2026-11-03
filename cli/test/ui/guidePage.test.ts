@@ -14,12 +14,12 @@ const fixture = JSON.parse(
 const versions = { hub: '0.0.1', pool: null, plugin: null };
 
 describe('guide page and Details tab', () => {
-  it('tab bar has 2 tabs and the active one has aria-selected="true"', () => {
+  it('tab bar has 4 tabs and the active one has aria-selected="true"', () => {
     const posterHtml = renderToStaticMarkup(
       createElement(Guide, { guide: fixture, versions, tab: 'poster', item: null })
     );
     const tabs = posterHtml.match(/role="tab"/g) ?? [];
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(4);
     expect(posterHtml).toMatch(/href="#\/guide"[^>]*aria-selected="true"/);
     expect(posterHtml).toMatch(/href="#\/guide\/details"[^>]*aria-selected="false"/);
 

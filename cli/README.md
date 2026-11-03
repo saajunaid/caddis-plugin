@@ -143,6 +143,10 @@ starts it in the background; `caddis hub stop` stops it.
 
 **Guide Poster and Details.** The Guide page has a `Poster` tab (with `Workflow` and `Mind map` views, plus a `Print` button for a two-page A3 landscape wall poster) and a `Details` tab. Every item on the poster links to its entry in Details.
 
+**Guide Wall poster.** A third tab, `Wall poster` (`#/guide/wall`), shows one A4 landscape sheet: the daily commands in order, a card per stage (plan, build, review, ship, continuity, knowledge, setup), and the agents. The `Print` button prints exactly that sheet on one page. It is built from the same installed guide data as the other tabs, so a new command, agent or count appears by itself after `caddis update` and a hub restart. The text shrinks (to 60% at most) when the guide grows, so nothing is cut off. Each line is the first clause of the description; the Details tab has the full text.
+
+**Guide Map.** A fourth tab, `Map` (`#/guide/map`), lays out the whole plugin: the daily loop (plan, build, review, ship) with its commands, the support lanes (continuity, knowledge, setup), the hooks as a timeline in the order a session fires them, the agents with their model and a `writes files` marker, the skills by family, and the runtimes that receive caddis. Every name links to its entry in Details. A filter box dims what does not match, and `Print` prints the map on A3 landscape. Nothing on the map is written by hand: it is built from the installed guide data, so a new command, agent, skill or hook appears by itself after `caddis update` and a hub restart.
+
 **Sessions from more than one agent.** Claude Code sessions come from `claude agents --json`. agy
 (Antigravity) sessions come from the caddis agy hooks: each agy turn writes a status file, and the
 hub lists that session with an `agy` chip. A turn that starts sets `working`. A turn that ends sets

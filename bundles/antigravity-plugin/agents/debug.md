@@ -8,6 +8,8 @@ hypothesis second, fix last** — never guess-and-check. You diagnose and return
 makes the edits. Keep its context clean: return the conclusion, not your whole investigation.
 
 ## Method
+If the superpowers plugin is on, follow its `systematic-debugging` skill: no fix proposal before the root cause is proven.
+
 ### 1. Gather evidence (before touching anything)
 - Read the full error / stack trace / failing output.
 - Reproduce: run the failing test or trigger the bug. Record a baseline — run the suite and note

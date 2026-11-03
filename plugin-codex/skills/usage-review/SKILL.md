@@ -11,7 +11,7 @@ apply config changes in one step. Data stays on-machine — no telemetry, no ser
 ## Step 1 — run the analysis script
 
 Resolve the script path:
-- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.176/scripts/usage_review.py`
+- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.177/scripts/usage_review.py`
 - harness (caddis) checkout: `scripts/usage_review.py`
 
 Run it:
@@ -41,6 +41,8 @@ installed on this machine. Show every `DRIFT` line in the report under **Upstrea
 line means: review the upstream diff, port what fits, then update `.github/upstream-sources.json`.
 Say nothing for `UP-TO-DATE`, `NOT-INSTALLED` or `NO-SOURCES` (no record: not the caddis source repo).
 The check never fails the review.
+This local check is blind when the upstream plugin is off. `--remote` asks GitHub instead, and the weekly
+`upstream-drift` workflow runs it and keeps one "Upstream drift: obra/superpowers" issue open.
 
 ## Step 3 — offer to apply
 

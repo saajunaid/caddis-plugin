@@ -70,6 +70,7 @@
 | Deploy Local | `devops/deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
 | Gh CLI | `devops/gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `devops/git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
+| Graph Email | `devops/graph-email/` | Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note. |
 | Monorepo | `devops/monorepo/` | Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting. |
 | Port To GitHub | `devops/port-to-github/` | Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over WinRM): all branches and tags, SHA-verified, CI translated, source-only history, deploy cut over with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "this app only exists on the server", "import the repo from the prod box", "keep binaries out of the repo", or "cut the deploy over to GitHub". |
 | Runner Move | `devops/runner-move/` | Move GitHub Actions jobs from self-hosted runners to GitHub-hosted runners, one repo at a time, with a cost check and a pilot PR. Use when the user says "move CI to GitHub-hosted runners", "stop using self-hosted runners", "runner migration", "move jobs off the runner box", or "run CI on windows-latest or ubuntu-latest". |
@@ -153,7 +154,7 @@
 | Agent Orchestration | `workflow/agent-orchestration/` | Blueprint for orchestrating the agent pipeline from spec to planning, implementation, testing and debugging, plus when a second model is worth it, the intent→model map and cost guardrails. |
 | Ask Questions If Underspecified | `workflow/asking-questions/` | Clarify requirements before implementing. Do not use automatically, only when invoked explicitly. |
 | Best Practices | `workflow/best-practices/` | Transforms vague prompts into optimized Claude Code prompts. Adds verification, specific context, constraints, and proper phasing. Invoke with /best-practices. |
-| Brainstorming | `workflow/brainstorming/` | You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. |
+| Brainstorming | `workflow/brainstorming/` | Use before any creative work: new features, components or behavior changes, or planning anything new. Finds what the user wants first. |
 | Context Curator | `workflow/context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |
 | Data Contract Pipeline | `workflow/data-contract-pipeline/` | Build, audit and validate data-to-UI contracts. Use when the user mentions data mapping, UI lineage, DB-to-UI, DisplayDTOs, source-to-screen mapping, data contracts, schema drift, typed API responses, mockup grounding, or asks whether a UI is backed by real data. |
 | Developer Growth Analysis | `workflow/developer-growth-analysis/` | Analyze recent Claude Code chat history for coding patterns and gaps, find learning resources on HackerNews, and send a growth report to Slack DMs. |
@@ -178,7 +179,7 @@
 | Excalidraw | `media/excalidraw/` | Brand-themed Excalidraw diagrams for project documentation |
 | Flow Chart From Counts | `media/flow-chart-from-counts/` | Turn a from-to-count edge list into a zoomable Mermaid flow chart page with counts, a legend and a render check. |
 | Mermaid Diagrams | `media/mermaid-diagrams/` | Software diagrams in Mermaid: class, sequence, flowchart, ERD, C4, state, git graph, gantt. Use for domain models, API flows, processes and database schemas. |
-| Particle Art | `media/particle-art/` | Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particle animation", "particles that form a shape", "animated letter/logo/initials", "morphing particles", "constellation", "neural net art", "halftone animation", "ASCII art animation", or "art that reacts to mouse". |
+| Particle Art | `media/particle-art/` | Zero-dependency animated particle art as a React/Next.js component (spring physics, CSS-variable theming, mouse interaction). Use for animated hero art or a living logo, or on "particle animation", "animated letter/logo/initials" or "morphing particles". |
 | Plantuml | `media/plantuml/` | Brand-themed PlantUML diagrams for project documentation |
 | SVG Create | `media/svg-create/` | Brand-themed SVG diagrams with consistent color palette and accessible design |
 

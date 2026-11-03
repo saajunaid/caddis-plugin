@@ -29,7 +29,8 @@ test. Show it green.
 layer, dispatch the **tester** subagent.
 
 ## Rules
-- Never write production code with no failing test demanding it.
+- **Iron Law:** no production code without a failing test first. Code written before its test is deleted,
+  not adapted or kept as reference. The `tdd-workflow` skill has the rationalizations and red flags.
 - Test behavior, not internals. Assert what a caller observes.
 - Each test independent; shared setup in fixtures.
 - Show real command output at RED and GREEN — don't claim a state you didn't run.

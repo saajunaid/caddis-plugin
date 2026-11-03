@@ -215,7 +215,8 @@ test.describe('themes and keyboard', () => {
         if (!el || !el.matches('nav[aria-label="Main"] a.nav-link')) return null;
         const cs = getComputedStyle(el);
         const ring = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== 'none';
-        return { href: el.getAttribute('href') ?? '', ring };
+        // Two entries can share an address ("caddis guide" and its "Poster" page), so key on the text too.
+        return { href: `${el.getAttribute('href') ?? ''} ${el.textContent ?? ''}`, ring };
       });
       if (!info) continue;
       expect(info.ring, `no focus ring on ${info.href}`).toBe(true);

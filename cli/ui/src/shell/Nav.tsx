@@ -2,7 +2,15 @@ import { Activity, BookOpen, Inbox as InboxIcon, LayoutDashboard, Menu, X } from
 import type { ReactNode } from 'react';
 import type { HubState, RepoState } from '../types';
 import { Logo } from './Logo';
-import { repoHref, repoId, type Route } from './route';
+import { guideHref, repoHref, repoId, type GuideTab, type Route } from './route';
+
+/** The caddis guide sub pages, in the order of the tabs on the guide page. */
+export const GUIDE_PAGES: [GuideTab, string][] = [
+  ['poster', 'Poster'],
+  ['details', 'Details'],
+  ['wall', 'Wall poster'],
+  ['map', 'Map'],
+];
 
 export type RepoTone = 'ok' | 'attention' | 'blocked' | 'idle';
 
@@ -106,6 +114,25 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
           <ul className="nav-list">
             <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" onGo={close} />
             <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" onGo={close} />
+            <li>
+              <ul className="nav-sublist" aria-label="caddis guide pages">
+                {GUIDE_PAGES.map(([tab, label]) => {
+                  const active = route.page === 'guide' && route.tab === tab;
+                  return (
+                    <li key={tab}>
+                      <a
+                        className={`nav-link nav-sublink${active ? ' active' : ''}`}
+                        href={guideHref(tab)}
+                        aria-current={active ? 'true' : undefined}
+                        onClick={close}
+                      >
+                        <span className="nav-text">{label}</span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
           </ul>
         </nav>
         {children}

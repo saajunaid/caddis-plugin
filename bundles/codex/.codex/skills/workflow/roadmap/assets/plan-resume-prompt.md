@@ -8,8 +8,9 @@ timestamp: {{date}}
 
 You are a fresh session for the plan `{{slug}}`. Do ONE batch, then stop.
 
-In the commands below, `<scripts>` is the caddis scripts folder `{{scripts}}` (put it in quotes if it holds a space).
-Use the scripts in that folder; do not look for them in another caddis install.
+To run a caddis script, write `{{run}} <script.py> <args>`. The launcher finds the installed caddis plugin by itself.
+Do not look for the scripts in a plugin cache folder, and do not write such a path in the relay: it holds the plugin
+version and is gone after the next update.
 
 ## 1. Read
 
@@ -44,7 +45,7 @@ publish a branch that does). Commit the phase there, with its tracker row set to
 ## 4. Work
 
 - Do ONE batch with `/caddis:implement` discipline: tests first, the phase's exit gate, a commit per phase.
-- agy sessions only: run `python {{scripts}}/caddis_spend.py check` before each agy call. There is no spend cap (it
+- agy sessions only: run `{{run}} caddis_spend.py check` before each agy call. There is no spend cap (it
   always exits 0); if its line ends with ` - ADVISORY`, say so in the relay for the owner.
 - You may do everything except pass an owner gate. Never pass an owner gate. Never raise a cap. Never delete a STOP file.
 - The runner reviews `risk: high` phases. A phase marked `**Risk:** high`: do not halt for it and do not run the
@@ -55,8 +56,8 @@ publish a branch that does). Commit the phase there, with its tracker row set to
 
 ## 5. Write the relay
 
-Write the relay with `python <scripts>/caddis_workstreams.py put --require-status {{slug}} <file>`. Write `<file>` outside
-the repo (for example in the temp folder). Read the current relay first with `python <scripts>/caddis_workstreams.py read {{slug}}`;
+Write the relay with `{{run}} caddis_workstreams.py put --require-status {{slug}} <file>`. Write `<file>` outside
+the repo (for example in the temp folder). Read the current relay first with `{{run}} caddis_workstreams.py read {{slug}}`;
 keep its frontmatter shape (`type: relay`, `workstream: {{slug}}`, `branch`, `session_id`, `plan`, `generated.at`). The LAST
 non-empty line must be exactly one of these four:
 

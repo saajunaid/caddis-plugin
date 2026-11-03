@@ -40,6 +40,7 @@
 | Ci Cd Pipeline | `ci-cd-pipeline/` | CI/CD pipelines for GitHub Actions and Azure DevOps: build and deploy workflows, quality gates, environment promotion and release automation. |
 | Gh Cli | `gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
+| Graph Email | `graph-email/` | Send a Markdown file as an email through Microsoft Graph or SMTP, as set in ~/.caddis/email.toml. Default recipient is the owner. |
 | Port To Github | `port-to-github/` | >- |
 | Safe Cleanup | `safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
 | Using Git Worktrees | `using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
@@ -100,6 +101,7 @@
 | Park | `park/` | File a future-work item in the one backlog — .caddis/parking-lot/ — or list what is open |
 | Pr Merge | `pr-merge/` | End-to-end pull request and merge lane — push feature branch, open or update PR, monitor CI to green, merge to default branch, and clean up the feature branch. |
 | Prd | `prd/` | Capture requirements through structured discovery and write a PRD |
+| Preload Review | `preload-review/` | Show what loads before the first prompt in every repo (rules, memory index, skills, MCP names) and list what to shorten |
 | Rca | `rca/` | Record a root cause in one step — .caddis/rca/<date>-<slug>.md — or close one with the fixing commit |
 | Review Pr | `review-pr/` | Review someone else's OPEN pull request end to end — what changed, what CI says, what is risky — then approve or request changes. Never approves on its own. |
 | Ship | `ship/` | Commit, push, and monitor the deploy pipeline (auto-detects Gitea, GitHub Actions, or local-only) |
@@ -135,7 +137,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Best Practices | `best-practices/` | >- |
-| Brainstorming | `brainstorming/` | You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. |
+| Brainstorming | `brainstorming/` | Use before any creative work: new features, components or behavior changes, or planning anything new. Finds what the user wants first. |
 | Context Curator | `context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |
 | Preflight | `preflight/` | Plan-vs-codebase validation — verifies API contracts, type names, field accuracy, dependencies, and paths before implementation begins |
 | Roadmap | `roadmap/` | Track milestones across plans in .caddis/roadmaps/<slug>/: next batch, typed blockers, rollup. Every change is a docs PR via caddis_roadmap.py. |

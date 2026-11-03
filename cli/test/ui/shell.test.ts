@@ -85,6 +85,10 @@ describe('routes', () => {
     expect(parseRoute('#/guide')).toEqual({ page: 'guide', tab: 'poster', item: null });
     expect(parseRoute('#/guide/details')).toEqual({ page: 'guide', tab: 'details', item: null });
     expect(parseRoute('#/guide/details/g-command-handoff')).toEqual({ page: 'guide', tab: 'details', item: 'g-command-handoff' });
+    expect(parseRoute('#/guide/wall')).toEqual({ page: 'guide', tab: 'wall', item: null });
+    expect(guideHref('wall')).toBe('#/guide/wall');
+    expect(parseRoute('#/guide/map')).toEqual({ page: 'guide', tab: 'map', item: null });
+    expect(guideHref('map')).toBe('#/guide/map');
     expect(parseRoute('#/guide/bogus')).toEqual({ page: 'guide', tab: 'poster', item: null });
     expect(guideHref('details', 'g-agent-debug')).toBe('#/guide/details/g-agent-debug');
     expect(guideHref('poster')).toBe('#/guide');

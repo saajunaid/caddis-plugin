@@ -145,6 +145,7 @@ import caddis_created  # noqa: E402
 import caddis_notify  # noqa: E402
 import caddis_redact  # noqa: E402
 import caddis_review  # noqa: E402
+import caddis_run  # noqa: E402
 import caddis_roadmap  # noqa: E402
 import caddis_spend  # noqa: E402
 import caddis_worktree_root  # noqa: E402
@@ -339,12 +340,13 @@ def resolve_target(repo: Path, plan: str | None) -> Target:
 
 
 def render_prompt(template: Path, slug: str, phase: int | None = None) -> str:
-    """The template body with `{{slug}}`, `{{phase}}` (empty when None) and `{{scripts}}` (this scripts folder: an
-    app repo has no caddis `scripts/`) filled in."""
+    """The template body with `{{slug}}`, `{{phase}}` (empty when None) and `{{run}}` (`python "<home>/.caddis/bin/
+    caddis_run.py"`, the stable launcher: an app repo has no caddis `scripts/`, and a versioned plugin path is gone
+    after the next update, while a runner session can outlive it) filled in."""
     text = template.read_text(encoding="utf-8")
     _meta, body = caddis_workstreams.split_document(text)
     for key, value in (("{{slug}}", slug), ("{{phase}}", "" if phase is None else str(phase)),
-                       ("{{scripts}}", _HERE.as_posix())):
+                       ("{{run}}", caddis_run.stable_prefix())):
         body = body.replace(key, value)
     return body.strip() + "\n"
 
@@ -1245,6 +1247,10 @@ def run(*, repo: Path, plan: str | None = None, roadmap: str | None = None, caps
         print(f"caddis_roadmap_run: resume prompt template {target.prompt_name} not found", file=sys.stderr)
         return caddis_exit.ERROR
     template = Path(template)
+    try:  # the prompt names ~/.caddis/bin/caddis_run.py; the SessionStart hook keeps it there, this covers a first run
+        caddis_run.install_launcher(_HERE / "caddis_run.py")
+    except OSError as exc:
+        print(f"caddis_roadmap_run: cannot install the caddis_run.py launcher: {exc}", file=sys.stderr)
     if governor is None:
         governor = default_governor()
         if governor is None:

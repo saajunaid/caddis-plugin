@@ -345,10 +345,16 @@ yourself (relay + Tracker) before stopping — do not hand back "run `/caddis:ha
 <same structure>
 
 ## Execution protocol (standing rules — this plan is the memory, not anyone's head)
+Script commands in the plan text (these rules, task commands, exit gates) are written
+`python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is the user's home folder, forward
+slashes), never the expanded plugin path: a later session runs them after an update, when a versioned
+`.../caddis/caddis/<version>/` folder is gone. The one exception is a Lane launch line, which
+`caddis_gate.py lane-check` validates in its own form (above).
+
 Three rules: one attempt, one review.
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "<home>/.caddis/bin/caddis_run.py" caddis_gate.py review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.

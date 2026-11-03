@@ -31,6 +31,21 @@ test.describe('caddis guide page', () => {
     await expect(link).not.toContainText('soon');
   });
 
+  test('the side menu lists the four guide pages and marks the open one', async ({ page, openHub }) => {
+    await openHub('full', withGuide, '#/guide');
+    const sub = page.getByRole('list', { name: 'caddis guide pages' });
+    await expect(sub.getByRole('link')).toHaveText(['Poster', 'Details', 'Wall poster', 'Map']);
+    const poster = sub.getByRole('link', { name: 'Poster', exact: true });
+    const map = sub.getByRole('link', { name: 'Map', exact: true });
+    await expect(poster).toHaveAttribute('aria-current', 'true');
+    await map.click();
+    await expect(page).toHaveURL(/#\/guide\/map$/);
+    await expect(page.getByTestId('guide-map')).toBeVisible();
+    await expect(map).toHaveAttribute('aria-current', 'true');
+    await expect(poster).not.toHaveAttribute('aria-current', 'true');
+    await expect(page.getByRole('link', { name: /caddis guide/ })).toHaveAttribute('aria-current', 'page');
+  });
+
   test('the filter narrows, shows n of m, and clears', async ({ page, openHub }) => {
     await openHub('full', withGuide, '#/guide/details');
     const total = Object.values(EXPECTED).reduce((a, b) => a + b, 0);
@@ -126,5 +141,137 @@ test.describe('caddis guide page', () => {
     const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
     expect(pages).toBeGreaterThanOrEqual(1);
     expect(pages).toBeLessThanOrEqual(2);
+  });
+  test.describe('wall poster', () => {
+    // A guide the size of the real one: 40 commands across the stages, 12 agents.
+    const STAGES = ['plan', 'plan', 'plan', 'plan', 'plan', 'plan', 'build', 'build', 'build', 'review', 'review', 'review', 'review', 'ship', 'ship', 'ship', 'ship', 'continuity', 'continuity', 'continuity', 'continuity', 'continuity', 'continuity', 'continuity', 'knowledge', 'knowledge', 'knowledge', 'knowledge', 'knowledge', 'setup', 'setup', 'setup', 'setup', 'setup', 'setup', 'setup', 'setup', 'setup', 'setup', 'setup'];
+    const big = (s: State): void => {
+      withGuide(s);
+      s.guide.commands = STAGES.map((stage, i) => ({
+        name: `command-${i}`,
+        description: 'Questions, then a requirements doc that is long enough to need a cut. Second sentence.',
+        hint: i % 3 === 0 ? '<some argument>' : '',
+        steps: [],
+        scripts: [],
+        noArgs: i % 3 !== 0,
+        stage,
+        daily: i % 5 === 0,
+      }));
+      s.guide.agents = Array.from({ length: 12 }, (_, i) => ({ name: `agent-${i}`, description: 'Find the root cause of a bug.', tools: ['Read'], model: 'sonnet', writes: i % 4 === 0 }));
+    };
+
+    test('renders a row per command and agent, and links to the details', async ({ page, openHub }) => {
+      const { problems } = await openHub('full', big, '#/guide/wall');
+      await expect(page.getByTestId('guide-wall-sheet')).toBeVisible();
+      await expect(page.locator('.gw-row')).toHaveCount(STAGES.length + 12);
+      await page.locator('.gw-name', { hasText: '/command-0' }).click();
+      await expect(page).toHaveURL(/#\/guide\/details\/g-command-command-0/);
+      expect(problems.console).toEqual([]);
+    });
+
+    test('the sheet is A4 landscape, nothing is cut off, and it prints on one page', async ({ page, openHub }) => {
+      await openHub('full', big, '#/guide/wall');
+      await expect(page.getByTestId('guide-wall-sheet')).toBeVisible();
+      const clipped = await page.evaluate(() => {
+        const cards = document.querySelector('.gw-cards') as HTMLElement;
+        return { h: cards.scrollHeight - cards.clientHeight, w: cards.scrollWidth - cards.clientWidth };
+      });
+      expect(clipped.h, 'cards are cut off at the bottom').toBeLessThanOrEqual(1);
+      expect(clipped.w, 'a fifth column is cut off at the right').toBeLessThanOrEqual(1);
+      const scale = await page.evaluate(() => Number(getComputedStyle(document.querySelector('.gw-cards')!).getPropertyValue('--gw-scale')));
+      expect(scale, 'text shrank below the readable minimum').toBeGreaterThanOrEqual(0.6);
+      await page.emulateMedia({ media: 'print' });
+      const pdf = await page.pdf({ preferCSSPageSize: true });
+      const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+      expect(pages).toBe(1);
+      const box = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(pdf.toString('latin1'));
+      expect(Number(box?.[1])).toBeGreaterThan(Number(box?.[2]));
+    });
+
+    test('missing guide data shows the state, not the sheet', async ({ page, openHub }) => {
+      await openHub('full', (s) => { s.guide = null; }, '#/guide/wall');
+      await expect(page.getByTestId('guide-state')).toBeVisible();
+      await expect(page.getByTestId('guide-wall-sheet')).toHaveCount(0);
+    });
+  });
+
+  test.describe('plugin map', () => {
+    // A guide the size of the real one: 40 commands, 12 agents, 70 skills in 8 families, 11 hook events.
+    const STAGES = ['plan', 'build', 'review', 'ship', 'continuity', 'knowledge', 'setup', 'plan', 'review', 'ship'];
+    const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'Notification', 'SubagentStop', 'Stop', 'PreCompact', 'SessionEnd'];
+    const COMMANDS = 40;
+    const AGENTS = 12;
+    const SKILLS = 70;
+    const big = (s: State): void => {
+      withGuide(s);
+      s.guide.commands = Array.from({ length: COMMANDS }, (_, i) => ({
+        name: `command-${i}`,
+        description: 'Questions, then a requirements doc that is long enough to need a cut. Second sentence.',
+        hint: '',
+        steps: [],
+        scripts: [],
+        noArgs: true,
+        stage: STAGES[i % STAGES.length]!,
+        daily: i % 5 === 0,
+      }));
+      s.guide.agents = Array.from({ length: AGENTS }, (_, i) => ({ name: `agent-${i}`, description: 'Find the root cause of a bug.', tools: ['Read'], model: i % 3 === 0 ? 'opus' : 'sonnet', writes: i % 4 === 0 }));
+      s.guide.skills = Array.from({ length: SKILLS }, (_, i) => ({ name: `skill-${i}`, category: `family-${i % 8}`, description: 'A skill.', core: i % 9 === 0 }));
+      s.guide.hooks = EVENTS.map((event, i) => ({ event, matcher: i % 2 ? 'Bash|Edit' : '(every)', handler: `hooks/script_${i}.py` }));
+    };
+
+    test('shows every section, links to the details, and has no console problems', async ({ page, openHub }) => {
+      const { problems } = await openHub('full', big, '#/guide/map');
+      await expect(page.getByTestId('guide-map-sheet')).toBeVisible();
+      await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator('.gm-item')).toHaveCount(COMMANDS);
+      await expect(page.locator('.gm-agent')).toHaveCount(AGENTS);
+      await expect(page.locator('.gm-chip')).toHaveCount(SKILLS);
+      await expect(page.locator('.gm-event')).toHaveCount(EVENTS.length);
+      await page.locator('.gm-name', { hasText: '/command-0' }).click();
+      await expect(page).toHaveURL(/#\/guide\/details\/g-command-command-0/);
+      expect(problems.console).toEqual([]);
+    });
+
+    test('the filter dims what does not match and shows the match count', async ({ page, openHub }) => {
+      await openHub('full', big, '#/guide/map');
+      await page.getByTestId('guide-map-filter').fill('agent-1');
+      await expect(page.getByTestId('guide-map-matches')).toHaveText('3 matches');
+      await expect(page.locator('.gm-agent:not(.gm-dim)')).toHaveCount(3);
+      await expect(page.locator('.gm-item:not(.gm-dim)')).toHaveCount(0);
+      await page.getByTestId('guide-map-filter').fill('');
+      await expect(page.locator('.gm-dim')).toHaveCount(0);
+    });
+
+    test('prints on A3 landscape in at most two pages', async ({ page, openHub }) => {
+      await openHub('full', big, '#/guide/map');
+      await expect(page.getByTestId('guide-map-sheet')).toBeVisible();
+      await page.emulateMedia({ media: 'print' });
+      const pdf = (await page.pdf({ preferCSSPageSize: true })).toString('latin1');
+      const pages = (pdf.match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+      expect(pages).toBeGreaterThanOrEqual(1);
+      expect(pages).toBeLessThanOrEqual(2);
+      const box = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(pdf);
+      expect(Number(box?.[1])).toBeGreaterThan(Number(box?.[2]));
+      expect(Number(box?.[1]), 'wider than an A4 sheet').toBeGreaterThan(1180);
+    });
+
+    test('missing guide data shows the state, not the map', async ({ page, openHub }) => {
+      await openHub('full', (s) => { s.guide = null; }, '#/guide/map');
+      await expect(page.getByTestId('guide-state')).toBeVisible();
+      await expect(page.getByTestId('guide-map-sheet')).toHaveCount(0);
+    });
+
+    test.describe('phone width', () => {
+      test.use({ viewport: { width: 390, height: 800 } });
+      test('no horizontal scroll, with data and with a filter', async ({ page, openHub }) => {
+        await openHub('full', big, '#/guide/map');
+        await expect(page.getByTestId('guide-map-sheet')).toBeVisible();
+        const fits = (): Promise<boolean> =>
+          page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+        expect(await fits()).toBe(true);
+        await page.getByTestId('guide-map-filter').fill('skill');
+        expect(await fits()).toBe(true);
+      });
+    });
   });
 });

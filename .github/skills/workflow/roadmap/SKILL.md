@@ -12,6 +12,10 @@ by `caddis_merge_chain.py --docs-only`; a repo that wants a human to review them
 `scripts/` below is the caddis scripts folder: `${CLAUDE_PLUGIN_ROOT}/scripts` in an installed plugin, `scripts/` in
 the caddis source repo.
 
+In text that a later session reads (a roadmap row's check command, a restart prompt, a relay), write a script command as
+`python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is the user's home folder, forward slashes), never the
+expanded plugin path: it holds the plugin version and is gone after the next update. The runner's own prompt does this.
+
 ## The folder
 
 `.caddis/roadmaps/<slug>/` holds:

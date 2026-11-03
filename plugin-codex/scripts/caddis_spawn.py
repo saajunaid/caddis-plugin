@@ -39,6 +39,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    import caddis_run  # VERSIONED_PATH: a handover never names a versioned plugin path
+except ModuleNotFoundError as _exc:
+    if _exc.name != "caddis_run":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import caddis_run
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -110,9 +118,13 @@ class DocFindings:
     # different. A stale hash is an accident the successor will notice; a stored answer key
     # defeats the exercise SILENTLY — it certifies a reader who understood nothing.
     answer_key: list[tuple[int, str]] = field(default_factory=list)
+    # A path into the versioned plugin cache. The successor reads the handover after an update, when that
+    # folder is gone: the command fails with "can't open file". Refusing, so the author fixes it now.
+    versioned_paths: list[tuple[int, str]] = field(default_factory=list)
 
     def ok(self) -> bool:
-        return not self.stale_prone and not self.missing_paths and not self.answer_key
+        return (not self.stale_prone and not self.missing_paths and not self.answer_key
+                and not self.versioned_paths)
 
 
 # ── answer-key detection ────────────────────────────────────────────────────────────────────
@@ -184,6 +196,8 @@ def check_document(text: str, repo_root: Path | None = None) -> DocFindings:
         if _INLINE_ANSWER.search(line):
             out.answer_key.append((n, "a question and its answer on one line. The questions may "
                                       "ship; the answers may not"))
+        if caddis_run.VERSIONED_PATH.search(line):  # a fence does not exempt it: a command in a fence is the case
+            out.versioned_paths.append((n, caddis_run.VERSIONED_PATH_HELP))
         if _is_exempt(line, in_fence):
             continue
         for m in _HASH.finditer(line):
@@ -915,6 +929,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"[spawn] {doc.name} FAILS round 0:\n")
         for n, msg in f.answer_key:
             sys.stderr.write(f"    line {n}: ANSWER KEY — {msg}" + chr(10))
+        for n, msg in f.versioned_paths:
+            sys.stderr.write(f"    line {n}: {msg}\n")
         for n, msg in f.stale_prone:
             sys.stderr.write(f"    line {n}: {msg}\n")
         for p_ in f.missing_paths:

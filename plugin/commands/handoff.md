@@ -305,6 +305,7 @@ Read .caddis/relay/<name>.md, then the plan it points to. Continue from <phase/s
 Load every row of .caddis/relay/<name>.tasks.md with TaskCreate.
 \`\`\`
 (Keep the `Load every row` sentence only when Step 3c wrote `.caddis/relay/<name>.tasks.md`.)
+(A script command in the prompt is written `python "<home>/.caddis/bin/caddis_run.py" <script> ...`, never the expanded plugin path: see Rules.)
 
 STATUS: <CONTINUE | OWNER-GATE <P>-OG<n> | BLOCKED <owner> | FAILED <reason>>
 ```
@@ -528,8 +529,9 @@ The `cd` makes the relay's repo-relative paths work from any terminal folder (`;
   the new session to run `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send
   each named live peer in the same repo (the checkout and its worktrees) one `SendMessage`:
   `<name> started in <folder>: <next action>. No reply needed.` The fenced block stays the relay's text. A
-  session that pastes the block, not the start line, announces nothing. The script path is written out in the
-  sentence, because a new session cannot expand `${CLAUDE_PLUGIN_ROOT}`.
+  session that pastes the block, not the start line, announces nothing. The sentence names the stable launcher
+  (`~/.caddis/bin/caddis_run.py`), because a new session cannot expand `${CLAUDE_PLUGIN_ROOT}` and a versioned
+  plugin path is gone after the next update.
 - **Fleet close.** When this handoff runs because a peer sent `FLEET CLOSE from <coordinator>`, add
   `--fleet`. The Start line is then `Start line: from the restart sheet`: the restart sheet is the only
   start line in a fleet close, and `/caddis:fleet-open` already greets the peers, so it has no announce
@@ -540,6 +542,11 @@ The `cd` makes the relay's repo-relative paths work from any terminal folder (`;
   `--role <role>` to set another.
 
 ## Rules
+- **Script commands in persisted text.** In text a later session reads (the relay, its `## Resume prompt`, the
+  tasks file), write `python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is the user's home folder, forward slashes), never the
+  expanded plugin path. An expanded `${CLAUDE_PLUGIN_ROOT}` holds the plugin version and is gone after the next update.
+  `${CLAUDE_PLUGIN_ROOT}` stays right in a command that runs now. `caddis_fleet.py resume-block` refuses a prompt that holds a
+  versioned path.
 - **Context rule.** Above 200k: checkpoint at the next card end when 2 or more cards are left; else finish
   the phase and run the full handoff. At 280k: checkpoint at the first moment no agent or background command
   runs. Then ask the owner for `/clear`. Each turn re-reads the whole conversation, so a long session costs

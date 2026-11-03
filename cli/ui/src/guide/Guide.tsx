@@ -1,8 +1,10 @@
 import markSvg from '../brand/mark.svg?raw';
-import { guideHref } from '../shell/route';
+import { guideHref, type GuideTab } from '../shell/route';
 import type { HubState } from '../types';
 import { Details } from './Details';
+import { PluginMap } from './PluginMap';
 import { Poster } from './Poster.jsx';
+import { WallPoster } from './WallPoster';
 import { guideStatus } from './model';
 import './guide.css';
 
@@ -24,7 +26,7 @@ function State({ title, children }: { title: string; children: JSX.Element | str
 export interface GuideProps {
   guide: unknown;
   versions: HubState['versions'];
-  tab?: 'poster' | 'details';
+  tab?: GuideTab;
   item?: string | null;
   initialFilter?: string;
 }
@@ -59,6 +61,10 @@ export function Guide({
     );
   } else if (tab === 'poster') {
     body = <Poster guide={status.guide} />;
+  } else if (tab === 'wall') {
+    body = <WallPoster guide={status.guide} />;
+  } else if (tab === 'map') {
+    body = <PluginMap guide={status.guide} />;
   } else {
     body = <Details guide={status.guide} item={item} initialFilter={initialFilter} />;
   }
@@ -81,6 +87,12 @@ export function Guide({
         </a>
         <a role="tab" href={guideHref('details')} aria-selected={tab === 'details'}>
           Details
+        </a>
+        <a role="tab" href={guideHref('wall')} aria-selected={tab === 'wall'}>
+          Wall poster
+        </a>
+        <a role="tab" href={guideHref('map')} aria-selected={tab === 'map'}>
+          Map
         </a>
       </div>
       {body}

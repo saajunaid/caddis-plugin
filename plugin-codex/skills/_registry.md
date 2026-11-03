@@ -92,7 +92,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Best Practices | `best-practices/` | >- |
-| Brainstorming | `brainstorming/` | You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. |
+| Brainstorming | `brainstorming/` | Use before any creative work: new features, components or behavior changes, or planning anything new. Finds what the user wants first. |
 | Context Curator | `context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |
 | Preflight | `preflight/` | Plan-vs-codebase validation — verifies API contracts, type names, field accuracy, dependencies, and paths before implementation begins |
 | Roadmap | `roadmap/` | Track milestones across plans in .caddis/roadmaps/<slug>/: next batch, typed blockers, rollup. Every change is a docs PR via caddis_roadmap.py. |

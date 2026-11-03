@@ -32,6 +32,14 @@ except ModuleNotFoundError as exc:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
     import caddis_routing
 
+try:
+    import caddis_run  # stable_command: text a later session reads never names a versioned plugin path
+except ModuleNotFoundError as exc:
+    if exc.name != "caddis_run":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import caddis_run
+
 ACK_FIELDS = ("name", "role", "machine", "folder", "relay", "tasks", "mode", "owns-watchers", "worktrees")
 NO_ACK = "no ack"
 NO_NEW_SESSION = ("keeps-running", "nothing", NO_ACK)
@@ -136,6 +144,8 @@ def parse_ack(text: str) -> Ack:
         after = rest[fence:]
         body = after.split("\n", 1)[1] if "\n" in after else ""
     prompt, inline = _split_prompt(body)
+    if caddis_run.VERSIONED_PATH.search(prompt):
+        raise AckError(f"the resume prompt: {caddis_run.VERSIONED_PATH_HELP}")
     return Ack(
         name=fields["name"], role=fields["role"], machine=fields["machine"], folder=fields["folder"],
         relay=fields["relay"], tasks=fields["tasks"], mode=mode, owns_watchers=watchers == "yes",
@@ -309,6 +319,8 @@ def check_sheet(sheet_text: str, roster_text: str) -> list[str]:
             errors.append(f"{role}: the resume prompt does not load {tasks}")
         if "is now" not in prompt:
             errors.append(f"{role}: the resume prompt does not greet peers with `is now`")
+        if caddis_run.VERSIONED_PATH.search(prompt):
+            errors.append(f"{role}: the resume prompt {caddis_run.VERSIONED_PATH_HELP}")
         if _is_shared(r.get("Folder", ""), counts) and "origin/main" not in prompt:
             errors.append(f"{role}: shared checkout, but the resume prompt does not say origin/main")
     return errors
@@ -458,6 +470,8 @@ def resume_prompt(relay_text: str) -> str:
     prompt = "\n".join(body).strip("\n")
     if not prompt.strip():
         raise ResumeError("## Resume prompt fenced block is empty")
+    if caddis_run.VERSIONED_PATH.search(prompt):
+        raise ResumeError(f"## Resume prompt: {caddis_run.VERSIONED_PATH_HELP}")
     return prompt
 
 
@@ -471,12 +485,15 @@ def shell_arg(text: str) -> str:
 ANNOUNCE_ID = "<your session id>"
 
 
-def announce_text(script: Path, name: str, folder: str) -> str:
+def announce_text(name: str, folder: str) -> str:
     """The sentence the start line adds, so the resumed session names itself and tells its live peers once.
 
-    A new session cannot expand `${CLAUDE_PLUGIN_ROOT}`, so the script path is this script's own, written out. It
-    holds no quote or double quote (`shell_arg` would change them). A peer without a name (`-`) is not messaged."""
-    py = f"python {script.as_posix()}"
+    A new session cannot expand `${CLAUDE_PLUGIN_ROOT}`, and an expanded path holds the plugin version, which is gone
+    after an update. So the command is the stable launcher (`caddis_run.py`, never a versioned path). It holds no
+    double quote (`shell_arg` turns each into a typographic one), so the launcher path is NOT quoted here: a home
+    folder with a space needs the quotes, which the owner's machine does not have. A peer without a name (`-`) is
+    not messaged."""
+    py = f"python {caddis_run.launcher_path().as_posix()} caddis_fleet.py"
     return (f"Then announce yourself once. Run `{py} whoami --session-id {ANNOUNCE_ID} --name {name} --root .` and "
             f"`{py} peers --session-id {ANNOUNCE_ID} --root .` (your session id is printed at session start). "
             f"Send each peer that has a name (not `-`) one SendMessage: "
@@ -485,11 +502,11 @@ def announce_text(script: Path, name: str, folder: str) -> str:
 
 
 def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
-                  fleet_mode: bool = False, announce_script: Path | None = None, folder: str = "",
+                  fleet_mode: bool = False, announce: bool = False, folder: str = "",
                   root: Path | None = None) -> str:
     """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line.
 
-    With `announce_script`, the start line (not the fenced block, which stays the relay's text) ends with the
+    With `announce`, the start line (not the fenced block, which stays the relay's text) ends with the
     whoami + announce sentence: the start line is what the new session receives with its name.
     With `root`, the block names the repo and the start line first changes to it, because the relay's paths are
     repo-relative. `;`, as in the restart sheet: Windows PowerShell 5.1 has no `&&`."""
@@ -500,8 +517,8 @@ def render_resume(session: str, session_id: str, workstream: str, prompt: str, r
         start = "Start line: from the restart sheet"
     else:
         name = new_name(role, stamp)
-        if announce_script is not None:
-            prompt = f"{prompt}\n{announce_text(announce_script, name, folder)}"
+        if announce:
+            prompt = f"{prompt}\n{announce_text(name, folder)}"
         start = f"Start line:\n{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
     return (f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
             f"{repo}{_fenced(shown)}\n{start}\n")
@@ -580,7 +597,7 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
         sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
         return caddis_exit.BLOCKED
     print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet,
-                        Path(__file__).resolve(), root.name, root), end="")
+                        True, root.name, root), end="")
     return caddis_exit.CLEAN
 
 
