@@ -93,6 +93,10 @@ and 95-154 turns per session were started by background events. Each turn re-rea
   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy ...`.
 - **Fewer wake-ups.** Run one `ci-watch` per PR head. When it times out on a queued run, watch that run once
   with `ci-watch --run <id>`; do not start a new PR watch. Write no "still waiting" turns.
+- **Silent agents.** For a subagent in its own worktree, start the shell watcher in the background (a script, not a
+  model): `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_silence_watch.py" --worktree <path> --silent-min 20`. Exit 3
+  and a `SILENT:` line mean no commit, file change or output for 20 minutes. Then look at the agent, and stop or
+  resume it. Add `--extra-file <the agent's output file>` so a long quiet build does not count as silence.
 
 ## Waves
 

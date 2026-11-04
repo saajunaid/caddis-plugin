@@ -1,11 +1,8 @@
 ---
 name: understand-anything
 description: >
-  Turn a codebase or knowledge base into a searchable interactive knowledge graph. Use for
-  /understand and /understand-chat, -dashboard, -diff, -domain, -explain, -knowledge, -onboard, or
-  phrases like "how does this project work", "map out the codebase", "what changed in this PR",
-  "explain this file", "onboard me to this project", "what does X depend on", "analyze this repo",
-  "generate a knowledge graph", or "what is the architecture of this project".
+  Turn a codebase into an interactive knowledge graph. Use for /understand* commands, or when the
+  user says "map out the codebase", "how does this project work", or "knowledge graph".
 ---
 
 # Understand Anything

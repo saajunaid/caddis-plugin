@@ -46,7 +46,7 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
     `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
-    `origin/<default>`), and run the gates there. Install dependencies fresh; never link `node_modules` or a venv.
+    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" --bootstrap` (run in the worktree); never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
     checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no

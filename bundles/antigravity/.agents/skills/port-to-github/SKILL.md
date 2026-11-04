@@ -1,11 +1,8 @@
 ---
 name: port-to-github
 description: >-
-  Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over
-  WinRM): all branches and tags, SHA-verified, CI translated, source-only history, deploy cut over
-  with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from
-  Gitea", "this app only exists on the server", "import the repo from the prod box", "keep binaries
-  out of the repo", or "cut the deploy over to GitHub".
+  Port an app or repo to GitHub with verified history, CI translation, and deploy cutover. Use when
+  the user says "move this app to GitHub", "port X to GitHub", or "migrate from Gitea".
 ---
 
 # port-to-github

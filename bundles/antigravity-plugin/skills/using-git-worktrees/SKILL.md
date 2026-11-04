@@ -55,8 +55,25 @@ git worktree add -b <branch> $wt origin/<default>
 
 ## Install dependencies fresh
 
-Install inside the worktree. Use the project's own command (`npm ci`, `python -m venv .venv` then
-`.venv\Scripts\python -m pip install -r requirements.txt`, `cargo build`, `go mod download`). Call the
+Run one command, inside the new worktree:
+
+```powershell
+python "<caddis scripts>\caddis_worktree_root.py" --bootstrap
+```
+
+It installs this worktree's own dependencies:
+
+- `uv sync --frozen --all-extras` when `uv.lock` exists. Without `uv.lock`: `python -m venv .venv`, then `pip install`
+  of what the repo declares (`-e ".[dev]"` or `-e .`, then `requirements.txt` and `requirements-dev.txt`).
+- `npm ci` in the root and in `frontend/`, for each folder that has a `package-lock.json`.
+
+It refuses to run in a main checkout (exit 2) and stops at the first failing step (exit 1).
+
+The pre-push gate needs this. In a worktree the gate uses only the worktree's own `.venv`. It never uses the main
+checkout's venv (stale, and it belongs to a running dev service) and never the system Python. A worktree with no
+`.venv` fails the gate with this command in the message. Do not push with `--no-verify` to get round it.
+
+For a stack the script does not cover, use the project's own command (`cargo build`, `go mod download`). Call the
 venv's own `python`; a bare `pip` can install into the global Python.
 
 Never link `node_modules` or a venv from another folder. Tools that follow the link then change the

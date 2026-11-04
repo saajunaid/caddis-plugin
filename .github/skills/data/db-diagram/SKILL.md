@@ -1,7 +1,7 @@
 ---
 name: db-diagram
 context: fork
-description: Diagram a SQL artifact (stored proc, view, query, .sql file, table) as Mermaid or Excalidraw. Use when the user says "diagram this query/proc/view/schema", "explain this SQL visually", "draw the ER diagram", "show me the data flow of this stored proc", "/mermaid-db", or "/excalidraw-db". Read-only.
+description: Diagram SQL artifacts (procs, views, queries, tables) as Mermaid or Excalidraw. Use when the user says "diagram this SQL", "draw the ER diagram", "/mermaid-db", or "/excalidraw-db".
 ---
 
 # db-diagram — explain SQL as a diagram

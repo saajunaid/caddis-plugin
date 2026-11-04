@@ -22,8 +22,10 @@ IT ONLY PRINTS. It never switches, stashes, resets, commits or creates anything 
 throttle stamp inside .git/. A SessionStart hook cannot ask a question, and these checkouts
 are shared with other live sessions — acting without an answer could take work with it.
 
-QUIET WHEN THERE IS NOTHING TO SAY. On the default branch, clean and level, it prints
-nothing at all, so the output stays worth reading.
+ONE LINE WHEN THERE IS NOTHING TO SAY (owner, 4 Nov 2026: silence was read as 'the hook did not run').
+Inside a git repo on a branch it always prints the one hygiene summary line from repo_hygiene.py (branch,
+behind, ahead, uncommitted, stale worktrees, branch PR states, pre-push gate), `[OK]` when all is level.
+Detail lines follow only for non-zero counts. Outside a repo or on a detached HEAD it still prints nothing.
 
 Ported into caddis 2026-09-12 from a personal hook that existed on one machine only
 (~/.claude/hooks/repo-freshness.sh), so agy gets it too and it is versioned and tested.
@@ -38,6 +40,7 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 try:
     _cfg_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
@@ -49,6 +52,18 @@ except Exception:  # pragma: no cover — defensive; a hook must never crash a s
 
     def artifact_root(root):
         return os.path.join(str(root), ARTIFACT_DIRS[0])
+
+# The hygiene summary (plan repo-hygiene-report, D2). It sits beside this file in every layout: the Claude/Codex
+# plugin's hooks/ folder, the agy flat bundle and the source tree. Fail open: when it cannot be imported, the old
+# freshness line is kept and one skipped line says why.
+try:
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+    import repo_hygiene
+except Exception:  # noqa: BLE001 - any import failure falls back to the old line (a test blocks the import)
+    repo_hygiene = None
+SKIP_HYGIENE = "[HARNESS] skipped: repo hygiene - repo_hygiene.py not found beside repo_freshness.py"
 
 # A narrow Windows console (cp1252) must not raise on a branch name with any Unicode in it.
 _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -378,6 +393,33 @@ def _budget_s() -> float:
     return value if math.isfinite(value) and value > 0 else TOTAL_BUDGET_S
 
 
+def _missing_gate_note(cwd: str, top: str) -> str:
+    """One line when a caddis repo (it has an artifact folder) has NO pre-push hook, else "".
+
+    `.git/hooks` is not versioned, so a fresh clone, a re-clone or a new machine starts without the gate and nothing
+    says so (parking-lot: pre-push-gate-missing-in-most-fleet-apps). Report only: installing a hook is a change
+    the user did not ask for. A hook that exists but is not ours is the user's choice and gets no note. With
+    `core.hooksPath` set the hooks live elsewhere, so the hook cannot be judged. In a linked worktree the hooks
+    are in the COMMON git dir."""
+    if not os.path.isdir(artifact_root(top)):
+        return ""
+    if _git(cwd, "config", "--get", "core.hooksPath")[1]:
+        return ""
+    common = _git(cwd, "rev-parse", "--git-common-dir")[1]
+    if not common:
+        return ""
+    if not os.path.isabs(common):
+        common = os.path.join(cwd, common)
+    if os.path.exists(os.path.join(common, "hooks", "pre-push")):
+        return ""
+    installer = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts",
+                             "setup_project_ai.py")
+    how = (f'python "{installer}" "{top}" --hooks-only' if os.path.isfile(installer)
+           else "run /caddis:setup-project-ai")
+    return ("[HARNESS] This repo has no pre-push gate (hooks/pre-push is missing), so a push runs no local "
+            f"checks and CI is the first gate. Install it: {how}")
+
+
 def report(cwd: str, own_session_id: str = "") -> list[str]:
     """The lines to print. Empty when there is nothing worth saying."""
     global _deadline
@@ -399,6 +441,15 @@ def _report(cwd: str, own_session_id: str = "") -> list[str]:
     # the "could not fetch" note would be pure noise — common for scratch and local-only repos.
     has_origin = "origin" in _git(cwd, "remote")[1].split()
     git_dir = _git(cwd, "rev-parse", "--absolute-git-dir")[1] or os.path.join(cwd, ".git")
+    # The repo top level, so a session started in a subfolder still finds `.caddis/session-state`.
+    top = _git(cwd, "rev-parse", "--show-toplevel")[1] or cwd
+    # gh and orca start now, in threads, so their wait overlaps the fetch and the git calls below (D8).
+    jobs = None
+    if repo_hygiene is not None:
+        try:
+            jobs = repo_hygiene.start_jobs(Path(top), _git, _remaining, want_prs=has_origin)
+        except Exception:  # noqa: BLE001 - fail open: report_lines then starts them itself
+            jobs = None
     if has_origin and _fetch_is_due(git_dir):
         fetched = _fetch(cwd)
         if fetched:
@@ -410,8 +461,6 @@ def _report(cwd: str, own_session_id: str = "") -> list[str]:
             lines.append("[HARNESS] could not fetch origin - the figures below may be stale.")
 
     ref = _default_ref(cwd) if has_origin else ""
-    # The repo top level, so a session started in a subfolder still finds `.caddis/session-state`.
-    top = _git(cwd, "rev-parse", "--show-toplevel")[1] or cwd
     entries = _status_entries(top)
     dirty = len(entries)
     dirty_paths = {_norm_path(p) for paths in entries for p in paths if _norm_path(p)}
@@ -419,8 +468,22 @@ def _report(cwd: str, own_session_id: str = "") -> list[str]:
     ahead = _count(cwd, f"{ref}..HEAD") if ref else 0
     default_branch = ref.split("/", 1)[-1] if ref else ""
 
-    # With no remote to compare against, the only honest line left is the dirty warning.
-    if ref and (branch != default_branch or behind or dirty):
+    gate_note = _missing_gate_note(cwd, top)
+    summary = None
+    if repo_hygiene is not None:
+        # The summary line first: it carries branch, behind, ahead and uncommitted once, so no count is repeated.
+        fresh = {"branch": branch, "ref": ref, "behind": behind, "ahead": ahead, "dirty": dirty,
+                 "gate_missing": bool(gate_note)}
+        try:
+            summary = repo_hygiene.report_lines(Path(top), fresh, _git, _remaining, jobs=jobs)
+        except Exception:  # noqa: BLE001 - fail open: a broken report must not cost the freshness lines
+            lines.insert(0, "[HARNESS] skipped: repo hygiene - the report failed")
+    else:
+        lines.insert(0, SKIP_HYGIENE)
+    if summary is not None:
+        lines[0:0] = summary
+    elif ref and (branch != default_branch or behind or dirty):
+        # No summary line: the old branch line carries branch and counts. With no remote, the dirty warning is all.
         lines.append(f"[HARNESS] branch '{branch}' | {behind} behind {ref} | {ahead} ahead "
                      f"| {dirty} uncommitted")
     if dirty:
@@ -439,6 +502,8 @@ def _report(cwd: str, own_session_id: str = "") -> list[str]:
     if ahead:
         lines.append(f"[HARNESS] {ahead} local commit(s) are not on {ref}. Do not reset or "
                      f"re-branch without checking them: git log --oneline {ref}..HEAD")
+    if gate_note:
+        lines.append(gate_note)
     return lines
 
 

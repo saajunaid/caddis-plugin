@@ -1,10 +1,8 @@
 ---
 name: responsive-mobile-native
 description: >
-  Make a web app work and "feel native" on phones and tablets from one codebase: adapt desktop-first
-  layouts, fix small-screen breakage. Use for "make this PWA", "mobile-friendly", "tablet layout",
-  "bottom nav", "touch gestures", "works on iPhone/Android", "responsive design", or any web UI
-  missing mobile support.
+  Adapt desktop-first web apps into responsive, mobile-native PWAs from one codebase. Use when the
+  user says "make this PWA", "mobile-friendly", "tablet layout", or "responsive design".
 ---
 
 # Responsive Mobile-Native Skill

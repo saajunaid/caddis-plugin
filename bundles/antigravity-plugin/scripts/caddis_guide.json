@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.176",
- "generated": "2026-11-03 23:28 UTC",
+ "version": "1.3.177",
+ "generated": "2026-11-04 23:23 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -630,6 +630,7 @@
     "caddis_gate.py",
     "caddis_lanes.py",
     "caddis_routing.py",
+    "caddis_silence_watch.py",
     "caddis_spend.py",
     "caddis_status.py",
     "caddis_tidy.py",
@@ -1664,7 +1665,7 @@
   {
    "name": "dashboard-perf-sweep",
    "category": "coding",
-   "description": "Re-measure dashboard/API endpoints for load-time regressions and decide by checklist if a slow one needs the rs-kit refresher, an index, keyset paging, gzip, or nothing. Use when the user says \"sweep dashboard performance\", \"check if this app needs rs-kit\", \"re-measure the perf tracker\", \"is this endpoint a refresher candidate\", or dashboard-performance-tracker.md is stale. Read-only.",
+   "description": "Re-measure dashboard/API endpoints for load-time regressions. Use when the user says \"sweep dashboard performance\", \"check if this app needs rs-kit\", or \"re-measure the perf tracker\".",
    "core": true
   },
   {
@@ -1760,7 +1761,7 @@
   {
    "name": "db-diagram",
    "category": "data",
-   "description": "Diagram a SQL artifact (stored proc, view, query, .sql file, table) as Mermaid or Excalidraw. Use when the user says \"diagram this query/proc/view/schema\", \"explain this SQL visually\", \"draw the ER diagram\", \"show me the data flow of this stored proc\", \"/mermaid-db\", or \"/excalidraw-db\". Read-only.",
+   "description": "Diagram SQL artifacts (procs, views, queries, tables) as Mermaid or Excalidraw. Use when the user says \"diagram this SQL\", \"draw the ER diagram\", \"/mermaid-db\", or \"/excalidraw-db\".",
    "core": true
   },
   {
@@ -1892,7 +1893,7 @@
   {
    "name": "explainer-doc",
    "category": "docs",
-   "description": "Hand-off doc for a team that did NOT do the investigation (vendor, contractor, another team) — the \"stranger must follow it alone\" case. Use when the user says \"write a spec for the X team\", \"document this for someone outside the team\", \"explainer doc\", \"implementation spec for a vendor\", or \"hand this off to Y\". Not for readers with full context.",
+   "description": "Write a self-contained hand-off spec for an external team or vendor. Use when the user says \"write a spec for the X team\", \"explainer doc\", \"spec for a vendor\", or \"hand this off to Y\".",
    "core": true
   },
   {
@@ -2114,7 +2115,7 @@
   {
    "name": "warm-editorial-ui",
    "category": "frontend",
-   "description": "Apply the \"Warm Editorial Refinement\" design system (warm cream/charcoal surfaces, Bahnschrift + Plus Jakarta Sans, layered shadows), the canonical template for new frontend builds. Use for apps, dashboards or UI in the abc-project style, or on \"use our design system\", \"apply our template\", \"make it look like abc-project\", \"use the warm editorial style\", \"use our brand template\", \"add dark mode\", or a new tool for XYZ Brand.",
+   "description": "Apply the Warm Editorial Refinement design system. Use when the user says \"use our design system\", \"warm editorial style\", \"apply our template\", or \"make it look like abc-project\".",
    "core": true
   },
   {
@@ -2282,7 +2283,7 @@
   {
    "name": "data-contract-pipeline",
    "category": "workflow",
-   "description": "Build, audit and validate data-to-UI contracts. Use when the user mentions data mapping, UI lineage, DB-to-UI, DisplayDTOs, source-to-screen mapping, data contracts, schema drift, typed API responses, mockup grounding, or asks whether a UI is backed by real data.",
+   "description": "Build, audit, and validate DB-to-UI data contracts. Use when the user mentions data mapping, UI lineage, DisplayDTOs, source-to-screen mapping, or asks if a UI is backed by real data.",
    "core": false
   },
   {
@@ -2336,7 +2337,7 @@
   {
    "name": "setup-project-ai",
    "category": "workflow",
-   "description": "Install or refresh the agent-agnostic harness in a project: AGENTS.md rules with CLAUDE.md shims, subagents, commands and settings. Use when setting up AI resources on a project, or the user says 'set up the harness', 'setup-project-ai', 'generate CLAUDE.md', 'onboard this project to Claude Code / Codex / agy', or runs /setup-project-ai.",
+   "description": "Install or refresh the project AI harness: AGENTS.md, CLAUDE.md shims, agents, settings. Use when the user says 'set up the harness', 'generate CLAUDE.md', or runs /setup-project-ai.",
    "core": false
   },
   {

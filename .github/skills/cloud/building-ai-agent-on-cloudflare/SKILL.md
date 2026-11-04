@@ -3,8 +3,7 @@ name: building-ai-agent-on-cloudflare
 context: fork
 description: |
   Builds stateful AI agents on Cloudflare Workers with the Agents SDK. Use when the user wants to
-  "build an agent", "AI agent", "chat agent", "stateful agent", mentions "Agents SDK", "real-time
-  AI", "WebSocket AI", or asks about agent "state management", "scheduled tasks" or "tool calling".
+  "build an agent", "stateful agent", "WebSocket AI", or mentions "Agents SDK".
 ---
 
 # Building Cloudflare Agents

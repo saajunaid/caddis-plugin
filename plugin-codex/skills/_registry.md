@@ -15,7 +15,7 @@
 | Backend Development | `backend-development/` | Backend API design, database schemas, microservices and TDD. Use for backend system architecture. |
 | Code Review | `code-review/` | Automated code review for quality, security, performance and best practices. Use when reviewing code changes, PRs, or doing code audits. |
 | Codebase Audit | `codebase-audit/` | Audit an unfamiliar codebase before architecture or implementation work. Use for a new codebase, pre-implementation audit, codebase review, technical due diligence or onboarding. Produces AUDIT-FINDINGS.md and QUESTIONS.md. |
-| Dashboard Perf Sweep | `dashboard-perf-sweep/` | Re-measure dashboard/API endpoints for load-time regressions and decide by checklist if a slow one needs the rs-kit refresher, an index, keyset paging, gzip, or nothing. Use when the user says "sweep dashboard performance", "check if this app needs rs-kit", "re-measure the perf tracker", "is this endpoint a refresher candidate", or dashboard-performance-tracker.md is stale. Read-only. |
+| Dashboard Perf Sweep | `dashboard-perf-sweep/` | Re-measure dashboard/API endpoints for load-time regressions. Use when the user says "sweep dashboard performance", "check if this app needs rs-kit", or "re-measure the perf tracker". |
 | Error Handling | `error-handling/` | Error handling for Python and TypeScript: error hierarchies, custom exceptions, result types, retries, circuit breakers, error boundaries, logging, user-facing messages. |
 | Fastapi Dev | `fastapi-dev/` | Build FastAPI backends with standard patterns, error handling, and testing |
 | Javascript Typescript | `javascript-typescript/` | JavaScript and TypeScript development with ES6+, Node.js, React, and modern web frameworks. Use for frontend, backend, or full-stack JavaScript/TypeScript projects. |
@@ -29,7 +29,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Database Design | `database-design/` | Database schema design, migrations and query optimization for PostgreSQL, MySQL and NoSQL. |
-| Db Diagram | `db-diagram/` | Diagram a SQL artifact (stored proc, view, query, .sql file, table) as Mermaid or Excalidraw. Use when the user says "diagram this query/proc/view/schema", "explain this SQL visually", "draw the ER diagram", "show me the data flow of this stored proc", "/mermaid-db", or "/excalidraw-db". Read-only. |
+| Db Diagram | `db-diagram/` | Diagram SQL artifacts (procs, views, queries, tables) as Mermaid or Excalidraw. Use when the user says "diagram this SQL", "draw the ER diagram", "/mermaid-db", or "/excalidraw-db". |
 
 ### Devops
 
@@ -50,7 +50,7 @@
 |-------|------|-------------|
 | Code Documentation | `code-documentation/` | Write code documentation: API docs, README files, inline comments and developer guides. |
 | Confluence Hla | `confluence-hla/` | High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture. |
-| Explainer Doc | `explainer-doc/` | Hand-off doc for a team that did NOT do the investigation (vendor, contractor, another team) — the "stranger must follow it alone" case. Use when the user says "write a spec for the X team", "document this for someone outside the team", "explainer doc", "implementation spec for a vendor", or "hand this off to Y". Not for readers with full context. |
+| Explainer Doc | `explainer-doc/` | Write a self-contained hand-off spec for an external team or vendor. Use when the user says "write a spec for the X team", "explainer doc", "spec for a vendor", or "hand this off to Y". |
 | Office Documents Official | `office-documents-official/` | Hint for Office and PDF file work. Use when the user asks to create, edit, read or convert a Word .docx, PDF, PowerPoint .pptx or Excel .xlsx file. caddis does not ship these skills; points to Anthropic's official document-skills plugin. |
 | Tech Explainer | `tech-explainer/` | >- |
 | Technical Writing | `technical-writing/` | Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards. |
@@ -67,7 +67,7 @@
 | React Best Practices | `react-best-practices/` | Modern React development guidelines covering hooks, component patterns, state management, performance optimization, and TypeScript integration. |
 | React Dev | `react-dev/` | Type-safe React 18-19 with TypeScript: components, generic components, hooks, events, Server Components, TanStack Router and React Router. Use when React TypeScript or React 19 is involved. |
 | Ui Review | `ui-review/` | Review a UI against design requirements, WCAG 2.2 AA and brand guidelines. Use when validating UI before release. |
-| Warm Editorial Ui | `warm-editorial-ui/` | Apply the "Warm Editorial Refinement" design system (warm cream/charcoal surfaces, Bahnschrift + Plus Jakarta Sans, layered shadows), the canonical template for new frontend builds. Use for apps, dashboards or UI in the abc-project style, or on "use our design system", "apply our template", "make it look like abc-project", "use the warm editorial style", "use our brand template", "add dark mode", or a new tool for XYZ Brand. |
+| Warm Editorial Ui | `warm-editorial-ui/` | Apply the Warm Editorial Refinement design system. Use when the user says "use our design system", "warm editorial style", "apply our template", or "make it look like abc-project". |
 
 ### Media
 

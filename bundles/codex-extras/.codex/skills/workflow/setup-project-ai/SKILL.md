@@ -1,6 +1,6 @@
 ---
 name: setup-project-ai
-description: "Install or refresh the agent-agnostic harness in a project: AGENTS.md rules with CLAUDE.md shims, subagents, commands and settings. Use when setting up AI resources on a project, or the user says 'set up the harness', 'setup-project-ai', 'generate CLAUDE.md', 'onboard this project to Claude Code / Codex / agy', or runs /setup-project-ai."
+description: "Install or refresh the project AI harness: AGENTS.md, CLAUDE.md shims, agents, settings. Use when the user says 'set up the harness', 'generate CLAUDE.md', or runs /setup-project-ai."
 ---
 
 # setup-project-ai

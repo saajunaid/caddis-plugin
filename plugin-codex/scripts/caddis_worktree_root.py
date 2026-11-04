@@ -24,6 +24,10 @@ stays where it is: moving it breaks a venv, which keeps absolute paths.
 CLI: `python caddis_worktree_root.py [--repo PATH] [--root PATH] [--record --purpose TEXT] <short-name>` prints the path.
 Exit 2 on a bad name or a folder that is not in a git repo.
 
+`python caddis_worktree_root.py --bootstrap [--repo PATH]` runs INSIDE a linked worktree and gives it its own
+dependencies (uv sync, or venv + pip; npm ci per package-lock.json). The pre-push gate needs that `.venv`.
+Exit 0 done, 1 a step failed or a tool is missing, 2 not a linked worktree.
+
 `--record` also appends the path to this session's created list (`caddis_created.py`, by="helper"), so `/handoff` can
 remove the worktree later. The helper creates nothing, so the path is recorded as INTENDED: run `git worktree add` on the
 path it printed. A session with no session id, or a record that cannot be written, only prints a warning on stderr: the
@@ -34,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -89,21 +94,125 @@ def worktree_path(repo: Path | str, short_name: str, root: Path | str | None = N
     """The path for a NEW worktree of `repo`: `<root>/<main checkout folder name>/<short_name>`. Creates nothing.
     `short_name` is one plain folder name: ValueError for an empty name, `.`, `..`, or one with a path separator or a
     colon (a drive such as `C:foo` would replace the root on Windows)."""
-    if (not short_name or short_name in (".", "..") or any(c in short_name for c in "/\:")
+    if (not short_name or short_name in (".", "..") or any(c in short_name for c in "/\\:")
             or short_name != short_name.strip()):
         raise ValueError(f"the short name must be one plain folder name, not {short_name!r}")
     main = main_checkout(repo)  # one git call
     return (_explicit_root(root) or main.parent / FALLBACK_DIR) / main.name / short_name
 
 
+# ---- bootstrap: give a fresh worktree its own dependencies ---------------------------------------------------------
+# A worktree installs its dependencies fresh. It never links or borrows a venv or node_modules from another folder
+# (the main checkout's venv belongs to a running dev service and is often behind). The pre-push gate uses only the
+# worktree's own `.venv`, so this is the one command that makes a new worktree pass it.
+
+NPM_FOLDERS = (".", "frontend")  # folders checked for a package-lock.json
+
+
+def is_linked_worktree(repo: Path) -> bool:
+    """True when `repo` is inside a linked worktree (its git dir is not the common dir)."""
+    git_dir = _git_out(repo, "rev-parse", "--absolute-git-dir")
+    common = _git_out(repo, "rev-parse", "--git-common-dir")
+    if not git_dir or not common:
+        return False
+    return os.path.normcase(os.path.normpath(git_dir)) != os.path.normcase(os.path.normpath(repo / common))
+
+
+def venv_python(venv: Path) -> Path:
+    """The interpreter inside a venv folder (Windows `Scripts/`, POSIX `bin/`)."""
+    win = venv / "Scripts" / "python.exe"
+    return win if win.exists() or os.name == "nt" else venv / "bin" / "python"
+
+
+def _declares_dev_extra(pyproject: Path) -> tuple[bool, bool]:
+    """(has a [project] table, declares a `dev` optional-dependency group)."""
+    try:
+        import tomllib
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - unreadable or invalid TOML: treat as "declares nothing"
+        return False, False
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return False, False
+    return True, "dev" in (project.get("optional-dependencies") or {})
+
+
+def plan_bootstrap(root: Path) -> list[tuple[Path, list[str]]]:
+    """The commands (cwd, argv) that bootstrap the worktree at `root`. Reads files only; runs nothing.
+
+    Python: `uv sync --frozen --all-extras` when `uv.lock` exists (pip would not honour the lock), else `python -m venv .venv`
+    then `pip install` of what the repo declares (`-e .[dev]` or `-e .`, then requirements.txt / requirements-dev.txt).
+    Node: `npm ci` in each of NPM_FOLDERS that has a `package-lock.json`."""
+    steps: list[tuple[Path, list[str]]] = []
+    pyproject = root / "pyproject.toml"
+    reqs = [f for f in ("requirements.txt", "requirements-dev.txt") if (root / f).is_file()]
+    if (root / "uv.lock").is_file():
+        steps.append((root, ["uv", "sync", "--frozen", "--all-extras"]))
+    elif pyproject.is_file() or reqs:
+        has_project, has_dev = _declares_dev_extra(pyproject) if pyproject.is_file() else (False, False)
+        if has_project or reqs:  # a pyproject with only tool config declares nothing to install
+            venv = root / ".venv"
+            if not venv_python(venv).is_file():  # the folder alone is not enough: an interrupted `venv` leaves it empty
+                steps.append((root, [sys.executable, "-m", "venv", ".venv"]))
+            py = str(venv_python(venv))
+            if has_project:
+                steps.append((root, [py, "-m", "pip", "install", "-e", ".[dev]" if has_dev else "."]))
+            for f in reqs:
+                steps.append((root, [py, "-m", "pip", "install", "-r", f]))
+    for folder in NPM_FOLDERS:
+        d = root / folder
+        if (d / "package-lock.json").is_file():
+            steps.append((d, ["npm", "ci"]))
+    return steps
+
+
+def bootstrap(repo: Path | str = ".", run=subprocess.run, which=shutil.which) -> int:
+    """Install the dependencies of the linked worktree that contains `repo`. Returns 0, 1 (a step failed or a tool is
+    missing) or 2 (not a linked worktree: this never touches a main checkout). `run` and `which` are test seams."""
+    repo = Path(repo).absolute()
+    top = _git_out(repo, "rev-parse", "--show-toplevel") if repo.is_dir() else None
+    if not top:
+        print(f"error: {repo} is not inside a git repository", file=sys.stderr)
+        return 2
+    root = Path(os.path.normpath(top))
+    if not is_linked_worktree(root):
+        print(f"error: {root} is a main checkout, not a linked worktree. Bootstrap only runs in a worktree "
+              "(it would change the checkout's own venv and node_modules).", file=sys.stderr)
+        return 2
+    steps = plan_bootstrap(root)
+    if not steps:
+        print(f"bootstrap: nothing to install in {root} (no pyproject.toml, requirements*.txt or package-lock.json)")
+        return 0
+    for cwd, argv in steps:
+        exe = which(argv[0]) if argv[0] in ("uv", "npm") else argv[0]
+        if exe is None:
+            hint = " (uv.lock needs uv; pip would ignore the lock)" if argv[0] == "uv" else ""
+            print(f"error: `{argv[0]}` not found on PATH{hint}", file=sys.stderr)
+            return 1
+        cmd = [exe, *argv[1:]]
+        print(f"bootstrap: ({cwd}) {' '.join(cmd)}", flush=True)
+        if run(cmd, cwd=cwd, check=False).returncode != 0:
+            print(f"error: step failed: {' '.join(cmd)}", file=sys.stderr)
+            return 1
+    print(f"bootstrap: done - {root} has its own dependencies")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Print the path for a new git worktree (never under %TEMP%).")
-    ap.add_argument("short_name", help="one folder name, e.g. fix-login")
+    ap.add_argument("short_name", nargs="?", help="one folder name, e.g. fix-login (not used with --bootstrap)")
+    ap.add_argument("--bootstrap", action="store_true",
+                    help="instead of printing a path: install the dependencies of the worktree that contains --repo "
+                         "(uv sync or venv + pip, and npm ci); exit 2 in a main checkout")
     ap.add_argument("--repo", default=".", help="any folder of the repo or of one of its worktrees (default: .)")
     ap.add_argument("--root", default=None, help=f"override the root (default: ${ENV_VAR}, then <repo parent>/.worktrees)")
     ap.add_argument("--record", action="store_true", help="also record the path in this session's created list")
     ap.add_argument("--purpose", default="", help="with --record: why the worktree is made")
     args = ap.parse_args(argv)
+    if args.bootstrap:
+        return bootstrap(args.repo)
+    if not args.short_name:
+        ap.error("a short name is required (or use --bootstrap)")
     try:
         path = worktree_path(args.repo, args.short_name, args.root)
         repo = main_checkout(args.repo) if args.record else None

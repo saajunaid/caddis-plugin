@@ -31,269 +31,44 @@ from __future__ import annotations
 
 import json
 import os
-import re
-import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import caddis_created
+import caddis_finished
 import caddis_worktree_safety as safety
 
-GIT_TIMEOUT = 60
-NET_TIMEOUT = 120
-_GH_FIELDS = "number,state,headRefOid,mergedAt,headRefName"
-
-
-class PrLookupError(Exception):
-    """gh is missing, failed, or the repo cannot be named."""
-
-
-def _env() -> dict[str, str]:
-    env = dict(os.environ)
-    env["GIT_TERMINAL_PROMPT"] = "0"  # a credential prompt must fail, not hang the handoff
-    return env
-
-
-def _run(cmd: list[str], cwd: Path | None = None, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess:
-    """Never raises: a missing program or a timeout comes back as returncode -1 with the problem in stderr."""
-    try:
-        return subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", stdin=subprocess.DEVNULL, timeout=timeout, check=False, env=_env())
-    except FileNotFoundError:
-        return subprocess.CompletedProcess(cmd, -1, "", f"{cmd[0]} is not installed")
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(cmd, -1, "", f"{cmd[0]} timed out after {timeout} s")
-    except OSError as exc:
-        return subprocess.CompletedProcess(cmd, -1, "", str(exc))
-
-
-def _git(path: Path, *args: str, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess:
-    return _run(["git", "-c", "core.quotepath=off", "-C", str(path), *args], timeout=timeout)
-
-
-def _err(proc: subprocess.CompletedProcess) -> str:
-    text = (proc.stderr or proc.stdout or "").strip()
-    return text.splitlines()[-1] if text else f"exit {proc.returncode}"
-
-
-def _same(a: str | Path, b: str | Path) -> bool:
-    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
-
-
-def _inside(child: str | Path, parent: str | Path) -> bool:
-    """`child` is `parent` or under it (both resolved, case-folded on Windows)."""
-    c = os.path.normcase(os.path.realpath(child))
-    p = os.path.normcase(os.path.realpath(parent))
-    return c == p or c.startswith(p.rstrip("\\/") + os.sep)
-
-
-# -- gh ---------------------------------------------------------------------------------------------------------
-
-def _slug(main_repo: Path) -> str | None:
-    """`owner/name` from the origin URL (https, ssh or scp form), else None."""
-    proc = _git(main_repo, "remote", "get-url", "origin")
-    url = proc.stdout.strip() if proc.returncode == 0 else ""
-    if "://" not in url and "@" not in url:
-        return None  # a local path origin has no GitHub name
-    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url)
-    return f"{match.group(1)}/{match.group(2)}" if match else None
-
-
-def gh_pr_lookup(main_repo: Path, branch: str | None, pr: str | None) -> list[dict]:
-    slug = _slug(main_repo)
-    if not slug:
-        raise PrLookupError("cannot read owner/name from the origin URL")
-    if pr:
-        proc = _run(["gh", "pr", "view", pr, "--repo", slug, "--json", _GH_FIELDS], timeout=NET_TIMEOUT)
-    elif branch:
-        proc = _run(["gh", "pr", "list", "--repo", slug, "--head", branch, "--state", "all", "--limit", "20",
-                     "--json", _GH_FIELDS], timeout=NET_TIMEOUT)
-    else:
-        return []
-    if proc.returncode != 0:
-        raise PrLookupError(f"gh failed: {_err(proc)}")
-    try:
-        data = json.loads(proc.stdout or "null")
-    except ValueError as exc:
-        raise PrLookupError(f"gh printed bad JSON: {exc}") from exc
-    data = [data] if isinstance(data, dict) else data
-    if not isinstance(data, list):
-        raise PrLookupError("gh printed an unexpected shape")
-    return [d for d in data if isinstance(d, dict)]
-
-
-def _pr_number(value: str | None) -> str | None:
-    match = re.search(r"(\d+)\s*$", str(value or ""))
-    return match.group(1) if match else None
-
-
-def _pick_pr(prs: list[dict], branch: str | None, by_number: bool) -> tuple[dict | None, str]:
-    """(the merged PR, "") or (None, why the worktree is kept)."""
-    if not prs:
-        return None, f"no merged PR found: no PR for branch {branch}" if branch else "no merged PR found: no PR"
-    open_pr = next((p for p in prs if str(p.get("state", "")).upper() == "OPEN"), None)
-    pick = open_pr or prs[0]
-    state = str(pick.get("state", "")).upper() or "UNKNOWN"
-    if state != "MERGED":
-        return None, f"PR #{pick.get('number')} is {state}"
-    head_name = pick.get("headRefName")
-    if by_number and branch and head_name and head_name != branch:
-        return None, f"PR #{pick.get('number')} is for branch {head_name}, not {branch}"
-    return pick, ""
+# The worktree proof, the gh seam and the removal live in caddis_finished (one definition of "finished", shared with
+# `caddis_tidy.py --hygiene`). The old private names stay here as aliases: the tests and the scratch code use them.
+GIT_TIMEOUT = caddis_finished.GIT_TIMEOUT
+NET_TIMEOUT = caddis_finished.NET_TIMEOUT
+PrLookupError = caddis_finished.PrLookupError
+gh_pr_lookup = caddis_finished.gh_pr_lookup
+_env = caddis_finished._env
+_run = caddis_finished._run
+_git = caddis_finished._git
+_err = caddis_finished._err
+_same = caddis_finished._same
+_inside = caddis_finished._inside
+_slug = caddis_finished.repo_slug
+_pr_number = caddis_finished.pr_number
+_pick_pr = caddis_finished.pick_pr
+_main_repo = caddis_finished.main_repo
+_default_branch = caddis_finished.default_branch
+_ref = caddis_finished.ref
+_names = caddis_finished.changed_names
+_branch_tip = caddis_finished.branch_tip
+_remove_worktree = caddis_finished.remove_finished
 
 
 # -- worktree ---------------------------------------------------------------------------------------------------
-
-def _main_repo(entry: dict, path: Path) -> Path | None:
-    """The repo to list worktrees from: the entry's `repo` when it is a git checkout, else from the path's common dir."""
-    for start in (entry.get("repo"), str(path)):
-        if not start or not os.path.isdir(start):
-            continue
-        proc = _git(Path(start), "rev-parse", "--path-format=absolute", "--git-common-dir")
-        if proc.returncode == 0 and proc.stdout.strip():
-            common = Path(proc.stdout.strip())
-            return common.parent if common.name == ".git" else Path(start)
-    return None
-
-
-def _default_branch(wt: Path) -> str:
-    proc = _git(wt, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
-    name = proc.stdout.strip() if proc.returncode == 0 else ""
-    return name.split("/", 1)[1] if name.startswith("origin/") else "main"
-
-
-def _ref(wt: Path, rev: str) -> str | None:
-    proc = _git(wt, "rev-parse", "-q", "--verify", f"{rev}^{{commit}}")
-    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else None
-
-
-def _names(wt: Path, a: str, b: str) -> set[str] | None:
-    proc = _git(wt, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", a, b)
-    return None if proc.returncode != 0 else {n for n in proc.stdout.split("\0") if n}
-
 
 def _check_worktree(entry: dict, path: Path, cwd: str, pr_lookup: Callable) -> tuple[str, str, dict]:
     """("REMOVE", reason, facts) or ("KEPT"/"GONE", reason, {})."""
     if entry.get("by") == "roadmap-run":
         return "KEPT", "owned by the roadmap runner", {}
-    if not os.path.lexists(path):
-        return "GONE", "", {}
-    try:
-        if safety.is_link(os.lstat(path)):
-            return "KEPT", "the folder is a junction or symlink", {}
-    except OSError as exc:
-        return "KEPT", f"cannot inspect it: {exc}", {}
-    repo = _main_repo(entry, path)
-    if repo is None:
-        return "KEPT", "not a registered linked worktree (no git repo found)", {}
-    listing = _git(repo, "worktree", "list", "--porcelain")
-    if listing.returncode != 0:
-        return "KEPT", f"git worktree list failed: {_err(listing)}", {}
-    blocks = safety._worktree_blocks(listing.stdout)
-    if not blocks:
-        return "KEPT", "git listed no worktrees", {}
-    main = Path(blocks[0][0][len("worktree "):])
-    if _same(path, main):
-        return "KEPT", "it is the main checkout", {}
-    block = next((b for b in blocks[1:] if _same(path, b[0][len("worktree "):])), None)
-    if block is None:
-        return "KEPT", f"not a registered linked worktree of {main}", {}
-    if _inside(cwd, path):
-        return "KEPT", "this session is working in it", {}
-    status = _git(path, "status", "--porcelain", "--untracked-files=normal")
-    if status.returncode != 0:
-        return "KEPT", f"git status failed: {_err(status)}", {}
-    if status.stdout.strip():
-        return "KEPT", "uncommitted changes", {}
-    if any(line == "locked" or line.startswith("locked ") for line in block):
-        return "KEPT", "it is locked", {}
-    sym = _git(path, "symbolic-ref", "--short", "-q", "HEAD")
-    branch = sym.stdout.strip() if sym.returncode == 0 and sym.stdout.strip() else (entry.get("branch") or None)
-    default = _default_branch(path)
-    if branch and branch == default:
-        return "KEPT", f"it is on the default branch {default}", {}
-    pr = _pr_number(entry.get("pr"))
-    if not branch and not pr:
-        return "KEPT", "no merged PR found: no branch and no PR in the record", {}
-    try:
-        prs = pr_lookup(main, branch, pr)
-    except PrLookupError as exc:
-        return "KEPT", f"no merged PR found: {exc}", {}
-    except Exception as exc:  # noqa: BLE001 - any lookup failure keeps the worktree
-        return "KEPT", f"no merged PR found: lookup failed: {exc}", {}
-    merged, why = _pick_pr(prs, branch, by_number=bool(pr))
-    if merged is None:
-        return "KEPT", why, {}
-    number = str(merged.get("number") or pr or "?")
-    head = _ref(path, "HEAD")
-    if not head:
-        return "KEPT", "cannot read HEAD", {}
-    pr_head = str(merged.get("headRefOid") or "").strip().lower()
-    if not pr_head or not _ref(path, pr_head):  # a reused branch name: without the PR head, nothing proves HEAD landed
-        return "KEPT", f"PR #{number} head commit is not in the local repo", {}
-    after = _git(path, "rev-list", "--max-count=1", f"{pr_head}..HEAD")
-    if after.returncode != 0:
-        return "KEPT", f"git rev-list failed: {_err(after)}", {}
-    if after.stdout.strip():
-        return "KEPT", f"commits after the merged PR #{number}", {}
-    fetch = _git(path, "fetch", "--quiet", "--no-tags", "origin",
-                 f"+refs/heads/{default}:refs/remotes/origin/{default}", timeout=NET_TIMEOUT)
-    if fetch.returncode != 0:
-        return "KEPT", f"cannot fetch origin/{default}: {_err(fetch)}", {}
-    target = f"refs/remotes/origin/{default}"
-    base = _git(path, "merge-base", target, "HEAD")
-    if base.returncode != 0 or not base.stdout.strip():
-        return "KEPT", f"no merge base with origin/{default}", {}
-    changed = _names(path, base.stdout.strip(), "HEAD")
-    differ_all = _names(path, target, "HEAD")
-    if changed is None or differ_all is None:
-        return "KEPT", f"git diff against origin/{default} failed", {}
-    differ = sorted(changed & differ_all)
-    if differ:
-        return "KEPT", f"{len(differ)} file(s) differ from origin/{default}: {', '.join(differ[:3])}", {}
-    facts = {"repo": main, "branch": branch, "pr": number, "pr_head": pr_head, "head": head}
-    return "REMOVE", f"PR #{number} merged, clean, tree equals origin/{default}", facts
-
-
-def _branch_tip(repo: Path, branch: str) -> str | None:
-    proc = _git(repo, "rev-parse", "-q", "--verify", f"refs/heads/{branch}")
-    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else None
-
-
-def _remove_worktree(path: Path, facts: dict) -> tuple[str, str]:
-    repo, branch, head, pr_head = facts["repo"], facts["branch"], facts["head"], facts["pr_head"]
-    local_tip = _branch_tip(repo, branch) if branch else None
-    problem = safety.safe_remove_worktree(repo, path, force=False, env=_env())
-    if problem:
-        return "FAILED", problem
-    notes: list[str] = []
-    if branch and local_tip:
-        listing = _git(repo, "worktree", "list", "--porcelain")
-        if listing.returncode != 0 or f"branch refs/heads/{branch}" in listing.stdout.splitlines():
-            notes.append("local branch kept: another worktree has it checked out")
-        elif local_tip not in {head, pr_head}:
-            notes.append("local branch kept: its tip is not the removed HEAD or the PR head")
-        else:
-            gone = _git(repo, "branch", "-D", "--", branch)
-            notes.append("local branch deleted" if gone.returncode == 0 else f"local branch kept: {_err(gone)}")
-    if branch:
-        ls = _git(repo, "ls-remote", "--heads", "origin", f"refs/heads/{branch}", timeout=NET_TIMEOUT)
-        tips = [ln.split()[0] for ln in ls.stdout.splitlines() if ln.strip()] if ls.returncode == 0 else []
-        if ls.returncode != 0:
-            notes.append(f"remote branch kept: ls-remote failed: {_err(ls)}")
-        elif tips:
-            tip = tips[0].lower()
-            if tip in {pr_head, head.lower()} - {""}:  # only a tip this check proved landed
-                try:
-                    push = _git(repo, *safety.remote_delete_args(branch, tip), timeout=NET_TIMEOUT)
-                    notes.append("remote branch deleted" if push.returncode == 0
-                                 else f"remote branch kept: {_err(push)}")
-                except ValueError as exc:
-                    notes.append(f"remote branch kept: {exc}")
-            else:
-                notes.append("remote branch kept: its tip moved past the PR head")
-    return "REMOVED", "; ".join(notes)
+    return caddis_finished.prove_worktree_finished(entry, path, cwd, pr_lookup)
 
 
 # -- scratch ----------------------------------------------------------------------------------------------------

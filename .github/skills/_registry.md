@@ -15,8 +15,8 @@
 | AWS CDK Development | `cloud/aws-cdk-development/` | AWS CDK infrastructure as code in TypeScript/Python: stacks, constructs, deployment. Use when the user mentions CDK, CloudFormation, IaC, cdk synth, cdk deploy, or wants to define AWS infrastructure in code. |
 | AWS Cost Operations | `cloud/aws-cost-operations/` | AWS cost optimization, monitoring and operations, with MCP servers for billing analysis, cost estimation, observability and security assessment. |
 | AWS Serverless EDA | `cloud/aws-serverless-eda/` | AWS serverless and event-driven architecture. Use when the user mentions serverless, Lambda, API Gateway, DynamoDB, Step Functions, EventBridge, SQS, SNS, event-driven, async processing, queues or pub/sub. |
-| Building AI Agent On Cloudflare | `cloud/building-ai-agent-on-cloudflare/` | Builds stateful AI agents on Cloudflare Workers with the Agents SDK. Use when the user wants to "build an agent", "AI agent", "chat agent", "stateful agent", mentions "Agents SDK", "real-time AI", "WebSocket AI", or asks about agent "state management", "scheduled tasks" or "tool calling". |
-| Building MCP Server On Cloudflare | `cloud/building-mcp-server-on-cloudflare/` | Builds and deploys remote MCP servers on Cloudflare Workers with tools and OAuth. Use when the user wants to "build MCP server", "create MCP tools", "remote MCP", "deploy MCP", add "OAuth to MCP", or mentions "MCP authentication", "MCP deployment" or Model Context Protocol on Cloudflare. |
+| Building AI Agent On Cloudflare | `cloud/building-ai-agent-on-cloudflare/` | Builds stateful AI agents on Cloudflare Workers with the Agents SDK. Use when the user wants to "build an agent", "stateful agent", "WebSocket AI", or mentions "Agents SDK". |
+| Building MCP Server On Cloudflare | `cloud/building-mcp-server-on-cloudflare/` | Builds and deploys remote MCP servers on Cloudflare Workers with tools and OAuth. Use when the user wants to "build MCP server", "remote MCP", "deploy MCP", or add "OAuth to MCP". |
 
 ### Coding
 
@@ -35,7 +35,7 @@
 | Code Review | `coding/code-review/` | Automated code review for quality, security, performance and best practices. Use when reviewing code changes, PRs, or doing code audits. |
 | Codebase Audit | `coding/codebase-audit/` | Audit an unfamiliar codebase before architecture or implementation work. Use for a new codebase, pre-implementation audit, codebase review, technical due diligence or onboarding. Produces AUDIT-FINDINGS.md and QUESTIONS.md. |
 | Cross Review | `coding/cross-review/` | Have a different vendor's model (agy Argon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff. |
-| Dashboard Perf Sweep | `coding/dashboard-perf-sweep/` | Re-measure dashboard/API endpoints for load-time regressions and decide by checklist if a slow one needs the rs-kit refresher, an index, keyset paging, gzip, or nothing. Use when the user says "sweep dashboard performance", "check if this app needs rs-kit", "re-measure the perf tracker", "is this endpoint a refresher candidate", or dashboard-performance-tracker.md is stale. Read-only. |
+| Dashboard Perf Sweep | `coding/dashboard-perf-sweep/` | Re-measure dashboard/API endpoints for load-time regressions. Use when the user says "sweep dashboard performance", "check if this app needs rs-kit", or "re-measure the perf tracker". |
 | Error Handling | `coding/error-handling/` | Error handling for Python and TypeScript: error hierarchies, custom exceptions, result types, retries, circuit breakers, error boundaries, logging, user-facing messages. |
 | FastAPI Dev | `coding/fastapi-dev/` | Build FastAPI backends with standard patterns, error handling, and testing |
 | Javascript Typescript | `coding/javascript-typescript/` | JavaScript and TypeScript development with ES6+, Node.js, React, and modern web frameworks. Use for frontend, backend, or full-stack JavaScript/TypeScript projects. |
@@ -46,7 +46,7 @@
 | Refactoring | `coding/refactoring/` | Safely refactor code while maintaining behavior. Use when improving code structure, reducing duplication, extracting functions, or modernizing legacy code. |
 | Security Review | `coding/security-review/` | Security review workflow — OWASP, code scanning, cloud infrastructure |
 | SQL | `coding/sql/` | Write optimized, secure, readable SQL: performance, NULL handling, dialect-specific notes. |
-| Understand Anything | `coding/understand-anything/` | Turn a codebase or knowledge base into a searchable interactive knowledge graph. Use for /understand and /understand-chat, -dashboard, -diff, -domain, -explain, -knowledge, -onboard, or phrases like "how does this project work", "map out the codebase", "what changed in this PR", "explain this file", "onboard me to this project", "what does X depend on", "analyze this repo", "generate a knowledge graph", or "what is the architecture of this project". |
+| Understand Anything | `coding/understand-anything/` | Turn a codebase into an interactive knowledge graph. Use for /understand* commands, or when the user says "map out the codebase", "how does this project work", or "knowledge graph". |
 
 ### Data
 
@@ -56,7 +56,7 @@
 | Data Loader | `data/data-loader/` | Load Excel, JSON or CSV files into any database (SQL Server, PostgreSQL, MySQL, SQLite and others). Use when importing data files into a database. |
 | Data Validation | `data/data-validation/` | Data quality and validation for ETL, API inputs and pipelines: validation rules, schema validation, data contracts, Pydantic, Great Expectations, SQL constraints. |
 | Database Design | `data/database-design/` | Database schema design, migrations and query optimization for PostgreSQL, MySQL and NoSQL. |
-| DB Diagram | `data/db-diagram/` | Diagram a SQL artifact (stored proc, view, query, .sql file, table) as Mermaid or Excalidraw. Use when the user says "diagram this query/proc/view/schema", "explain this SQL visually", "draw the ER diagram", "show me the data flow of this stored proc", "/mermaid-db", or "/excalidraw-db". Read-only. |
+| DB Diagram | `data/db-diagram/` | Diagram SQL artifacts (procs, views, queries, tables) as Mermaid or Excalidraw. Use when the user says "diagram this SQL", "draw the ER diagram", "/mermaid-db", or "/excalidraw-db". |
 | DB Testing | `data/db-testing/` | Test, debug, and validate database connectivity and queries. Use when diagnosing connection errors, testing configurations, or validating queries before deployment. |
 | Schema Migration | `data/schema-migration/` | Migrate an app's data access layer when tables or columns are renamed, merged or split: update queries, mappings and abstractions without data loss. Read-only against the database. |
 
@@ -64,7 +64,7 @@
 
 | Skill | Path | When to Use |
 |-------|------|-------------|
-| Adopt App | `devops/adopt-app/` | Bring an app that was never scaffolded (POC, server folder, checkout with no remote) up to standard: inventory without running it, pass/gap/question verdicts, ordered plan. Use when the user says "this app was never set up properly", "adopt this POC", "onboard this app", "it just runs from a folder on the server", "what would it take to get this into CI", "nobody knows how this is deployed", or "it started as a prototype and now it is production". |
+| Adopt App | `devops/adopt-app/` | Inventory an unscaffolded app or POC read-only and produce an adoption plan. Use when the user says "adopt this POC", "onboard this app", "never set up properly", or "get this into CI". |
 | Changelog Generator | `devops/changelog-generator/` | Create user-facing changelogs and release notes from git commit history, grouping changes and rewriting technical commits in plain language. |
 | CI Cd Pipeline | `devops/ci-cd-pipeline/` | CI/CD pipelines for GitHub Actions and Azure DevOps: build and deploy workflows, quality gates, environment promotion and release automation. |
 | Deploy Local | `devops/deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
@@ -72,8 +72,8 @@
 | Git Commit | `devops/git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
 | Graph Email | `devops/graph-email/` | Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note. |
 | Monorepo | `devops/monorepo/` | Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting. |
-| Port To GitHub | `devops/port-to-github/` | Port an app or repo to GitHub from any source (git server, local folder, UNC share, Windows box over WinRM): all branches and tags, SHA-verified, CI translated, source-only history, deploy cut over with rollback. Use when the user says "move this app to GitHub", "port X to GitHub", "migrate from Gitea", "this app only exists on the server", "import the repo from the prod box", "keep binaries out of the repo", or "cut the deploy over to GitHub". |
-| Runner Move | `devops/runner-move/` | Move GitHub Actions jobs from self-hosted runners to GitHub-hosted runners, one repo at a time, with a cost check and a pilot PR. Use when the user says "move CI to GitHub-hosted runners", "stop using self-hosted runners", "runner migration", "move jobs off the runner box", or "run CI on windows-latest or ubuntu-latest". |
+| Port To GitHub | `devops/port-to-github/` | Port an app or repo to GitHub with verified history, CI translation, and deploy cutover. Use when the user says "move this app to GitHub", "port X to GitHub", or "migrate from Gitea". |
+| Runner Move | `devops/runner-move/` | Move GitHub Actions jobs from self-hosted to GitHub-hosted runners. Use when the user says "move CI to GitHub-hosted runners", "stop using self-hosted runners", or "runner migration". |
 | Safe Cleanup | `devops/safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
 | Update README | `devops/update-readme/` | Detect feature commits and update README sections (Features, API, Usage) to match, then stage only the README. Use when features, routes or components were added. |
 | Using Git Worktrees | `devops/using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
@@ -88,13 +88,13 @@
 | Confluence Hla | `docs/confluence-hla/` | High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture. |
 | Doc Coauthoring | `docs/doc-coauthoring/` | Structured workflow for co-authoring documentation: transfer context, refine by iteration, test it on readers. Use when the user is writing docs, proposals, technical specs or decision docs. |
 | Documentation Analyzer | `docs/documentation-analyzer/` | Analyze a codebase, explain what the code does, and generate documentation such as README files. |
-| Explainer Doc | `docs/explainer-doc/` | Hand-off doc for a team that did NOT do the investigation (vendor, contractor, another team) — the "stranger must follow it alone" case. Use when the user says "write a spec for the X team", "document this for someone outside the team", "explainer doc", "implementation spec for a vendor", or "hand this off to Y". Not for readers with full context. |
+| Explainer Doc | `docs/explainer-doc/` | Write a self-contained hand-off spec for an external team or vendor. Use when the user says "write a spec for the X team", "explainer doc", "spec for a vendor", or "hand this off to Y". |
 | HLD | `docs/hld/` | Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
 | LLD | `docs/lld/` | Generate Lower-Level Design (LLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
 | Naming Analyzer | `docs/naming-analyzer/` | Suggest better variable, function, and class names based on context and conventions. |
 | Office Documents Official | `docs/office-documents-official/` | Hint for Office and PDF file work. Use when the user asks to create, edit, read or convert a Word .docx, PDF, PowerPoint .pptx or Excel .xlsx file. caddis does not ship these skills; points to Anthropic's official document-skills plugin. |
 | PRD To Code | `docs/prd-to-code/` | Turn a PRD into working application code with a 6-phase method. Use when starting a project from requirements or specs. |
-| Tech Explainer | `docs/tech-explainer/` | Plain-language explainer, with ranked Mermaid diagrams and Simplified Technical English, for a reader who did NOT do the investigation (manager, stakeholder). Use when the user says "explain this to X", "explainer", "write this up for someone non-technical", "plain English", "STE", "explain our findings", "write up the benchmark results", "why is it slow — document it", or summarises an investigation for a reader who won't read the raw data. Not for build hand-offs (explainer-doc) or READMEs. |
+| Tech Explainer | `docs/tech-explainer/` | Plain-language explainer with Mermaid diagrams and STE for stakeholders. Use when the user says "explain this to X", "plain English", "STE", or "explain our findings". |
 | Technical Writing | `docs/technical-writing/` | Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards. |
 | Writing Plans | `docs/writing-plans/` | Use when you have a spec or requirements for a multi-step task, before touching code. In caddis, plans are written with /caddis:feature-plan, the only plan writer; this skill sends you there. |
 
@@ -121,7 +121,7 @@
 | React Best Practices | `frontend/react-best-practices/` | Modern React development guidelines covering hooks, component patterns, state management, performance optimization, and TypeScript integration. |
 | React Dev | `frontend/react-dev/` | Type-safe React 18-19 with TypeScript: components, generic components, hooks, events, Server Components, TanStack Router and React Router. Use when React TypeScript or React 19 is involved. |
 | React Useeffect | `frontend/react-useeffect/` | React useEffect best practices from the official docs: when NOT to use an Effect, derived state, data fetching, synchronization. Use when writing or reviewing useEffect. |
-| Responsive Mobile Native | `frontend/responsive-mobile-native/` | Make a web app work and "feel native" on phones and tablets from one codebase: adapt desktop-first layouts, fix small-screen breakage. Use for "make this PWA", "mobile-friendly", "tablet layout", "bottom nav", "touch gestures", "works on iPhone/Android", "responsive design", or any web UI missing mobile support. |
+| Responsive Mobile Native | `frontend/responsive-mobile-native/` | Adapt desktop-first web apps into responsive, mobile-native PWAs from one codebase. Use when the user says "make this PWA", "mobile-friendly", "tablet layout", or "responsive design". |
 | Shadcn Radix | `frontend/shadcn-radix/` | shadcn/ui and Radix UI: setup (shadcn add, components.json), theming, react-hook-form + zod forms, TanStack Table data tables, cva variants, command palette, date picker, combobox, drawer/sheet. |
 | Sketch | `frontend/sketch/` | Generate 2-3 interactive HTML design variants to compare UI directions before production code. Use for early design exploration or when asked to "sketch this screen" or "show me variants". |
 | Slides | `frontend/slides/` | Create strategic HTML presentations with Chart.js, design tokens, responsive layouts, copywriting formulas, and contextual slide strategies. |
@@ -130,7 +130,7 @@
 | UI Review | `frontend/ui-review/` | Review a UI against design requirements, WCAG 2.2 AA and brand guidelines. Use when validating UI before release. |
 | UI Styling Patterns | `frontend/ui-styling-patterns/` | Accessible UIs with shadcn/ui, Radix and Tailwind CSS: responsive layouts, theming, dark mode and consistent styling. |
 | UI UX Intelligence | `frontend/ui-ux-intelligence/` | Data-backed UI/UX decisions from CSV knowledge bases: 50+ styles, 161 palettes, 57 font pairings, UX guidelines, chart types. Use to look up palettes, font pairs or style guidance. |
-| Warm Editorial UI | `frontend/warm-editorial-ui/` | Apply the "Warm Editorial Refinement" design system (warm cream/charcoal surfaces, Bahnschrift + Plus Jakarta Sans, layered shadows), the canonical template for new frontend builds. Use for apps, dashboards or UI in the abc-project style, or on "use our design system", "apply our template", "make it look like abc-project", "use the warm editorial style", "use our brand template", "add dark mode", or a new tool for XYZ Brand. |
+| Warm Editorial UI | `frontend/warm-editorial-ui/` | Apply the Warm Editorial Refinement design system. Use when the user says "use our design system", "warm editorial style", "apply our template", or "make it look like abc-project". |
 | Webapp Development | `frontend/webapp-development/` | End-to-end web application development workflow with brand theming and standard patterns |
 | Word Cloud | `frontend/word-cloud/` | Generate static or animated word clouds from any text source (PDF, DOCX, XLSX, PPTX, HTML, CSV, TXT), with theming, sentiment coloring and shape masks. |
 
@@ -156,7 +156,7 @@
 | Best Practices | `workflow/best-practices/` | Transforms vague prompts into optimized Claude Code prompts. Adds verification, specific context, constraints, and proper phasing. Invoke with /best-practices. |
 | Brainstorming | `workflow/brainstorming/` | Use before any creative work: new features, components or behavior changes, or planning anything new. Finds what the user wants first. |
 | Context Curator | `workflow/context-curator/` | Compress and prioritize codebase context before handing work to reasoning agents, minimizing token waste while preserving the required decision inputs. |
-| Data Contract Pipeline | `workflow/data-contract-pipeline/` | Build, audit and validate data-to-UI contracts. Use when the user mentions data mapping, UI lineage, DB-to-UI, DisplayDTOs, source-to-screen mapping, data contracts, schema drift, typed API responses, mockup grounding, or asks whether a UI is backed by real data. |
+| Data Contract Pipeline | `workflow/data-contract-pipeline/` | Build, audit, and validate DB-to-UI data contracts. Use when the user mentions data mapping, UI lineage, DisplayDTOs, source-to-screen mapping, or asks if a UI is backed by real data. |
 | Developer Growth Analysis | `workflow/developer-growth-analysis/` | Analyze recent Claude Code chat history for coding patterns and gaps, find learning resources on HackerNews, and send a growth report to Slack DMs. |
 | File Organizer | `workflow/file-organizer/` | Organize files and folders by context: find duplicates, suggest better structures, automate cleanup. |
 | Game Changing Features | `workflow/game-changing-features/` | Find 10x product opportunities and high-leverage features. Use when the user mentions '10x', says 'what would make this 10x better', 'product strategy', or 'what should we build next'. |
@@ -165,7 +165,7 @@
 | Preflight | `workflow/preflight/` | Plan-vs-codebase validation — verifies API contracts, type names, field accuracy, dependencies, and paths before implementation begins |
 | Receiving Code Review | `workflow/receiving-code-review/` | Use when receiving code review feedback, before implementing it, especially if it seems unclear or wrong: verify with technical rigor, no performative agreement or blind implementation. |
 | Roadmap | `workflow/roadmap/` | Track milestones across plans in .caddis/roadmaps/<slug>/: next batch, typed blockers, rollup. Every change is a docs PR via caddis_roadmap.py. |
-| Setup Project AI | `workflow/setup-project-ai/` | Install or refresh the agent-agnostic harness in a project: AGENTS.md rules with CLAUDE.md shims, subagents, commands and settings. Use when setting up AI resources on a project, or the user says 'set up the harness', 'setup-project-ai', 'generate CLAUDE.md', 'onboard this project to Claude Code / Codex / agy', or runs /setup-project-ai. |
+| Setup Project AI | `workflow/setup-project-ai/` | Install or refresh the project AI harness: AGENTS.md, CLAUDE.md shims, agents, settings. Use when the user says 'set up the harness', 'generate CLAUDE.md', or runs /setup-project-ai. |
 | Skill Creator | `workflow/skill-creator/` | Create, edit and improve skills, run evals and benchmarks, and optimize a skill's description for triggering accuracy. |
 | Verification Loop | `workflow/verification-loop/` | Systematic code change verification — lint, test, type-check, review |
 

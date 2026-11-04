@@ -613,8 +613,14 @@ if __name__ == "__main__":
 # that is a broken environment, not a project without linting — and a check that cannot
 # run must not report success. Tools the project never asked for are still skipped
 # silently, because those genuinely are not part of its standards.
+# Bump when the hook text changes in a way an installed copy should pick up. install_git_hooks replaces a managed hook
+# whose "caddis-pre-push-version" is lower (a hook with no marker counts as 0) and leaves a hook it does not manage alone.
+PRE_PUSH_HOOK_VERSION = 2
+_HOOK_SCRIPTS_PLACEHOLDER = "__CADDIS_SCRIPTS__"
+
 PRE_PUSH_HOOK = r"""#!/usr/bin/env sh
 # Managed by caddis setup-project-ai. Delete this file to opt out.
+# caddis-pre-push-version: 2
 set -eu
 echo "[caddis] pre-push quality gate"
 fail=0
@@ -626,13 +632,25 @@ else
   GATE_RUN="./caddis_gate_step.py"
 fi
 
-# Prefer the project's virtualenv over PATH. Checked in venv-layout order for both
-# Windows (Scripts/) and POSIX (bin/) so the same hook works on either.
+# Use the project's own virtualenv, never whatever is on PATH. Both layouts are checked (Windows Scripts/, POSIX bin/).
+# A linked git WORKTREE uses ONLY its own .venv. The main checkout's venv is not an option: it belongs to a running
+# dev service and is often many commits behind the worktree's pins (found 2026-11-03: rbac-kit 0.2.0 against a 0.3.1
+# pin; the old lookup list also held a literal backslash-n typo). Every worktree installs its dependencies fresh.
+HOOK_SCRIPTS_DIR="__CADDIS_SCRIPTS__"
 PY=""
+IN_WORKTREE=0
+if [ "$(git rev-parse --git-dir 2>/dev/null || echo .git)" != "$(git rev-parse --git-common-dir 2>/dev/null || echo .git)" ]; then
+  IN_WORKTREE=1
+fi
 for cand in .venv/Scripts/python.exe .venv/bin/python venv/Scripts/python.exe venv/bin/python; do
   if [ -x "$cand" ]; then PY="$cand"; break; fi
 done
-if [ -z "$PY" ]; then PY=$(command -v python || command -v python3 || true); fi
+if [ -z "$PY" ] && [ "$IN_WORKTREE" -eq 0 ]; then
+  PY=$(command -v python || command -v python3 || true)
+  if [ -n "$PY" ] && { [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; }; then
+    echo "[gate] WARNING: no .venv in this checkout - using the system Python ($PY). Its packages may differ from the project's pins." >&2
+  fi
+fi
 
 # Runnable IN $PY - not merely present on PATH. This is the whole point: `command -v mypy`
 # answers a question about PATH, and the question we care about is about the environment
@@ -683,7 +701,16 @@ py_gate() {
 }
 
 if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-  if [ -z "$PY" ]; then
+  if [ -z "$PY" ] && [ "$IN_WORKTREE" -eq 1 ]; then
+    echo "[gate] this git worktree has no .venv, and the gate will not borrow the main checkout's or the system Python." >&2
+    if [ -f "$HOOK_SCRIPTS_DIR/caddis_worktree_root.py" ]; then
+      echo "       fix, in this worktree: python \"$HOOK_SCRIPTS_DIR/caddis_worktree_root.py\" --bootstrap" >&2
+    else
+      echo "       fix, in this worktree: python \"<caddis scripts>/caddis_worktree_root.py\" --bootstrap  (the scripts folder of the installed caddis plugin)" >&2
+    fi
+    echo "[caddis] push BLOCKED - 'git push --no-verify' overrides." >&2
+    exit 1
+  elif [ -z "$PY" ]; then
     echo "[gate] python project, but no interpreter found (.venv or PATH) - cannot verify" >&2
     fail=1
   else
@@ -770,8 +797,30 @@ echo "[caddis] gate passed - pushing."
 """
 
 
+_HOOK_MARKER_RE = re.compile(r"Managed by (caddis|claudster)\b")
+_HOOK_VERSION_RE = re.compile(r"^#\s*caddis-pre-push-version:\s*(\d+)", re.MULTILINE)
+
+
+def render_pre_push_hook() -> str:
+    """The hook text to install: the template with this install's scripts folder filled in (forward slashes)."""
+    return PRE_PUSH_HOOK.replace(_HOOK_SCRIPTS_PLACEHOLDER, Path(__file__).resolve().parent.as_posix())
+
+
+def _installed_hook_state(hook_text: str) -> tuple[bool, int]:
+    """(managed by caddis, its version). A managed hook with no version marker is version 0. A hook this tool did not
+    write is (False, 0): it is never replaced without --force."""
+    if not _HOOK_MARKER_RE.search(hook_text):  # also recognises pre-rename ("claudster") hooks
+        return False, 0
+    m = _HOOK_VERSION_RE.search(hook_text)
+    return True, int(m.group(1)) if m else 0
+
+
 def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
-    """Install the enforced pre-push quality gate into .git/hooks/pre-push."""
+    """Install the enforced pre-push quality gate into .git/hooks/pre-push.
+
+    An existing caddis-managed hook is replaced when its version is older than PRE_PUSH_HOOK_VERSION and kept when it is
+    current. A hook caddis did not write is left alone unless `force`. Git shares `.git/hooks` with every worktree of the
+    repo, so one install in the main checkout covers them all."""
     notes: list[str] = []
     git = target / ".git"
     if not git.exists():
@@ -781,13 +830,17 @@ def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
     hooks_dir = git / "hooks"
     dest = hooks_dir / "pre-push"
     step_dest = hooks_dir / "caddis_gate_step.py"
+    upgraded_from: int | None = None
     if dest.exists() and not force:
-        _hook_txt = dest.read_text(encoding="utf-8", errors="ignore")
-        managed = "caddis" in _hook_txt or "claudster" in _hook_txt  # recognise pre-rename hooks too
-        return [f"pre-push gate: exists ({'ours' if managed else 'yours — left intact, use --force to replace'}) — skipped"]
+        managed, version = _installed_hook_state(dest.read_text(encoding="utf-8", errors="ignore"))
+        if not managed:
+            return ["pre-push gate: exists (yours — left intact, use --force to replace) — skipped"]
+        if version >= PRE_PUSH_HOOK_VERSION:
+            return [f"pre-push gate: exists (ours) at version {version}, current — skipped"]
+        upgraded_from = version
     if not dry:
         hooks_dir.mkdir(parents=True, exist_ok=True)
-        dest.write_text(PRE_PUSH_HOOK, encoding="utf-8", newline="\n")
+        dest.write_text(render_pre_push_hook(), encoding="utf-8", newline="\n")
         step_dest.write_text(GATE_STEP_PY, encoding="utf-8", newline="\n")
         try:
             import stat
@@ -795,7 +848,11 @@ def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
             step_dest.chmod(step_dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         except Exception:
             pass
-    notes.append("pre-push gate: installed .git/hooks/pre-push and caddis_gate_step.py (green-before-push enforced)")
+    if upgraded_from is not None:
+        notes.append(f"pre-push gate: upgraded .git/hooks/pre-push (version {upgraded_from} -> {PRE_PUSH_HOOK_VERSION}) "
+                     "and caddis_gate_step.py (green-before-push enforced)")
+    else:
+        notes.append("pre-push gate: installed .git/hooks/pre-push and caddis_gate_step.py (green-before-push enforced)")
     return notes
 
 

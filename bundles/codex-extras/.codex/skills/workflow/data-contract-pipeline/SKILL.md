@@ -1,7 +1,7 @@
 ---
 name: data-contract-pipeline
 context: fork
-description: "Build, audit and validate data-to-UI contracts. Use when the user mentions data mapping, UI lineage, DB-to-UI, DisplayDTOs, source-to-screen mapping, data contracts, schema drift, typed API responses, mockup grounding, or asks whether a UI is backed by real data."
+description: "Build, audit, and validate DB-to-UI data contracts. Use when the user mentions data mapping, UI lineage, DisplayDTOs, source-to-screen mapping, or asks if a UI is backed by real data."
 ---
 
 # Data Contract Pipeline

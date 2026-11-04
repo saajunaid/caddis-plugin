@@ -260,6 +260,8 @@ def classify_read(file_path: str) -> tuple[str, str]:
         return "deny", "reads a secret env file"
     if base in _SECRET_BASENAMES or any(base.endswith(s) for s in _SECRET_SUFFIXES):
         return "deny", f"reads a credential/key file ({base})"
+    if base == "keys.env":  # ~/.caddis/keys.env holds provider API keys: scripts read it, an agent must not
+        return "deny", "reads the caddis provider keys file (keys.env)"
     return "allow", ""
 
 
@@ -968,10 +970,12 @@ _NO_WINDOW_KW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
 def _is_ref(name: str, cwd: str) -> bool:
     """True when `name` resolves as a commit in the repo at `cwd`. Git cannot run (missing, hung): True, so the
-    caller asks. Called only when `name` is also a path, so most checkouts never pay for the git call."""
+    caller asks. Called only when `name` is also a path, so most checkouts never pay for the git call. The wait is
+    10 s: at 5 s a slow windows-latest runner timed out, `git checkout <file>` counted as a branch switch, and the
+    guard tests flaked (.caddis/kb/ci-speed-and-test-rules.md § 23). The outer hook timeout is 30 s."""
     try:
         r = subprocess.run(["git", "-C", cwd, "rev-parse", "--verify", "--quiet", f"{name}^{{commit}}"],
-                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
                            **_NO_WINDOW_KW)
     except (OSError, subprocess.SubprocessError):
         return True

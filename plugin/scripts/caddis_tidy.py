@@ -1273,6 +1273,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--verbose", action="store_true",
                     help="with --temp: list every folder and note (default: totals, the 10 largest, "
                          "kept notes grouped by reason)")
+    ap.add_argument("--hygiene", action="store_true",
+                    help="list every worktree and local branch of the repo with an action and a reason "
+                         "(with --apply: remove only the ones proved finished)")
+    ap.add_argument("--json", action="store_true", help="with --hygiene: print the rows as JSON")
     args = ap.parse_args(argv)
     # A status or path the console cannot encode prints as `?`, never a crash (a cp1252 pipe).
     for stream in (sys.stdout, sys.stderr):
@@ -1282,6 +1286,14 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     repo_root = Path(args.repo_root).resolve()
+    if args.json and not args.hygiene:
+        ap.error("--json only works together with --hygiene")
+    if args.hygiene:
+        if args.check or args.commit_range or args.only or args.prune or args.temp or args.verbose:
+            ap.error("--hygiene runs alone: not with --check, --commit-range, --only, --prune, --temp or --verbose")
+        import caddis_repo_tidy  # ships beside this file
+
+        return caddis_repo_tidy.run_cli(repo_root, apply=args.apply, as_json=args.json)
     if args.temp and not args.prune:
         ap.error("--temp only works together with --prune")
     if args.verbose and not args.temp:

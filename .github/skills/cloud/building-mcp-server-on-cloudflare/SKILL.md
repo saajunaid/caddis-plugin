@@ -3,8 +3,7 @@ name: building-mcp-server-on-cloudflare
 context: fork
 description: |
   Builds and deploys remote MCP servers on Cloudflare Workers with tools and OAuth. Use when the
-  user wants to "build MCP server", "create MCP tools", "remote MCP", "deploy MCP", add "OAuth to
-  MCP", or mentions "MCP authentication", "MCP deployment" or Model Context Protocol on Cloudflare.
+  user wants to "build MCP server", "remote MCP", "deploy MCP", or add "OAuth to MCP".
 ---
 
 # Building MCP Servers on Cloudflare

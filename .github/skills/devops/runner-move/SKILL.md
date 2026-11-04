@@ -1,10 +1,8 @@
 ---
 name: runner-move
 description: >-
-  Move GitHub Actions jobs from self-hosted runners to GitHub-hosted runners, one repo at a time,
-  with a cost check and a pilot PR. Use when the user says "move CI to GitHub-hosted runners",
-  "stop using self-hosted runners", "runner migration", "move jobs off the runner box", or "run
-  CI on windows-latest or ubuntu-latest".
+  Move GitHub Actions jobs from self-hosted to GitHub-hosted runners. Use when the user says
+  "move CI to GitHub-hosted runners", "stop using self-hosted runners", or "runner migration".
 ---
 
 # runner-move
