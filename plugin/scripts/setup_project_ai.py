@@ -597,203 +597,517 @@ if __name__ == "__main__":
 '''
 
 
-# Enforced "green before push" gate. Installed into .git/hooks/pre-push. Pure POSIX sh
-# so it runs under Git's bundled shell on Windows/Linux/macOS.
-#
-# TOOLS RUN IN THE PROJECT'S OWN INTERPRETER, NOT WHATEVER IS ON PATH. This was a real
-# defect found by app-forge's dry run (2026-08-06): the gate resolved bare `pytest` and
-# `mypy` off PATH, which on Windows is the machine-wide C:\Python interpreter — so it
-# tested the app in an environment without the app's dependencies. Meanwhile `ruff` was
-# not on PATH at all and was silently skipped, even though the app had ruff in its venv.
-# It ran the two checks that could not work and skipped the one that would.
-#
-# A DECLARED-BUT-MISSING TOOL NOW BLOCKS. The old rule was "auto-skip anything not
-# installed", which is degrade-open: the gate reported success precisely when it had
-# checked the least. If a project asks for ruff in its pyproject and ruff cannot run,
-# that is a broken environment, not a project without linting — and a check that cannot
-# run must not report success. Tools the project never asked for are still skipped
-# silently, because those genuinely are not part of its standards.
+# Pre-push gate v3 runner, installed as .git/hooks/caddis_prepush.py. The sh hook only finds an interpreter and execs it.
+# It runs the [pre_push] checks of .caddis/config.toml (the fast checks the repo's CI runs) inside one time budget, by
+# the runtime rules of .caddis/plans/prepush-gate-matches-ci.md. It reuses kill_process_tree and format_elapsed from
+# caddis_gate_step.py and ci_caller_sha256 from caddis_prepush_config.py, both in the same hooks folder.
+PRE_PUSH_RUNNER_PY = r'''#!/usr/bin/env python3
+"""caddis_prepush.py - the caddis pre-push gate (version 3).
+
+Runs the [pre_push] checks of .caddis/config.toml within budget_s seconds. It blocks a push ONLY when a check that ran
+fails, or when a check that should run cannot start. Every skip prints one line that names the check.
+'git push --no-verify' skips the gate once. Delete .git/hooks/pre-push to remove it.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+try:  # one kill logic for the gate: the step runner installed in the same hooks folder
+    from caddis_gate_step import format_elapsed, kill_process_tree
+except ImportError:  # main() blocks with a re-install line
+    format_elapsed = kill_process_tree = None
+
+try:
+    import tomllib
+except ImportError:  # Python < 3.11: main() prints one line and passes
+    tomllib = None
+
+NO_VERIFY = "'git push --no-verify' overrides"
+CONFIG_REL = ".caddis/config.toml"
+
+
+@dataclass
+class Check:
+    name: str
+    cwd: str
+    argv: list
+    paths: list | None
+    measured_s: float | None
+    enabled: bool
+    ci_step: str
+    venv: str | None
+
+
+def _num(value: float) -> str:
+    return f"{value:g}"
+
+
+def scripts_dir_hint() -> str | None:
+    """The caddis scripts folder named on the HOOK_SCRIPTS_DIR line of the pre-push hook next to this file, if any."""
+    hook = HERE / "pre-push"
+    try:
+        text = hook.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith('HOOK_SCRIPTS_DIR="'):
+            value = line[len('HOOK_SCRIPTS_DIR="'):].rstrip().rstrip('"')
+            if value and not value.startswith("__"):
+                return value
+    return None
+
+
+def no_section_line(scripts_dir: str | None) -> str:
+    where = scripts_dir or "<caddis scripts>"
+    return ("[gate] no [pre_push] section in .caddis/config.toml - nothing checked here, CI is the first gate. "
+            f'Create it: python "{where}/setup_project_ai.py" . --gate-config')
+
+
+def load_checks(root: Path, config: Path | None = None):
+    """(header, checks) from the [pre_push] section, or None when the file or the section is missing.
+
+    Raises ValueError for a file that does not parse or a check without a name or argv: the caller blocks, because a
+    gate that cannot read its checks checks nothing."""
+    path = config if config is not None else root / CONFIG_REL
+    if not path.is_file():
+        return None
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"{path} cannot be read: {exc}") from exc
+    section = data.get("pre_push")
+    if not isinstance(section, dict):
+        return None
+    header = {k: v for k, v in section.items() if k != "check"}
+    raw = section.get("check", [])
+    if not isinstance(raw, list):
+        raise ValueError(f"{path}: [pre_push] check must be an array of tables ([[pre_push.check]])")
+    checks = []
+    for i, item in enumerate(raw):
+        name = item.get("name") if isinstance(item, dict) else None
+        argv = item.get("argv") if isinstance(item, dict) else None
+        if not isinstance(name, str) or not name or not isinstance(argv, list) or not argv \
+                or not all(isinstance(a, str) for a in argv):
+            raise ValueError(f"{path}: [[pre_push.check]] number {i + 1} needs a name and a non-empty argv list")
+        paths = item.get("paths")
+        if paths is not None and not (isinstance(paths, list) and all(isinstance(p, str) for p in paths)):
+            raise ValueError(f"{path}: check {name}: paths must be a list of strings")
+        measured = item.get("measured_s")
+        if measured is not None and (isinstance(measured, bool) or not isinstance(measured, (int, float))):
+            raise ValueError(f"{path}: check {name}: measured_s must be a number")
+        enabled = item.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError(f"{path}: check {name}: enabled must be true or false")
+        venv = item.get("venv")
+        checks.append(Check(name=name, cwd=str(item.get("cwd", ".")), argv=list(argv),
+                            paths=[p[2:] if p.startswith("./") else p for p in paths] if paths else None,
+                            measured_s=float(measured) if measured is not None else None,
+                            enabled=enabled, ci_step=str(item.get("ci_step", "")),
+                            venv=str(venv) if venv else None))
+    return header, checks
+
+
+def decide(checks: list, changed: set | None, budget_s: float) -> list:
+    """[(check, None)] to run it, or [(check, skip line)] by rules 1-4. `changed` None = unknown: paths skip nothing."""
+    out = []
+    for c in checks:
+        line = None
+        if not c.enabled:
+            line = f"[skip] {c.name}: disabled in .caddis/config.toml"
+        elif c.measured_s is None:
+            line = f"[skip] {c.name}: not measured on this box yet - CI runs it"
+        elif c.measured_s > budget_s:
+            line = f"[skip] {c.name}: measured {_num(c.measured_s)}s, over the {_num(budget_s)}s budget - CI runs it"
+        elif c.paths and changed is not None and not any(f.startswith(p) for f in changed for p in c.paths):
+            line = f"[skip] {c.name}: no pushed change under {', '.join(c.paths)}"
+        out.append((c, line))
+    return out
+
+
+def ci_caller_sha256(text: str) -> str:
+    from caddis_prepush_config import ci_caller_sha256 as sha  # the generator's own hash: one implementation
+    return sha(text)
+
+
+def ci_drift_warning(root: Path, header: dict) -> str | None:
+    """Rule 9: a warning line when ci.yml no longer hashes to ci_caller_sha256 (derived configs only). Never a block."""
+    expected = header.get("ci_caller_sha256") or ""
+    if header.get("source") != "app-ci" or not expected:
+        return None
+    ci = root / ".github" / "workflows" / "ci.yml"
+    try:
+        with ci.open(encoding="utf-8", newline="") as fh:
+            actual = ci_caller_sha256(fh.read())
+    except ImportError:
+        return "[gate] note: caddis_prepush_config.py is missing next to this hook - ci.yml drift not checked"
+    except (OSError, UnicodeDecodeError):
+        actual = ""
+    if actual == expected:
+        return None
+    return ("[gate] WARNING: .github/workflows/ci.yml changed since [pre_push] was derived - "
+            "re-derive with --gate-config --force")
+
+
+def _git_out(root: Path, *args: str) -> str | None:
+    """stdout of a git command in `root`, or None when git fails or cannot start."""
+    try:
+        r = subprocess.run(["git", *args], cwd=str(root), capture_output=True, text=True, timeout=30,
+                           stdin=subprocess.DEVNULL, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _is_zero(sha: str) -> bool:
+    return set(sha) == {"0"}
+
+
+def changed_paths(stdin_text: str, root: Path) -> set | None:
+    """The files a push changes, from git's pre-push stdin (`<local ref> <local sha> <remote ref> <remote sha>`).
+
+    None = unknown (empty stdin, a line that is not a ref line, or any git failure): rule 4 then runs every check.
+    A delete line (local sha all zeros) adds nothing, so a push of deletes only gives the empty set. A new branch
+    (remote sha all zeros) diffs against its merge base with origin/HEAD, else origin/main."""
+    if stdin_text.strip() == "":
+        return None
+    changed: set = set()
+    for line in stdin_text.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) != 4:
+            return None
+        _, local, _, remote = parts
+        if _is_zero(local):
+            continue
+        if _is_zero(remote):
+            base = None
+            for upstream in ("origin/HEAD", "origin/main"):
+                out = _git_out(root, "merge-base", local, upstream)
+                if out and out.strip():
+                    base = out.strip()
+                    break
+            if base is None:
+                return None
+        else:
+            base = remote
+        out = _git_out(root, "diff", "--name-only", "--no-renames", "-z", base, local)
+        if out is None:
+            return None
+        changed.update(p for p in out.split("\0") if p)
+    return changed
+
+
+def in_linked_worktree(root: Path) -> bool:
+    """True in a linked git worktree (its git dir differs from the common dir). False outside a git checkout."""
+    git_dir = _git_out(root, "rev-parse", "--git-dir")
+    common = _git_out(root, "rev-parse", "--git-common-dir")
+    if not git_dir or not common:
+        return False
+    return (root / git_dir.strip()).resolve() != (root / common.strip()).resolve()
+
+
+def _venv_candidates(check: Check, root: Path) -> list:
+    if check.venv:
+        base = root / check.venv
+        return [base / "Scripts" / "python.exe", base / "bin" / "python"]
+    cwd = root / check.cwd
+    found = [cwd / ".venv" / "Scripts" / "python.exe", cwd / ".venv" / "bin" / "python"]
+    if cwd.resolve() != root.resolve():
+        found += [root / ".venv" / "Scripts" / "python.exe", root / ".venv" / "bin" / "python"]
+    return found
+
+
+def resolve_py(check: Check, root: Path, in_worktree: bool) -> tuple:
+    """(interpreter, message) for a {py} check (rule 7). The project venv first. A linked worktree with no venv gives
+    (None, block line): it never borrows the main checkout's venv or the system Python. The main checkout falls back to
+    python on PATH with a WARNING line."""
+    for cand in _venv_candidates(check, root):
+        if cand.is_file():
+            return str(cand), None
+    if in_worktree:
+        hint = scripts_dir_hint()
+        if hint and (Path(hint) / "caddis_worktree_root.py").is_file():
+            fix = f'python "{hint}/caddis_worktree_root.py" --bootstrap'
+        else:
+            fix = ('python "<caddis scripts>/caddis_worktree_root.py" --bootstrap  '
+                   "(the scripts folder of the installed caddis plugin)")
+        return None, (f"[gate] {check.name}: cannot start - this git worktree has no .venv, and the gate will not "
+                      f"borrow the main checkout's or the system Python - {NO_VERIFY}\n"
+                      f"       fix, in this worktree: {fix}")
+    system = shutil.which("python") or shutil.which("python3")
+    if system:
+        return system, (f"[gate] WARNING: no .venv in this checkout - using the system Python ({system}). "
+                        "Its packages may differ from the project's pins.")
+    return None, f"[gate] {check.name}: cannot start - no .venv and no python on PATH - {NO_VERIFY}"
+
+
+def _resolve_argv0(arg0: str, cwd: Path) -> str | None:
+    """argv[0] as a full path. shutil.which also finds Windows .cmd launchers (npx, npm) that Popen cannot start by
+    bare name."""
+    if "/" in arg0 or "\\" in arg0:
+        p = Path(arg0)
+        return shutil.which(str(p if p.is_absolute() else cwd / p))
+    return shutil.which(arg0)
+
+
+def _start(check: Check, root: Path, in_worktree: bool, said: set):
+    """(proc, output file, uses_py) or (None, block line, False)."""
+    uses_py = any("{py}" in a for a in check.argv)
+    py = None
+    if uses_py:
+        py, message = resolve_py(check, root, in_worktree)
+        if message and message not in said:
+            said.add(message)
+            print(message, file=sys.stderr, flush=True)
+        if py is None:
+            return None, None, False
+    argv = [a.replace("{runner_py}", sys.executable).replace("{py}", py or "") for a in check.argv]
+    cwd = root / check.cwd
+    exe = _resolve_argv0(argv[0], cwd)
+    if exe is None:
+        return None, f"[gate] {check.name}: cannot start - {argv[0]} not found - {NO_VERIFY}", False
+    argv[0] = exe
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    out = tempfile.TemporaryFile()
+    try:
+        proc = subprocess.Popen(argv, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                **kwargs)
+    except OSError as exc:
+        out.close()
+        return None, f"[gate] {check.name}: cannot start - {argv[0]}: {exc} - {NO_VERIFY}", False
+    return proc, out, uses_py
+
+
+def run_checks(root: Path, checks: list, budget_s: float, jobs: int, *, changed: set | None = None,
+               start: float | None = None) -> int:
+    """Rules 1-7 and 10: skip by `decide`, run the rest `jobs` at a time (longest measured_s first) until one deadline.
+    0 = pass, 1 = block."""
+    start = time.monotonic() if start is None else start
+    deadline = start + budget_s
+    decided = decide(checks, changed, budget_s)
+    skipped = 0
+    to_run = []
+    for check, line in decided:
+        if line is None:
+            to_run.append(check)
+        else:
+            print(line, flush=True)
+            skipped += 1
+    pending = sorted(to_run, key=lambda c: -(c.measured_s or 0.0))
+    in_worktree = any("{py}" in a for c in pending for a in c.argv) and in_linked_worktree(root)
+    running: list = []
+    failures: list = []
+    passed = 0
+    said: set = set()
+    jobs = max(1, jobs)
+    try:
+        while pending or running:
+            still = []  # poll first: a check that exited before the deadline counts as run, not as killed
+            for item in running:
+                check, proc, t0, out, uses_py = item
+                rc = proc.poll()
+                if rc is None:
+                    still.append(item)
+                    continue
+                took = format_elapsed(time.monotonic() - t0)
+                out.seek(0)
+                text = out.read().decode("utf-8", errors="replace")
+                out.close()
+                if rc == 0:
+                    passed += 1
+                    print(f"[gate] {check.name}: passed in {took}", flush=True)
+                    continue
+                failures.append(check.name)
+                print(f"[gate] {check.name}: FAILED (exit {rc}) in {took}", file=sys.stderr, flush=True)
+                if text.strip():
+                    print(text.rstrip(), file=sys.stderr, flush=True)
+                if uses_py and "No module named" in text:
+                    print(f"       fix: install the dev dependencies in the project venv (pip install -e \".[dev]\"), "
+                          f"or run caddis_worktree_root.py --bootstrap - {NO_VERIFY}", file=sys.stderr, flush=True)
+            running = still
+            if not pending and not running:
+                break
+            now = time.monotonic()
+            if now >= deadline:
+                for check, proc, t0, out, _ in running:
+                    kill_process_tree(proc)
+                    out.close()
+                    print(f"[gate] {check.name}: SKIPPED at the {_num(budget_s)}s budget "
+                          f"(ran {format_elapsed(now - t0)}) - not checked here, CI runs it", flush=True)
+                    skipped += 1
+                running = []
+                for check in pending:
+                    print(f"[skip] {check.name}: no budget left - CI runs it", flush=True)
+                    skipped += 1
+                pending = []
+                break
+            while pending and len(running) < jobs:
+                check = pending.pop(0)
+                proc, out, uses_py = _start(check, root, in_worktree, said)
+                if proc is None:
+                    if out:
+                        print(out, file=sys.stderr, flush=True)
+                    failures.append(check.name)
+                    continue
+                print(f"[gate] {check.name}: start", flush=True)
+                running.append((check, proc, time.monotonic(), out, uses_py))
+            if running:
+                time.sleep(0.05)
+    finally:  # Ctrl+C or any error: no check tree outlives the gate
+        for _, proc, _, out, _ in running:
+            if proc.poll() is None:
+                kill_process_tree(proc)
+            out.close()
+    if failures:
+        print(f"[caddis] push BLOCKED - {', '.join(failures)} failed or could not start - {NO_VERIFY}",
+              file=sys.stderr, flush=True)
+        return 1
+    print(f"[caddis] gate passed - {passed} checked, {skipped} skipped (CI runs them)", flush=True)
+    return 0
+
+
+def _env_number(name: str, default: float, cast):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+    except ValueError:
+        value = 0
+    if not (0 < value < float("inf")):  # also rejects nan: a deadline that never comes
+        print(f"[gate] warning: {name}={raw!r} is not a positive number - using {_num(default)}", file=sys.stderr,
+              flush=True)
+        return default
+    return value
+
+
+def _read_stdin() -> str:
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return ""
+        return sys.stdin.read()
+    except (OSError, ValueError):
+        return ""
+
+
+def main(argv: list | None = None) -> int:
+    start = time.monotonic()
+    parser = argparse.ArgumentParser(prog="caddis_prepush.py", description="caddis pre-push gate (version 3)")
+    parser.add_argument("remote", nargs="?", help="remote name (git passes it; not used)")
+    parser.add_argument("url", nargs="?", help="remote URL (git passes it; not used)")
+    parser.add_argument("--root", help="repo root (default: git rev-parse --show-toplevel, else the cwd)")
+    parser.add_argument("--config", help="config file (default: <root>/.caddis/config.toml)")
+    args = parser.parse_args(argv)
+    print("[caddis] pre-push quality gate", flush=True)
+    if tomllib is None:
+        print(f"[gate] this gate needs Python 3.11 or later (found {sys.version.split()[0]}) - nothing checked here, "
+              "CI is the first gate.", flush=True)
+        return 0
+    if kill_process_tree is None:
+        print("[gate] caddis_gate_step.py is missing next to this hook - re-install the gate with "
+              "setup_project_ai.py . --hooks-only", file=sys.stderr, flush=True)
+        print(f"[caddis] push BLOCKED - {NO_VERIFY}", file=sys.stderr, flush=True)
+        return 1
+    if os.environ.get("CADDIS_GATE_PYTEST", "") == "1":
+        print("[gate] note: CADDIS_GATE_PYTEST is no longer used - pytest runs in CI", flush=True)
+    if args.root:
+        root = Path(args.root)
+    else:
+        top = _git_out(Path.cwd(), "rev-parse", "--show-toplevel")
+        root = Path(top.strip()) if top and top.strip() else Path.cwd()
+    root = root.resolve()
+    try:
+        loaded = load_checks(root, Path(args.config) if args.config else None)
+    except ValueError as exc:
+        print(f"[gate] {exc}", file=sys.stderr, flush=True)
+        print(f"[caddis] push BLOCKED - fix .caddis/config.toml - {NO_VERIFY}", file=sys.stderr, flush=True)
+        return 1
+    if loaded is None:
+        print(no_section_line(scripts_dir_hint()), flush=True)
+        return 0
+    header, checks = loaded
+    warning = ci_drift_warning(root, header)
+    if warning:
+        print(warning, file=sys.stderr, flush=True)
+    budget = header.get("budget_s", 30)
+    if isinstance(budget, bool) or not isinstance(budget, (int, float)) or not (0 < budget < float("inf")):
+        print(f"[gate] warning: budget_s = {budget!r} in [pre_push] is not a positive number - using 30",
+              file=sys.stderr, flush=True)
+        budget = 30
+    budget = _env_number("CADDIS_GATE_BUDGET_S", float(budget), float)
+    jobs = _env_number("CADDIS_GATE_JOBS", 3, int)
+    changed = changed_paths(_read_stdin(), root)
+    return run_checks(root, checks, budget, jobs, changed=changed, start=start)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+
+
+# Enforced "green before push" gate, installed into .git/hooks/pre-push. Pure POSIX sh, so it runs under Git's bundled
+# shell on Windows, Linux and macOS. Version 3 (2026-11-04) only finds an interpreter and execs the Python runner
+# (PRE_PUSH_RUNNER_PY, .git/hooks/caddis_prepush.py), which runs the [pre_push] checks of .caddis/config.toml: the
+# fast checks the repo's CI runs, with CI's scope, inside one time budget. The checks it no longer runs (`ruff check .`,
+# `mypy .`, the root package.json scripts, `npm test`, check_doc_coverage.py, the CADDIS_GATE_PYTEST opt-in) are not
+# what CI runs, or are tests. Interpreter and worktree rules for the checks live in the runner (rule 7 of
+# .caddis/plans/prepush-gate-matches-ci.md): the sh text has no venv check, so a push that needs no venv never asks for one.
 # Bump when the hook text changes in a way an installed copy should pick up. install_git_hooks replaces a managed hook
 # whose "caddis-pre-push-version" is lower (a hook with no marker counts as 0) and leaves a hook it does not manage alone.
-PRE_PUSH_HOOK_VERSION = 2
+PRE_PUSH_HOOK_VERSION = 3
 _HOOK_SCRIPTS_PLACEHOLDER = "__CADDIS_SCRIPTS__"
 
 PRE_PUSH_HOOK = r"""#!/usr/bin/env sh
 # Managed by caddis setup-project-ai. Delete this file to opt out.
-# caddis-pre-push-version: 2
+# caddis-pre-push-version: 3
+# Runs the [pre_push] checks of .caddis/config.toml (the fast checks CI runs) within a time budget.
+# 'git push --no-verify' skips it once.
 set -eu
-echo "[caddis] pre-push quality gate"
-fail=0
-if command -v dirname >/dev/null 2>&1; then
-  GATE_RUN="$(dirname "$0")/caddis_gate_step.py"
-elif [ -n "${0%/*}" ] && [ "${0%/*}" != "$0" ]; then
-  GATE_RUN="${0%/*}/caddis_gate_step.py"
-else
-  GATE_RUN="./caddis_gate_step.py"
-fi
-
-# Use the project's own virtualenv, never whatever is on PATH. Both layouts are checked (Windows Scripts/, POSIX bin/).
-# A linked git WORKTREE uses ONLY its own .venv. The main checkout's venv is not an option: it belongs to a running
-# dev service and is often many commits behind the worktree's pins (found 2026-11-03: rbac-kit 0.2.0 against a 0.3.1
-# pin; the old lookup list also held a literal backslash-n typo). Every worktree installs its dependencies fresh.
 HOOK_SCRIPTS_DIR="__CADDIS_SCRIPTS__"
-PY=""
-IN_WORKTREE=0
-if [ "$(git rev-parse --git-dir 2>/dev/null || echo .git)" != "$(git rev-parse --git-common-dir 2>/dev/null || echo .git)" ]; then
-  IN_WORKTREE=1
-fi
-for cand in .venv/Scripts/python.exe .venv/bin/python venv/Scripts/python.exe venv/bin/python; do
-  if [ -x "$cand" ]; then PY="$cand"; break; fi
-done
-if [ -z "$PY" ] && [ "$IN_WORKTREE" -eq 0 ]; then
-  PY=$(command -v python || command -v python3 || true)
-  if [ -n "$PY" ] && { [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; }; then
-    echo "[gate] WARNING: no .venv in this checkout - using the system Python ($PY). Its packages may differ from the project's pins." >&2
-  fi
+if command -v dirname >/dev/null 2>&1; then
+  HOOK_DIR="$(dirname "$0")"
+elif [ -n "${0%/*}" ] && [ "${0%/*}" != "$0" ]; then
+  HOOK_DIR="${0%/*}"
+else
+  HOOK_DIR="."
 fi
 
-# Runnable IN $PY - not merely present on PATH. This is the whole point: `command -v mypy`
-# answers a question about PATH, and the question we care about is about the environment
-# the app's code actually imports from.
-py_has() { [ -n "$PY" ] && "$PY" -m "$1" --version >/dev/null 2>&1; }
-# Does the project ASK for this tool? If so, being unable to run it is a failure.
-py_wants() { grep -qi -- "$1" pyproject.toml requirements.txt requirements-dev.txt 2>/dev/null; }
-
-# Does this project actually contain Python source? A pyproject.toml alone does not mean it
-# does - a config-only or frontend repo can carry one - and mypy exits non-zero with "There
-# are no .py[i] files in directory" when handed nothing. Skipping a checker that has nothing
-# to check is honest; failing the push over it is not.
-py_sources_exist() {
-  [ -n "$(find . -name '*.py' -not -path './.venv/*' -not -path './venv/*'             -not -path './node_modules/*' -not -path './.git/*' 2>/dev/null | head -1)" ]
-}
-
-py_gate() {
-  tool=$1; shift
-  timeout=300
-  case "$tool" in
-    ruff) timeout=300 ;;
-    mypy) timeout=600 ;;
-    pytest) timeout=1200 ;;
-  esac
-  if py_has "$tool"; then
-    rc=0
-    if [ -f "$GATE_RUN" ]; then
-      "$PY" "$GATE_RUN" --name "$tool" --timeout "$timeout" -- "$PY" -m "$tool" "$@" || rc=$?
-    else
-      echo "[gate] $tool $*"
-      "$PY" -m "$tool" "$@" || rc=$?
-    fi
-    if [ "$rc" -ne 0 ]; then
-  # pytest exit 5 = "no tests collected". A repo that has not written tests yet is not a
-  # failing repo, and blocking it would hit exactly the fresh-scaffold case this fix exists
-  # for. Every other non-zero code is a real failure.
-      if [ "$tool" = "pytest" ] && [ "$rc" -eq 5 ]; then
-        echo "[gate] pytest: no tests collected yet - not treated as a failure"
-      else
-        fail=1
-      fi
-    fi
-  elif py_wants "$tool"; then
-    echo "[gate] $tool: DECLARED by this project but not runnable in $PY - environment is broken" >&2
-    echo "       fix: activate the venv, or reinstall dev deps (pip install -e '.[dev]')" >&2
-    fail=1
-  fi
-}
-
-if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-  if [ -z "$PY" ] && [ "$IN_WORKTREE" -eq 1 ]; then
-    echo "[gate] this git worktree has no .venv, and the gate will not borrow the main checkout's or the system Python." >&2
-    if [ -f "$HOOK_SCRIPTS_DIR/caddis_worktree_root.py" ]; then
-      echo "       fix, in this worktree: python \"$HOOK_SCRIPTS_DIR/caddis_worktree_root.py\" --bootstrap" >&2
-    else
-      echo "       fix, in this worktree: python \"<caddis scripts>/caddis_worktree_root.py\" --bootstrap  (the scripts folder of the installed caddis plugin)" >&2
-    fi
-    echo "[caddis] push BLOCKED - 'git push --no-verify' overrides." >&2
-    exit 1
-  elif [ -z "$PY" ]; then
-    echo "[gate] python project, but no interpreter found (.venv or PATH) - cannot verify" >&2
-    fail=1
-  else
-    echo "[gate] interpreter: $PY"
-    py_gate ruff check .
-    if py_sources_exist; then py_gate mypy .; else echo "[skip] mypy: no Python sources"; fi
-    # pytest is OPT-IN here (CADDIS_GATE_PYTEST=1). Found 2026-10-10: the full suite took 25-31 min in this
-    # hook on a box whose system disk was slow, while CI ran the same suite in 5 min - and a merge needs green
-    # CI anyway. A local gate five times slower than the check it stands in for trains people to --no-verify it.
-    # When it does run: CADDIS_GATE_TMP moves TMPDIR/TEMP/TMP (tests write to tmp_path; Python reads TMPDIR
-    # first, so set all three), CADDIS_GATE_PYTEST_ARGS adds arguments (for example "-n 4" with pytest-xdist;
-    # use a number, not "auto"), and a machine-wide lock (CADDIS_GATE_LOCK, mkdir-based, waits up to
-    # CADDIS_GATE_LOCK_WAIT seconds, a stale one is taken over after 60 min) lets only ONE pytest gate run at a time, so several repos pushing together cannot
-    # pile their suites on the same disk and CI runners.
-    if [ "${CADDIS_GATE_PYTEST:-0}" = "1" ]; then
-      if [ -n "${CADDIS_GATE_TMP:-}" ]; then
-        mkdir -p "$CADDIS_GATE_TMP" 2>/dev/null || true
-        export TMPDIR="$CADDIS_GATE_TMP" TEMP="$CADDIS_GATE_TMP" TMP="$CADDIS_GATE_TMP"
-      fi
-      LOCK="${CADDIS_GATE_LOCK:-${TMPDIR:-${TEMP:-/tmp}}/caddis-pytest-gate.lock}"
-      mkdir -p "$(dirname "$LOCK")" 2>/dev/null || true
-      lock_wait="${CADDIS_GATE_LOCK_WAIT:-1800}"
-      waited=0
-      got_lock=0
-      while :; do
-        if mkdir "$LOCK" 2>/dev/null; then got_lock=1; break; fi
-        # A stale lock is removed, then this round still sleeps and counts: if the removal fails (a lock owned
-        # by another user), the loop ends at lock_wait instead of spinning forever.
-        if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then
-          rmdir "$LOCK" 2>/dev/null || true
-        fi
-        if [ "$waited" -ge "$lock_wait" ]; then break; fi
-        if [ "$waited" -eq 0 ]; then echo "[gate] pytest: waiting for another repo's pytest gate ($LOCK)"; fi
-        sleep 1
-        waited=$((waited + 1))
-      done
-      if [ "$got_lock" -eq 1 ]; then
-        trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT INT TERM
-        # shellcheck disable=SC2086  # CADDIS_GATE_PYTEST_ARGS is meant to word-split
-        py_gate pytest -q ${CADDIS_GATE_PYTEST_ARGS:-}
-        rmdir "$LOCK" 2>/dev/null || true
-        trap - EXIT INT TERM
-      else
-        echo "[gate] pytest: another pytest gate holds $LOCK for over ${lock_wait}s - cannot run, so the gate fails" >&2
-        fail=1
-      fi
-    else
-      echo "[skip] pytest: runs in CI (set CADDIS_GATE_PYTEST=1 to run it here)"
-    fi
-  fi
+# The interpreter for the RUNNER only (it needs Python 3.11+ for tomllib; an older one prints a line and passes).
+# CADDIS_PREPUSH_PYTHON pins it; else python, then python3, on PATH.
+PYRUN=""
+if [ -n "${CADDIS_PREPUSH_PYTHON:-}" ] && [ -x "$CADDIS_PREPUSH_PYTHON" ]; then
+  PYRUN="$CADDIS_PREPUSH_PYTHON"
+else
+  PYRUN=$(command -v python || command -v python3 || true)
 fi
-if [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then
-  if [ -f "$GATE_RUN" ] && [ -n "$PY" ]; then
-    npm run 2>/dev/null | grep -q " lint"      && { "$PY" "$GATE_RUN" --name npm-lint --timeout 600 -- npm run lint --silent || fail=1; }
-    npm run 2>/dev/null | grep -q " typecheck" && { "$PY" "$GATE_RUN" --name npm-typecheck --timeout 600 -- npm run typecheck --silent || fail=1; }
-    npm run 2>/dev/null | grep -q " test"       && { "$PY" "$GATE_RUN" --name npm-test --timeout 1200 -- npm test --silent || fail=1; }
-  else
-    npm run 2>/dev/null | grep -q " lint"      && { echo "[gate] npm run lint"; npm run lint --silent || fail=1; }
-    npm run 2>/dev/null | grep -q " typecheck" && { echo "[gate] npm run typecheck"; npm run typecheck --silent || fail=1; }
-    npm run 2>/dev/null | grep -q " test"       && { echo "[gate] npm test"; npm test --silent || fail=1; }
-  fi
-fi
-# Doc-coverage discipline (any stack). The checker exits non-zero ONLY on a hard invariant
-# (missing route / dangling doc-map link); soft signals warn without failing. Auto-skips when the
-# checker isn't present (older repos). Reuses $PY - resolved above with the project venv preferred -
-# rather than re-probing PATH, so it reads the same tree the rest of the gate does.
-if [ -f "scripts/check_doc_coverage.py" ]; then
-  DOC_PY="$PY"
-  if [ -z "$DOC_PY" ]; then DOC_PY=$(command -v python || command -v python3 || true); fi
-  if [ -n "$DOC_PY" ]; then
-    if [ -f "$GATE_RUN" ]; then
-      "$DOC_PY" "$GATE_RUN" --name doc-coverage --timeout 120 -- "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1
-    else
-      echo "[gate] doc coverage"
-      "$DOC_PY" scripts/check_doc_coverage.py --check || fail=1
-    fi
-  fi
-fi
-if [ "$fail" -ne 0 ]; then
-  echo "[caddis] push BLOCKED - fix the above, or 'git push --no-verify' to override." >&2
+if [ -z "$PYRUN" ]; then
+  echo "[gate] no python on PATH to run the pre-push gate (set CADDIS_PREPUSH_PYTHON to pin one)" >&2
+  echo "[caddis] push BLOCKED - 'git push --no-verify' overrides." >&2
   exit 1
 fi
-echo "[caddis] gate passed - pushing."
+if [ ! -f "$HOOK_DIR/caddis_prepush.py" ]; then
+  echo "[gate] $HOOK_DIR/caddis_prepush.py is missing - re-install: python \"$HOOK_SCRIPTS_DIR/setup_project_ai.py\" . --hooks-only" >&2
+  echo "[caddis] push BLOCKED - 'git push --no-verify' overrides." >&2
+  exit 1
+fi
+exec "$PYRUN" "$HOOK_DIR/caddis_prepush.py" "$@"
 """
 
 
@@ -815,13 +1129,63 @@ def _installed_hook_state(hook_text: str) -> tuple[bool, int]:
     return True, int(m.group(1)) if m else 0
 
 
-def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
-    """Install the enforced pre-push quality gate into .git/hooks/pre-push.
+_NO_PRE_PUSH_NOTE = ("pre-push gate: installed, but .caddis/config.toml has no [pre_push] section - it checks nothing "
+                     "until you run --gate-config")
 
-    An existing caddis-managed hook is replaced when its version is older than PRE_PUSH_HOOK_VERSION and kept when it is
-    current. A hook caddis did not write is left alone unless `force`. Git shares `.git/hooks` with every worktree of the
-    repo, so one install in the main checkout covers them all."""
+
+def _hook_companions() -> tuple[dict[str, str], list[str]]:
+    """The files the v3 hook needs next to it in .git/hooks, as {name: text}, and notes for any that cannot be had.
+
+    `caddis_prepush_config.py` is copied from this scripts folder: the runner imports `ci_caller_sha256` from it (one
+    implementation). Without it the runner prints a note and skips only the ci.yml drift check, so it is not fatal."""
+    files = {"caddis_prepush.py": PRE_PUSH_RUNNER_PY, "caddis_gate_step.py": GATE_STEP_PY}
     notes: list[str] = []
+    src = Path(__file__).resolve().parent / "caddis_prepush_config.py"
+    try:
+        files["caddis_prepush_config.py"] = src.read_text(encoding="utf-8")
+    except OSError as exc:
+        notes.append(f"pre-push gate: cannot copy {src.name} ({exc}) - the gate runs, but ci.yml drift is not checked")
+    return files, notes
+
+
+def _pre_push_section_note(target: Path) -> str | None:
+    """A note when the gate would check nothing (no `[pre_push]` table) or block every push (unreadable config)."""
+    cfg = target / ".caddis" / "config.toml"
+    if not cfg.is_file():
+        return _NO_PRE_PUSH_NOTE
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"pre-push gate: installed, but cannot read .caddis/config.toml ({exc}) - the gate blocks every push until it is fixed"
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python < 3.11 runs setup: look for the header only
+        has_table = any(_is_pre_push_header(line) for line in text.splitlines())
+        return None if has_table else _NO_PRE_PUSH_NOTE
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        return f"pre-push gate: installed, but cannot read .caddis/config.toml ({exc}) - the gate blocks every push until it is fixed"
+    return None if isinstance(data.get("pre_push"), dict) else _NO_PRE_PUSH_NOTE
+
+
+def _write_hook_file(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8", newline="\n")
+    try:
+        import stat
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    except OSError:
+        pass  # no exec bits on this filesystem; git for Windows runs the hook anyway
+
+
+def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
+    """Install the enforced pre-push quality gate: .git/hooks/pre-push and the files it runs next to it.
+
+    An existing caddis-managed hook is replaced when its version is older than PRE_PUSH_HOOK_VERSION. A current one is
+    kept, but a missing or different companion file is written again (a v3 hook without caddis_prepush.py blocks every
+    push). A hook caddis did not write is left alone unless `force`. Git shares `.git/hooks` with every worktree of the
+    repo, so one install in the main checkout covers them all. A note says when `.caddis/config.toml` has no
+    `[pre_push]` section, because the gate then checks nothing."""
     git = target / ".git"
     if not git.exists():
         return ["pre-push gate: no .git (not a git repo) — skipped"]
@@ -829,31 +1193,125 @@ def install_git_hooks(target: Path, force: bool, dry: bool) -> list[str]:
         return ["pre-push gate: .git is a worktree pointer — skipped (install manually if wanted)"]
     hooks_dir = git / "hooks"
     dest = hooks_dir / "pre-push"
-    step_dest = hooks_dir / "caddis_gate_step.py"
+    companions, notes = _hook_companions()
     upgraded_from: int | None = None
     if dest.exists() and not force:
         managed, version = _installed_hook_state(dest.read_text(encoding="utf-8", errors="ignore"))
         if not managed:
             return ["pre-push gate: exists (yours — left intact, use --force to replace) — skipped"]
         if version >= PRE_PUSH_HOOK_VERSION:
-            return [f"pre-push gate: exists (ours) at version {version}, current — skipped"]
+            stale = [name for name, text in companions.items() if not _same_text(hooks_dir / name, text)]
+            if stale and not dry:
+                for name in stale:
+                    _write_hook_file(hooks_dir / name, companions[name])
+            if stale:
+                notes.append(f"pre-push gate: exists (ours) at version {version}, current - repaired {', '.join(stale)}")
+            else:
+                notes.append(f"pre-push gate: exists (ours) at version {version}, current — skipped")
+            section = _pre_push_section_note(target)
+            return notes + ([section] if section else [])
         upgraded_from = version
     if not dry:
         hooks_dir.mkdir(parents=True, exist_ok=True)
-        dest.write_text(render_pre_push_hook(), encoding="utf-8", newline="\n")
-        step_dest.write_text(GATE_STEP_PY, encoding="utf-8", newline="\n")
-        try:
-            import stat
-            dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            step_dest.chmod(step_dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        except Exception:
-            pass
+        _write_hook_file(dest, render_pre_push_hook())
+        for name, text in companions.items():
+            _write_hook_file(hooks_dir / name, text)
     if upgraded_from is not None:
-        notes.append(f"pre-push gate: upgraded .git/hooks/pre-push (version {upgraded_from} -> {PRE_PUSH_HOOK_VERSION}) "
-                     "and caddis_gate_step.py (green-before-push enforced)")
+        head = f".git/hooks/pre-push (version {upgraded_from} -> {PRE_PUSH_HOOK_VERSION})"
+        notes.append(f"pre-push gate: upgraded {_and_list([head, *companions])} (green-before-push enforced)")
     else:
-        notes.append("pre-push gate: installed .git/hooks/pre-push and caddis_gate_step.py (green-before-push enforced)")
-    return notes
+        notes.append(f"pre-push gate: installed {_and_list(['.git/hooks/pre-push', *companions])} "
+                     "(green-before-push enforced)")
+    section = _pre_push_section_note(target)
+    return notes + ([section] if section else [])
+
+
+def _and_list(items: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _same_text(path: Path, text: str) -> bool:
+    try:
+        return path.read_text(encoding="utf-8") == text
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+# Anchored at the end so a line of a multi-line array (`  ["a", "b"],`) is not read as a header.
+_TOML_HEADER_RE = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$")
+
+
+def _is_pre_push_header(line: str) -> bool | None:
+    """True for a `[pre_push]` / `[pre_push.x]` / `[[pre_push.x]]` header, False for another header, None for no header."""
+    m = _TOML_HEADER_RE.match(line)
+    if not m:
+        return None
+    name = m.group(1)
+    return name == "pre_push" or name.startswith("pre_push.")
+
+
+def _remove_pre_push_tables(text: str) -> str:
+    """`text` without any `[pre_push*]` table. Each table runs to the next other header or end of file."""
+    kept: list[str] = []
+    inside = False
+    for line in text.splitlines(keepends=True):
+        header = _is_pre_push_header(line)
+        if header is not None:
+            inside = header
+        if not inside:
+            kept.append(line)
+    return "".join(kept)
+
+
+def write_pre_push_config(target: Path, force: bool, dry: bool) -> list[str]:
+    """Append a `[pre_push]` section derived from `.github/workflows/ci.yml` to `.caddis/config.toml`.
+
+    Other sections are never rewritten. An existing `[pre_push]` is kept unless `force`, which removes every
+    `[pre_push*]` table first. `dry` returns the section text and writes nothing. Raises `ValueError` for an
+    app-ci tag this generator does not know (it stops, it does not guess).
+    """
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import caddis_prepush_config as pcfg
+
+    ci = target / ".github" / "workflows" / "ci.yml"
+    manual = 'write [pre_push] by hand (source = "manual")'
+    if not ci.is_file():
+        return [f"pre-push config: no .github/workflows/ci.yml - {manual}"]
+    ci_text = ci.read_text(encoding="utf-8")
+    parsed = pcfg.parse_app_ci_caller(ci_text)
+    if parsed is None:
+        return [f"pre-push config: ci.yml does not call app-ci - {manual}"]
+    tag, inputs = parsed
+    checks = pcfg.derive_checks(tag, inputs, target)
+    section = pcfg.render_pre_push_section(checks, source="app-ci", derived_from=tag,
+                                           ci_sha256=pcfg.ci_caller_sha256(ci_text))
+
+    config = target / ".caddis" / "config.toml"
+    existing = ""
+    if config.is_file():
+        with config.open(encoding="utf-8", newline="") as fh:  # keep CRLF as is: other sections stay byte-identical
+            existing = fh.read()
+    has_section = any(_is_pre_push_header(line) for line in existing.splitlines())
+    if has_section and not force:
+        return ["pre-push config: [pre_push] exists - skipped (--force replaces it)"]
+    if dry:
+        return [f"pre-push config: would write [pre_push] to {config} (dry-run):", *section.splitlines()]
+    base = _remove_pre_push_tables(existing) if has_section else existing
+    eol = "\r\n" if "\r\n" in existing else "\n"
+    if has_section:
+        base = base.rstrip("\r\n")  # one blank line before the new section, however many --force runs
+        base = base + eol if base else base
+    elif base and not base.endswith(("\n", "\r")):
+        base += eol
+    if base.strip():
+        base += eol
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(base + section.replace("\n", eol), encoding="utf-8", newline="")
+    verb = "replaced" if has_section else "wrote"
+    return [f"pre-push config: {verb} [pre_push] in {config} ({len(checks)} checks from {tag})"]
 
 
 def emit_doc_discipline(target: Path, ident: dict[str, str], force: bool, dry: bool) -> list[str]:
@@ -1860,6 +2318,10 @@ def main() -> int:
                          "repo after deploying the harness - the generator runs this script at stage "
                          "10 and `git init` at stage 11, so the gate could never install and no "
                          "bootstrapped app has ever had one.")
+    ap.add_argument("--gate-config", action="store_true",
+                    help="Write ONLY the [pre_push] section of .caddis/config.toml, derived from the app-ci "
+                         "caller in .github/workflows/ci.yml, and exit. An existing section is kept unless "
+                         "--force; --dry-run prints it.")
     ap.add_argument("--vendor", action="store_true",
                     help="Copy plugin-owned agents+commands into .claude/ (for raw checkouts without "
                          "the caddis plugin installed; plugin installs load them globally — no copy needed)")
@@ -1878,6 +2340,16 @@ def main() -> int:
         # Exists because the gate cannot install before the repo does. Safe to call on an
         # already-set-up project, which is what makes it usable as a retrofit for existing apps.
         for note in install_git_hooks(target, args.force, args.dry_run):
+            print(f"  {note}")
+        return 0
+
+    if args.gate_config:
+        try:
+            gate_notes = write_pre_push_config(target, args.force, args.dry_run)
+        except ValueError as exc:
+            print(f"ERROR: pre-push config: {exc}", file=sys.stderr)
+            return 2
+        for note in gate_notes:
             print(f"  {note}")
         return 0
 
