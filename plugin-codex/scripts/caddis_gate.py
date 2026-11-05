@@ -747,10 +747,27 @@ def gate_review_tier(
     return EXIT_OK
 
 
+def _caddis_markdown(root: Path) -> list[Path]:
+    """The .caddis/**/*.md files a clean checkout of `root` would hold: tracked or untracked, never gitignored.
+
+    CI checks a clean checkout, so a local ignored file (a relay under .caddis/relay/) must not fail the gate here.
+    Outside a git repo (or with no git) this falls back to walking the folder."""
+    try:
+        r = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ".caddis"],
+            cwd=str(root), capture_output=True, stdin=subprocess.DEVNULL, timeout=60, check=False)
+    except (OSError, subprocess.SubprocessError):
+        r = None
+    if r is None or r.returncode != 0:
+        return sorted((root / ".caddis").rglob("*.md"))
+    names = {n for n in r.stdout.decode("utf-8", errors="surrogateescape").split("\0") if n.endswith(".md")}
+    return sorted(p for p in (root / n for n in names) if p.is_file())  # a tracked file deleted locally is skipped
+
+
 def gate_docs_check(root: Path) -> int:
-    """Report every typed .caddis Markdown document with an invalid header."""
+    """Report every typed .caddis Markdown document with an invalid header. Gitignored files are not judged."""
     failures = 0
-    for path in sorted((root / ".caddis").rglob("*.md")):
+    for path in _caddis_markdown(root):
         relative = path.relative_to(root).as_posix()
         if not caddis_frontmatter.doc_in_scope(relative, root):
             continue

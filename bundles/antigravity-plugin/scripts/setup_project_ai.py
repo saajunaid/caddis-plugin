@@ -774,6 +774,14 @@ def _is_zero(sha: str) -> bool:
     return set(sha) == {"0"}
 
 
+def is_delete_only(stdin_text: str) -> bool:
+    """True when every pre-push stdin line deletes a remote ref (local sha all zeros): nothing is pushed to check.
+
+    False for empty stdin (unknown: the dry-run proof uses it) and for any line that is not a ref line."""
+    lines = [line.split() for line in stdin_text.splitlines() if line.strip()]
+    return bool(lines) and all(len(parts) == 4 and _is_zero(parts[1]) for parts in lines)
+
+
 def changed_paths(stdin_text: str, root: Path) -> set | None:
     """The files a push changes, from git's pre-push stdin (`<local ref> <local sha> <remote ref> <remote sha>`).
 
@@ -1015,6 +1023,10 @@ def main(argv: list | None = None) -> int:
     parser.add_argument("--root", help="repo root (default: git rev-parse --show-toplevel, else the cwd)")
     parser.add_argument("--config", help="config file (default: <root>/.caddis/config.toml)")
     args = parser.parse_args(argv)
+    stdin_text = _read_stdin()
+    if is_delete_only(stdin_text):  # git push --delete: no commit is pushed, so there is nothing to check
+        print("[caddis] delete-only push - nothing to check", flush=True)
+        return 0
     print("[caddis] pre-push quality gate", flush=True)
     if tomllib is None:
         print(f"[gate] this gate needs Python 3.11 or later (found {sys.version.split()[0]}) - nothing checked here, "
@@ -1053,7 +1065,7 @@ def main(argv: list | None = None) -> int:
         budget = 30
     budget = _env_number("CADDIS_GATE_BUDGET_S", float(budget), float)
     jobs = _env_number("CADDIS_GATE_JOBS", 3, int)
-    changed = changed_paths(_read_stdin(), root)
+    changed = changed_paths(stdin_text, root)
     return run_checks(root, checks, budget, jobs, changed=changed, start=start)
 
 
