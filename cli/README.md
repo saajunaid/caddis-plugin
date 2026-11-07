@@ -141,6 +141,8 @@ starts it in the background; `caddis hub stop` stops it.
 
 **Timeline first, Board second.** Roadmaps and plans open on the Timeline view by default, with the Board view as the second option. Click any phase tile on the Timeline to open the phase panel and read its Tracker status, PR links and plan section text.
 
+**Branch progress.** A plan that an open PR changes shows the PR branch's Tracker and `status:`, with the badge `on branch (PR #n)`. Done on main never goes back, and forks are not shown. The hub reads PR heads from GitHub and branch refs from the local origin refs, and never fetches. With no PR data, the line above the plans says `branch progress off (no PR data)`. `caddis hub export --prs <file>` takes the output of `gh pr list --json number,headRefName,isDraft,isCrossRepository,updatedAt`. The export never publishes a branch name, and a privacy hit only in branch content publishes main only.
+
 **Guide Poster and Details.** The Guide page has a `Poster` tab (with `Workflow` and `Mind map` views, plus a `Print` button for a two-page A3 landscape wall poster) and a `Details` tab. Every item on the poster links to its entry in Details.
 
 **Guide Wall poster.** A third tab, `Wall poster` (`#/guide/wall`), shows one A4 landscape sheet: the daily commands in order, a card per stage (plan, build, review, ship, continuity, knowledge, setup), and the agents. The `Print` button prints exactly that sheet on one page. It is built from the same installed guide data as the other tabs, so a new command, agent or count appears by itself after `caddis update` and a hub restart. The text shrinks (to 60% at most) when the guide grows, so nothing is cut off. Each line is the first clause of the description; the Details tab has the full text.

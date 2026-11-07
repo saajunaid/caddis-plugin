@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { exportData } from '../../src/hub/export/data.js';
-import { hubExport, MARKER, notFoundPage, NOT_FOUND_SCRIPT } from '../../src/hub/export/export.js';
+import { hubExport, MARKER, notFoundPage, NOT_FOUND_SCRIPT, prsForCollector } from '../../src/hub/export/export.js';
 import { spawnBounded, type SpawnFn, type SpawnResult } from '../../src/hub/spawn.js';
-import { CANARY, git, MACHINE, makeDist, makeRepo, put, roadmapText, SHA40, type Fixture } from '../fixtures/export/canary.js';
+import { CANARY, git, MACHINE, makeDist, makeRepo, pushBranch, put, roadmapText, SHA40, type Fixture } from '../fixtures/export/canary.js';
 
 /**
  * H6.5: `caddis hub export` end to end, with the real bundled collector on a canary git fixture.
@@ -55,7 +55,11 @@ interface Run {
   collectorStdout: string;
 }
 
-async function run(fx: Fixture, outDir: string, extra: { github?: string; commit?: string; label?: string; distDir?: string; check?: string } = {}): Promise<Run> {
+async function run(
+  fx: Fixture,
+  outDir: string,
+  extra: { github?: string; commit?: string; label?: string; distDir?: string; check?: string; prs?: string } = {},
+): Promise<Run> {
   const result: Run = { code: -1, out: [], err: [], calls: [], collectorStdout: '' };
   // Only python may start. A call to anything else fails the test.
   const spawn: SpawnFn = async (cmd, args, o): Promise<SpawnResult> => {
@@ -131,6 +135,7 @@ describe.skipIf(!HAVE_PYTHON)('caddis hub export (R56, R58, R61)', () => {
     expect(args[args.indexOf('--only') + 1]).toBe('roadmaps,plans');
     expect(args[args.indexOf('--repos') + 1]).toBe(path.resolve(fx.repo));
     expect(args).toContain('--json');
+    expect(args).not.toContain('--prs-file');
   });
 
   it('the embedded JSON round-trips to exportData of the same collector output', async () => {
@@ -268,6 +273,128 @@ describe.skipIf(!HAVE_PYTHON)('caddis hub export (R56, R58, R61)', () => {
     expect(go('/serve-sight/ui.html')).toBeNull();
     expect(go('/launch-1a2b3c/ui.html')).toBeNull();
     expect(go('/serve-sight/a/b/c.html')).toBe('/serve-sight/a/#/roadmap/c');
+  });
+});
+
+/** Writes `gh pr list --json` style items to `<base>/prs.json`. */
+function ghFile(dir: string, items: unknown): string {
+  const file = path.join(dir, 'prs.json');
+  writeFileSync(file, typeof items === 'string' ? items : JSON.stringify(items));
+  return file;
+}
+const ROW2 = '| 2 | S1 | in progress | - | |';
+const PR12 = { number: 12, headRefName: 'feat/p-shop', isDraft: false, isCrossRepository: false, updatedAt: '2026-10-24T09:00:00Z' };
+interface PageData {
+  overlay: unknown;
+  plans: { tracker: { status: string }[]; overlay: unknown }[];
+}
+const pageData = (out: string): PageData => dataBlock(readFileSync(path.join(out, 'index.html'), 'utf8')).data as PageData;
+
+describe('prsForCollector (plan D2, D8)', () => {
+  it('keeps good items, and a PR with no fork flag is a fork', () => {
+    const gh = [PR12, { number: 13, headRefName: 'feat/b' }, { number: 0, headRefName: 'x' }, { number: 14, headRefName: '' }, 'x', null, [1]];
+    expect(prsForCollector(gh, 'R')).toEqual({
+      schema: 1,
+      repos: {
+        R: [
+          { number: 12, head_ref: 'feat/p-shop', draft: false, fork: false, updated_at: '2026-10-24T09:00:00Z' },
+          { number: 13, head_ref: 'feat/b', draft: false, fork: true, updated_at: '' },
+        ],
+      },
+    });
+    expect(prsForCollector({ number: 12 }, 'R')).toBeNull();
+    expect(prsForCollector(null, 'R')).toBeNull();
+  });
+});
+
+/** Plan D9: the branch overlay of `--prs`, its allow-list and the privacy retry. */
+describe.skipIf(!HAVE_PYTHON)('branch overlay (--prs)', () => {
+  it('overlays the PR branch Tracker and marks the plan', async () => {
+    const fx = makeRepo(base);
+    pushBranch(fx.repo, 'feat/p-shop', (t) => t.replace(ROW2, '| 2 | S1 | done #12 | - | |'));
+    const out = path.join(base, 'site');
+    const r = await run(fx, out, { prs: ghFile(base, [PR12]) });
+    expect(r.code, r.err.join('\n')).toBe(0);
+    const data = pageData(out);
+    expect(data.plans[0]!.tracker[1]!.status).toBe('done #12');
+    expect(data.plans[0]!.overlay).toEqual({ pr: 12, draft: false, also: [] });
+    expect(data.overlay).toEqual({ state: 'on', reason: null, count: 1 });
+    expect(readFileSync(path.join(out, 'index.html'), 'utf8')).not.toContain('feat/p-shop');
+    expect(r.out).toContain('[OVERLAY] on: 1 plan(s) from PR branches');
+  });
+
+  it('a fork PR is not overlaid', async () => {
+    const fx = makeRepo(base);
+    pushBranch(fx.repo, 'feat/p-shop', (t) => t.replace(ROW2, '| 2 | S1 | done #12 | - | |'));
+    const out = path.join(base, 'site');
+    const r = await run(fx, out, { prs: ghFile(base, [{ ...PR12, isCrossRepository: true }]) });
+    expect(r.code, r.err.join('\n')).toBe(0);
+    const data = pageData(out);
+    expect(data.plans[0]!.tracker[1]!.status).toBe('in progress');
+    expect(data.overlay).toEqual({ state: 'on', reason: null, count: 0 });
+  });
+
+  it('an unreadable PR file turns the overlay off and still exports', async () => {
+    const fx = makeRepo(base);
+    const out = path.join(base, 'site');
+    const r = await run(fx, out, { prs: ghFile(base, 'not json') });
+    expect(r.code, r.err.join('\n')).toBe(0);
+    expect(pageData(out).overlay).toEqual({ state: 'off', reason: 'PR data unreadable', count: 0 });
+    expect(r.out).toContain('[OVERLAY] off: PR data unreadable');
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0]!.args).not.toContain('--prs-file');
+  });
+
+  it('a missing PR file is the same as unreadable', async () => {
+    const fx = makeRepo(base);
+    const out = path.join(base, 'site');
+    const r = await run(fx, out, { prs: path.join(base, 'none.json') });
+    expect(r.code, r.err.join('\n')).toBe(0);
+    expect(pageData(out).overlay).toEqual({ state: 'off', reason: 'PR data unreadable', count: 0 });
+    expect(r.out).toContain('[OVERLAY] off: PR data unreadable');
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0]!.args).not.toContain('--prs-file');
+  });
+
+  it('a private value only in the branch drops the overlay and publishes main', async () => {
+    const fx = makeRepo(base);
+    pushBranch(fx.repo, 'feat/p-shop', (t) => t.replace(ROW2, '| 2 | S1 | in progress, log at C:/scratch/run.log | - | |'));
+    const out = path.join(base, 'site');
+    const r = await run(fx, out, { prs: ghFile(base, [PR12]) });
+    expect(r.code, r.err.join('\n')).toBe(0);
+    expect(r.err.some((l) => l.startsWith('privacy: '))).toBe(true);
+    expect(r.out).toContain('[OVERLAY] off: privacy hit in branch content');
+    const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+    expect(html).not.toContain('C:/scratch');
+    const data = pageData(out);
+    expect(data.plans[0]!.tracker[1]!.status).toBe('in progress');
+    expect(data.overlay).toEqual({ state: 'off', reason: 'privacy hit in branch content', count: 0 });
+    expect(r.calls).toHaveLength(2);
+    expect(r.calls[0]!.args).toContain('--prs-file');
+    expect(r.calls[1]!.args).not.toContain('--prs-file');
+    expect(readdirSync(base).filter((n) => n.includes('.staging-'))).toEqual([]);
+  });
+
+  it('a private value on main still blocks with exit 3 when --prs is given', async () => {
+    const fx = makeRepo(base, { blockerReason: CANARY.runnerHost });
+    const out = path.join(base, 'site');
+    const r = await run(fx, out, { prs: ghFile(base, [PR12]) });
+    expect(r.code).toBe(3);
+    expect(existsSync(out)).toBe(false);
+    expect(r.calls).toHaveLength(1);
+    expect(readdirSync(base).filter((n) => n.includes('.staging-'))).toEqual([]);
+  });
+
+  it('removes its PR file', async () => {
+    const fx = makeRepo(base);
+    pushBranch(fx.repo, 'feat/p-shop', (t) => t.replace(ROW2, '| 2 | S1 | done #12 | - | |'));
+    const r = await run(fx, path.join(base, 'site'), { prs: ghFile(base, [PR12]) });
+    expect(r.code, r.err.join('\n')).toBe(0);
+    const args = r.calls[0]!.args;
+    const sent = args[args.indexOf('--prs-file') + 1]!;
+    expect(path.basename(sent)).toMatch(/\.prs-\d+\.json$/);
+    expect(args.indexOf('--prs-file')).toBeLessThan(args.indexOf('--json'));
+    expect(readdirSync(base).filter((n) => /\.prs-\d+\.json$/.test(n))).toEqual([]);
   });
 });
 

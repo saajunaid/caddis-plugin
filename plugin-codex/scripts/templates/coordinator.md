@@ -38,7 +38,7 @@ What the keys mean:
 | `deploy.never_health_path` | A path that looks healthy even when the API is dead. Never used as a health check. |
 | `deploy.render_check` | How the PR's session checks a served page: 0 console errors and one value checked against its source. |
 | `deploy.wait` | How to wait for the deploy run. No fixed sleep. |
-| `owner_reserved` | Changes that only the owner may approve. |
+| `owner_reserved` | Changes that only the owner may approve. The coordinator reads each class through the critical checklist (coordinator design, section 6): for example `permission change` means an EXISTING permission changes; a new permission is routine. A class that the checklist does not name is a rule reserved by name and always goes to the owner. |
 | `stall.busy_silent_min` | Minutes a busy session may stay silent before the coordinator asks. |
 | `stall.ready_no_ready_msg_min` | Minutes a green PR may wait for its session's ready message. |
 | `quiet.coordination` | Quiet hours for merges (`none`: no quiet hours). |
@@ -80,8 +80,8 @@ What the keys mean:
     "wait": "gh run watch"
   },
   "owner_reserved": [
-    "schema change or data write on prod",
-    "permission change",
+    "schema change or data write on prod (checklist items 1 and 2)",
+    "permission change (checklist item 3: an existing permission)",
     "any open blocking review finding",
     "<fill: a rule the owner reserved by name; one string per rule, or delete this line>"
   ],

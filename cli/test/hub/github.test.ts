@@ -7,9 +7,11 @@ import {
   createGithubSource,
   parseAuthStatus,
   parseGithubRemote,
+  prHeads,
   readRequiredChecks,
   requiredState,
   type FetchFn,
+  type PrEntry,
 } from '../../src/hub/sources/github.js';
 
 let dir: string;
@@ -556,5 +558,92 @@ describe('account discovery (final review I4)', () => {
     expect(src.get().data!.repos[0]!.error).toBe(
       'no gh account is logged in: run gh auth login -h github.com, then set "accounts": {"acme-org": "<gh user>"} in ~/.caddis/hub/config.json',
     );
+  });
+});
+
+describe('PR heads (overlay)', () => {
+  it('keeps head ref and fork of an open PR', async () => {
+    const root = repo('shop', 'https://github.com/acme/shop.git', COORD);
+    const local = { ...routes } as Record<string, unknown>;
+    let openBody: unknown = [];
+    const f: FetchFn = async (url) => {
+      const p = url.replace('https://api.github.com', '');
+      let body = local[p];
+      if (p.includes('state=open')) body = openBody;
+      if (p.includes('/commits/')) body = CHECKS;
+      if (body === undefined) return new Response('{}', { status: 404 });
+      return new Response(JSON.stringify(body), { status: 200 });
+    };
+    const check = async (pull: Record<string, unknown>) => {
+      openBody = [pull];
+      const src = mk([root], f);
+      await src.refresh();
+      return src.get().data!.repos[0]!.prs![0]!;
+    };
+    expect(
+      await check({
+        ...OPEN_PULLS[0]!,
+        head: { sha: 'aaa111', ref: 'feat/cart', repo: { full_name: 'acme/shop' } },
+        base: { repo: { full_name: 'acme/shop' } },
+      }),
+    ).toMatchObject({ head_ref: 'feat/cart', fork: false });
+    expect(
+      await check({
+        ...OPEN_PULLS[0]!,
+        head: { sha: 'aaa111', ref: 'feat/cart', repo: { full_name: 'ACME/Shop' } },
+        base: { repo: { full_name: 'acme/shop' } },
+      }),
+    ).toMatchObject({ fork: false });
+    expect(
+      await check({
+        ...OPEN_PULLS[0]!,
+        head: { sha: 'aaa111', ref: 'feat/cart', repo: { full_name: 'someone/shop' } },
+        base: { repo: { full_name: 'acme/shop' } },
+      }),
+    ).toMatchObject({ fork: true });
+    expect(
+      await check({
+        ...OPEN_PULLS[0]!,
+        head: { sha: 'aaa111', ref: 'feat/cart', repo: null },
+        base: { repo: { full_name: 'acme/shop' } },
+      }),
+    ).toMatchObject({ fork: true });
+    expect(
+      await check({
+        ...OPEN_PULLS[0]!,
+        head: { sha: 'aaa111', ref: 'feat/cart', repo: { full_name: 'acme/shop' } },
+      }),
+    ).toMatchObject({ fork: false });
+  });
+
+  it('prHeads maps slots', () => {
+    const pr7: PrEntry = {
+      number: 7,
+      title: 'Add cart',
+      head_sha: 'aaa111',
+      head_ref: 'feat/cart',
+      fork: false,
+      author: 'dev1',
+      draft: false,
+      updated_at: '2026-10-24T09:00:00Z',
+      url: 'https://github.com/acme/shop/pull/7',
+      checks: [],
+      required_state: 'pass',
+    };
+    const prNoRef: PrEntry = { ...pr7, number: 8, head_ref: '' };
+    expect(prHeads(null)).toEqual({});
+    expect(
+      prHeads({
+        repos: [
+          { path: 'a', reason: 'no github remote' },
+          { path: 'b', error: 'x' },
+          { path: 'c', prs: [pr7, prNoRef] },
+        ],
+        rate: {},
+      }),
+    ).toEqual({
+      a: [],
+      c: [{ number: 7, head_ref: 'feat/cart', draft: false, fork: false, updated_at: '2026-10-24T09:00:00Z' }],
+    });
   });
 });

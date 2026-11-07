@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { RepoState } from '../types';
 import { PlanKpiLine } from './PlanBoard';
 import { PlanDetail } from './PlanDetail';
-import { initiallyOpenPlan, planRoadmapModel, type PlanView, type RoadmapView } from './roadmap';
+import { initiallyOpenPlan, overlayLabel, planRoadmapModel, type PlanView, type RoadmapView } from './roadmap';
 import type { Variant } from './RoadmapTab';
 
 /** The board that starts open is picked once, so a data refresh never opens or closes a board under the reader. */
@@ -30,6 +30,11 @@ function PlanItem({
       <summary className="rm-plan-sum">
         <span className="rm-plan-title">{plan.title}</span>
         <span className="rm-sub">{plan.open} open</span>
+        {plan.overlay && (
+          <span className="rm-plan-branch" data-testid="rm-plan-branch">
+            {overlayLabel(plan.overlay)}
+          </span>
+        )}
         <PlanKpiLine plan={plan} />
         <span className="rm-plan-only">plan only, no runner</span>
       </summary>

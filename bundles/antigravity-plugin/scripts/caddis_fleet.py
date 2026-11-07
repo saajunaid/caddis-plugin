@@ -204,10 +204,10 @@ def render_roster(acks: list[Ack], coordinator: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _fenced(text: str) -> str:
+def _fenced(text: str, lang: str = "text") -> str:
     longest = max((len(r) for r in re.findall(r"`+", text)), default=0)
     fence = "`" * max(3, longest + 1)
-    return f"{fence}text\n{text}\n{fence}"
+    return f"{fence}{lang}\n{text}\n{fence}"
 
 
 def start_line(ack: Ack, stamp: datetime) -> str:
@@ -475,11 +475,15 @@ def resume_prompt(relay_text: str) -> str:
     return prompt
 
 
+def one_line(text: str) -> str:
+    """The text on one line, with no `'` and no `"`: a `'` would end a single-quoted word in bash and a `"` is dropped
+    by Windows PowerShell 5.1, so both become typographic."""
+    return " ".join(text.split()).replace("'", "’").replace('"', "”")
+
+
 def shell_arg(text: str) -> str:
-    """One word that PowerShell and bash read the same: one line, inside single quotes (no expansion in either).
-    A `'` would end the word in bash and a `"` is dropped by Windows PowerShell 5.1, so both become typographic."""
-    one_line = " ".join(text.split())
-    return "'" + one_line.replace("'", "’").replace('"', "”") + "'"
+    """One word that PowerShell and bash read the same: one line, inside single quotes (no expansion in either)."""
+    return "'" + one_line(text) + "'"
 
 
 ANNOUNCE_ID = "<your session id>"
@@ -501,27 +505,33 @@ def announce_text(name: str, folder: str) -> str:
             f"a reply. If the script is missing or lists no peer, skip this.")
 
 
+RESUME_PROMPT_LABEL = "After /clear in this window, paste this:"
+RESUME_LINE_LABEL = "In a new terminal, paste this:"
+
+
 def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
                   fleet_mode: bool = False, announce: bool = False, folder: str = "",
                   root: Path | None = None) -> str:
-    """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line.
+    """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line, so the
+    block keeps the relay's own prompt and says so.
 
-    With `announce`, the start line (not the fenced block, which stays the relay's text) ends with the
-    whoami + announce sentence: the start line is what the new session receives with its name.
-    With `root`, the block names the repo and the start line first changes to it, because the relay's paths are
-    repo-relative. `;`, as in the restart sheet: Windows PowerShell 5.1 has no `&&`."""
-    shown = prompt  # the fenced block stays the relay text
+    Otherwise it ends with two labelled copy blocks. The model re-types this output in a Markdown reply, so colour
+    cannot reach the owner; a label and a fence can (owner, 5 Nov). Block 1 is the prompt on one line, to paste after
+    `/clear` in the same window. Block 2 is the full start line, to paste in a new terminal.
+    With `announce`, both end with the whoami + announce sentence: the new session receives it with its name.
+    With `root`, block 2 first changes to the repo, because the relay's paths are repo-relative. `;`, as in the
+    restart sheet: Windows PowerShell 5.1 has no `&&`."""
     repo = f"Repo: {root.as_posix()}\n" if root is not None else ""
     cd = f'cd "{root.as_posix()}"; ' if root is not None else ""
+    head = f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n{repo}"
     if fleet_mode:
-        start = "Start line: from the restart sheet"
-    else:
-        name = new_name(role, stamp)
-        if announce:
-            prompt = f"{prompt}\n{announce_text(name, folder)}"
-        start = f"Start line:\n{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
-    return (f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n"
-            f"{repo}{_fenced(shown)}\n{start}\n")
+        return f"{head}{_fenced(prompt)}\nStart line: from the restart sheet\n"
+    name = new_name(role, stamp)
+    if announce:
+        prompt = f"{prompt}\n{announce_text(name, folder)}"
+    full = f"{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
+    return (f"{head}{RESUME_PROMPT_LABEL}\n{_fenced(one_line(prompt))}\n"
+            f"{RESUME_LINE_LABEL}\n{_fenced(full, 'bash')}\n")
 
 
 def render_coordinator_resume(session: str, session_id: str, workstream: str) -> str:

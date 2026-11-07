@@ -88,7 +88,7 @@ describe('exportData (R59)', () => {
   const text = JSON.stringify(data);
 
   it('keeps every allowed key with its value', () => {
-    expect(Object.keys(data)).toEqual(['schema', 'generated_at', 'label', 'github', 'commit', 'roadmaps', 'plans']);
+    expect(Object.keys(data)).toEqual(['schema', 'generated_at', 'label', 'github', 'commit', 'roadmaps', 'plans', 'overlay']);
     const rm = data.roadmaps[0] as ExportRoadmap;
     expect(rm).toMatchObject({ roadmap: 'launch', branch: 'main', done: 1, total: 2, lanes: ['p-shop'] });
     expect(rm.next).toEqual({ milestone: 'S2', plan: 'p-shop', phase: 3 });
@@ -99,8 +99,10 @@ describe('exportData (R59)', () => {
       ['lane', 'model', 'name', 'num', 'plan', 'prs', 'ref', 'risk', 'state', 'tile', 'tracker'],
     );
     expect(rm.milestones[0]!.phases[1]).toMatchObject({ ref: 'p-shop#2', num: 2, model: 'mid', prs: [12], tracker: 'done #12' });
-    expect(data.plans).toEqual([{ path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done', state: 'done' }], open_rows: 1 }]);
-    expect(data).toMatchObject({ generated_at: '2026-10-24T10:05:00Z', github: 'acme/shop', label: null });
+    expect(data.plans).toEqual([
+      { path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [{ phase: '1', status: 'done', state: 'done' }], open_rows: 1, overlay: null },
+    ]);
+    expect(data).toMatchObject({ generated_at: '2026-10-24T10:05:00Z', github: 'acme/shop', label: null, overlay: null });
   });
 
   it('holds none of the planted private values', () => {
@@ -155,6 +157,40 @@ describe('exportData (R59)', () => {
     const before = JSON.stringify(input);
     expect(JSON.stringify(exportData(input, opts))).toBe(text);
     expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+describe('exportData overlay (plan D9 allow-list)', () => {
+  /** The collector output with one plan whose overlay and plans slot overlay are set to the given values. */
+  function withOverlay(planOverlay: unknown, slotOverlay?: unknown, row: Record<string, unknown> = { phase: '1', status: 'done', state: 'done' }) {
+    const raw = collector();
+    const repo = (raw.repos as Record<string, unknown>[])[0]!;
+    const plans = repo.plans as Record<string, unknown>;
+    plans.plans = [{ path: '.caddis/plans/p-shop.md', title: 'p-shop', status: 'active', tracker: [row], open_rows: 1, overlay: planOverlay }];
+    if (slotOverlay !== undefined) plans.overlay = slotOverlay;
+    return exportData(raw, opts);
+  }
+
+  it('keeps the overlay of a plan but never its head_ref', () => {
+    const data = withOverlay({ pr: 540, draft: true, head_ref: 'feat/secret-branch', also: [541] });
+    expect(data.plans[0]!.overlay).toEqual({ pr: 540, draft: true, also: [541] });
+    expect(JSON.stringify(data)).not.toContain('feat/secret-branch');
+  });
+
+  it('drops a bad overlay', () => {
+    expect(withOverlay({ pr: 0 }).plans[0]!.overlay).toBeNull();
+    expect(withOverlay('x').plans[0]!.overlay).toBeNull();
+  });
+
+  it('copies the overlay state with a fixed reason', () => {
+    expect(withOverlay(null, { state: 'off', reason: 'C:/x/y failed', count: 0 }).overlay).toEqual({ state: 'off', reason: 'unknown', count: 0 });
+    expect(withOverlay(null, { state: 'on', reason: null, count: 2 }).overlay).toEqual({ state: 'on', reason: null, count: 2 });
+    expect(withOverlay(null).overlay).toBeNull();
+  });
+
+  it('never exports the row source', () => {
+    const data = withOverlay(null, undefined, { phase: '1', status: 'done', state: 'done', source: 'branch' });
+    expect(Object.keys(data.plans[0]!.tracker[0]!)).toEqual(['phase', 'status', 'state']);
   });
 });
 

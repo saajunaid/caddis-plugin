@@ -70,13 +70,16 @@ def _fetch_time(common: Path) -> int | None:
         return None
 
 
-def _plans_json(root: Path) -> dict:
+def _plans_json(root: Path, prs: list[dict] | None = None, off_reason: str | None = None) -> dict:
     """Plans from the origin ref the repo already has (R15: local git only), so a pushed Tracker edit shows with no
     pull. A folder that is not a git checkout, or has no origin default branch, reads the working tree."""
     branch = None
     common = git_common_dir(Path(root))
     if common is None:
-        return _sibling("caddis_todo").plans_json(root)
+        out = _sibling("caddis_todo").plans_json(root, prs=prs)
+        if off_reason is not None and isinstance(out, dict):
+            out["overlay"] = {"state": "off", "reason": off_reason, "count": 0}
+        return out
     try:  # origin/HEAD is a one-line file; reading it saves a git process per repo
         head = (common / "refs" / "remotes" / "origin" / "HEAD").read_text(encoding="utf-8").strip()
     except (OSError, UnicodeDecodeError):
@@ -95,9 +98,11 @@ def _plans_json(root: Path) -> dict:
             branch = None
         finally:
             roadmap.FETCH = saved
-    out = _sibling("caddis_todo").plans_json(root, branch=branch)
+    out = _sibling("caddis_todo").plans_json(root, branch=branch, prs=prs)
     if common is not None and isinstance(out, dict):
         out["fetched_at"] = _fetch_time(common)
+    if off_reason is not None and isinstance(out, dict):
+        out["overlay"] = {"state": "off", "reason": off_reason, "count": 0}
     return out
 
 
@@ -219,7 +224,25 @@ def _runner_files(common: Path) -> list[Path]:
     return _files(common / RUNNER_DIR, recurse=True)
 
 
-def fingerprint(repo: Path) -> str:
+def load_prs(path: str) -> dict[str, list[dict]] | None:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or data.get("schema") != 1:
+        return None
+    repos = data.get("repos")
+    if not isinstance(repos, dict):
+        return None
+    out: dict[str, list[dict]] = {}
+    for key, val in repos.items():
+        if not isinstance(key, str) or not isinstance(val, list):
+            return None
+        out[key] = [item for item in val if isinstance(item, dict)]
+    return out
+
+
+def fingerprint(repo: Path, prs: list[dict] | None = None) -> str:
     """sha256 over the sorted (name, mtime_ns, size) of every input file and origin ref file. Empty list: still a hash.
 
     The roadmaps come from the origin refs (`git show origin/<default>:...`), so a fetch must change the hash."""
@@ -236,6 +259,8 @@ def fingerprint(repo: Path) -> str:
         except OSError:
             continue  # the file went away while we looked
         rows.append((name, info.st_mtime_ns, info.st_size))
+    if prs is not None:
+        rows.append((f"prs:{hashlib.sha256(json.dumps(prs, sort_keys=True).encode('utf-8')).hexdigest()}", 0, 0))
     return hashlib.sha256(json.dumps(sorted(rows)).encode("utf-8")).hexdigest()
 
 
@@ -251,13 +276,22 @@ def parse_known(values: list[str]) -> dict[str, str]:
     return known
 
 
-def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None = None) -> dict:
+def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None = None,
+                 prs_map: dict[str, list[dict]] | None = None, overlay: bool = False) -> dict:
     repo = Path(path)
     if not repo.is_dir():
         return {"path": path, "error": "not a folder"}
     entry: dict = {"path": path}
+    repo_prs, off = None, None
+    if overlay:
+        if prs_map is None:
+            off = "PR data unreadable"
+        elif path not in prs_map:  # `path` is the exact --repos string
+            off = "no PR data"
+        else:
+            repo_prs = prs_map[path]
     try:
-        entry["fingerprint"] = fingerprint(repo)
+        entry["fingerprint"] = fingerprint(repo, repo_prs)
     except Exception as exc:  # a repo we cannot read must not stop the others
         return {"path": path, **_error(exc)}
     if known and known.get(path) == entry["fingerprint"]:
@@ -266,15 +300,19 @@ def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None
         if kind not in kinds:
             continue
         try:
-            entry[kind] = _REPO_COLLECTORS[kind](repo)
+            if kind == "plans":
+                entry[kind] = _plans_json(repo, prs=repo_prs, off_reason=off)
+            else:
+                entry[kind] = _REPO_COLLECTORS[kind](repo)
         except Exception as exc:
             entry[kind] = _error(exc)
     return entry
 
 
-def collect(repos: list[str], kinds: tuple[str, ...], known: dict[str, str] | None = None) -> dict:
+def collect(repos: list[str], kinds: tuple[str, ...], known: dict[str, str] | None = None,
+            prs_map: dict[str, list[dict]] | None = None, overlay: bool = False) -> dict:
     out: dict = {"schema": SCHEMA, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 "repos": [collect_repo(path, kinds, known) for path in repos]}
+                 "repos": [collect_repo(path, kinds, known, prs_map, overlay) for path in repos]}
     for kind, call in (("spend", _spend_json), ("guide", _guide_json)):
         if kind not in kinds:
             continue
@@ -300,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repos", nargs="+", required=True, metavar="PATH")
     parser.add_argument("--only", default=",".join(KINDS), help="comma list of: " + ", ".join(KINDS))
     parser.add_argument("--known", nargs="+", default=[], metavar="PATH=FP")
+    parser.add_argument("--prs-file", default=None, metavar="PATH")
     parser.add_argument("--json", action="store_true", required=True)
     args = parser.parse_args(argv)
     kinds = tuple(k.strip() for k in args.only.split(",") if k.strip())
@@ -310,7 +349,9 @@ def main(argv: list[str] | None = None) -> int:
         known = parse_known(args.known)
     except ValueError as exc:
         parser.error(str(exc))
-    print(json.dumps(collect(args.repos, kinds, known), ensure_ascii=False))
+    overlay = args.prs_file is not None
+    prs_map = load_prs(args.prs_file) if overlay else None
+    print(json.dumps(collect(args.repos, kinds, known, prs_map, overlay), ensure_ascii=False))
     return 0
 
 

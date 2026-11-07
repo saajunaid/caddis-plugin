@@ -132,7 +132,8 @@ lists each wave member's phase, worktree, branch, last commit and next card.
 
 **What finish prints.** `=== CHECKPOINT CHECKLIST ===` with the same 12 rows as Step 8, in the same order.
 Rows 5, 6, 8, 9, 10 and 12 print `skipped: checkpoint tier`. Then it prints the RESUME block (Step 9) as its
-last output. Print that block as it is, with nothing after it, then ask the owner for `/clear`.
+last output. Print that block as it is, with both labelled copy blocks and their labels unchanged and nothing
+after it, then ask the owner for `/clear`.
 
 **When finish fails** (exit 1):
 - `CHECKPOINT: row 3 relay failed`: the relay is NOT written. A peer changed the relay after prepare: the
@@ -511,27 +512,39 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_fleet.py" resume-block --name <name
 `<name>` is the workstream name from Step 3. It reads the relay's `## Resume prompt` block verbatim, and
 the session name (`session-state/<session-id>.name` when `whoami` wrote it, else the first 8 characters of
 the id). It prints, and you print its output as it is, with nothing after it:
-```
+````
 Model for next session: <model>, effort <effort>
 === RESUME ===
 Session: <session name> (<session id>)
 Workstream: <name>
 Repo: <absolute repo root>
-<the resume prompt, in a fenced block>
-Start line:
+After /clear in this window, paste this:
+```text
+<the resume prompt on one line> <the announce sentence>
+```
+In a new terminal, paste this:
+```bash
 cd "<absolute repo root>"; claude --model <model> --effort <effort> --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
 ```
+````
+Print BOTH fenced blocks, each under its label line, with the label text unchanged. Never merge them, reorder
+them, drop one, or add colour. The owner picks by what they do next:
+- **Same window, after `/clear`:** paste only the first block (the prompt). The window already has the folder, the
+  model and the name.
+- **New terminal:** paste the second block (the whole line). It changes to the repo, starts claude with the
+  model, effort and name, and passes the same prompt.
 `<model>` and `<effort>` come from `caddis_routing.py session` (Rules, "Model for the next session").
 The `cd` makes the relay's repo-relative paths work from any terminal folder (`;`, not `&&`: Windows PowerShell 5.1 has no `&&`).
 - **The announce sentence.** In a normal handoff the one-line start line also ends with a sentence that tells
   the new session to run `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send
   each named live peer in the same repo (the checkout and its worktrees) one `SendMessage`:
-  `<name> started in <folder>: <next action>. No reply needed.` The fenced block stays the relay's text. A
-  session that pastes the block, not the start line, announces nothing. The sentence names the stable launcher
+  `<name> started in <folder>: <next action>. No reply needed.` Both copy blocks end with this sentence, so a
+  session started from either one announces itself. The sentence names the stable launcher
   (`~/.caddis/bin/caddis_run.py`), because a new session cannot expand `${CLAUDE_PLUGIN_ROOT}` and a versioned
   plugin path is gone after the next update.
 - **Fleet close.** When this handoff runs because a peer sent `FLEET CLOSE from <coordinator>`, add
-  `--fleet`. The Start line is then `Start line: from the restart sheet`: the restart sheet is the only
+  `--fleet`. The block then holds the relay's prompt in one fenced block and ends with
+  `Start line: from the restart sheet`, with no copy blocks: the restart sheet is the only
   start line in a fleet close, and `/caddis:fleet-open` already greets the peers, so it has no announce
   sentence. The `FLEET-ACK` reply is a separate message and does not change.
 - **Exit 1** (no `## Resume prompt` block, or no relay) prints nothing on stdout. The handoff is not
@@ -553,7 +566,7 @@ The `cd` makes the relay's repo-relative paths work from any terminal folder (`;
   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" session --role <role>` prints `<model> <effort>`.
   The role is `orchestrator` to run an approved plan and `plan-writer` to write a plan or design.
   `resume-block` (Step 9) reads the same table: it prints `Model for next session: <model>, effort <effort>`
-  as its first line and puts `--model <model> --effort <effort>` in the Start line. Pass `--role plan-writer`
+  as its first line and puts `--model <model> --effort <effort>` in the full line (the second copy block). Pass `--role plan-writer`
   for plan or design work. Do not print a second model line.
 - **One next action, by priority ladder.** `## Next step` names exactly ONE action — not a menu. Pick it in
   order: (1) interrupted mid-phase work → finish + commit it; else (2) the active plan's next not-started

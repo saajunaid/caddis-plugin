@@ -5,6 +5,12 @@
  * page and its data are built in a staging folder beside `--out`. The privacy scan (R62) reads the staging folder.
  * On a hit the command prints the hits, removes the staging folder and exits 3: `--out` is not touched.
  *
+ * Branch overlay (plan D9): PR data comes only from the `--prs` file (`gh pr list --json ...`, made by the caller). The
+ * export converts it and passes it to the collector with `--prs-file`. The overlaid rows are in the data block, so the
+ * same scan covers them. On a hit while the page holds branch content, the command drops the overlay: it runs the
+ * collector again without `--prs-file`, rebuilds, and scans again with the union of both deny lists. Nothing unscanned
+ * is ever published.
+ *
  * The command starts no server, reads nothing under `~/.caddis/hub`, and never calls `gh`, `claude`, agy or the network.
  * The only process it starts is the bundled Python collector, through `spawnBounded`.
  *
@@ -28,7 +34,8 @@ import { packageInfo } from '../../util/pkg.js';
 import { renameWithRetry } from '../config.js';
 import { spawnBounded, type SpawnFn } from '../spawn.js';
 import { defaultScriptPath, resolvePython } from '../sources/collector.js';
-import { derivedDeny, exportData, GITHUB_RE, type Machine } from './data.js';
+import type { PrHead } from '../prHead.js';
+import { derivedDeny, exportData, GITHUB_RE, type ExportData, type Machine } from './data.js';
 import { hitLine, scanExport } from './privacy.js';
 
 export const MARKER = '.caddis-export';
@@ -43,6 +50,33 @@ export interface ExportArgs {
   label?: string;
   /** Scan this built folder and nothing else. */
   check?: string;
+  /** Open PRs as JSON from `gh pr list --json number,headRefName,isDraft,isCrossRepository,updatedAt`. */
+  prs?: string;
+}
+
+const isPosInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+
+/**
+ * The collector PR file (plan D2) from `gh pr list --json` output, or null when `gh` is not an array. An item without a
+ * positive integer `number` or a non-empty `headRefName` is skipped. A PR is a fork unless `isCrossRepository` is
+ * `false`. `repo` is the resolved path that is also passed to `--repos`.
+ */
+export function prsForCollector(gh: unknown, repo: string): { schema: 1; repos: Record<string, PrHead[]> } | null {
+  if (!Array.isArray(gh)) return null;
+  const heads: PrHead[] = [];
+  for (const raw of gh) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const it = raw as Record<string, unknown>;
+    if (!isPosInt(it.number) || typeof it.headRefName !== 'string' || !it.headRefName) continue;
+    heads.push({
+      number: it.number,
+      head_ref: it.headRefName,
+      draft: it.isDraft === true,
+      fork: it.isCrossRepository !== false,
+      updated_at: typeof it.updatedAt === 'string' ? it.updatedAt : '',
+    });
+  }
+  return { schema: 1, repos: { [repo]: heads } };
 }
 
 export interface ExportDeps {
@@ -207,7 +241,7 @@ export async function hubExport(args: ExportArgs, deps: ExportDeps = {}): Promis
   }
 
   if (!args.repo || !args.out) {
-    err('usage: caddis hub export --repo <path> --out <dir> [--github <owner>/<repo>] [--commit <sha>] [--label <text>]');
+    err('usage: caddis hub export --repo <path> --out <dir> [--github <owner>/<repo>] [--commit <sha>] [--label <text>] [--prs <file>]');
     return 2;
   }
   if (args.commit !== undefined && !/^[0-9a-fA-F]{7,40}$/.test(args.commit)) {
@@ -244,63 +278,134 @@ export async function hubExport(args: ExportArgs, deps: ExportDeps = {}): Promis
     cmd = found.cmd;
     pre = found.pre;
   }
+  const python = cmd;
   const script = deps.scriptPath ?? defaultScriptPath();
-  const run = await spawn(cmd, [...pre, script, '--repos', repo, '--only', 'roadmaps,plans', '--json'], { timeoutMs: COLLECT_TIMEOUT_MS });
-  if (run.timedOut || !run.ok) {
-    err(`error: the collector ${run.timedOut ? 'timed out' : `failed (exit ${run.code ?? 'none'})`}`);
-    return 1;
-  }
-  let collect: unknown;
-  try {
-    collect = JSON.parse(run.stdout);
-  } catch {
-    err('error: the collector output is not valid JSON');
-    return 1;
-  }
+  const machine = machineOf(deps.machine, repo);
 
-  let data;
-  try {
-    data = exportData(collect, {
-      label: args.label ?? null,
-      github: args.github ?? null,
-      commit: args.commit ?? null,
-      now: now().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    });
-  } catch (error) {
-    err(`error: ${error instanceof Error ? error.message : String(error)}`);
-    return 1;
-  }
-  const deny = derivedDeny(collect, machineOf(deps.machine, repo));
-
-  // Build in a staging folder beside --out. Only a clean scan replaces --out (R61).
-  const staging = `${outDir}.staging-${process.pid}`;
-  rmSync(staging, { recursive: true, force: true });
-  try {
-    copyFixedSet(dist, staging);
-    const indexPath = path.join(staging, 'index.html');
-    const html = readFileSync(indexPath, 'utf8');
-    if (!html.includes(PLACEHOLDER)) throw new Error('the built index.html has no data placeholder');
-    const block = `<script type="application/json" id="caddis-export-data">${escapeJson(JSON.stringify(data))}</script>`;
-    writeFileSync(indexPath, html.replace(PLACEHOLDER, () => block));
-    writeFileSync(path.join(staging, '404.html'), notFoundPage());
-
-    const hits = scanExport(staging, { deny, github: args.github ?? null, ...(deps.allowedUrls !== undefined ? { allowedUrls: deps.allowedUrls } : {}) });
-    if (hits.length) {
-      for (const h of hits) err(hitLine(h));
-      err(`[BLOCKED] ${hits.length} privacy hit(s). Nothing was published.`);
-      rmSync(staging, { recursive: true, force: true });
-      return 3;
+  /** One collector call. `prsFile` adds `--prs-file` before `--json`. Null after an error line. */
+  const collectOnce = async (prsFile: string | null): Promise<{ value: unknown } | null> => {
+    const extra = prsFile === null ? [] : ['--prs-file', prsFile];
+    const run = await spawn(python, [...pre, script, '--repos', repo, '--only', 'roadmaps,plans', ...extra, '--json'], { timeoutMs: COLLECT_TIMEOUT_MS });
+    if (run.timedOut || !run.ok) {
+      err(`error: the collector ${run.timedOut ? 'timed out' : `failed (exit ${run.code ?? 'none'})`}`);
+      return null;
     }
+    try {
+      return { value: JSON.parse(run.stdout) };
+    } catch {
+      err('error: the collector output is not valid JSON');
+      return null;
+    }
+  };
+  /** The allow-listed page data, or null after an error line. */
+  const dataOf = (collect: unknown): ExportData | null => {
+    try {
+      return exportData(collect, {
+        label: args.label ?? null,
+        github: args.github ?? null,
+        commit: args.commit ?? null,
+        now: now().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      });
+    } catch (error) {
+      err(`error: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  };
 
-    mkdirSync(path.dirname(outDir), { recursive: true });
-    if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
-    renameWithRetry(staging, outDir);
-    writeFileSync(path.join(outDir, MARKER), 'written by caddis hub export\n');
-    out(`[EXPORT] ${countFiles(outDir)} file(s) in ${outDir}`);
-    return 0;
-  } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
-    err(`error: ${error instanceof Error ? error.message : String(error)}`);
-    return 1;
+  // Plan D9: the overlay is on only when a readable PR file is given. On any doubt it is off and the page shows main.
+  let prsFile: string | null = null;
+  let prsUnreadable = false;
+  if (args.prs !== undefined) {
+    let gh: unknown = null;
+    try {
+      gh = JSON.parse(readFileSync(path.resolve(args.prs), 'utf8'));
+    } catch {
+      gh = null;
+    }
+    const body = prsForCollector(gh, repo);
+    if (body === null) {
+      prsUnreadable = true;
+    } else {
+      prsFile = `${outDir}.prs-${process.pid}.json`;
+      try {
+        mkdirSync(path.dirname(prsFile), { recursive: true });
+        writeFileSync(prsFile, JSON.stringify(body));
+      } catch (error) {
+        rmSync(prsFile, { force: true });
+        err(`error: ${error instanceof Error ? error.message : String(error)}`);
+        return 1;
+      }
+    }
+  }
+
+  try {
+    // R56: one collector call, roadmaps and plans only. The raw output stays in memory.
+    const first = await collectOnce(prsFile);
+    if (!first) return 1;
+    let data = dataOf(first.value);
+    if (!data) return 1;
+    if (prsUnreadable) data.overlay = { state: 'off', reason: 'PR data unreadable', count: 0 };
+    if (data.overlay?.state === 'on') out(`[OVERLAY] on: ${data.overlay.count} plan(s) from PR branches`);
+    else if (data.overlay?.state === 'off') out(`[OVERLAY] off: ${data.overlay.reason ?? 'unknown'}`);
+    let deny = derivedDeny(first.value, machine);
+    const scanOpts = (): Parameters<typeof scanExport>[1] => ({
+      deny,
+      github: args.github ?? null,
+      ...(deps.allowedUrls !== undefined ? { allowedUrls: deps.allowedUrls } : {}),
+    });
+
+    // Build in a staging folder beside --out. Only a clean scan replaces --out (R61).
+    const staging = `${outDir}.staging-${process.pid}`;
+    const build = (page: ExportData): void => {
+      rmSync(staging, { recursive: true, force: true });
+      copyFixedSet(dist, staging);
+      const indexPath = path.join(staging, 'index.html');
+      const html = readFileSync(indexPath, 'utf8');
+      if (!html.includes(PLACEHOLDER)) throw new Error('the built index.html has no data placeholder');
+      const block = `<script type="application/json" id="caddis-export-data">${escapeJson(JSON.stringify(page))}</script>`;
+      writeFileSync(indexPath, html.replace(PLACEHOLDER, () => block));
+      writeFileSync(path.join(staging, '404.html'), notFoundPage());
+    };
+    try {
+      build(data);
+      let hits = scanExport(staging, scanOpts());
+      // Plan D9.1: a hit while the page holds branch content drops the overlay. Main is collected, built and scanned again.
+      if (hits.length && data.overlay?.state === 'on' && data.overlay.count > 0) {
+        for (const h of hits) err(hitLine(h));
+        out('[OVERLAY] off: privacy hit in branch content');
+        rmSync(staging, { recursive: true, force: true });
+        const second = await collectOnce(null);
+        if (!second) return 1;
+        const mainOnly = dataOf(second.value);
+        if (!mainOnly) return 1;
+        mainOnly.overlay = { state: 'off', reason: 'privacy hit in branch content', count: 0 };
+        // D9.5: the union of both deny lists. A superset never weakens the scan.
+        deny = [...new Set([...deny, ...derivedDeny(second.value, machine)])];
+        data = mainOnly;
+        build(data);
+        hits = scanExport(staging, scanOpts());
+      }
+      if (hits.length) {
+        for (const h of hits) err(hitLine(h));
+        err(`[BLOCKED] ${hits.length} privacy hit(s). Nothing was published.`);
+        rmSync(staging, { recursive: true, force: true });
+        return 3;
+      }
+
+      mkdirSync(path.dirname(outDir), { recursive: true });
+      if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
+      renameWithRetry(staging, outDir);
+      writeFileSync(path.join(outDir, MARKER), 'written by caddis hub export\n');
+      out(`[EXPORT] ${countFiles(outDir)} file(s) in ${outDir}`);
+      return 0;
+    } catch (error) {
+      err(`error: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    } finally {
+      // A clean run renamed the staging folder away. Any other way out leaves nothing behind.
+      rmSync(staging, { recursive: true, force: true });
+    }
+  } finally {
+    if (prsFile !== null) rmSync(prsFile, { force: true });
   }
 }

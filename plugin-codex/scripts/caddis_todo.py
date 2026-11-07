@@ -9,6 +9,7 @@ release as a no-op, because an older /handoff still calls it from its Step 6.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -250,6 +251,68 @@ def _plan_entry_text(rel: str, text: str) -> dict:
             "tracker": tracker, "open_rows": sum(1 for row in tracker if not _is_done(row["status"]))}
 
 
+PLAN_STATUS_RANK: dict[str, int] = {"draft": 0, "proposed": 0, "ready": 0, "current": 1, "done": 2, "superseded": 2}
+
+
+def _status_rank(status: object) -> int:
+    return PLAN_STATUS_RANK.get(status, 0) if isinstance(status, str) else 0
+
+
+def pick_pr(cands: list[dict]) -> tuple[dict, list[int]]:
+    """D6: the PR with the newest `updated_at` (ISO text compare; tie: higher number) and the others' numbers."""
+    best = max(cands, key=lambda pr: (pr["updated_at"], pr["number"]))
+    return best, sorted(pr["number"] for pr in cands if pr is not best)
+
+
+def _first_by_key(rows: list[dict]) -> dict[str, dict]:
+    """D4.6: the first row with each non-empty key."""
+    out: dict[str, dict] = {}
+    for row in rows:
+        if row["key"] and row["key"] not in out:
+            out[row["key"]] = row
+    return out
+
+
+def overlay_plan(main: dict | None, base: dict | None, head: dict, pr: dict, also: list[int]) -> dict:
+    """One plan with an open PR branch laid over main: rows by D4, plan status by D5. Inputs are never changed."""
+    overlay = {"pr": pr["number"], "draft": bool(pr.get("draft")), "head_ref": pr["head_ref"], "also": list(also)}
+    if main is None:  # D5: a plan only on the branch takes every field from the head entry
+        out = copy.deepcopy(head)
+        out["tracker"] = [{**row, "source": "branch"} for row in out["tracker"]]
+        out["changed_at"] = None
+    else:
+        out = copy.deepcopy(main)
+        heads = _first_by_key(head["tracker"])
+        bases = _first_by_key(base["tracker"]) if base is not None else {}
+
+        def untouched(h: dict) -> bool:  # D4.2 / D4.4: the branch left the row as it was at the merge base
+            b = bases.get(h["key"])
+            return b is not None and h["status"] == b["status"]
+
+        tracker: list[dict] = []
+        matched: set[str] = set()
+        for m in out["tracker"]:
+            h = heads.get(m["key"]) if m["key"] and m["key"] not in matched else None
+            if m["key"]:
+                matched.add(m["key"])
+            if h is None or untouched(h):  # D4.1, D4.2 (and D4.5: an empty key is kept)
+                tracker.append({**m, "source": "main"})
+            elif m["state"] in ("done", "moved") and h["state"] not in ("done", "moved"):  # D4.3: done never goes back
+                tracker.append({**m, "source": "main"})
+            else:
+                tracker.append({**copy.deepcopy(h), "source": "branch"})
+        for key, h in heads.items():  # D4.4: dict order is head order
+            if key not in matched and not untouched(h):
+                tracker.append({**copy.deepcopy(h), "source": "branch"})
+        out["tracker"] = tracker
+        base_status = base.get("status") if base is not None else None
+        if (base is None or head.get("status") != base_status) and _status_rank(main.get("status")) != 2:
+            out["status"] = head.get("status")
+    out["open_rows"] = sum(1 for row in out["tracker"] if not _is_done(row["status"]))
+    out["overlay"] = overlay
+    return out
+
+
 class _Batch:
     """One `git cat-file --batch` process, asked object by object (local git only, no network)."""
 
@@ -381,12 +444,119 @@ def _entry_or_error(rel: str, read) -> dict:
         return {"path": rel, "error": (str(exc).splitlines() or [type(exc).__name__])[0]}
 
 
-def plans_json(root: Path, branch: str | None = None) -> dict:
+MAX_PRS = 20  # D3: per repo, only the newest open PRs are looked at (bounds the merge-base cost)
+_HEAD_REF = re.compile(r"^(?!-|/)(?!.*\.\.)[^\x00-\x20\x7f:~^?*\[\\]+$")  # D3: a ref name git and `cat-file --batch` accept
+_PLANS_DIR = ".caddis/plans"
+
+
+def branch_plan_changes(batch: _Batch, root: Path, default_branch: str, head_ref: str
+                        ) -> dict[str, tuple[str, str | None]] | None:
+    """The plan files a PR branch changed: `{".caddis/plans/<name>.md": (head_text, merge_base_text_or_None)}`.
+
+    Local git only. None when `refs/remotes/origin/<head_ref>` is missing or `git merge-base` fails; {} when the
+    plans folder is the same tree on head and default (no `merge-base` runs) or no plan file differs.
+    """
+    head_ref_name = f"refs/remotes/origin/{head_ref}"
+    default_ref_name = f"refs/remotes/origin/{default_branch}"
+    if batch.get(head_ref_name) is None:
+        return None
+    head_tree = batch.get(f"{head_ref_name}:{_PLANS_DIR}")
+    default_tree = batch.get(f"{default_ref_name}:{_PLANS_DIR}")
+    if head_tree is None or head_tree[1] != "tree":
+        return {}  # the branch has no plan folder: it deletes or never had plans, nothing to overlay
+    if default_tree is not None and default_tree[0] == head_tree[0]:
+        return {}
+    try:
+        found = subprocess.run(["git", "-C", str(root), "merge-base", default_ref_name, head_ref_name],
+                               capture_output=True, timeout=30, creationflags=_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    base = found.stdout.decode("ascii", errors="replace").strip()
+    if found.returncode != 0 or not base:
+        return None
+    base_tree = batch.get(f"{base}:{_PLANS_DIR}")
+    base_blobs = dict(_tree_blobs(base_tree[2], len(base_tree[0]) // 2)) if base_tree and base_tree[1] == "tree" else {}
+    changes: dict[str, tuple[str, str | None]] = {}
+    for name, oid in sorted(_tree_blobs(head_tree[2], len(head_tree[0]) // 2)):
+        if not name.endswith(".md") or base_blobs.get(name) == oid:
+            continue
+        head_blob = batch.get(oid)
+        if head_blob is None:
+            continue
+        base_blob = batch.get(base_blobs[name]) if name in base_blobs else None
+        changes[f"{_PLANS_DIR}/{name}"] = (
+            head_blob[2].decode("utf-8", errors="replace").replace("\r\n", "\n"),
+            base_blob[2].decode("utf-8", errors="replace").replace("\r\n", "\n") if base_blob else None)
+    return changes
+
+
+def _usable_prs(prs: list[dict], branch: str) -> list[dict]:
+    """D3: same-repo PRs with a safe head ref that is not the default branch; the newest MAX_PRS of them."""
+    usable = []
+    for pr in prs:
+        if not isinstance(pr, dict) or pr.get("fork") or isinstance(pr.get("number"), bool) \
+                or not isinstance(pr.get("number"), int):
+            continue
+        ref = pr.get("head_ref")
+        if not isinstance(ref, str) or not ref or ref == branch or not _HEAD_REF.fullmatch(ref):
+            continue
+        usable.append({**pr, "updated_at": pr["updated_at"] if isinstance(pr.get("updated_at"), str) else ""})
+    usable.sort(key=lambda pr: (pr["updated_at"], pr["number"]), reverse=True)
+    return usable[:MAX_PRS]
+
+
+def _overlay_prs(root: Path, branch: str, plans: list[dict], prs: list[dict]) -> int:
+    """Lay open PR branches over `plans` (changed in place). Returns how many plans got an overlay."""
+    usable = _usable_prs(prs, branch)
+    if not usable:
+        return 0
+    try:
+        batch = _Batch(root)
+    except OSError:
+        return 0
+    cands: dict[str, list[tuple[dict, dict, dict | None]]] = {}  # plan path -> [(pr, head entry, base entry)]
+    try:
+        for pr in usable:
+            try:
+                changes = branch_plan_changes(batch, root, branch, pr["head_ref"])
+            except (OSError, ValueError):
+                changes = None
+            for path, (head_text, base_text) in (changes or {}).items():
+                try:
+                    head = _plan_entry_text(path, head_text)
+                    base = _plan_entry_text(path, base_text) if base_text is not None else None
+                except Exception:  # a branch plan that does not parse is skipped; main shows
+                    continue
+                cands.setdefault(path, []).append((pr, head, base))
+    finally:
+        batch.close()
+    by_path = {plan["path"]: i for i, plan in enumerate(plans)}
+    count = 0
+    for path, found in cands.items():
+        pr, also = pick_pr([item[0] for item in found])
+        _, head, base = next(item for item in found if item[0] is pr)
+        at = by_path.get(path)
+        if at is None:
+            if base is not None:
+                continue  # main deleted a plan the branch still edits: a deleted plan is not shown from the branch
+            plans.append(overlay_plan(None, None, head, pr, also))
+        elif "error" in plans[at]:
+            continue
+        else:
+            plans[at] = overlay_plan(plans[at], base, head, pr, also)
+        count += 1
+    return count
+
+
+def plans_json(root: Path, branch: str | None = None, prs: list[dict] | None = None) -> dict:
     """Every current plan as data: `{"schema": 1, "source": ..., "plans": [...]}`. Never prints, never exits.
 
     With `branch`, read the plans from the local `origin/<branch>` ref (the hub: a pushed Tracker edit shows with
     no pull); when git cannot read that ref, read the working tree. `source` names which one was read. A file that
     does not parse gives `{"path", "error"}`; the other plans still come back.
+
+    With `prs` (the open PRs, D2 items) and an origin source, plans a PR branch changed get that branch's Tracker
+    laid over main's (`overlay_plan`) and the result carries `overlay`. Without `prs` the output has no overlay key.
     """
     root = Path(root)
     origin = _origin_plan_texts(root, branch) if branch else None
@@ -397,14 +567,21 @@ def plans_json(root: Path, branch: str | None = None) -> dict:
         for plan in plans:
             if "error" not in plan:
                 plan["changed_at"] = times.get(plan["path"])
-        return {"schema": 1, "source": f"origin/{branch}", "commit": commit[:12], "commit_at": commit_at, "plans": plans}
+        data = {"schema": 1, "source": f"origin/{branch}", "commit": commit[:12], "commit_at": commit_at, "plans": plans}
+        if prs is not None:
+            count = _overlay_prs(root, branch, plans, prs)
+            data["overlay"] = {"state": "on", "reason": None, "count": count}
+        return data
     plans = []
     for path in _plan_files(root):
         plan = _entry_or_error(path.relative_to(root).as_posix(), lambda path=path: _plan_entry(root, path))
         if "error" not in plan:
             plan["changed_at"] = _file_time(path)
         plans.append(plan)
-    return {"schema": 1, "source": "working-tree", "plans": plans}
+    data = {"schema": 1, "source": "working-tree", "plans": plans}
+    if prs is not None:
+        data["overlay"] = {"state": "off", "reason": "no git", "count": 0}
+    return data
 
 
 def main(argv: list[str] | None = None) -> int:

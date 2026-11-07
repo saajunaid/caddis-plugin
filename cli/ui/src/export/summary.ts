@@ -125,5 +125,12 @@ export function bannerText(data: ExportData): string {
   const from = data.github ?? 'the repo';
   const at = data.commit ? ` at ${data.commit}` : '';
   const label = data.label ? ` ${data.label}.` : '';
-  return `Shared copy: built from ${from}${at}, ${utcText(data.generated_at)}.${label} ${BANNER_TAIL}`;
+  const o = data.overlay;
+  const overlay =
+    o?.state === 'on' && o.count > 0
+      ? " Plans with an open PR show that PR's Tracker."
+      : o?.state === 'off'
+        ? ` Branch progress is off: ${o.reason ?? 'unknown'}.`
+        : '';
+  return `Shared copy: built from ${from}${at}, ${utcText(data.generated_at)}.${label}${overlay} ${BANNER_TAIL}`;
 }

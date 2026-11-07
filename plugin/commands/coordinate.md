@@ -354,7 +354,10 @@ Stalls (design 7.4): one nudge for a busy, silent session that holds a queue ite
    python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" ledger record --repo <R> --what '<gate>' --decision approve --by coordinator --window <N> --reason '<why it passes>' --json
    ```
 2. The owner-only list (design 6, plus config `owner_reserved`) goes to the owner. Never approve it
-   yourself. Send it with:
+   yourself. Decide with the design 6 critical checklist, and read each config `owner_reserved` class
+   through it (for example "permission change" is item 3: an EXISTING permission changes; a new one is
+   routine). When the diff shows clearly that every item is false, the change is routine: do step 1 with
+   the checklist item in `--reason`. When you cannot tell from the diff, ask the owner. Send it with:
    ```
    recommendation: approve | hold
    reason: <one or two sentences>

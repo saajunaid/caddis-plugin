@@ -131,6 +131,25 @@ export interface PlanView {
   open: number;
   /** Unix time of the plan's last change (collector `changed_at`); null when unknown. */
   changedAt: number | null;
+  /** The open PR whose branch Tracker this plan shows (collector `overlay`); null when the plan comes from main. */
+  overlay?: PlanOverlay | null;
+}
+export interface PlanOverlay {
+  pr: number;
+  draft: boolean;
+  also: number[];
+}
+/** The badge text of a plan that shows a PR branch Tracker. */
+export function overlayLabel(o: PlanOverlay): string {
+  const also = o.also.length > 0 ? `; also ${o.also.map((n) => `#${n}`).join(', ')}` : '';
+  return `on branch (${o.draft ? 'draft ' : ''}PR #${o.pr}${also})`;
+}
+const isPrNumber = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+/** The PR number, draft flag and other PR numbers of a plan's `overlay`, or null. Never the branch name. */
+function planOverlay(raw: unknown): PlanOverlay | null {
+  const o = rec(raw);
+  if (!isPrNumber(o.pr)) return null;
+  return { pr: o.pr, draft: o.draft === true, also: asArray(o.also).filter(isPrNumber) };
 }
 /** The kanban columns of a plan board. A `moved` row sits in Done, greyed. */
 export type PlanColumn = 'todo' | 'in-progress' | 'blocked' | 'done';
@@ -491,6 +510,7 @@ function planViews(raw: unknown): PlanView[] {
         phases,
         open: int(p.open_rows),
         changedAt: typeof p.changed_at === 'number' && Number.isFinite(p.changed_at) ? p.changed_at : null,
+        overlay: planOverlay(p.overlay),
       };
     });
 }
@@ -633,6 +653,16 @@ export const collectorStale = (state: HubState): boolean => !state.sources.colle
 
 export const OLD_FETCH_S = 24 * 3600;
 
+/** The branch progress note of the plans slot: how many plans show a PR branch, or why the overlay is off. */
+function overlayText(raw: unknown): string {
+  if (!raw) return '';
+  const o = rec(raw);
+  const count = typeof o.count === 'number' ? o.count : 0;
+  if (o.state === 'on') return count === 1 ? ' · 1 plan from a PR branch' : count > 1 ? ` · ${count} plans from PR branches` : '';
+  if (o.state === 'off') return ` · branch progress off (${str(o.reason) || 'unknown'})`;
+  return '';
+}
+
 export function planSourceText(slot: unknown, nowMs: number): { text: string; old: boolean } | null {
   const s = rec(slot);
   const source = str(s.source);
@@ -647,7 +677,8 @@ export function planSourceText(slot: unknown, nowMs: number): { text: string; ol
     `Plans from ${source}` +
     (commit ? ` @ ${commit}` : '') +
     (commitAt !== null ? ` · commit ${ageText(new Date(commitAt * 1000).toISOString(), nowMs)}` : '') +
-    (at === null ? ' · fetch time unknown' : ` · last fetch ${ageText(new Date(at * 1000).toISOString(), nowMs)}`);
+    (at === null ? ' · fetch time unknown' : ` · last fetch ${ageText(new Date(at * 1000).toISOString(), nowMs)}`) +
+    overlayText(s.overlay);
   return { text, old: at !== null && nowMs / 1000 - at > OLD_FETCH_S };
 }
 

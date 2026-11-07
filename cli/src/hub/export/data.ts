@@ -68,6 +68,19 @@ export interface ExportPlan {
   status: string;
   tracker: { phase: string; status: string; state: string }[];
   open_rows: number;
+  /**
+   * The PR whose branch Tracker the plan shows (plan D9 allow-list): PR number, draft flag and `also` only. Never the
+   * branch name (it can hold a person's name) and never the row `source`. Optional in the type for typed fixtures;
+   * `exportData` always sets it.
+   */
+  overlay?: { pr: number; draft: boolean; also: number[] } | null;
+}
+/** The fixed off reasons. Any other reason text becomes `unknown`: a free text can hold a path. */
+export const OVERLAY_REASONS = ['no PR data', 'PR data unreadable', 'no git', 'privacy hit in branch content'] as const;
+export interface ExportOverlay {
+  state: 'on' | 'off';
+  reason: string | null;
+  count: number;
 }
 export interface ExportData {
   schema: 1;
@@ -77,6 +90,8 @@ export interface ExportData {
   commit: string | null;
   roadmaps: (ExportRoadmap | ExportRoadmapError)[];
   plans: ExportPlan[];
+  /** The branch overlay state of the repo. Optional in the type for typed fixtures; `exportData` always sets it. */
+  overlay?: ExportOverlay | null;
 }
 
 export const GITHUB_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
@@ -88,6 +103,7 @@ const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 const int = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) ? v : 0);
+const posInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 
 /** A full SHA is cut to 7 characters. The scan flags a 40-hex string. */
 const shortSha = (v: unknown): string | null => {
@@ -167,7 +183,24 @@ function plan(raw: unknown): ExportPlan | null {
     status: str(p.status),
     tracker: arr(p.tracker).map((t) => ({ phase: str(rec(t).phase), status: str(rec(t).status), state: str(rec(t).state) })),
     open_rows: int(p.open_rows),
+    overlay: planOverlay(p.overlay),
   };
+}
+
+/** A plan overlay with a positive integer PR number, or null. Copies `pr`, `draft` and `also` only (no `head_ref`). */
+function planOverlay(raw: unknown): ExportPlan['overlay'] {
+  const o = rec(raw);
+  if (!posInt(o.pr)) return null;
+  return { pr: o.pr, draft: o.draft === true, also: arr(o.also).filter(posInt) };
+}
+
+/** The overlay state of the plans slot with a reason from `OVERLAY_REASONS`, or null. */
+function repoOverlay(raw: unknown): ExportOverlay | null {
+  const o = rec(raw);
+  if (o.state !== 'on' && o.state !== 'off') return null;
+  const known = (OVERLAY_REASONS as readonly unknown[]).includes(o.reason);
+  const reason = o.reason === null ? null : known ? (o.reason as string) : 'unknown';
+  return { state: o.state, reason, count: int(o.count) };
 }
 
 /** The slot of the one repo in the collector output, or throws. */
@@ -199,6 +232,7 @@ export function exportData(collect: unknown, opts: ExportOptions): ExportData {
     plans: arr(rec(repo.plans).plans)
       .map(plan)
       .filter((p): p is ExportPlan => p !== null),
+    overlay: repoOverlay(rec(repo.plans).overlay),
   };
 }
 

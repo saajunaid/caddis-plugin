@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -73,6 +73,16 @@ export function makeRepo(base: string, opts: { blockerReason?: string; phaseName
   put(path.join(home, '.caddis', 'hub', 'audit.jsonl'), `{"note":"${CANARY.home}"}\n`);
   put(path.join(home, '.caddis', 'spend', 'log.jsonl'), `{"cap_eur":${CANARY.home.length},"note":"${CANARY.home}"}\n`);
   return { repo, home };
+}
+
+/** Pushes a branch to origin that rewrites `.caddis/plans/p-shop.md` with `edit(old)`, then goes back to `main`. */
+export function pushBranch(repo: string, branch: string, edit: (text: string) => string): void {
+  const file = path.join(repo, '.caddis', 'plans', 'p-shop.md');
+  git(repo, 'checkout', '-q', '-b', branch);
+  writeFileSync(file, edit(readFileSync(file, 'utf8')));
+  git(repo, 'commit', '-q', '-am', 'branch');
+  git(repo, 'push', '-q', '-u', 'origin', branch);
+  git(repo, 'checkout', '-q', 'main');
 }
 
 /** A built app stand-in: the placeholder, one asset, one font, the licences, and files that must NOT be copied. */

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, cpSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, cpSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -374,4 +374,84 @@ describe('collector source', () => {
     expect(s.last_error).toBeNull();
     expect(s.data?.repos[0]?.path).toBe(copy);
   }, 60_000);
+});
+
+describe('PR heads file', () => {
+  let prsDir: string;
+  beforeEach(() => {
+    prsDir = mkdtempSync(path.join(tmpdir(), 'caddis-hub-prs-'));
+  });
+  afterEach(() => {
+    rmSync(prsDir, { recursive: true, force: true });
+  });
+
+  const item = { number: 7, head_ref: 'feat/cart', draft: false, fork: false, updated_at: '2026-10-24T09:00:00Z' };
+
+  it('writes the PR file and passes --prs-file before --json', async () => {
+    const file = path.join(prsDir, 'sub', 'collector-prs.json');
+    let seen: string[] = [];
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: 'py',
+      scriptPath: 'x.py',
+      prs: () => ({ 'acme/shop': [item] }),
+      prsFile: file,
+      spawn: async (_c, args) => {
+        seen = args;
+        return fakeRun(emptyOut)();
+      },
+    });
+    await src.refresh();
+    const idx = seen.indexOf('--prs-file');
+    expect(idx).toBeGreaterThan(-1);
+    expect(seen[idx + 1]).toBe(file);
+    expect(idx).toBeLessThan(seen.indexOf('--json'));
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
+      schema: 1,
+      repos: { 'acme/shop': [item] },
+    });
+  });
+
+  it('sends no --prs-file without the prs option', async () => {
+    let seen: string[] = [];
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: 'py',
+      scriptPath: 'x.py',
+      spawn: async (_c, args) => {
+        seen = args;
+        return fakeRun(emptyOut)();
+      },
+    });
+    await src.refresh();
+    expect(seen).not.toContain('--prs-file');
+  });
+
+  it('retries once without --prs-file for an old script and stops sending it', async () => {
+    const file = path.join(prsDir, 'collector-prs.json');
+    const calls: string[][] = [];
+    const logs: string[] = [];
+    const good = JSON.stringify({ schema: 1, generated_at: 'z', repos: [{ path: 'acme/shop', fingerprint: 'f1' }], spend: {}, guide: {} });
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: 'py',
+      scriptPath: 'x.py',
+      prs: () => ({ 'acme/shop': [item] }),
+      prsFile: file,
+      log: (t) => logs.push(t),
+      spawn: async (_c, args) => {
+        calls.push(args);
+        if (args.includes('--prs-file')) {
+          return { ok: false, code: 1, stdout: '', stderr: 'caddis-hub-collect: unrecognized arguments: --prs-file x', timedOut: false };
+        }
+        return { ok: true, code: 0, stdout: good, stderr: '', timedOut: false };
+      },
+    });
+    await src.refresh();
+    await src.refresh();
+    await src.refresh();
+    expect(calls.map((a) => a.includes('--prs-file'))).toEqual([true, false, false, false]);
+    expect(src.get().ok).toBe(true);
+    expect(logs).toHaveLength(1);
+  });
 });

@@ -1190,6 +1190,12 @@ select:focus-visible {
   letter-spacing: 0.04em;
   color: var(--text-sub);
 }
+.rm-plan-branch {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sub);
+}
 /* Activity */
 .act-filters {
   display: flex;

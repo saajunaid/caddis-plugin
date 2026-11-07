@@ -5,13 +5,14 @@
  * data. The collector reports a fingerprint per repo. A repo's cached data is replaced
  * only when its fingerprint differs. Stale after 3 minutes without a good run.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { bundlePath, packageInfo } from '../../util/pkg.js';
 import { findBin } from '../../util/which.js';
 import { errorLine } from '../../util/log.js';
 import { withTimeout } from '../bounded.js';
+import type { PrHead } from '../prHead.js';
 import { spawnBounded, type SpawnFn } from '../spawn.js';
 
 export const COLLECTOR_SCHEMA = 1;
@@ -55,6 +56,8 @@ export interface CollectorOptions {
   spawn?: SpawnFn;
   /** Where a short note goes. Default: stderr. */
   log?: (text: string) => void;
+  prs?: () => Record<string, PrHead[]>;
+  prsFile?: string;
 }
 
 /** The script in the npm bundle, or the repo's `scripts/` folder in a dev checkout, or the mirror's bundles/ folder. */
@@ -104,6 +107,7 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
   let running: Promise<void> | null = null;
   // An older plugin script exits 2 on `--known`. Once seen, the hub stops sending it.
   let knownUnsupported = false;
+  let prsFileUnsupported = false;
 
   const fail = (message: string): void => {
     lastError = message;
@@ -165,17 +169,36 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
     const known = [...cache.values()]
       .filter((r) => !knownUnsupported && r.error === undefined && typeof r.fingerprint === 'string' && repos.includes(r.path))
       .map((r) => `${r.path}=${r.fingerprint}`);
+    let prsFlag: string[] = [];
+    if (opts.prs && opts.prsFile && repos.length > 0 && !prsFileUnsupported) {
+      try {
+        mkdirSync(path.dirname(opts.prsFile), { recursive: true });
+        writeFileSync(opts.prsFile, JSON.stringify({ schema: 1, repos: opts.prs() }));
+        prsFlag = ['--prs-file', opts.prsFile];
+      } catch {
+        /* leave the flag out for this run */
+      }
+    }
     // The collector needs `--repos`. With none, ask for spend and guide on a path that does not exist.
     const args = repos.length
       ? known.length
-        ? [...pre, script, '--repos', ...repos, '--known', ...known, '--json']
-        : [...pre, script, '--repos', ...repos, '--json']
+        ? [...pre, script, '--repos', ...repos, '--known', ...known, ...prsFlag, '--json']
+        : [...pre, script, '--repos', ...repos, ...prsFlag, '--json']
       : [...pre, script, '--repos', path.join(os.tmpdir(), 'caddis-hub-no-repos'), '--only', 'spend,guide', '--json'];
     let result = await spawn(cmd, args, { timeoutMs: RUN_TIMEOUT_MS });
+    if (!result.ok && prsFlag.length && /unrecognized arguments:.*--prs-file/.test(result.stderr)) {
+      prsFileUnsupported = true;
+      prsFlag = [];
+      log('caddis hub: the collector script does not know --prs-file (old plugin); branch progress is off. Update the plugin.');
+      const retryArgs = known.length
+        ? [...pre, script, '--repos', ...repos, '--known', ...known, '--json']
+        : [...pre, script, '--repos', ...repos, '--json'];
+      result = await spawn(cmd, retryArgs, { timeoutMs: RUN_TIMEOUT_MS });
+    }
     if (!result.ok && result.code === 2 && known.length && repos.length && /unrecognized arguments:.*--known/.test(result.stderr)) {
       knownUnsupported = true;
       log('caddis hub: the collector script does not know --known (old plugin); sending full runs. Update the plugin.');
-      result = await spawn(cmd, [...pre, script, '--repos', ...repos, '--json'], { timeoutMs: RUN_TIMEOUT_MS });
+      result = await spawn(cmd, [...pre, script, '--repos', ...repos, ...prsFlag, '--json'], { timeoutMs: RUN_TIMEOUT_MS });
     }
     if (result.timedOut) return fail(`collector timed out after ${RUN_TIMEOUT_MS / 1000} s`);
     if (!result.ok) {

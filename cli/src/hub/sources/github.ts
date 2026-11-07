@@ -15,6 +15,7 @@ import path from 'node:path';
 import { findBin } from '../../util/which.js';
 import { withTimeout } from '../bounded.js';
 import { spawnBounded, type SpawnFn } from '../spawn.js';
+import type { PrHead } from '../prHead.js';
 import { repoPathFor } from './agents.js';
 
 export const STALE_AFTER_MS = 3 * 60_000;
@@ -50,6 +51,8 @@ export interface PrEntry {
   number: number;
   title: string;
   head_sha: string;
+  head_ref?: string;
+  fork?: boolean;
   author: string | null;
   draft: boolean;
   updated_at: string | null;
@@ -254,6 +257,27 @@ export function accessError(owner: string, tried: string[]): string {
   return `no access with account ${tried.join(', ')}: run gh auth login -h github.com, or ${set}`;
 }
 
+export function prHeads(data: GithubData | null): Record<string, PrHead[]> {
+  if (!data) return {};
+  const out: Record<string, PrHead[]> = {};
+  for (const slot of data.repos) {
+    if (slot.reason === 'no github remote') {
+      out[slot.path] = [];
+    } else if (Array.isArray(slot.prs)) {
+      out[slot.path] = slot.prs
+        .filter((pr) => Boolean(pr.head_ref))
+        .map((pr) => ({
+          number: pr.number,
+          head_ref: pr.head_ref ?? '',
+          draft: pr.draft,
+          fork: pr.fork ?? true,
+          updated_at: pr.updated_at ?? '',
+        }));
+    }
+  }
+  return out;
+}
+
 export function createGithubSource(opts: GithubOptions): GithubSource {
   const now = opts.now ?? Date.now;
   const doFetch: FetchFn = opts.fetch ?? ((url, init) => fetch(url, init));
@@ -347,10 +371,14 @@ export function createGithubSource(opts: GithubOptions): GithubSource {
         }
       }
       const checks = [...byName.values()];
+      const headRepo = str(rec(rec(p.head).repo).full_name);
+      const baseRepo = str(rec(rec(p.base).repo).full_name) ?? repo;
       prs.push({
         number: Number(p.number),
         title: str(p.title) ?? '',
         head_sha: head,
+        head_ref: str(rec(p.head).ref) ?? '',
+        fork: headRepo === null || headRepo.toLowerCase() !== baseRepo.toLowerCase(),
         author: str(rec(p.user).login),
         draft: p.draft === true,
         updated_at: str(p.updated_at),

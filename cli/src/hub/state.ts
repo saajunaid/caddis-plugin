@@ -14,8 +14,9 @@ import { addRepos, normalizeRepoPath, readConfig, readRegistry, repoKey } from '
 import { createAgentsSource, type AgentsSource, type SessionEntry } from './sources/agents.js';
 import { createCollectorSource, type CollectorSource, type Slot } from './sources/collector.js';
 import { createCoordinatorSource, type CoordinatorEntry, type CoordinatorSource } from './sources/coordinator.js';
-import { createGithubSource, type GithubRepoSlot, type GithubSource, type RateInfo } from './sources/github.js';
+import { createGithubSource, prHeads, type GithubRepoSlot, type GithubSource, type RateInfo } from './sources/github.js';
 import { withTimeout } from './bounded.js';
+import { hubDir } from './paths.js';
 import { bundleManifest, packageInfo } from '../util/pkg.js';
 import { caddisHome } from '../util/sessions.js';
 
@@ -285,10 +286,17 @@ export function createHub(opts: HubOptions = {}): StateHub {
     return out;
   };
 
-  const collector = opts.collector ?? createCollectorSource({ repos: repoPaths, now });
-  const agents = opts.agents ?? createAgentsSource({ now, home });
   const github =
     opts.github ?? createGithubSource({ repos: repoPaths, accounts: () => readConfig(home).value.accounts, now });
+  const collector =
+    opts.collector ??
+    createCollectorSource({
+      repos: repoPaths,
+      now,
+      prs: () => prHeads(github.get().data),
+      prsFile: path.join(hubDir(home), 'collector-prs.json'),
+    });
+  const agents = opts.agents ?? createAgentsSource({ now, home });
   const coordinator = opts.coordinator ?? createCoordinatorSource({ home, now });
 
   let versionsCache: { at: number; value: Versions } | null = null;

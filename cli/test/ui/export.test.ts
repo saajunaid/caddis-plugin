@@ -210,3 +210,22 @@ describe.skipIf(!existsSync(path.join(BUILT, 'index.html')))('dist/export (R60)'
     }
   });
 });
+
+describe('bannerText branch progress', () => {
+  it('adds the open PR note when the overlay is on with plans', () => {
+    const text = bannerText({ ...sample({ gates: false }), overlay: { state: 'on', reason: null, count: 1 } });
+    expect(text).toContain(" Plans with an open PR show that PR's Tracker.");
+  });
+  it('says nothing when the overlay is on with no plans or the overlay is null', () => {
+    const plain = bannerText(sample({ gates: false }));
+    expect(bannerText({ ...sample({ gates: false }), overlay: { state: 'on', reason: null, count: 0 } })).toBe(plain);
+    expect(bannerText({ ...sample({ gates: false }), overlay: null })).toBe(plain);
+    expect(plain).not.toContain('Branch progress');
+  });
+  it('gives the reason when the overlay is off', () => {
+    const text = bannerText({ ...sample({ gates: false }), overlay: { state: 'off', reason: 'PR data unreadable', count: 0 } });
+    expect(text).toContain(' Branch progress is off: PR data unreadable.');
+    const unknown = bannerText({ ...sample({ gates: false }), overlay: { state: 'off', reason: null, count: 0 } });
+    expect(unknown).toContain(' Branch progress is off: unknown.');
+  });
+});

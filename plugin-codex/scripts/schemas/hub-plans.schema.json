@@ -37,6 +37,31 @@
         }
       ]
     },
+    "overlay": {
+      "type": "object",
+      "required": [
+        "state",
+        "reason",
+        "count"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "on",
+            "off"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "count": {
+          "type": "integer"
+        }
+      }
+    },
     "plans": {
       "type": "array",
       "items": {
@@ -98,6 +123,12 @@
                         "done",
                         "moved"
                       ]
+                    },
+                    "source": {
+                      "enum": [
+                        "main",
+                        "branch"
+                      ]
                     }
                   }
                 }
@@ -108,6 +139,32 @@
               "changed_at": {
                 "type": ["integer", "null"],
                 "description": "Unix time of the last change: the commit time on origin, or the file time in the working tree. null when unknown."
+              },
+              "overlay": {
+                "type": "object",
+                "required": [
+                  "pr",
+                  "draft",
+                  "head_ref",
+                  "also"
+                ],
+                "properties": {
+                  "pr": {
+                    "type": "integer"
+                  },
+                  "draft": {
+                    "type": "boolean"
+                  },
+                  "head_ref": {
+                    "type": "string"
+                  },
+                  "also": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
               }
             }
           },

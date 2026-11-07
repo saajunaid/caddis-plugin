@@ -173,7 +173,8 @@ hub
   .option('--commit <sha>', 'the commit the page is built from (cut to 7 hex)')
   .option('--label <text>', 'extra text for the banner')
   .option('--check <dir>', 'scan an already built folder and do nothing else')
-  .action(async (options: { repo?: string; out?: string; github?: string; commit?: string; label?: string; check?: string }) => {
+  .option('--prs <file>', 'open PRs as JSON from gh pr list --json number,headRefName,isDraft,isCrossRepository,updatedAt; shows plan progress from PR branches')
+  .action(async (options: { repo?: string; out?: string; github?: string; commit?: string; label?: string; check?: string; prs?: string }) => {
     const { hubExport } = await import('./hub/export/export.js');
     finish(await hubExport(options));
   });

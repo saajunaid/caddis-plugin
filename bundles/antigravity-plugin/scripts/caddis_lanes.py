@@ -1453,6 +1453,12 @@ _CI_LOG_TAIL_LINES = 80
 _CI_LOG_TAIL_CHARS = 8000
 _CI_AGY_TIMEOUT_S = 300
 _CI_GH_SHORT_TIMEOUT_S = 60
+# The gh poll interval, and the wait before ci-watch watches a PR again. Right after `gh pr create` or a push,
+# gh can report no checks yet, or the previous head's checks (item 7, ci-watch-followups). ci-watch then
+# watches again, at most _CI_SETTLE_RETRIES times (about 3 minutes), inside the --timeout budget. A PR that
+# never gets checks (docs only) still ends in `timeout`.
+_CI_POLL_S = 30
+_CI_SETTLE_RETRIES = 6
 _RUN_ID_IN_URL = re.compile(r"/actions/runs/(\d+)")
 
 
@@ -1611,13 +1617,16 @@ def ci_watch(
     run_agy=run_lane,
     run_gh=subprocess.run,
     clock=time.monotonic,
+    sleep=time.sleep,
 ) -> int:
     """Wait for CI with `gh`, using one shared time budget. agy only summarises a failure.
 
     `gh pr checks --watch` (or `gh run watch`) does the waiting, but its exit code is not proof. On a PR,
     RESULT is `pass` only when the check rollup of the PR's head (one `gh pr view --json
     mergeStateStatus,headRefOid,statusCheckRollup`) is non-empty and every check is COMPLETED and green, and
-    the head is the one read before the watch began (a push during the watch is exit 3). On a run, `gh run
+    the head is the one read before the watch began (a push during the watch is exit 3). When the PR head has
+    no checks yet, or gh read an older head's checks (the head's rollup is empty or unfinished, or the head
+    moved), ci-watch waits _CI_POLL_S and watches again, at most _CI_SETTLE_RETRIES times. On a run, `gh run
     view --json status,conclusion,headSha` must read COMPLETED and SUCCESS (a skipped run ran no job). HEAD prints
     the commit. When the result is `fail` and the `ci-watch` routing chain holds agy, agy reads the last lines
     of the failed log (inside its prompt) and returns one line for SUMMARY. agy never changes the result or
@@ -1653,139 +1662,154 @@ def ci_watch(
         _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
         return EXIT_CONFIG
     repo_args = ["--repo", repo_slug] if repo_slug else []
-    head_before: str | None = None
-    if target_kind == "pr":
-        # The head before the watch: a push during the watch can make a new head look green before all its
-        # checks exist, so a pass needs the same head after the watch.
-        before = _ci_gh_run(run_gh, [gh_path, "pr", "view", str(target_id), "--json", "headRefOid", *repo_args],
-                            repo, min(_CI_GH_SHORT_TIMEOUT_S, remaining()))
-        if before is not None and before.returncode == 0:
-            try:
-                head_before = str(json.loads(before.stdout or "").get("headRefOid") or "") or None
-            except (ValueError, AttributeError):
-                head_before = None
-        command = [gh_path, "pr", "checks", str(target_id), "--watch", "--interval", "30", *repo_args]
-    else:
-        command = [gh_path, "run", "watch", str(target_id), "--exit-status", "--interval", "30", *repo_args]
-    try:
-        completed = run_gh(
-            command, cwd=repo, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=remaining(),
-        )
-    except subprocess.TimeoutExpired:
-        print("[caddis-lanes] ci-watch: gh timed out", file=sys.stderr)
-        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
-        return EXIT_CONFIG
-    except OSError as exc:
-        print(f"[caddis-lanes] ci-watch: gh could not start ({exc})", file=sys.stderr)
-        _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
-        return EXIT_CONFIG
-    output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
-    if output:
-        print("\n".join(output.splitlines()[-40:]), file=sys.stderr)
-    no_checks = "no checks reported" in output.lower()
-    code = EXIT_OK if completed.returncode == 0 else (
-        EXIT_FAIL if completed.returncode == 1 and not no_checks else EXIT_CONFIG
-    )
-    result = "pass" if code == EXIT_OK else "fail" if code == EXIT_FAIL else "timeout"
-
-    checks, merge_state = "n/a", "n/a"
-    failing = "see gh output" if code == EXIT_FAIL else "none"
-    run_id: str | None = str(target_id) if target_kind == "run" else None
-    if target_kind == "pr" and code != EXIT_CONFIG:
-        rows = _parse_pr_checks(completed.stdout or "")
-        if rows:
-            # `skipping` is not a failure: count it as passed.
-            passed = sum(1 for _, state, _ in rows if state in {"pass", "skipping"})
-            checks = f"{passed}/{len(rows)}"
-            # Failed checks first; cancelled ones only when nothing failed (they name the wrong run).
-            bad = ([(name, url) for name, state, url in rows if state == "fail"]
-                   or [(name, url) for name, state, url in rows if state == "cancel"])
-            if code == EXIT_FAIL and bad:
-                failing = ", ".join(name for name, _ in bad)
-            for _, url in bad:
-                found = _RUN_ID_IN_URL.search(url)
-                if found:
-                    run_id = found.group(1)
-                    break
-    head = "n/a"
-    if target_kind == "pr" and code != EXIT_CONFIG:
-        # The watch table alone is not proof. gh exited 0 on 16 Oct 2026 with a cancelled row (CHECKS 6/7) and
-        # with a row still unfinished (5/6), and its table can still show an older head's checks. So a pass
-        # also needs the check rollup of the PR's CURRENT head: every check COMPLETED and green. HEAD names
-        # that commit, so a caller can merge only that head.
-        rollup_view = None
-        left = remaining()
-        if left > 0:
-            view = _ci_gh_run(
-                run_gh,
-                [gh_path, "pr", "view", str(target_id), "--json", "mergeStateStatus,headRefOid,statusCheckRollup",
-                 *repo_args],
-                repo, min(_CI_GH_SHORT_TIMEOUT_S, left),
-            )
-            if view is not None and view.returncode == 0:
+    for attempt in range(_CI_SETTLE_RETRIES + 1):
+        settle: str | None = None  # why the PR head is not settled yet; set means watch again
+        head_before: str | None = None
+        if target_kind == "pr":
+            # The head before the watch: a push during the watch can make a new head look green before all its
+            # checks exist, so a pass needs the same head after the watch.
+            before = _ci_gh_run(run_gh, [gh_path, "pr", "view", str(target_id), "--json", "headRefOid", *repo_args],
+                                repo, min(_CI_GH_SHORT_TIMEOUT_S, remaining()))
+            if before is not None and before.returncode == 0:
                 try:
-                    rollup_view = json.loads(view.stdout or "")
-                except ValueError:
-                    rollup_view = None
-        if isinstance(rollup_view, dict):
-            merge_state = str(rollup_view.get("mergeStateStatus") or "") or "n/a"
-            head = str(rollup_view.get("headRefOid") or "") or "n/a"
-        verdict = _rollup_verdict(rollup_view.get("statusCheckRollup")) if isinstance(rollup_view, dict) else None
-        if code == EXIT_OK:
-            if verdict is None or head == "n/a":
-                print("[caddis-lanes] ci-watch: gh said pass, but the head's checks could not be read",
-                      file=sys.stderr)
-                code, result, failing = EXIT_CONFIG, "timeout", "none"
-            else:
-                green, failed, unfinished = verdict
-                checks = f"{green}/{green + len(failed) + len(unfinished)}"
-                if failed:
-                    code, result, failing = EXIT_FAIL, "fail", ", ".join(failed)
-                elif unfinished:
-                    print(f"[caddis-lanes] ci-watch: gh said pass, but not finished: {', '.join(unfinished)}",
+                    head_before = str(json.loads(before.stdout or "").get("headRefOid") or "") or None
+                except (ValueError, AttributeError):
+                    head_before = None
+            command = [gh_path, "pr", "checks", str(target_id), "--watch", "--interval", str(_CI_POLL_S), *repo_args]
+        else:
+            command = [gh_path, "run", "watch", str(target_id), "--exit-status", "--interval", str(_CI_POLL_S),
+                       *repo_args]
+        try:
+            completed = run_gh(
+                command, cwd=repo, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=remaining(),
+            )
+        except subprocess.TimeoutExpired:
+            print("[caddis-lanes] ci-watch: gh timed out", file=sys.stderr)
+            _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+            return EXIT_CONFIG
+        except OSError as exc:
+            print(f"[caddis-lanes] ci-watch: gh could not start ({exc})", file=sys.stderr)
+            _print_ci_watch("timeout", "n/a", "n/a", "none", "gh")
+            return EXIT_CONFIG
+        output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+        if output:
+            print("\n".join(output.splitlines()[-40:]), file=sys.stderr)
+        no_checks = "no checks reported" in output.lower()
+        if target_kind == "pr" and no_checks:
+            settle = "the PR head has no checks yet"
+        code = EXIT_OK if completed.returncode == 0 else (
+            EXIT_FAIL if completed.returncode == 1 and not no_checks else EXIT_CONFIG
+        )
+        result = "pass" if code == EXIT_OK else "fail" if code == EXIT_FAIL else "timeout"
+
+        checks, merge_state = "n/a", "n/a"
+        failing = "see gh output" if code == EXIT_FAIL else "none"
+        run_id: str | None = str(target_id) if target_kind == "run" else None
+        if target_kind == "pr" and code != EXIT_CONFIG:
+            rows = _parse_pr_checks(completed.stdout or "")
+            if rows:
+                # `skipping` is not a failure: count it as passed.
+                passed = sum(1 for _, state, _ in rows if state in {"pass", "skipping"})
+                checks = f"{passed}/{len(rows)}"
+                # Failed checks first; cancelled ones only when nothing failed (they name the wrong run).
+                bad = ([(name, url) for name, state, url in rows if state == "fail"]
+                       or [(name, url) for name, state, url in rows if state == "cancel"])
+                if code == EXIT_FAIL and bad:
+                    failing = ", ".join(name for name, _ in bad)
+                for _, url in bad:
+                    found = _RUN_ID_IN_URL.search(url)
+                    if found:
+                        run_id = found.group(1)
+                        break
+        head = "n/a"
+        if target_kind == "pr" and code != EXIT_CONFIG:
+            # The watch table alone is not proof. gh exited 0 on 16 Oct 2026 with a cancelled row (CHECKS 6/7) and
+            # with a row still unfinished (5/6), and its table can still show an older head's checks. So a pass
+            # also needs the check rollup of the PR's CURRENT head: every check COMPLETED and green. HEAD names
+            # that commit, so a caller can merge only that head.
+            rollup_view = None
+            left = remaining()
+            if left > 0:
+                view = _ci_gh_run(
+                    run_gh,
+                    [gh_path, "pr", "view", str(target_id), "--json", "mergeStateStatus,headRefOid,statusCheckRollup",
+                     *repo_args],
+                    repo, min(_CI_GH_SHORT_TIMEOUT_S, left),
+                )
+                if view is not None and view.returncode == 0:
+                    try:
+                        rollup_view = json.loads(view.stdout or "")
+                    except ValueError:
+                        rollup_view = None
+            if isinstance(rollup_view, dict):
+                merge_state = str(rollup_view.get("mergeStateStatus") or "") or "n/a"
+                head = str(rollup_view.get("headRefOid") or "") or "n/a"
+            verdict = _rollup_verdict(rollup_view.get("statusCheckRollup")) if isinstance(rollup_view, dict) else None
+            if code == EXIT_OK:
+                if verdict is None or head == "n/a":
+                    print("[caddis-lanes] ci-watch: gh said pass, but the head's checks could not be read",
                           file=sys.stderr)
                     code, result, failing = EXIT_CONFIG, "timeout", "none"
-                elif head_before is None:
-                    print("[caddis-lanes] ci-watch: the head before the watch could not be read, so a push "
-                          "during the watch cannot be ruled out; watch again", file=sys.stderr)
-                    code, result, failing = EXIT_CONFIG, "timeout", "head not read before the watch"
-                elif head != head_before:
-                    print(f"[caddis-lanes] ci-watch: the head moved during the watch ({head_before} -> {head}); "
-                          "watch again", file=sys.stderr)
-                    code, result, failing = EXIT_CONFIG, "timeout", "head moved during the watch"
-    elif target_kind == "run" and code == EXIT_OK:
-        # The same rule for one run: pass only when the run reads COMPLETED and SUCCESS; HEAD is its commit. A whole
-        # run that is SKIPPED or NEUTRAL ran no job (gh run watch --exit-status exits 0 on it): could not tell.
-        run_view = None
-        left = remaining()
-        if left > 0:
-            view = _ci_gh_run(
-                run_gh, [gh_path, "run", "view", str(target_id), "--json", "status,conclusion,headSha", *repo_args],
-                repo, min(_CI_GH_SHORT_TIMEOUT_S, left),
-            )
-            if view is not None and view.returncode == 0:
-                try:
-                    run_view = json.loads(view.stdout or "")
-                except ValueError:
-                    run_view = None
-        if not isinstance(run_view, dict) or not run_view.get("headSha"):
-            print("[caddis-lanes] ci-watch: gh said pass, but the run could not be read", file=sys.stderr)
-            code, result = EXIT_CONFIG, "timeout"
-        else:
-            head = str(run_view["headSha"])
-            status = str(run_view.get("status") or "").upper()
-            conclusion = str(run_view.get("conclusion") or "").upper()
-            if status != "COMPLETED":
-                print(f"[caddis-lanes] ci-watch: gh said pass, but run {target_id} is {status.lower() or 'unknown'}",
-                      file=sys.stderr)
+                    if head != "n/a":  # gh read an older head's checks; the new head has none yet
+                        settle = "the head's checks are not reported yet"
+                else:
+                    green, failed, unfinished = verdict
+                    checks = f"{green}/{green + len(failed) + len(unfinished)}"
+                    if failed:
+                        code, result, failing = EXIT_FAIL, "fail", ", ".join(failed)
+                    elif unfinished:
+                        print(f"[caddis-lanes] ci-watch: gh said pass, but not finished: {', '.join(unfinished)}",
+                              file=sys.stderr)
+                        code, result, failing = EXIT_CONFIG, "timeout", "none"
+                        settle = "the head's checks are not finished"
+                    elif head_before is None:
+                        print("[caddis-lanes] ci-watch: the head before the watch could not be read, so a push "
+                              "during the watch cannot be ruled out; watch again", file=sys.stderr)
+                        code, result, failing = EXIT_CONFIG, "timeout", "head not read before the watch"
+                    elif head != head_before:
+                        print(f"[caddis-lanes] ci-watch: the head moved during the watch ({head_before} -> {head}); "
+                              "watch again", file=sys.stderr)
+                        code, result, failing = EXIT_CONFIG, "timeout", "head moved during the watch"
+                        settle = "the head moved during the watch"
+        elif target_kind == "run" and code == EXIT_OK:
+            # The same rule for one run: pass only when the run reads COMPLETED and SUCCESS; HEAD is its commit. A whole
+            # run that is SKIPPED or NEUTRAL ran no job (gh run watch --exit-status exits 0 on it): could not tell.
+            run_view = None
+            left = remaining()
+            if left > 0:
+                view = _ci_gh_run(
+                    run_gh, [gh_path, "run", "view", str(target_id), "--json", "status,conclusion,headSha", *repo_args],
+                    repo, min(_CI_GH_SHORT_TIMEOUT_S, left),
+                )
+                if view is not None and view.returncode == 0:
+                    try:
+                        run_view = json.loads(view.stdout or "")
+                    except ValueError:
+                        run_view = None
+            if not isinstance(run_view, dict) or not run_view.get("headSha"):
+                print("[caddis-lanes] ci-watch: gh said pass, but the run could not be read", file=sys.stderr)
                 code, result = EXIT_CONFIG, "timeout"
-            elif conclusion in {"SKIPPED", "NEUTRAL"}:
-                print(f"[caddis-lanes] ci-watch: run {target_id} is {conclusion.lower()}: no job ran, so this is "
-                      "not a pass", file=sys.stderr)
-                code, result, failing = EXIT_CONFIG, "timeout", f"run {target_id} ({conclusion.lower()})"
-            elif conclusion != "SUCCESS":
-                code, result, failing = EXIT_FAIL, "fail", f"run {target_id} ({conclusion.lower() or 'unknown'})"
+            else:
+                head = str(run_view["headSha"])
+                status = str(run_view.get("status") or "").upper()
+                conclusion = str(run_view.get("conclusion") or "").upper()
+                if status != "COMPLETED":
+                    print(f"[caddis-lanes] ci-watch: gh said pass, but run {target_id} is {status.lower() or 'unknown'}",
+                          file=sys.stderr)
+                    code, result = EXIT_CONFIG, "timeout"
+                elif conclusion in {"SKIPPED", "NEUTRAL"}:
+                    print(f"[caddis-lanes] ci-watch: run {target_id} is {conclusion.lower()}: no job ran, so this is "
+                          "not a pass", file=sys.stderr)
+                    code, result, failing = EXIT_CONFIG, "timeout", f"run {target_id} ({conclusion.lower()})"
+                elif conclusion != "SUCCESS":
+                    code, result, failing = EXIT_FAIL, "fail", f"run {target_id} ({conclusion.lower() or 'unknown'})"
+        if (settle is None or attempt == _CI_SETTLE_RETRIES
+                or remaining() <= _CI_POLL_S):
+            break
+        print(f"[caddis-lanes] ci-watch: {settle}; watching again in {_CI_POLL_S}s "
+              f"(retry {attempt + 1}/{_CI_SETTLE_RETRIES})", file=sys.stderr)
+        sleep(_CI_POLL_S)
 
     summary: str | None = None
     # Walk the chain in order: agy summarises only when it comes before claude (claude = no helper).

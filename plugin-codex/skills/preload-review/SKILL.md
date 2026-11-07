@@ -13,7 +13,7 @@ token counts. It changes nothing unless you say yes.
 ## Step 1 — find the script
 
 Resolve the script path:
-- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.180/scripts/caddis_preload_review.py`
+- Plugin install: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.181/scripts/caddis_preload_review.py`
 - harness (caddis) checkout: `scripts/caddis_preload_review.py`
 
 ## Step 2 — run it

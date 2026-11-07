@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { type ComponentProps, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { Plans } from '../../ui/src/repo/PlanList';
 import RoadmapTab from '../../ui/src/repo/RoadmapTab';
 import type { HubState, RepoState } from '../../ui/src/types';
 
@@ -50,5 +51,26 @@ describe('RoadmapTab markup snapshots', () => {
 
   it('billing direct', () => {
     expect(html({ repo: billing, slug: null, nowMs: NOW })).toMatchSnapshot();
+  });
+});
+
+describe('plan overlay badge', () => {
+  const docs = repoOf(load('full'), 'docs');
+  const planWith = (overlay: { pr: number; draft: boolean; also: number[] } | null) => ({
+    path: '.caddis/plans/p.md',
+    title: 'P',
+    rows: [{ phase: '1', status: 'done #7', state: 'done' as const, key: '1', milestone: null }],
+    phases: {},
+    open: 0,
+    changedAt: null,
+    overlay,
+  });
+  it('a plan from a PR branch shows the badge', () => {
+    const out = renderToStaticMarkup(createElement(Plans, { plans: [planWith({ pr: 540, draft: false, also: [] })], repo: docs, variant: 'hub' }));
+    expect(out).toContain('<span class="rm-plan-branch" data-testid="rm-plan-branch">on branch (PR #540)</span>');
+  });
+  it('a plan with no overlay shows no badge', () => {
+    const out = renderToStaticMarkup(createElement(Plans, { plans: [planWith(null)], repo: docs, variant: 'hub' }));
+    expect(out).not.toContain('rm-plan-branch');
   });
 });

@@ -20,6 +20,7 @@ import {
   phaseDetail,
   phaseMeta,
   planSourceText,
+  overlayLabel,
   stageOf,
   TILE_LABEL,
   type PlanView,
@@ -179,6 +180,7 @@ describe('list, one roadmap, errors, fallbacks (P14, P17, P18, R48, R49)', () =>
         phases: {},
         open: 2,
         changedAt: null,
+        overlay: null,
       },
     ]);
   });
@@ -366,6 +368,17 @@ describe('planSourceText', () => {
     expect(stale?.old).toBe(true);
   });
 
+  it('appends the branch progress state of the plans slot', () => {
+    const base = 'Plans from origin/main · fetch time unknown';
+    const text = (overlay: unknown): string | undefined => planSourceText({ source: 'origin/main', overlay }, NOW)?.text;
+    expect(text({ state: 'on', reason: null, count: 2 })).toBe(`${base} · 2 plans from PR branches`);
+    expect(text({ state: 'on', reason: null, count: 1 })).toBe(`${base} · 1 plan from a PR branch`);
+    expect(text({ state: 'on', reason: null, count: 0 })).toBe(base);
+    expect(text({ state: 'off', reason: 'no PR data', count: 0 })).toBe(`${base} · branch progress off (no PR data)`);
+    expect(text({ state: 'off', reason: null, count: 0 })).toBe(`${base} · branch progress off (unknown)`);
+    expect(text(undefined)).toBe(base);
+  });
+
   it('renders rm-source on the hub RoadmapTab', () => {
     const repo = repoOf(load('full'), 'docs');
     const plans = repo.plans as Record<string, unknown>;
@@ -491,5 +504,33 @@ describe('stageOf and phaseMeta', () => {
     );
     expect(phaseMeta({ model: 'sonnet', lane: 'agy foo', risk: 'high' })).toBe('model sonnet · lane agy · risk high');
     expect(phaseMeta({ model: '', lane: '', risk: '' })).toBe('');
+  });
+});
+
+describe('plan overlay', () => {
+  it('overlayLabel names the PR, the draft flag and the other PRs', () => {
+    expect(overlayLabel({ pr: 540, draft: false, also: [] })).toBe('on branch (PR #540)');
+    expect(overlayLabel({ pr: 540, draft: true, also: [] })).toBe('on branch (draft PR #540)');
+    expect(overlayLabel({ pr: 540, draft: false, also: [541, 542] })).toBe('on branch (PR #540; also #541, #542)');
+  });
+
+  const overlayOf = (extra: Record<string, unknown>): unknown => {
+    const docs = repoOf(load('full'), 'docs');
+    const plan = (docs.plans as { plans: Record<string, unknown>[] }).plans[0]!;
+    delete plan.overlay;
+    Object.assign(plan, extra);
+    return deriveRoadmaps(docs).plans[0]!.overlay;
+  };
+  it('planViews keeps pr, draft and also, and never head_ref', () => {
+    expect(overlayOf({ overlay: { pr: 7, draft: false, head_ref: 'feat/p', also: [] } })).toEqual({
+      pr: 7,
+      draft: false,
+      also: [],
+    });
+  });
+  it('planViews gives null without the key or with a PR number that is not positive', () => {
+    expect(overlayOf({})).toBeNull();
+    expect(overlayOf({ overlay: { pr: 0 } })).toBeNull();
+    expect(overlayOf({ overlay: null })).toBeNull();
   });
 });
