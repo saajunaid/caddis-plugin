@@ -225,3 +225,48 @@ test.describe('themes and keyboard', () => {
     expect(seen.size).toBe(navLinks);
   });
 });
+
+test.describe('hover information (D12)', () => {
+  test('a KPI tile: hover shows the tip, keyboard focus shows it, Escape hides it', async ({ page, openHub }) => {
+    await openHub('full');
+    const tip = page.getByTestId('tip');
+    const tile = page.locator('.kpi-tile', { hasText: 'Waiting on you' });
+
+    await tile.hover();
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText('items in Needs you that wait on your answer');
+    await expect(tile).toHaveAttribute('aria-describedby', /.+/);
+    // The pointer is on the bubble: it stays.
+    await tip.hover();
+    await page.waitForTimeout(300);
+    await expect(tip).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(tip).toBeHidden();
+
+    // Away from the page, then Tab until the tile has focus.
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('Tab');
+      if (await tile.evaluate((n) => n === document.activeElement)) break;
+    }
+    await expect(tile).toBeFocused();
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText('items in Needs you that wait on your answer');
+    await page.keyboard.press('Escape');
+    await expect(tip).toBeHidden();
+  });
+
+  test('a phase tile: hover shows its reference, name and state', async ({ page, openHub }) => {
+    await openHub('full', undefined, '#/repo/acme__shop/roadmap/launch');
+    const tile = page.getByTestId('rm-timeline').locator('.rm-tile:visible').first();
+    const name = (await tile.locator('span').first().textContent())?.trim() ?? '';
+    await tile.hover();
+    const tip = page.getByTestId('tip');
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText(name);
+    await expect(tip).toContainText(/to do|in progress|done|moved|blocked/);
+    await page.keyboard.press('Escape');
+    await expect(tip).toBeHidden();
+  });
+});

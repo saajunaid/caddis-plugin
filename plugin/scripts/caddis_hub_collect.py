@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Batched hub collector: every repo's roadmaps, plans and relays, plus agy spend and the guide, as one JSON object.
 
-Usage: caddis_hub_collect.py --repos PATH [PATH ...] [--only roadmaps,plans,relays,spend,guide] [--known PATH=FP ...] --json
+Usage: caddis_hub_collect.py --repos PATH [PATH ...] [--only roadmaps,plans,relays,spend,guide] [--known PATH=FP ...]
+       [--prs-file PATH] [--done-known PATH=TREE ...] --json
 
 The hub runs this once per cycle. It runs in ONE Python process for all repos (hub rule R15, spawn cost L8). It
 never calls gh, claude or agy, and never runs `git fetch`: the roadmap reader sees the origin refs the repo
@@ -70,9 +71,11 @@ def _fetch_time(common: Path) -> int | None:
         return None
 
 
-def _plans_json(root: Path, prs: list[dict] | None = None, off_reason: str | None = None) -> dict:
+def _plans_json(root: Path, prs: list[dict] | None = None, off_reason: str | None = None,
+                done_known: str | None = None) -> dict:
     """Plans from the origin ref the repo already has (R15: local git only), so a pushed Tracker edit shows with no
-    pull. A folder that is not a git checkout, or has no origin default branch, reads the working tree."""
+    pull. A folder that is not a git checkout, or has no origin default branch, reads the working tree.
+    `done_known` is the done tree the hub already holds: the same tree comes back as `unchanged` (D2)."""
     branch = None
     common = git_common_dir(Path(root))
     if common is None:
@@ -98,7 +101,8 @@ def _plans_json(root: Path, prs: list[dict] | None = None, off_reason: str | Non
             branch = None
         finally:
             roadmap.FETCH = saved
-    out = _sibling("caddis_todo").plans_json(root, branch=branch, prs=prs)
+    extra = {"done_known": done_known} if done_known is not None else {}  # an older plans_json takes no such key
+    out = _sibling("caddis_todo").plans_json(root, branch=branch, prs=prs, **extra)
     if common is not None and isinstance(out, dict):
         out["fetched_at"] = _fetch_time(common)
     if off_reason is not None and isinstance(out, dict):
@@ -264,20 +268,22 @@ def fingerprint(repo: Path, prs: list[dict] | None = None) -> str:
     return hashlib.sha256(json.dumps(sorted(rows)).encode("utf-8")).hexdigest()
 
 
-def parse_known(values: list[str]) -> dict[str, str]:
+def parse_known(values: list[str], flag: str = "--known") -> dict[str, str]:
+    """`PATH=VALUE` items as {PATH: VALUE}, split on the last `=`. Used for --known and --done-known."""
     known: dict[str, str] = {}
     for value in values:
         if "=" not in value:
-            raise ValueError(f"bad --known value: {value}")
+            raise ValueError(f"bad {flag} value: {value}")
         path, fp = value.rsplit("=", 1)
         if not path or not fp:
-            raise ValueError(f"bad --known value: {value}")
+            raise ValueError(f"bad {flag} value: {value}")
         known[path] = fp
     return known
 
 
 def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None = None,
-                 prs_map: dict[str, list[dict]] | None = None, overlay: bool = False) -> dict:
+                 prs_map: dict[str, list[dict]] | None = None, overlay: bool = False,
+                 done_known: dict[str, str] | None = None) -> dict:
     repo = Path(path)
     if not repo.is_dir():
         return {"path": path, "error": "not a folder"}
@@ -301,7 +307,8 @@ def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None
             continue
         try:
             if kind == "plans":
-                entry[kind] = _plans_json(repo, prs=repo_prs, off_reason=off)
+                entry[kind] = _plans_json(repo, prs=repo_prs, off_reason=off,
+                                          done_known=(done_known or {}).get(path))  # keyed like --known
             else:
                 entry[kind] = _REPO_COLLECTORS[kind](repo)
         except Exception as exc:
@@ -310,9 +317,10 @@ def collect_repo(path: str, kinds: tuple[str, ...], known: dict[str, str] | None
 
 
 def collect(repos: list[str], kinds: tuple[str, ...], known: dict[str, str] | None = None,
-            prs_map: dict[str, list[dict]] | None = None, overlay: bool = False) -> dict:
+            prs_map: dict[str, list[dict]] | None = None, overlay: bool = False,
+            done_known: dict[str, str] | None = None) -> dict:
     out: dict = {"schema": SCHEMA, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 "repos": [collect_repo(path, kinds, known, prs_map, overlay) for path in repos]}
+                 "repos": [collect_repo(path, kinds, known, prs_map, overlay, done_known) for path in repos]}
     for kind, call in (("spend", _spend_json), ("guide", _guide_json)):
         if kind not in kinds:
             continue
@@ -339,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", default=",".join(KINDS), help="comma list of: " + ", ".join(KINDS))
     parser.add_argument("--known", nargs="+", default=[], metavar="PATH=FP")
     parser.add_argument("--prs-file", default=None, metavar="PATH")
+    parser.add_argument("--done-known", nargs="+", default=[], metavar="PATH=TREE",
+                        help="the done-plans tree the hub holds per repo; the same tree comes back as unchanged")
     parser.add_argument("--json", action="store_true", required=True)
     args = parser.parse_args(argv)
     kinds = tuple(k.strip() for k in args.only.split(",") if k.strip())
@@ -347,11 +357,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"unknown --only kind: {', '.join(unknown) or '(empty)'}; use {', '.join(KINDS)}")
     try:
         known = parse_known(args.known)
+        done_known = parse_known(args.done_known, "--done-known")
     except ValueError as exc:
         parser.error(str(exc))
     overlay = args.prs_file is not None
     prs_map = load_prs(args.prs_file) if overlay else None
-    print(json.dumps(collect(args.repos, kinds, known, prs_map, overlay), ensure_ascii=False))
+    print(json.dumps(collect(args.repos, kinds, known, prs_map, overlay, done_known), ensure_ascii=False))
     return 0
 
 

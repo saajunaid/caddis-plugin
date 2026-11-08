@@ -53,6 +53,18 @@ export default function Activity({ state }: { state: HubState }): JSX.Element {
           </select>
         </label>
         <div className="act-kinds" role="group" aria-label="Kinds">
+          <button
+            type="button"
+            className="act-kind"
+            aria-pressed={kinds.size === 0}
+            data-testid="kind-all"
+            onClick={() => {
+              setKinds(new Set());
+              setShown(PAGE_SIZE);
+            }}
+          >
+            All
+          </button>
           {KINDS.map((k) => (
             <button key={k} type="button" className="act-kind" aria-pressed={kinds.has(k)} data-testid={`kind-${k}`} onClick={() => toggle(k)}>
               {KIND_LABEL[k]}

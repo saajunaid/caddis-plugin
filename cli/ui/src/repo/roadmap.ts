@@ -204,7 +204,20 @@ export interface RepoRoadmaps {
   otherPlans: PlanView[];
   /** The collector's error for this repo, shown instead of data. */
   repoError: string | null;
+  /** Finished plans from `origin/<default>:.caddis/plans/done`, in the collector's order (newest first). */
+  done: DonePlanView[];
 }
+
+/** One finished plan (plan D5). `closedAt` is Unix seconds, or null when no add commit was found. */
+export interface DonePlanView {
+  path: string;
+  title: string;
+  closedAt: number | null;
+  phases: number;
+  pr: PrLink | null;
+}
+/** The Done plans section shows this many rows, then a "Show all N" button. */
+export const DONE_SHOWN = 10;
 
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -515,6 +528,20 @@ function planViews(raw: unknown): PlanView[] {
     });
 }
 
+/** Finished plans of a repo. A row with an error is skipped; an error or unchanged slot gives none. */
+export function donePlanViews(repo: RepoState): DonePlanView[] {
+  return asArray(rec(rec(repo.plans).done).plans)
+    .map((p) => rec(p))
+    .filter((p) => !p.error && str(p.path))
+    .map((p) => ({
+      path: str(p.path),
+      title: str(p.title) || str(p.path),
+      closedAt: typeof p.closed_at === 'number' && Number.isFinite(p.closed_at) ? p.closed_at : null,
+      phases: int(p.phases),
+      pr: typeof p.pr === 'number' && Number.isInteger(p.pr) && p.pr > 0 ? (prLinks(repo, [p.pr])[0] ?? null) : null,
+    }));
+}
+
 /** The Roadmap tab model of one repo (R48, R49). */
 export function deriveRoadmaps(repo: RepoState): RepoRoadmaps {
   const slot = rec(repo.roadmaps);
@@ -529,7 +556,7 @@ export function deriveRoadmaps(repo: RepoState): RepoRoadmaps {
   const plans = planViews(repo.plans);
   const named = new Set(roadmaps.flatMap((r) => r.lanes.map((l) => l.plan)));
   const otherPlans = plans.filter((p) => p.rows.length > 0 && p.open > 0 && !named.has(planStemOf(p.path)));
-  const base = { roadmaps, errors, plans, otherPlans, repoError };
+  const base = { roadmaps, errors, plans, otherPlans, repoError, done: donePlanViews(repo) };
   if (roadmaps.length || errors.length) return { mode: 'roadmaps', ...base };
   if (repoError && !repo.roadmaps && !repo.plans) return { mode: 'error', ...base };
   if (plans.length) return { mode: 'plans', ...base };

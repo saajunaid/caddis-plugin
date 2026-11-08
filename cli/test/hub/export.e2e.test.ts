@@ -126,6 +126,24 @@ describe.skipIf(!HAVE_PYTHON)('caddis hub export (R56, R58, R61)', () => {
     expect(all).toContain('"github":"acme/shop"');
   });
 
+  it('leaves a done plan with a private word in its name out, says so, and still exits 0', async () => {
+    const fx = makeRepo(base);
+    put(path.join(fx.repo, '.caddis', 'plans', 'done', 'x-prompt.md'), '# Sample prompt rebuild\n');
+    put(path.join(fx.repo, '.caddis', 'plans', 'done', 'hub-done-plans.md'), '# Hub done plans\n');
+    git(fx.repo, 'add', '.caddis/plans/done/x-prompt.md', '.caddis/plans/done/hub-done-plans.md');
+    git(fx.repo, 'commit', '-q', '-m', 'done plans');
+    git(fx.repo, 'push', '-q', 'origin', 'main');
+    const out = path.join(base, 'site');
+    const r = await run(fx, out);
+    expect(r.err).toEqual([]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('[DONE] 1 done plan(s) left out: private words in the name');
+    const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+    const { data } = dataBlock(html);
+    expect((data as { done_plans: { path: string }[] }).done_plans.map((p) => p.path)).toEqual(['.caddis/plans/done/hub-done-plans.md']);
+    expect(html).not.toContain('x-prompt');
+  });
+
   it('starts only python, once, for roadmaps and plans of the one repo', async () => {
     const fx = makeRepo(base);
     const r = await run(fx, path.join(base, 'site'));

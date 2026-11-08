@@ -366,8 +366,9 @@
 .gp-stage,
 .gp-band,
 .gp-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-dim);
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl), var(--shadow-1);
   border-radius: 12px;
   padding: 14px;
   min-width: 0;

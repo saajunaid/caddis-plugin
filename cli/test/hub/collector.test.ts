@@ -455,3 +455,122 @@ describe('PR heads file', () => {
     expect(logs).toHaveLength(1);
   });
 });
+
+describe('done plans cache (plan D2)', () => {
+  const doneList = (tree: string) => ({ tree, plans: [{ path: '.caddis/plans/done/x.md', title: 'X', closed_at: 1, phases: 2, pr: 3 }] });
+  const out = (repo: Record<string, unknown>) =>
+    JSON.stringify({ schema: 1, generated_at: 'z', repos: [{ path: 'acme/shop', ...repo }], spend: {}, guide: {} });
+  const run = (stdout: string) => ({ ok: true, code: 0, stdout, stderr: '', timedOut: false });
+
+  /** A source whose spawn answers from `answers` in order and records every argv. */
+  function sourceWith(answers: ReturnType<typeof run>[], calls: string[][], logs: string[] = []) {
+    let n = 0;
+    return createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: 'py',
+      scriptPath: 'x.py',
+      log: (t) => logs.push(t),
+      spawn: async (_c, args) => {
+        calls.push(args);
+        return answers[Math.min(n++, answers.length - 1)]!;
+      },
+    });
+  }
+
+  it('sends --done-known for a cached tree, and not on the first run', async () => {
+    const calls: string[][] = [];
+    const src = sourceWith([run(out({ fingerprint: 'f1', plans: { done: doneList('t1') } }))], calls);
+    await src.refresh();
+    await src.refresh();
+    expect(calls[0]).not.toContain('--done-known');
+    const argv = calls[1]!;
+    expect(argv[argv.indexOf('--done-known') + 1]).toBe('acme/shop=t1');
+    expect(argv[argv.length - 1]).toBe('--json');
+  });
+
+  it('sends no --done-known when the cached repo has no done tree', async () => {
+    const calls: string[][] = [];
+    const src = sourceWith([run(out({ fingerprint: 'f1', plans: { done: { tree: null, plans: [] } } }))], calls);
+    await src.refresh();
+    await src.refresh();
+    expect(calls[1]).toContain('--known');
+    expect(calls[1]).not.toContain('--done-known');
+  });
+
+  it('a new fingerprint with an unchanged done tree keeps the old list', async () => {
+    const calls: string[][] = [];
+    const src = sourceWith(
+      [
+        run(out({ fingerprint: 'f1', plans: { done: doneList('t1') } })),
+        run(out({ fingerprint: 'f2', plans: { plans: [], done: { tree: 't1', unchanged: true } } })),
+      ],
+      calls,
+    );
+    await src.refresh();
+    await src.refresh();
+    const repo = src.get().data?.repos[0];
+    expect(repo?.fingerprint).toBe('f2');
+    expect(repo?.plans?.done).toEqual(doneList('t1'));
+  });
+
+  it('unchanged with a different or missing cached tree gives the error slot, which has no tree', async () => {
+    const calls: string[][] = [];
+    const src = sourceWith(
+      [
+        run(out({ fingerprint: 'f1', plans: { done: doneList('t1') } })),
+        run(out({ fingerprint: 'f2', plans: { done: { tree: 't9', unchanged: true } } })),
+        run(out({ fingerprint: 'f3', plans: { done: { tree: 't9', unchanged: true } } })),
+      ],
+      calls,
+    );
+    await src.refresh();
+    await src.refresh();
+    expect(src.get().data?.repos[0]?.plans?.done).toEqual({ error: 'done plans not cached' });
+    await src.refresh();
+    expect(calls[2]).not.toContain('--done-known');
+    // The error slot drops the fingerprint, so the next run sends no --known and takes the fresh entry.
+    expect(calls[2]).not.toContain('--known');
+    const fresh: string[][] = [];
+    const cold = sourceWith([run(out({ fingerprint: 'f1', plans: { done: { tree: 't1', unchanged: true } } }))], fresh);
+    await cold.refresh();
+    expect(cold.get().data?.repos[0]?.plans?.done).toEqual({ error: 'done plans not cached' });
+  });
+
+  it('a hub that restarts has no cache: it sends no --done-known', async () => {
+    const calls: string[][] = [];
+    const src = sourceWith([run(out({ fingerprint: 'f1', plans: { done: doneList('t1') } }))], calls);
+    await src.refresh();
+    const restarted: string[][] = [];
+    const again = sourceWith([run(out({ fingerprint: 'f1', plans: { done: doneList('t1') } }))], restarted);
+    await again.refresh();
+    expect(restarted[0]).not.toContain('--done-known');
+    expect(again.get().data?.repos[0]?.plans?.done).toEqual(doneList('t1'));
+  });
+
+  it('retries once without --done-known for an old script and stops sending it', async () => {
+    const calls: string[][] = [];
+    const logs: string[] = [];
+    const oldScript = { ok: false, code: 2, stdout: '', stderr: 'caddis_hub_collect.py: error: unrecognized arguments: --done-known acme/shop=t1', timedOut: false };
+    const good = run(out({ fingerprint: 'f1', plans: { done: doneList('t1') } }));
+    let n = 0;
+    const src = createCollectorSource({
+      repos: () => ['acme/shop'],
+      python: 'py',
+      scriptPath: 'x.py',
+      log: (t) => logs.push(t),
+      spawn: async (_c, args) => {
+        calls.push(args);
+        n += 1;
+        return args.includes('--done-known') ? oldScript : good;
+      },
+    });
+    await src.refresh(); // no cache: no flag
+    await src.refresh(); // flag sent, exit 2, retry without it
+    await src.refresh(); // never sent again
+    expect(n).toBe(4);
+    expect(calls.map((a) => a.includes('--done-known'))).toEqual([false, true, false, false]);
+    expect(calls[2]).toContain('--known');
+    expect(src.get().ok).toBe(true);
+    expect(logs).toHaveLength(1);
+  });
+});

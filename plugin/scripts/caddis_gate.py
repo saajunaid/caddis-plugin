@@ -712,14 +712,28 @@ def review_tier(files: list[tuple[str, int]], plan_risk: str = "normal") -> str:
     return "1"
 
 
+def area_reviewers(files: list[tuple[str, int]], phase_type: str | None = None) -> list[str]:
+    """Area reviewers for a diff: `security-analyst` when the auth trigger fires on a non-tier-0 path,
+    `ui-design-reviewer` when the plan phase's Type is `ui`. Never both for the wrong reason: docs and tests are tier 0."""
+    non_tier0 = [(p, lines) for p, lines in files if not is_tier0_file(p)]
+    names = []
+    fired = review_triggers([p for p, _ in non_tier0], 0)
+    if any(label == "auth" for label, _, _ in fired):
+        names.append("security-analyst")
+    if (phase_type or "").strip().lower() == "ui":
+        names.append("ui-design-reviewer")
+    return names
+
+
 def gate_review_tier(
     repo_root: Path,
     rev_range: str | None = None,
     plan: Path | str | None = None,
     phase: int | str | None = None,
 ) -> int:
-    """Print the tier and reviewer count for the diff and plan phase."""
+    """Print the tier, reviewer count and area reviewers for the diff and plan phase."""
     risk = "normal"
+    ptype = None
     if plan and phase is None:
         risk = "high"  # fail closed: a plan without a phase cannot give a risk
     elif plan and phase is not None:
@@ -730,6 +744,7 @@ def gate_review_tier(
                 sys.path.insert(0, str(Path(__file__).resolve().parent))
                 import caddis_review
             risk = caddis_review.phase_risk(Path(plan), phase)
+            ptype = caddis_review.phase_type(Path(plan), phase)
         except Exception:
             # Fail closed: a plan risk we cannot read counts as high (tier 2).
             risk = "high"
@@ -739,11 +754,13 @@ def gate_review_tier(
         sys.stderr.write(f"caddis-gate: review-tier could not read the diff ({exc}); counting it as tier 2\n")
         print("TIER: 2")
         print("REVIEWERS: 1")
+        print("AREA: none")
         return EXIT_OK
     tier = review_tier(files, plan_risk=risk)
     reviewers = TIER_REVIEWERS.get(tier, 1)
     print(f"TIER: {tier}")
     print(f"REVIEWERS: {reviewers}")
+    print(f"AREA: {', '.join(area_reviewers(files, ptype)) or 'none'}")
     return EXIT_OK
 
 

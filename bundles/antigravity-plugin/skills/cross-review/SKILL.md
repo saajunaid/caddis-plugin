@@ -126,6 +126,12 @@ a reason.
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
+**Area reviewers.** `review-tier` also prints an `AREA:` line. For each name on it, dispatch that subagent once, at the end of the phase, after the tier review.
+- `security-analyst`: review `git diff <base>...HEAD`.
+- `ui-design-reviewer`: give it the app URL from the phase exit gate, or the run command in `.caddis/PROJECT-FACTS.md`. If no app is running, write `UI review skipped: no running app` in the review file.
+- Security findings of `critical` or `high` severity are blocking. UI findings that break use or WCAG AA are blocking. Fix them under the same 3-round limit. Park all other findings in the parking lot.
+- `AREA: none`: run nothing extra.
+
 A diff over the batch ceiling is split into batches. Each batch prompt lists every file in the
 change, so a batch does not report the others as missing.
 

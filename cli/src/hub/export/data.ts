@@ -75,6 +75,14 @@ export interface ExportPlan {
    */
   overlay?: { pr: number; draft: boolean; also: number[] } | null;
 }
+/** A finished plan: only these keys leave the machine (plan D7). `closed_at` is UTC date text `YYYY-MM-DD`. */
+export interface ExportDonePlan {
+  path: string;
+  title: string;
+  closed_at: string | null;
+  phases: number;
+  pr: number | null;
+}
 /** The fixed off reasons. Any other reason text becomes `unknown`: a free text can hold a path. */
 export const OVERLAY_REASONS = ['no PR data', 'PR data unreadable', 'no git', 'privacy hit in branch content'] as const;
 export interface ExportOverlay {
@@ -90,6 +98,8 @@ export interface ExportData {
   commit: string | null;
   roadmaps: (ExportRoadmap | ExportRoadmapError)[];
   plans: ExportPlan[];
+  /** Finished plans, newest first as the collector sent them. Optional in the type for typed fixtures; `exportData` always sets it. */
+  done_plans?: ExportDonePlan[];
   /** The branch overlay state of the repo. Optional in the type for typed fixtures; `exportData` always sets it. */
   overlay?: ExportOverlay | null;
 }
@@ -187,6 +197,20 @@ function plan(raw: unknown): ExportPlan | null {
   };
 }
 
+/** Unix seconds to `YYYY-MM-DD` (UTC), or null when the value is not a usable time. */
+function dateText(v: unknown): string | null {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) return null;
+  const d = new Date(v * 1000);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+/** A done plan row. A row with an error or an unsafe path is dropped. Copies five keys only. */
+function donePlan(raw: unknown): ExportDonePlan | null {
+  const p = rec(raw);
+  if (p.error !== undefined || !safePlanPath(str(p.path))) return null;
+  return { path: str(p.path), title: str(p.title), closed_at: dateText(p.closed_at), phases: int(p.phases), pr: posInt(p.pr) ? p.pr : null };
+}
+
 /** A plan overlay with a positive integer PR number, or null. Copies `pr`, `draft` and `also` only (no `head_ref`). */
 function planOverlay(raw: unknown): ExportPlan['overlay'] {
   const o = rec(raw);
@@ -232,6 +256,9 @@ export function exportData(collect: unknown, opts: ExportOptions): ExportData {
     plans: arr(rec(repo.plans).plans)
       .map(plan)
       .filter((p): p is ExportPlan => p !== null),
+    done_plans: arr(rec(rec(repo.plans).done).plans)
+      .map(donePlan)
+      .filter((p): p is ExportDonePlan => p !== null),
     overlay: repoOverlay(rec(repo.plans).overlay),
   };
 }

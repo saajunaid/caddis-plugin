@@ -163,6 +163,12 @@ A headless session (`CADDIS_HEADLESS` set) never starts a wave: it is a wave mem
 4. Error paths return or raise. None is swallowed.
 5. The diff touches only the phase's files.
 
+**Area reviewers.** `review-tier` also prints an `AREA:` line. For each name on it, dispatch that subagent once, at the end of the phase, after the tier review.
+- `security-analyst`: review `git diff <base>...HEAD`.
+- `ui-design-reviewer`: give it the app URL from the phase exit gate, or the run command in `.caddis/PROJECT-FACTS.md`. If no app is running, write `UI review skipped: no running app` in the review file.
+- Security findings of `critical` or `high` severity are blocking. UI findings that break use or WCAG AA are blocking. Fix them under the same 3-round limit. Park all other findings in the parking lot.
+- `AREA: none`: run nothing extra.
+
 This run is headless, so "ask the owner" (after 3 rounds) means: stop the phase, do not commit it, and record the
 blocking findings of the 3 rounds in the review file.
 

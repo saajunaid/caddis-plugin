@@ -5,6 +5,7 @@ import { repoId as repoIdOf } from '../shell/route';
 import type { RepoState } from '../types';
 import { isTyping } from './detailParts';
 import { ListView, roadmapHref } from './ListView';
+import { DonePlans } from './DonePlans';
 import { OtherPlans, Plans } from './PlanList';
 import {
   collectorStale,
@@ -134,6 +135,7 @@ export default function RoadmapTab({ repo, slug, stale = false, lastOkAt = null,
       {sourceNote}
       {body}
       {m.mode === 'roadmaps' ? <OtherPlans plans={m.otherPlans} repo={repo} variant={variant} initialView={initialView} initialOpenAll={initialOpenAll} /> : null}
+      {m.mode !== 'error' ? <DonePlans plans={m.done} /> : null}
     </div>
   );
 }

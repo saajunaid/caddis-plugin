@@ -344,24 +344,30 @@ class _Batch:
             self.proc.stdout.close()
 
 
-def _tree_blobs(tree: bytes, oid_len: int) -> list[tuple[str, str]]:
-    """[(name, blob oid)] from a raw tree object: `<mode> <name>\\0<oid bytes>` repeated. Files only."""
-    out: list[tuple[str, str]] = []
+def _tree_entries(tree: bytes, oid_len: int) -> list[tuple[bytes, str, str]]:
+    """[(mode, name, oid)] from a raw tree object: `<mode> <name>\\0<oid bytes>` repeated."""
+    out: list[tuple[bytes, str, str]] = []
     at = 0
     while at < len(tree):
         space = tree.index(b" ", at)
         nul = tree.index(b"\0", space)
         mode, name = tree[at:space], tree[space + 1:nul].decode("utf-8", errors="replace")
-        oid = tree[nul + 1:nul + 1 + oid_len].hex()
+        out.append((mode, name, tree[nul + 1:nul + 1 + oid_len].hex()))
         at = nul + 1 + oid_len
-        if mode in (b"100644", b"100755"):
-            out.append((name, oid))
     return out
 
 
-def _origin_plan_texts(root: Path, branch: str) -> tuple[str, int | None, list[tuple[str, str]]] | None:
-    """(commit_oid, commit_at, [(path, text)]) of the plan files on origin/<branch>: `.caddis/plans/*.md`, else
-    `.github/plans/*.md`, never `done/`. One git process for the whole read. None when git cannot read the ref."""
+def _tree_blobs(tree: bytes, oid_len: int) -> list[tuple[str, str]]:
+    """[(name, blob oid)] from a raw tree object. Files only."""
+    return [(name, oid) for mode, name, oid in _tree_entries(tree, oid_len) if mode in (b"100644", b"100755")]
+
+
+def _origin_plan_texts(root: Path, branch: str
+                       ) -> tuple[str, int | None, list[tuple[str, str]], str | None] | None:
+    """(commit_oid, commit_at, [(path, text)], done_tree) of the plan files on origin/<branch>: `.caddis/plans/*.md`,
+    else `.github/plans/*.md`, never `done/`. `done_tree` is the oid of `<folder>/done` for the folder that held the
+    plans (`.caddis/plans` when none did), read from the folder's tree object, or None when there is no such tree.
+    One git process for the whole read. None when git cannot read the ref."""
     try:
         batch = _Batch(root)
     except OSError:
@@ -380,12 +386,18 @@ def _origin_plan_texts(root: Path, branch: str) -> tuple[str, int | None, list[t
                     commit_at = int(line.split()[-2])
                 except (IndexError, ValueError):
                     commit_at = None
-        for folder in (".caddis/plans", ".github/plans"):
+        default_done: str | None = None  # the done tree of `.caddis/plans` when no folder holds a current plan
+        for folder in (_PLANS_DIR, ".github/plans"):
             tree = batch.get(f"refs/remotes/origin/{branch}:{folder}")
             if tree is None or tree[1] != "tree":
                 continue
-            names = sorted((name, oid) for name, oid in _tree_blobs(tree[2], len(tree[0]) // 2) if name.endswith(".md"))
+            entries = _tree_entries(tree[2], len(tree[0]) // 2)
+            done_tree = next((oid for mode, name, oid in entries if name == "done" and mode == b"40000"), None)
+            names = sorted((name, oid) for mode, name, oid in entries
+                           if mode in (b"100644", b"100755") and name.endswith(".md"))
             if not names:
+                if folder == _PLANS_DIR:
+                    default_done = done_tree
                 continue
             texts: list[tuple[str, str]] = []
             for name, oid in names:
@@ -393,8 +405,8 @@ def _origin_plan_texts(root: Path, branch: str) -> tuple[str, int | None, list[t
                 if blob is None:
                     return None
                 texts.append((f"{folder}/{name}", blob[2].decode("utf-8", errors="replace").replace("\r\n", "\n")))
-            return commit_oid, commit_at, texts
-        return commit_oid, commit_at, []
+            return commit_oid, commit_at, texts, done_tree
+        return commit_oid, commit_at, [], default_done
     except (OSError, ValueError):
         return None
     finally:
@@ -428,6 +440,106 @@ def _origin_plan_times(root: Path, branch: str, folder: str) -> dict[str, int]:
         for name in lines[1:]:
             times.setdefault(name.strip(), when)  # git log is newest first: the first time seen is the last change
     return times
+
+
+_PR_SUFFIX = re.compile(r"\(#(\d+)\)")
+_PR_MERGE = re.compile(r"\bMerge pull request #(\d+)\b")
+_TITLE_SUFFIX = re.compile(r"\s+[—–-]+\s*Implementation Plan\s*$", re.I)
+
+
+def pr_of_subject(subject: str) -> int | None:
+    """D3: the PR a commit subject names: the last `(#n)` (squash and Gitea merges), else `Merge pull request #n`."""
+    found = _PR_SUFFIX.findall(subject)
+    if found:
+        return int(found[-1])
+    merge = _PR_MERGE.search(subject)
+    return int(merge.group(1)) if merge else None
+
+
+def done_entry(rel: str, text: str, closed_at: int | None, pr: int | None) -> dict:
+    """D5: one done-plan row. Title from the first `# ` heading less ` — Implementation Plan`; phases = Tracker
+    rows, else unique `Phase` headings."""
+    entry = _plan_entry_text(rel, text)
+    title = entry["title"] if isinstance(entry["title"], str) and entry["title"].strip() else None
+    title = (_TITLE_SUFFIX.sub("", title).strip() if title else "") or rel.rsplit("/", 1)[-1].removesuffix(".md")
+    return {"path": rel, "title": title, "closed_at": closed_at,
+            "phases": len(entry["tracker"]) or len(entry["phases"]), "pr": pr}
+
+
+def _origin_done_adds(root: Path, branch: str, folder: str) -> dict[str, tuple[int, int | None]]:
+    """{path: (commit time, PR)} of the newest first-parent commit on origin/<branch> that ADDED each file under
+    `<folder>/done` (D3). One local git process. Empty when git fails: the date is shown as unknown."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "-c", "core.quotepath=off", "log", "--no-renames", "--first-parent",
+             "--diff-merges=first-parent", "--diff-filter=A", "--format=%x00%ct%x09%s", "--name-only",
+             f"refs/remotes/origin/{branch}", "--", f"{folder}/done"],
+            capture_output=True, timeout=30, creationflags=_NO_WINDOW,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if out.returncode != 0:
+        return {}
+    adds: dict[str, tuple[int, int | None]] = {}
+    for chunk in out.stdout.decode("utf-8", errors="replace").split("\x00")[1:]:
+        lines = chunk.splitlines()
+        if not lines:
+            continue
+        when, _, subject = lines[0].partition("\t")
+        try:
+            at = int(when)
+        except ValueError:
+            continue
+        pr = pr_of_subject(subject)
+        for name in lines[1:]:
+            if name.strip():
+                adds.setdefault(name.strip(), (at, pr))  # git log is newest first: the first add seen is the newest
+    return adds
+
+
+def done_plans(root: Path, branch: str, folder: str, tree_oid: str) -> dict:
+    """`{"tree": tree_oid, "plans": [...]}`: every `<folder>/done/*.md` in the tree, newest close first, then path
+    A-Z; no close date sorts last (D4). One `git log` and one `cat-file --batch`. A file that fails gives
+    `{"path", "error"}`."""
+    adds = _origin_done_adds(root, branch, folder)
+    rows: list[dict] = []
+    batch = _Batch(root)
+    try:
+        tree = batch.get(tree_oid)
+        if tree is None or tree[1] != "tree":
+            raise ValueError(f"{folder}/done is not a tree on origin/{branch}")
+        for name, oid in sorted(_tree_blobs(tree[2], len(tree[0]) // 2)):
+            if not name.endswith(".md"):
+                continue
+            rel = f"{folder}/done/{name}"
+            blob = batch.get(oid)
+            if blob is None:
+                rows.append({"path": rel, "error": "the file is missing from the git store"})
+                continue
+            text = blob[2].decode("utf-8", errors="replace").replace("\r\n", "\n")
+            closed_at, pr = adds.get(rel, (None, None))
+            rows.append(_entry_or_error(rel, lambda rel=rel, text=text, closed_at=closed_at, pr=pr:
+                                        done_entry(rel, text, closed_at, pr)))
+    finally:
+        batch.close()
+
+    def order(row: dict) -> tuple:
+        at = adds.get(row["path"], (None, None))[0]
+        return (at is None, -(at or 0), row["path"])
+
+    return {"tree": tree_oid, "plans": sorted(rows, key=order)}
+
+
+def _done_slot(root: Path, branch: str, folder: str, tree: str | None, known: str | None) -> dict:
+    """D2/D6: the `done` value of an origin source."""
+    if tree is None:
+        return {"tree": None, "plans": []}
+    if tree == known:
+        return {"tree": tree, "unchanged": True}
+    try:
+        return done_plans(root, branch, folder, tree)
+    except Exception as exc:  # done plans must never hide the current plans
+        return {"error": (str(exc).splitlines() or [type(exc).__name__])[0]}
 
 
 def _file_time(path: Path) -> int | None:
@@ -548,12 +660,17 @@ def _overlay_prs(root: Path, branch: str, plans: list[dict], prs: list[dict]) ->
     return count
 
 
-def plans_json(root: Path, branch: str | None = None, prs: list[dict] | None = None) -> dict:
+def plans_json(root: Path, branch: str | None = None, prs: list[dict] | None = None,
+               done_known: str | None = None) -> dict:
     """Every current plan as data: `{"schema": 1, "source": ..., "plans": [...]}`. Never prints, never exits.
 
     With `branch`, read the plans from the local `origin/<branch>` ref (the hub: a pushed Tracker edit shows with
     no pull); when git cannot read that ref, read the working tree. `source` names which one was read. A file that
     does not parse gives `{"path", "error"}`; the other plans still come back.
+
+    An origin source also carries `done` (the finished plans in `<folder>/done`): `{"tree": None, "plans": []}`
+    with no done tree, `{"tree": t, "unchanged": True}` when `t == done_known` (the caller keeps its list),
+    `{"tree": t, "plans": [...]}` (`done_plans`), or `{"error": ...}`. A working-tree source has no `done` key.
 
     With `prs` (the open PRs, D2 items) and an origin source, plans a PR branch changed get that branch's Tracker
     laid over main's (`overlay_plan`) and the result carries `overlay`. Without `prs` the output has no overlay key.
@@ -561,13 +678,15 @@ def plans_json(root: Path, branch: str | None = None, prs: list[dict] | None = N
     root = Path(root)
     origin = _origin_plan_texts(root, branch) if branch else None
     if origin is not None:
-        commit, commit_at, texts = origin
+        commit, commit_at, texts, done_tree = origin
+        folder = texts[0][0].rsplit("/", 1)[0] if texts else _PLANS_DIR
         plans = [_entry_or_error(rel, lambda rel=rel, text=text: _plan_entry_text(rel, text)) for rel, text in texts]
-        times = _origin_plan_times(root, branch, texts[0][0].rsplit("/", 1)[0]) if texts else {}
+        times = _origin_plan_times(root, branch, folder) if texts else {}
         for plan in plans:
             if "error" not in plan:
                 plan["changed_at"] = times.get(plan["path"])
-        data = {"schema": 1, "source": f"origin/{branch}", "commit": commit[:12], "commit_at": commit_at, "plans": plans}
+        data = {"schema": 1, "source": f"origin/{branch}", "commit": commit[:12], "commit_at": commit_at, "plans": plans,
+                "done": _done_slot(root, branch, folder, done_tree, done_known)}
         if prs is not None:
             count = _overlay_prs(root, branch, plans, prs)
             data["overlay"] = {"state": "on", "reason": None, "count": count}

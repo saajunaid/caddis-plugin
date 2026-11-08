@@ -33,6 +33,26 @@
   --tone-purple-bg: rgba(189, 147, 249, 0.12);
   --tone-purple-bd: rgba(189, 147, 249, 0.42);
 
+  /* Dracula glass (plan hub-done-plans D11, D11b; audit 2026-11-08). Blur only on fixed layers and popovers. */
+  --glass-bg: rgba(33, 34, 44, 0.78);
+  --glass-bg-strong: rgba(52, 55, 70, 0.9);
+  --glass-tint: rgba(40, 42, 54, 0.82);
+  --glass-tint-low: rgba(33, 34, 44, 0.6);
+  --glass-bd: rgba(248, 248, 242, 0.08);
+  --glass-bd-hover: rgba(189, 147, 249, 0.5);
+  --glass-hl: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --glass-blur: 12px;
+  --glass-filter: blur(var(--glass-blur)) saturate(140%);
+  --glass-foot: rgba(0, 0, 0, 0.14);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.18);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --glow-1: rgba(189, 147, 249, 0.14);
+  --glow-2: rgba(255, 121, 198, 0.1);
+  --glow-3: rgba(139, 233, 253, 0.08);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-1: 150ms;
+  --dur-2: 240ms;
+
   --focus-ring: #bd93f9;
   --sidebar-w: 232px;
   --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -73,7 +93,47 @@
   --tone-purple-bg: rgba(104, 55, 232, 0.09);
   --tone-purple-bd: rgba(104, 55, 232, 0.35);
 
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.92);
+  --glass-tint: rgba(255, 255, 255, 0.8);
+  --glass-tint-low: rgba(255, 255, 255, 0.5);
+  --glass-bd: rgba(27, 28, 38, 0.09);
+  --glass-bd-hover: rgba(104, 55, 232, 0.45);
+  --glass-hl: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --glass-foot: rgba(27, 28, 38, 0.03);
+  --shadow-1: 0 1px 2px rgba(27, 28, 38, 0.06), 0 2px 8px rgba(27, 28, 38, 0.05);
+  --shadow-2: 0 10px 28px rgba(27, 28, 38, 0.12), 0 2px 6px rgba(27, 28, 38, 0.06);
+  --glow-1: rgba(104, 55, 232, 0.1);
+  --glow-2: rgba(207, 35, 132, 0.08);
+  --glow-3: rgba(9, 107, 125, 0.08);
+
   --focus-ring: #6837e8;
+}
+
+/* Glass off: no backdrop blur and solid framing layers. The Motion switch set to off, a browser without
+   backdrop-filter, and a user who asks for less transparency all get the same solid surfaces (D11b). */
+html[data-motion='off'] {
+  --glass-filter: none;
+  --glass-bg: var(--bg-card);
+  --glass-bg-strong: var(--bg-elevated);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html:root {
+    --glass-filter: none;
+    --glass-bg: var(--bg-card);
+    --glass-bg-strong: var(--bg-elevated);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html:root {
+    --glass-filter: none;
+    --glass-bg: var(--bg-card);
+    --glass-bg-strong: var(--bg-elevated);
+    --glass-tint: var(--bg-card);
+    --glass-tint-low: var(--bg-lane);
+  }
 }
 
 *,
@@ -96,6 +156,32 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+}
+
+/* Ambient background (D11): three large, soft glows on the body background. No extra layer: in software
+   drawing (no GPU) a fixed full-screen glow layer cost about 12 ms more first paint than the body background.
+   The softness comes from the gradient stops, not from a blur filter; each glow paints only its own box
+   (no-repeat, sized to where it fades out). Static: no animation. */
+body {
+  background-image:
+    radial-gradient(circle closest-side, var(--glow-1), transparent),
+    radial-gradient(circle closest-side, var(--glow-2), transparent),
+    radial-gradient(circle closest-side, var(--glow-3), transparent);
+  background-size:
+    1080px 1080px,
+    840px 840px,
+    960px 960px;
+  background-position:
+    left calc(10vw - 540px) top -540px,
+    right -420px top calc(25vh - 420px),
+    left calc(50% - 480px) bottom -480px;
+  background-repeat: no-repeat;
+}
+
+@media print {
+  body {
+    background-image: none;
+  }
 }
 
 /* Weight scale: 400 body, 500 labels and buttons, 600 headings, 700 the brand only.
@@ -147,25 +233,238 @@ a:focus-visible,
   outline-offset: 2px;
 }
 
+/* Motion (D11). Only transform and opacity move. */
 @keyframes work-pulse {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.45;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+@keyframes hub-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hub-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hub-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Staggered enter, once per mount (a data poll replaces text in place, so nothing moves on a poll).
+   180 ms per item, 20 ms apart for items 1-6, item 7 and later at 120 ms: the run ends by 300 ms.
+   The fill mode is `backwards` so that the hover lift owns `transform` after the enter ends. */
+.kpi-strip > *,
+.lanes > *,
+.rm-cards > *,
+.gp-flow > *,
+.gp-bands > * {
+  animation: hub-rise 180ms var(--ease-out) backwards;
+}
+.kpi-strip > :nth-child(2),
+.lanes > :nth-child(2),
+.rm-cards > :nth-child(2),
+.gp-flow > :nth-child(2),
+.gp-bands > :nth-child(2) {
+  animation-delay: 20ms;
+}
+.kpi-strip > :nth-child(3),
+.lanes > :nth-child(3),
+.rm-cards > :nth-child(3),
+.gp-flow > :nth-child(3),
+.gp-bands > :nth-child(3) {
+  animation-delay: 40ms;
+}
+.kpi-strip > :nth-child(4),
+.lanes > :nth-child(4),
+.rm-cards > :nth-child(4),
+.gp-flow > :nth-child(4),
+.gp-bands > :nth-child(4) {
+  animation-delay: 60ms;
+}
+.kpi-strip > :nth-child(5),
+.lanes > :nth-child(5),
+.rm-cards > :nth-child(5),
+.gp-flow > :nth-child(5),
+.gp-bands > :nth-child(5) {
+  animation-delay: 80ms;
+}
+.kpi-strip > :nth-child(6),
+.lanes > :nth-child(6),
+.rm-cards > :nth-child(6),
+.gp-flow > :nth-child(6),
+.gp-bands > :nth-child(6) {
+  animation-delay: 100ms;
+}
+.kpi-strip > :nth-child(n + 7),
+.lanes > :nth-child(n + 7),
+.rm-cards > :nth-child(n + 7),
+.gp-flow > :nth-child(n + 7),
+.gp-bands > :nth-child(n + 7) {
+  animation-delay: 120ms;
+}
+
+/* Hover lift: the surface rises 2 px; a deeper shadow on a pseudo layer fades in (opacity, not box-shadow). */
+.kpi-tile,
+.card,
+.rm-rcard,
+.gp-stage,
+.gp-band,
+.gp-card {
+  position: relative;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.kpi-tile::before,
+.card::before,
+.rm-rcard::before,
+.gp-stage::before,
+.gp-band::before,
+.gp-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+@media (hover: hover) {
+  .kpi-tile:hover,
+  .card:hover,
+  .rm-rcard:not(.rm-pcard):hover,
+  .gp-stage:hover,
+  .gp-band:hover,
+  .gp-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--glass-bd-hover);
+  }
+  .kpi-tile:hover::before,
+  .card:hover::before,
+  .rm-rcard:not(.rm-pcard):hover::before,
+  .gp-stage:hover::before,
+  .gp-band:hover::before,
+  .gp-card:hover::before {
+    opacity: 1;
+  }
+}
+
+/* Press: a short scale down on every button and on cards that are links. */
+.btn,
+.menu-btn,
+.theme-btn,
+.folder-btn,
+.item-btn,
+.act-kind,
+.rm-tile,
+.rm-view button,
+.gp-switch button,
+.guide-jump {
+  transition: transform 100ms var(--ease-out);
+}
+.btn:active:not(:disabled),
+.menu-btn:active,
+.theme-btn:active,
+.folder-btn:active,
+.item-btn:active,
+.act-kind:active,
+.rm-tile:active,
+.rm-view button:active,
+.gp-switch button:active,
+.guide-jump:active {
+  transform: scale(0.98);
+}
+.rm-rcard:not(.rm-pcard):active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 100ms;
+}
+
+/* Progress fill: the bar grows from the left on mount. */
+.meter-fill,
+.rm-bar i,
+.rm-pbar > span {
+  transform-origin: left center;
+  animation: hub-fill var(--dur-2) var(--ease-out) 60ms backwards;
+}
+
+/* In progress: the tile icon breathes. */
+.rm-tile[data-state='in-progress'] > svg:first-child {
+  animation: work-pulse 2.2s ease-in-out infinite;
+}
+
+/* The Motion switch set to off stops every animation and transition (the owner's switch is the control, D11;
+   Windows Server reports prefers-reduced-motion by default, so the OS setting is not used). The short duration,
+   not `animation: none`, keeps the end state of fill-forwards animations such as the guide mark build. */
+html[data-motion='off'] *,
+html[data-motion='off'] *::before,
+html[data-motion='off'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-motion='off'] .kpi-tile:hover,
+html[data-motion='off'] .card:hover,
+html[data-motion='off'] .rm-rcard:hover,
+html[data-motion='off'] .gp-stage:hover,
+html[data-motion='off'] .gp-band:hover,
+html[data-motion='off'] .gp-card:hover,
+html[data-motion='off'] .btn:active,
+html[data-motion='off'] .menu-btn:active,
+html[data-motion='off'] .theme-btn:active,
+html[data-motion='off'] .folder-btn:active,
+html[data-motion='off'] .item-btn:active,
+html[data-motion='off'] .act-kind:active,
+html[data-motion='off'] .rm-tile:active,
+html[data-motion='off'] .rm-rcard:active,
+html[data-motion='off'] .rm-view button:active,
+html[data-motion='off'] .gp-switch button:active,
+html[data-motion='off'] .guide-jump:active {
+  transform: none;
+}
+
+/* Tooltip and popover surface (the Phase 8 tooltip uses the class `tip`). */
+.tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 60;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-bd);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-hl), var(--shadow-2);
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.45;
+  animation: hub-rise var(--dur-1) var(--ease-out) backwards;
 }
 
 .pulse-dot {
@@ -191,8 +490,11 @@ a:focus-visible,
   position: sticky;
   top: 0;
   z-index: 45;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border-dim);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-bottom: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl);
   padding: 10px 14px;
   align-items: center;
   justify-content: space-between;
@@ -223,12 +525,16 @@ a:focus-visible,
 
 .drawer-backdrop.open {
   display: block;
+  animation: hub-fade var(--dur-2) var(--ease-out);
 }
 
 .sidebar {
   width: var(--sidebar-w);
-  background: var(--bg-card);
-  border-right: 1px solid var(--border-dim);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-right: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl);
   position: fixed;
   top: 0;
   bottom: 0;
@@ -237,7 +543,9 @@ a:focus-visible,
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: transform 0.2s ease;
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    visibility 0s linear var(--dur-2);
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -360,6 +668,7 @@ html[data-motion='off'] .brand-mark-still {
 
 .nav-link.active {
   background: var(--tone-purple-bg);
+  box-shadow: inset 2px 0 0 var(--purple);
   color: var(--purple);
   font-weight: 600;
 }
@@ -427,11 +736,11 @@ html[data-motion='off'] .brand-mark-still {
 /* Footer */
 .sidebar-footer {
   padding: 14px 12px;
-  border-top: 1px solid var(--border-dim);
+  border-top: 1px solid var(--glass-bd);
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--bg-lane);
+  background: var(--glass-foot);
 }
 
 .footer-meta {
@@ -459,10 +768,15 @@ html[data-motion='off'] .brand-mark-still {
 
 .spend-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  flex-direction: column;
+  gap: 1px;
   font-size: 13px;
+}
+
+.spend-label,
+.spend-amount,
+.versions-item {
+  white-space: nowrap;
 }
 
 .meter-track {
@@ -475,7 +789,7 @@ html[data-motion='off'] .brand-mark-still {
 
 .meter-fill {
   height: 100%;
-  background: var(--purple);
+  background: linear-gradient(90deg, var(--purple), var(--pink));
   border-radius: 99px;
 }
 
@@ -484,9 +798,11 @@ html[data-motion='off'] .brand-mark-still {
 }
 
 .versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
   color: var(--text-dim);
   font-size: 11.5px;
-  overflow-wrap: anywhere;
 }
 
 .theme-switch {
@@ -514,6 +830,7 @@ html[data-motion='off'] .brand-mark-still {
 
 .theme-btn.active {
   background: var(--bg-card);
+  box-shadow: var(--shadow-1);
   color: var(--purple);
   font-weight: 600;
 }
@@ -613,9 +930,10 @@ html[data-motion='off'] .brand-mark-still {
 }
 
 .kpi-tile {
-  background: var(--bg-card);
-  border: 1px solid var(--border-dim);
-  border-radius: 10px;
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl), var(--shadow-1);
+  border-radius: 12px;
   padding: 13px 16px;
   display: flex;
   flex-direction: column;
@@ -623,22 +941,18 @@ html[data-motion='off'] .brand-mark-still {
   gap: 6px;
   text-decoration: none;
   color: var(--text-main);
-  transition: border-color 0.15s ease;
   min-width: 0;
 }
 
-.kpi-tile:hover {
-  border-color: var(--purple);
-}
-
+/* A tone tile lays its tone over the tint, so the tone reads the same over any glow. */
 .kpi-tile.urgent {
   border-color: var(--tone-yellow-bd);
-  background: var(--tone-yellow-bg);
+  background: linear-gradient(var(--tone-yellow-bg), var(--tone-yellow-bg)), var(--bg-lane);
 }
 
 .kpi-tile.danger {
   border-color: var(--tone-red-bd);
-  background: var(--tone-red-bg);
+  background: linear-gradient(var(--tone-red-bg), var(--tone-red-bg)), var(--bg-lane);
 }
 
 .kpi-label {
@@ -663,6 +977,7 @@ html[data-motion='off'] .brand-mark-still {
 .kpi-sub {
   font-size: 13px;
   font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1100px) {
@@ -690,6 +1005,10 @@ html[data-motion='off'] .brand-mark-still {
   .sidebar.drawer-open {
     transform: translateX(0);
     visibility: visible;
+    box-shadow: var(--glass-hl), var(--shadow-2);
+    transition:
+      transform var(--dur-2) var(--ease-out),
+      visibility 0s;
   }
 
   .main-area {
@@ -702,7 +1021,7 @@ html[data-motion='off'] .brand-mark-still {
   }
 
   .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+    gap: 8px;
   }
 }

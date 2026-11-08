@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import RoadmapTab from '../../ui/src/repo/RoadmapTab';
 import {
   deriveRoadmaps,
+  donePlanViews,
+  DONE_SHOWN,
   planColumns,
   planKpis,
   initiallyOpenPlan,
@@ -532,5 +534,42 @@ describe('plan overlay', () => {
     expect(overlayOf({})).toBeNull();
     expect(overlayOf({ overlay: { pr: 0 } })).toBeNull();
     expect(overlayOf({ overlay: null })).toBeNull();
+  });
+});
+
+describe('done plans (plan D4, D5)', () => {
+  const T = Date.UTC(2026, 10, 7, 12, 0, 0) / 1000;
+  const withDone = (done: unknown): RepoState => {
+    const shop = structuredClone(repoOf(load('full'), 'shop'));
+    (shop.plans as Record<string, unknown>).done = done;
+    return shop;
+  };
+
+  it('keeps the collector order, skips error rows, and links the closing PR', () => {
+    const repo = withDone({
+      tree: 't1',
+      plans: [
+        { path: '.caddis/plans/done/b.md', title: 'B plan', closed_at: T, phases: 3, pr: 12 },
+        { path: '.caddis/plans/done/bad.md', error: 'x' },
+        { path: '.caddis/plans/done/a.md', title: 'A plan', closed_at: null, phases: 1, pr: null },
+      ],
+    });
+    const views = donePlanViews(repo);
+    expect(views.map((v) => v.path)).toEqual(['.caddis/plans/done/b.md', '.caddis/plans/done/a.md']);
+    expect(views[0]).toMatchObject({ title: 'B plan', closedAt: T, phases: 3 });
+    expect(views[0]!.pr).toMatchObject({ number: 12, url: 'https://github.com/acme/shop/pull/12' });
+    expect(views[1]).toMatchObject({ closedAt: null, phases: 1, pr: null });
+    expect(deriveRoadmaps(repo).done).toEqual(views);
+  });
+
+  it('is empty when there is no done slot, an error slot or a hub-cache error', () => {
+    expect(donePlanViews(repoOf(load('full'), 'shop'))).toEqual([]);
+    expect(donePlanViews(withDone({ error: 'boom' }))).toEqual([]);
+    expect(donePlanViews(withDone({ tree: 't', unchanged: true }))).toEqual([]);
+    expect(DONE_SHOWN).toBe(10);
+  });
+
+  it('falls back to the path for a missing title', () => {
+    expect(donePlanViews(withDone({ tree: 't', plans: [{ path: '.caddis/plans/done/x.md', closed_at: 1, phases: 0, pr: null }] }))[0]!.title).toBe('.caddis/plans/done/x.md');
   });
 });

@@ -68,6 +68,7 @@
   font-size: 30px;
   font-weight: 600;
   line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .kpi-num.accent {
@@ -98,6 +99,21 @@
   font-size: 15px;
 }
 
+/* Roadmap summary strip: label on top, value on a fixed line, sub line in a fixed slot, so every number sits at the
+   same height. A text value (Next batch) gets the number-tile value size. */
+.rm-kpis .kpi-tile {
+  display: grid;
+  grid-template-rows: auto 1fr minmax(1.4em, auto);
+}
+.rm-kpis .kpi-tile > .kpi-num,
+.rm-kpis .kpi-tile > .kpi-val {
+  align-self: end;
+}
+.rm-kpis .kpi-tile.deploy .kpi-val {
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+
 /* Inbox mailbox */
 .mailbox {
   display: flex;
@@ -113,8 +129,9 @@
   gap: 2px;
   padding: 8px;
   border-radius: 12px;
-  background: var(--bg-lane);
-  border: 1px solid var(--border-dim);
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl);
 }
 
 .folder-btn,
@@ -156,8 +173,9 @@
   gap: 4px;
   padding: 8px;
   border-radius: 12px;
-  background: var(--bg-lane);
-  border: 1px solid var(--border-dim);
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl);
 }
 
 .item-btn {
@@ -330,9 +348,10 @@
 }
 
 .lane {
-  border-radius: 12px;
-  background: var(--bg-lane);
-  border: 1px solid var(--border-dim);
+  border-radius: 14px;
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl), var(--shadow-1);
 }
 
 .lane.down .lane-body .card.grey > :not(.action-row),
@@ -344,11 +363,31 @@
   border-color: var(--mk-warn-line);
 }
 
+.lane-headrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 14px;
+}
+
+.lane-open {
+  flex: none;
+  font-size: 13px;
+  color: var(--purple);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lane-open:hover {
+  text-decoration: underline;
+}
+
 .lane-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 48px;
   padding: 0 14px;
   border: 0;
@@ -360,10 +399,15 @@
   border-radius: 12px;
 }
 
+.lane-head:hover .lane-name {
+  color: var(--purple);
+}
+
 .lane-head .chev {
   margin-left: auto;
   flex-shrink: 0;
   color: var(--text-dim);
+  transition: transform var(--dur-1) var(--ease-out);
 }
 
 .lane-name {
@@ -420,14 +464,26 @@
   font-weight: 600;
 }
 
+/* A column with something in it reads one step stronger than an empty one (the empty keeps its heading only). */
+.lane-col:not(.empty) .col-title {
+  color: var(--text-sub);
+}
+
+.lane-empty-line {
+  display: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .card {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 9px 11px;
-  border-radius: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-dim);
+  border-radius: 10px;
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-bd);
+  box-shadow: var(--glass-hl), var(--shadow-1);
   overflow-wrap: anywhere;
 }
 
@@ -560,11 +616,16 @@
 /* H3: repo Flow view */
 .repo-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
   gap: 6px;
   margin: 0 0 14px;
 }
 .repo-tabs .folder-btn {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  white-space: nowrap;
   width: auto;
   min-height: 38px;
   padding: 0 14px;
@@ -769,6 +830,7 @@ select:focus-visible {
 .rm-bar i {
   display: block;
   height: 100%;
+  border-radius: inherit;
   background: var(--mk-good);
 }
 .rm-bar-text {
@@ -792,9 +854,10 @@ select:focus-visible {
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid var(--border-dim);
-  border-radius: 9px;
-  background: var(--bg-card);
+  border: 1px solid var(--glass-bd);
+  border-radius: 10px;
+  background: var(--glass-tint);
+  box-shadow: var(--glass-hl), var(--shadow-1);
   color: var(--text-main);
   font: inherit;
   text-align: left;
@@ -803,8 +866,7 @@ select:focus-visible {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.rm-node:hover,
-.rm-rcard:hover {
+.rm-node:hover {
   background: var(--bg-elevated);
 }
 .rm-node.tone-done,
@@ -842,7 +904,7 @@ select:focus-visible {
   cursor: default;
 }
 .rm-pcard:hover {
-  background: var(--bg-card);
+  background: var(--glass-tint);
 }
 .rm-pcard.is-moved {
   opacity: 0.55;
@@ -853,7 +915,24 @@ select:focus-visible {
 }
 .rm-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+}
+.rm-list-view > .lane-note,
+.rm > .lane-note[data-testid='rm-errors'] {
+  position: relative;
+  margin-bottom: 12px;
+  padding-left: 34px;
+  background: var(--tone-red-bg);
+  border-color: var(--tone-red-bd);
+}
+.rm-list-view > .lane-note::before,
+.rm > .lane-note[data-testid='rm-errors']::before {
+  content: '\26A0';
+  content: '\26A0' / '';
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  color: var(--mk-bad);
 }
 .rm-cards li {
   min-width: 0;
@@ -964,10 +1043,13 @@ select:focus-visible {
   padding: 16px;
   overflow: auto;
   z-index: 40;
-  background: var(--bg-card);
-  border: 1px solid var(--border-bright);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border: 1px solid var(--glass-bd);
+  border-radius: 14px;
+  box-shadow: var(--glass-hl), var(--shadow-2);
+  animation: hub-rise var(--dur-2) var(--ease-out) backwards;
 }
 .rm-panel h3 {
   margin: 0 32px 8px 0;
@@ -986,6 +1068,9 @@ select:focus-visible {
   padding: 4px 8px;
 }
 .rm-panel-text {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-card);
   white-space: pre-wrap;
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -1086,7 +1171,7 @@ select:focus-visible {
 .rm-plan-sum::before {
   content: '▸';
   color: var(--text-sub);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-1) var(--ease-out);
 }
 .rm-plan[open] > .rm-plan-sum::before {
   transform: rotate(90deg);
@@ -1129,6 +1214,7 @@ select:focus-visible {
 .rm-pbar > span {
   display: block;
   height: 100%;
+  border-radius: inherit;
   background: var(--green);
 }
 .rm-pr {
@@ -1196,6 +1282,61 @@ select:focus-visible {
   letter-spacing: 0.04em;
   color: var(--text-sub);
 }
+/* Done plans: a closed card like a plan board, with a plain list inside. */
+.rm-done {
+  border: 1px solid var(--glass-bd);
+  border-radius: 12px;
+  background: var(--glass-tint);
+  box-shadow: var(--glass-hl), var(--shadow-1);
+  padding: 12px 14px;
+}
+.rm-done-sum {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  list-style: none;
+}
+.rm-done-sum::-webkit-details-marker {
+  display: none;
+}
+.rm-done-sum::before {
+  content: '▸';
+  color: var(--text-sub);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.rm-done[open] > .rm-done-sum::before {
+  transform: rotate(90deg);
+}
+.rm-done-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.rm-done-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 14px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-dim);
+}
+.rm-done-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rm-done-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  font-size: 13.5px;
+  color: var(--text-sub);
+}
+.rm-done > .btn {
+  margin-top: 10px;
+}
 /* Activity */
 .act-filters {
   display: flex;
@@ -1242,4 +1383,92 @@ select:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-dim);
+}
+
+/* Phone (UX audit rows 2, 3, 11): work first, no empty slots, one milestone per row. */
+@media (max-width: 720px) {
+  .kpi-tile {
+    padding: 8px 8px 9px;
+    gap: 3px;
+    border-radius: 10px;
+  }
+  .kpi-label {
+    font-size: 11.5px;
+    line-height: 1.25;
+    align-items: flex-start;
+  }
+  .kpi-label svg {
+    display: none;
+  }
+  .kpi-tile .kpi-num {
+    order: -1;
+    font-size: 24px;
+  }
+  .kpi-tile.deploy {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+  }
+  .rm-kpis .kpi-tile {
+    display: flex;
+  }
+  .rm-kpis .kpi-tile > .kpi-num,
+  .rm-kpis .kpi-tile > .kpi-val {
+    align-self: auto;
+  }
+  .rm-kpis .kpi-tile.deploy .kpi-val {
+    font-size: 15px;
+  }
+  .notify-row > span {
+    display: none;
+  }
+  .notify-row .btn {
+    min-height: 36px;
+  }
+  .mailbox {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .mailbox > * {
+    flex: none;
+    min-width: 0;
+  }
+  .mailbox-folders {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 4px;
+  }
+  .mailbox-folders .folder-btn {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 10px;
+    gap: 6px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .mailbox-folders .folder-btn svg {
+    display: none;
+  }
+  .lane-col.empty {
+    display: none;
+  }
+  .lane-empty-line {
+    display: block;
+  }
+  .rm-chain {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .rm-chain-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .rm-chain-item > [aria-hidden='true'] {
+    align-self: center;
+    transform: rotate(90deg);
+  }
 }

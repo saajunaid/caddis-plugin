@@ -42,14 +42,23 @@ DESIGN (locked, see the plan doc — do not re-litigate here)
   crash/scratch files at the repo root (`*.stackdump`, `run*.ps1`, `nul`, ...); a `.caddis/` file whose
   `type:` belongs to another folder; a plan `status: current` with no commit for 14 days. The first is
   repo-wide and so never appears under `--commit-range`; the other two follow the range like any file.
-- `--only <plan> [<plan> ...]` limits a run to those top-level plans: nothing else is moved or
-  stamped. `/implement` closes the plan it finished with it, so another session's finished work
-  is never swept into this PR.
+- `--only <path> [<path> ...]` limits a run to those top-level plans, prompts and parking-lot
+  items: nothing else is moved or stamped. `/implement` closes the plan it finished with it, and
+  `/handoff` the artifacts this session closed, so another session's finished work is never swept in.
+- `--apply` needs a scope (2026-11-07: a handoff's bare `--apply` moved and staged 5 committed items
+  of other sessions): `--only <path>...` for this session's artifacts, or `--all` for an owner's
+  explicit sweep. A bare `--apply` exits 1 and changes nothing. The dry run needs no scope.
+- Under `--all` a file with uncommitted changes never moves. Under `--only` a named file moves even with
+  an uncommitted edit (its own status flip), and its working copy is staged at the new path.
+- `--apply` refuses when the index already holds staged changes (other than a named file's), so its own
+  staged moves are alone there; it stages each status flip with its rename; it never plain-renames a tracked file when
+  `git mv` fails. It prints one `STAGED:` line per move and a pathspec `git commit` line to commit them.
 
 Usage:
   python scripts/caddis_tidy.py                 # report only (default = dry-run)
-  python scripts/caddis_tidy.py --apply          # actually move terminal-status artifacts
   python scripts/caddis_tidy.py --apply --only .caddis/plans/<plan>.md   # close this plan only
+  python scripts/caddis_tidy.py --apply --only .caddis/parking-lot/<item>.md .caddis/prompts/<p>.md
+  python scripts/caddis_tidy.py --apply --all    # owner sweep: move every terminal-status artifact
   python scripts/caddis_tidy.py --check          # conformance check; exit 1 on a violation
   python scripts/caddis_tidy.py --repo-root <p>  # scan a different repo (default: cwd)
   python scripts/caddis_tidy.py --commit-range origin/main..HEAD   # also read parking trailers
@@ -366,8 +375,10 @@ class Report:
     tracker_done_open: list[tuple[Path, str]] = field(default_factory=list)
     # --commit-range only: repo-relative posix paths the range changed.
     in_range: set[str] | None = None
-    # --only only: named plans that did not move, with the reason.
+    # --only only: named files that did not move, with the reason.
     not_moved: list[tuple[Path, str]] = field(default_factory=list)
+    # --apply only: moves `git mv` staged, as (old path, new path). Each waits in the index for a commit.
+    staged: list[tuple[Path, Path]] = field(default_factory=list)
     # --apply only: files left alone because git shows uncommitted changes in them (another
     # session's edit in a shared checkout). Neither moved nor rewritten; not an error.
     dirty_skipped: list[Path] = field(default_factory=list)
@@ -404,7 +415,7 @@ def _is_git_repo(repo_root: Path) -> bool:
 
 
 def _run_git_mv(repo_root: Path, src: Path, dst: Path) -> bool:
-    """Returns True on success. Degrades to plain move (caller's job) on any failure."""
+    """Returns True on success. On a failure the caller decides: a plain rename only for an untracked file."""
     try:
         result = subprocess.run(
             ["git", "mv", "--", str(src), str(dst)],
@@ -448,17 +459,49 @@ def _dirty_paths(repo_root: Path) -> set[str] | None:
     return dirty
 
 
-def _move_one(repo_root: Path, src: Path, report: Report) -> None:
-    """One named `git mv` into the sibling `done/`; a plain rename when git cannot (no repo, or
-    an untracked file). Only called once every destination is known to be free."""
+def _is_tracked(repo_root: Path, path: Path) -> bool:
+    """True when git tracks `path`, or when git cannot say (fail closed: never plain-rename then)."""
+    try:
+        rel_path = path.relative_to(repo_root).as_posix()
+    except ValueError:
+        return True
+    done = _git_run(repo_root, "ls-files", "--error-unmatch", "--", rel_path)
+    if done is None or done.returncode == 0:
+        return True
+    return b"did not match" not in (done.stderr or b"")
+
+
+def _move_one(repo_root: Path, src: Path, report: Report, restage: bool = False) -> None:
+    """One named `git mv` into the sibling `done/`; a plain rename only for a file git does not
+    track (no repo, or an untracked file). A tracked file whose `git mv` failed (for example a peer
+    holds `index.lock`) stays where it is, with an error: a plain rename would leave a tracked
+    delete that a commit of all changes records, and the file would drop out of history.
+    `restage` also stages the moved file's content (tidy rewrote its status before the move), so the
+    index copy in `done/` holds the new status. Only called once every destination is known to be free."""
     dst = _destination(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    moved_via_git = False
-    if _is_git_repo(repo_root):
-        moved_via_git = _run_git_mv(repo_root, src, dst)
-    if not moved_via_git:
+    if _is_git_repo(repo_root) and _is_tracked(repo_root, src):
+        if not _run_git_mv(repo_root, src, dst):
+            report.errors.append(f"git mv failed for tracked {src.relative_to(repo_root).as_posix()}: "
+                                 "left in place (run again when no other git command runs)")
+            return
+        if restage:
+            added = _git_run(repo_root, "add", "--", dst.relative_to(repo_root).as_posix())
+            if added is None or added.returncode != 0:
+                report.errors.append(f"moved, but the status flip of {dst.relative_to(repo_root).as_posix()} "
+                                     "is not staged: git add it by name before you commit")
+        report.staged.append((src, dst))
+    else:
         src.rename(dst)
     report.moved.append(src)
+
+
+def _staged_paths(repo_root: Path) -> list[str] | None:
+    """Repo-relative paths the index holds as staged changes; None when git cannot say."""
+    done = _git_run(repo_root, "diff", "--cached", "--name-only", "-z")
+    if done is None or done.returncode != 0:
+        return None
+    return [p for p in done.stdout.decode("utf-8", "replace").split("\0") if p]
 
 
 @dataclass
@@ -661,19 +704,23 @@ def dirty_paths(root: Path, paths: set[str]) -> list[str]:
     return sorted(dirty)
 
 
-def _only_targets(root: Path, only: list[str]) -> tuple[set[Path], list[str]]:
-    """The resolved `--only` plans, and a message for each name that is not a top-level plan."""
-    plans = (root / ".caddis" / "plans").resolve()
-    targets: set[Path] = set()
+def _only_targets(root: Path, only: list[str]) -> tuple[dict[Path, str], list[str]]:
+    """The resolved `--only` files with their kind, and a message for each name that is not a
+    top-level file of `.caddis/plans/`, `.caddis/prompts/` or `.caddis/parking-lot/` (a `done/`
+    subfolder, another folder and a path outside the repo are all refused)."""
+    homes = {(root / ".caddis" / kind).resolve(): kind for kind in _KINDS}
+    targets: dict[Path, str] = {}
     problems: list[str] = []
     for name in only:
         path = Path(name)
         path = (path if path.is_absolute() else root / path).resolve()
-        if (path.parent != plans or path.suffix != ".md" or path.name.lower() == "readme.md"
+        kind = homes.get(path.parent)
+        if (kind is None or path.suffix != ".md" or path.name.lower() == "readme.md"
                 or not path.is_file()):
-            problems.append(f"--only {name}: not a top-level plan file in .caddis/plans/")
+            problems.append(f"--only {name}: not a top-level file in .caddis/plans/, .caddis/prompts/ "
+                            "or .caddis/parking-lot/")
         else:
-            targets.add(path)
+            targets[path] = kind
     return targets, problems
 
 
@@ -856,7 +903,8 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
 
     Nothing is written until the whole set is known and every destination is free. One existing
     `done/<name>` (or an unreadable commit range) leaves every file exactly as it was. `only`
-    names the plans this run may touch; nothing else is moved or stamped.
+    names the plans, prompts and parking-lot items this run may touch; nothing else is moved or
+    stamped, and no commit trailer is read.
     """
     report = Report()
     if commit_range is not None:
@@ -878,19 +926,22 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
                                      f"{', '.join(dirty)}; commit them first")
     only_set: set[Path] | None = None
     if only is not None:
-        only_set, problems = _only_targets(repo_root, only)
-        if problems or not only_set:
-            report.errors.extend(problems or ["--only names no plan"])
+        only_kinds, problems = _only_targets(repo_root, only)
+        if problems or not only_kinds:
+            report.errors.extend(problems or ["--only names no file"])
             report.refused = True
             return report
-        kinds = ("plans",)  # --only names plans: prompts and parking-lot items stay put
+        only_set = set(only_kinds)
+        kinds = tuple(k for k in _KINDS if k in only_kinds.values())  # only the named files' folders
     moves: list[Path] = []
+    named: list[tuple[str, Item]] = []  # --only: the named files this run read, with their kind
     rewrites: dict[Path, str] = {}  # applied before the moves, so a failed move leaves a
     # finished status at the top level, where the next run moves it by status alone
     for kind in kinds:
         items = scan(repo_root / ".caddis" / kind)
         if only_set is not None:
             items = [item for item in items if item.path.resolve() in only_set]
+            named.extend((kind, item) for item in items)
         for item in items:
             if kind == PARKING_LOT_DIR:
                 _check_parking_lot_item(item, report)
@@ -941,7 +992,7 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
                     continue
             if item.phases_all_done:
                 report.stale_suspects.append(item.path)
-    if commit_range is not None and PARKING_LOT_DIR in kinds:
+    if commit_range is not None and PARKING_LOT_DIR in kinds and only_set is None:
         _plan_parked(repo_root, commit_range, report, moves, rewrites)
     if check:
         _check_wider(repo_root, report)
@@ -951,14 +1002,18 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
         planned = {src.resolve() for src in moves}
         # A plan held for open Tracker rows is already reported (exit 2); it is not a failed request.
         held = {p.resolve() for p, _ in report.open_rows_held}
-        for item in items:  # kinds is ("plans",) here, so `items` is the named plans
+        for kind, item in named:
             if item.path.resolve() not in planned and item.path.resolve() not in held:
-                why = ("no frontmatter status" if classify_status(item.status) == "none" else
-                       f"status {item.status} and the Tracker is not all done")
+                if classify_status(item.status, kind) == "none":
+                    why = "no frontmatter status"
+                elif kind == "plans":
+                    why = f"status {item.status} and the Tracker is not all done"
+                else:
+                    why = f"status {item.status} is not finished"
                 report.not_moved.append((item.path, why))
-        seen = {item.path.resolve() for item in items}
+        seen = {item.path.resolve() for _, item in named}
         for path in sorted(only_set - seen):
-            report.not_moved.append((path, "not a plan this run reads"))
+            report.not_moved.append((path, "not a file this run reads"))
 
     report.collisions.extend(src for src in moves if _collides(src))
     if not apply:
@@ -969,33 +1024,56 @@ def tidy(repo_root: Path, apply: bool = False, check: bool = False,
     # Past this point only an I/O failure can stop the run. Every step is safe to repeat: a
     # written status or stamp that did not move yet is moved by status on the next run, and a
     # note already present is not appended again.
-    # Never move, stage or rewrite a file with uncommitted changes to tracked content: in a shared checkout
-    # that is another session's edit, and a `git mv` stages it for whoever commits next (2026-10-15,
-    # serve-sight). A status that tidy itself wrote is such a change too, so that plan moves on a later run,
-    # after the status write is committed.
-    if _is_git_repo(repo_root):
+    # A file with uncommitted changes to tracked content: under `--all` it is never moved, staged or rewritten.
+    # In a shared checkout that is another session's edit, and a `git mv` stages it for whoever commits next
+    # (2026-10-15, serve-sight). Under `--only` the caller owns each named file, and its uncommitted edit is
+    # usually the status flip that finished it, so a named file moves anyway and its working copy is staged at
+    # the new path (2026-11-08). This check runs before tidy writes anything, so a status that tidy itself
+    # writes below does not count: that plan moves in this run, its new content staged with the rename.
+    named_dirty: set[Path] = set()
+    if _is_git_repo(repo_root) and (moves or rewrites):
+        root_abs = repo_root.resolve()
+
+        def _rel(path: Path) -> str | None:
+            try:
+                return path.resolve().relative_to(root_abs).as_posix()
+            except ValueError:
+                return None
+
+        # Owned: a file `--only` names that this run moves. A named file that stays (a held plan) is not.
+        owned = {_rel(p) for p in moves} if only_set is not None else set()
+        # Tidy's staged moves must be alone in the index: a staged change of this or another session would
+        # go into the same next commit (2026-11-07). Only a named file that this run moves may already be staged.
+        staged = _staged_paths(repo_root)
+        if staged is None:
+            return report.refuse("git could not list the staged changes; nothing was moved")
+        staged = [path for path in staged if path not in owned]
+        if staged:
+            return report.refuse("the index already holds staged changes: " + ", ".join(staged[:10])
+                                 + (" ..." if len(staged) > 10 else "")
+                                 + "; commit or unstage them first. Nothing was moved.")
         dirty = _dirty_paths(repo_root)
         if dirty is None:
             report.dirty_check_failed = "git status could not be read"
             return report
 
-        def _is_dirty(path: Path) -> bool:
-            try:
-                rel_path = path.relative_to(repo_root).as_posix()
-            except ValueError:
-                return True  # cannot place it in the repo: fail closed, leave it alone
-            return rel_path in dirty
-
         for path in sorted({*moves, *rewrites}, key=str):
-            if _is_dirty(path) and path not in report.dirty_skipped:
-                report.dirty_skipped.append(path)
+            rel_path = _rel(path)
+            if rel_path is None:  # cannot place it in the repo: fail closed, leave it alone
+                if path not in report.dirty_skipped:
+                    report.dirty_skipped.append(path)
+            elif rel_path in dirty:
+                if rel_path in owned:
+                    named_dirty.add(path)
+                elif path not in report.dirty_skipped:
+                    report.dirty_skipped.append(path)
         moves = [src for src in moves if src not in report.dirty_skipped]
         rewrites = {path: text for path, text in rewrites.items() if path not in report.dirty_skipped}
     try:
         for path, text in rewrites.items():
             atomic_write(path, text)
         for src in moves:
-            _move_one(repo_root, src, report)
+            _move_one(repo_root, src, report, restage=src in rewrites or src in named_dirty)
     except (OSError, ValueError) as exc:
         report.errors.append(f"stopped part-way, run again to finish: {exc}")
     return report
@@ -1009,14 +1087,17 @@ def nudge_line(repo_root: Path) -> str | None:
     except Exception:
         return None
     if report.collisions:
-        # /handoff cannot move anything while this stands, so do not send people there.
+        # Nothing can move while this stands, so do not send people to --apply.
         return (f"[caddis] tidy is blocked by {len(report.collisions)} done/ name collision(s) "
                 "— run scripts/caddis_tidy.py to see them")
     n = len(report.would_move)
     if not n:
         return None
     plural = "artifact" if n == 1 else "artifacts"
-    return f"[caddis] {n} finished {plural} awaiting tidy — /handoff moves them"
+    # Never send people to /handoff for these: that invited a repo-wide sweep of other sessions' items
+    # (2026-11-07). Each session closes its own; the owner may sweep.
+    return (f"[caddis] {n} finished {plural} awaiting tidy — close your own with "
+            "scripts/caddis_tidy.py --apply --only <path> (owner sweep: --all)")
 
 
 # ── prune: old local state on fixed ages (R2 Phase 11) ──────────────────────────────────────────
@@ -1262,9 +1343,11 @@ def main(argv: list[str] | None = None) -> int:
                      help="also read Resolves-Parked / Partly-Resolves-Parked trailers in these "
                           "commits only, e.g. origin/main..HEAD (default: read no trailers); "
                           "with --check, check only the files this range changed")
-    ap.add_argument("--only", nargs="+", default=None, metavar="PLAN",
-                    help="touch only these top-level plans (.caddis/plans/<name>.md); nothing "
-                         "else is moved or stamped")
+    ap.add_argument("--only", nargs="+", default=None, metavar="PATH",
+                    help="touch only these top-level files of .caddis/plans/, .caddis/prompts/ or "
+                         ".caddis/parking-lot/ (this session's artifacts); nothing else is moved or stamped")
+    ap.add_argument("--all", action="store_true",
+                    help="with --apply: move every finished artifact in the repo (an owner's explicit sweep)")
     ap.add_argument("--prune", action="store_true",
                     help="list old local state under .caddis/ (with --apply: delete it)")
     ap.add_argument("--temp", action="store_true",
@@ -1288,6 +1371,8 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path(args.repo_root).resolve()
     if args.json and not args.hygiene:
         ap.error("--json only works together with --hygiene")
+    if args.all and (args.hygiene or args.prune):
+        ap.error("--all is for the mover (--apply), not --hygiene or --prune")
     if args.hygiene:
         if args.check or args.commit_range or args.only or args.prune or args.temp or args.verbose:
             ap.error("--hygiene runs alone: not with --check, --commit-range, --only, --prune, --temp or --verbose")
@@ -1317,6 +1402,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if (code or temp_part.errors) else 0
     if args.only and args.check:
         ap.error("--only is for --apply (or its dry run), not --check")
+    if args.all and args.only:
+        ap.error("--all and --only exclude each other: --only names this session's artifacts, --all sweeps all")
+    if args.apply and not args.only and not args.all:
+        # 2026-11-07: a bare --apply moved and staged 5 committed items that other sessions owned.
+        print("ERROR: --apply needs --only <path>... (this session's artifacts) or --all (owner sweep)")
+        return 1
     report = tidy(repo_root, apply=args.apply, check=args.check, commit_range=args.commit_range,
                   only=args.only)
     if report.refused:
@@ -1343,6 +1434,16 @@ def main(argv: list[str] | None = None) -> int:
     label = "moved" if args.apply else "would move"
     for p in moved_or_would:
         print(f"  {label}: {rel(p)}")
+    for old, new in report.staged:
+        print(f"  STAGED: {rel(old)} -> {rel(new)}")
+    if report.staged:
+        def arg(p: Path) -> str:
+            return f'"{rel(p)}"' if " " in rel(p) else rel(p)
+
+        paths = " ".join(f"{arg(old)} {arg(new)}" for old, new in report.staged)
+        print("  These moves are staged, not committed. Commit them, and only them, with:")
+        print(f'  git commit -m "chore(tidy): move finished artifacts to done/" -- {paths}')
+        print("  Or undo each move with: git mv <new> <old>")
     for p, rows in report.open_rows_held:
         print(f"  held (open Tracker rows): {rel(p)}: rows {', '.join(rows)}")
     for p in report.dirty_skipped:

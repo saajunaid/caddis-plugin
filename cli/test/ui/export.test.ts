@@ -6,7 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { exportData, type ExportData } from '../../src/hub/export/data';
 import { ExportApp } from '../../ui/src/export/ExportApp';
-import { bannerText, exportSummary, NEEDS_EMPTY, routeExport } from '../../ui/src/export/summary';
+import { bannerText, exportRepo, exportSummary, NEEDS_EMPTY, routeExport } from '../../ui/src/export/summary';
+import { donePlanViews } from '../../ui/src/repo/roadmap';
 
 /**
  * H6.4: the export page against the parity list S1-S17 (plan "Phase H6"). The page is rendered from `exportData` output,
@@ -227,5 +228,35 @@ describe('bannerText branch progress', () => {
     expect(text).toContain(' Branch progress is off: PR data unreadable.');
     const unknown = bannerText({ ...sample({ gates: false }), overlay: { state: 'off', reason: null, count: 0 } });
     expect(unknown).toContain(' Branch progress is off: unknown.');
+  });
+});
+
+describe('export page: done plans', () => {
+  it('turns the date text back to Unix seconds so the Done plans rows show the same day', () => {
+    const data: ExportData = {
+      ...sample({ gates: false }),
+      done_plans: [{ path: '.caddis/plans/done/x.md', title: 'X', closed_at: '2026-11-07', phases: 2, pr: 12 }],
+    };
+    const done = (exportRepo(data).plans as { done: { plans: { closed_at: number }[] } }).done;
+    expect(done.plans[0]!.closed_at).toBe(Date.UTC(2026, 10, 7) / 1000);
+    const views = donePlanViews(exportRepo(data));
+    expect(views[0]).toMatchObject({ title: 'X', closedAt: Date.UTC(2026, 10, 7) / 1000, phases: 2 });
+    expect(views[0]!.pr).toMatchObject({ number: 12, url: 'https://github.com/acme/shop/pull/12' });
+  });
+
+  it('keeps a null date and renders the section in the page', () => {
+    const data: ExportData = {
+      ...sample({ gates: false }),
+      done_plans: [{ path: '.caddis/plans/done/x.md', title: 'X', closed_at: null, phases: 1, pr: null }],
+    };
+    expect((exportRepo(data).plans as { done: { plans: { closed_at: unknown }[] } }).done.plans[0]!.closed_at).toBeNull();
+    const html = renderToStaticMarkup(createElement(ExportApp, { data, hash: '#/' }));
+    expect(html).toContain('data-testid="rm-done"');
+    expect(html).toContain('date unknown');
+  });
+
+  it('shows no section without done plans', () => {
+    const html = renderToStaticMarkup(createElement(ExportApp, { data: sample({ gates: false }), hash: '#/' }));
+    expect(html).not.toContain('rm-done');
   });
 });

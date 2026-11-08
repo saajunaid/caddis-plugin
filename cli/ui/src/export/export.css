@@ -1,6 +1,11 @@
 /* The few rules the export page needs beyond pages.css. */
+/* Dense tables sit on a solid surface, not on glass (D11). */
 .ex-table-wrap {
   overflow-x: auto;
+  border: 1px solid var(--border-dim);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-1);
 }
 .ex-table {
   width: 100%;
@@ -14,9 +19,16 @@
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-dim);
 }
+.ex-table tbody tr:last-child td {
+  border-bottom: 0;
+}
 .ex-table th {
   color: var(--text-sub);
   font-weight: 600;
+  background: var(--bg-lane);
+}
+.ex-table tbody tr:hover td {
+  background: var(--bg-elevated);
 }
 .ex-note {
   margin-top: 24px;

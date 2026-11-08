@@ -10,6 +10,13 @@ import type { RepoState } from '../types';
 /** The link id of the one repo. No org or folder name goes into a URL (R63). */
 export const EXPORT_REPO_ID = 'repo';
 
+/** `2026-11-07` (UTC) back to Unix seconds, as the hub collector sends it. Anything else is null. */
+function dayToSeconds(day: string | null): number | null {
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  return Number.isNaN(ms) ? null : ms / 1000;
+}
+
 /** A repo of the shape the Roadmap view wants, built from the export data. */
 export function exportRepo(data: ExportData): RepoState {
   const name = data.github ? (data.github.split('/')[1] ?? data.github) : 'repo';
@@ -19,7 +26,7 @@ export function exportRepo(data: ExportData): RepoState {
     repo_id: EXPORT_REPO_ID,
     pinned: false,
     roadmaps: { schema: 1, roadmaps: data.roadmaps },
-    plans: { schema: 1, plans: data.plans },
+    plans: { schema: 1, plans: data.plans, done: { plans: (data.done_plans ?? []).map((d) => ({ ...d, closed_at: dayToSeconds(d.closed_at) })) } },
     relays: null,
     // The slot only makes PR links. It names the public repo and holds no PR state.
     github: data.github ? ({ repo: data.github, prs: [], merges: [] } as unknown as RepoState['github']) : null,

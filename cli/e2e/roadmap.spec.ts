@@ -310,3 +310,37 @@ test.describe('360 px', () => {
     await noHorizontalScroll(page);
   });
 });
+
+test.describe('Done plans', () => {
+  test('12 done plans: closed, opening shows 10 rows, Show all shows 12', async ({ page, openHub }) => {
+    const plans = Array.from({ length: 12 }, (_, i) => ({
+      path: `.caddis/plans/done/plan-${String(i).padStart(2, '0')}.md`,
+      title: `Done plan ${i}`,
+      closed_at: Date.UTC(2026, 9, 30 - i) / 1000,
+      phases: i === 0 ? 1 : 3,
+      pr: i === 0 ? 213 : null,
+    }));
+    await openHub(
+      'full',
+      (s) => {
+        s.repos.find((r: { repo_id: string }) => r.repo_id === 'acme__shop').plans.done = { tree: 'tree-e2e', plans };
+      },
+      `${SHOP}/roadmap`,
+    );
+    const done = page.getByTestId('rm-done');
+    await expect(done).toBeVisible();
+    await expect(done).not.toHaveAttribute('open', '');
+    await expect(page.getByTestId('rm-done-row').first()).toBeHidden();
+    await done.locator('summary').click();
+    await expect(page.getByTestId('rm-done-row')).toHaveCount(10);
+    const first = page.getByTestId('rm-done-row').first();
+    await expect(first).toContainText('Done plan 0');
+    await expect(first).toContainText('2026-10-30');
+    await expect(first).toContainText('1 phase');
+    await expect(first.getByTestId('rm-done-pr')).toHaveAttribute('href', 'https://github.com/acme/shop/pull/213');
+    await page.getByTestId('rm-done-all').click();
+    await expect(page.getByTestId('rm-done-row')).toHaveCount(12);
+    await expect(page.getByTestId('rm-done-all')).toHaveCount(0);
+    await noHorizontalScroll(page);
+  });
+});

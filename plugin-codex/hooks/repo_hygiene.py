@@ -3,13 +3,13 @@
 Plan: `.caddis/plans/repo-hygiene-report.md` (Phase 3). `repo_freshness._report` calls `report_lines()`, so Claude
 Code, Codex and agy all get the report through one function, one process and one time budget.
 
-REPORT ONLY. Nothing here deletes, moves or changes anything. The one file it writes is the gh cache
-`<git-common-dir>/caddis-hygiene-prs.json`. Removal is `caddis_tidy.py --hygiene --apply`, which re-proves every
+REPORT ONLY. Nothing here deletes, moves or changes anything. The only files it writes are the gh cache
+`<git-common-dir>/caddis-hygiene-prs.json` and the Orca cache `~/.caddis/orca-worktrees.json`. Removal is `caddis_tidy.py --hygiene --apply`, which re-proves every
 candidate with the deletion-grade test in `caddis_finished.py`.
 
 Every decision lives in `caddis_finished.py` (stdlib only). This module holds the I/O and the formatting. Every git
-call goes through the `git(cwd, *args) -> (code, stdout)` seam (`repo_freshness._git` in the hook). gh and orca go
-through a `subprocess.run`-shaped seam that never opens a console window.
+call goes through the `git(cwd, *args) -> (code, stdout)` seam (`repo_freshness._git` in the hook). gh goes
+through a `subprocess.run`-shaped seam and orca through a `Popen`-shaped one; neither opens a console window.
 """
 from __future__ import annotations
 
@@ -49,6 +49,14 @@ PR_CACHE_MAX_AGE_S = 600  # the same as repo_freshness.FETCH_MAX_AGE_S
 GH_FIELDS = "headRefName,state,number,headRefOid"
 GH_TIMEOUT_S = 5.0    # the most gh may take; less when less of the session-start budget is left
 ORCA_TIMEOUT_S = 3.0  # the same for orca
+# Orca lists the worktrees of every repo, so one cache under ~/.caddis serves all repos. A cold `orca worktree
+# list` took 9.5 s on the owner's server (warm: 0.66 s), so a slow call is never killed: it keeps writing its
+# `orca-worktrees.<pid>.out` file, and the next session start promotes that file to the cache.
+ORCA_CACHE_NAME = "orca-worktrees.json"
+ORCA_CACHE_FRESH_S = 600       # a younger cache answers with no orca call
+ORCA_CACHE_MAX_AGE_S = 86400   # an older cache is never used
+ORCA_PARTIAL_MAX_AGE_S = 3600  # an unreadable .out file older than this is a dead call: delete it
+ORCA_CLOCK_SKEW_S = 60         # a cache this far in the "future" is still used (clock resolution); more is not
 NO_TIME_LEFT = "no time left in the session-start budget"
 
 # No child opens a console window on Windows; git never takes an optional lock or asks for a credential.
@@ -249,22 +257,18 @@ def fetch_prs(top: Path, git_dir: Path, run: Callable, now: float,
     return prs, ""
 
 
-def orca_worktrees(run: Callable, which: Callable, timeout_s: float = ORCA_TIMEOUT_S) -> tuple[dict[str, str] | None, str]:
-    """Every path Orca manages -> its Orca id, keyed by `_key(path)`. (None, reason) when Orca cannot answer
-    completely: not on PATH, a non-zero exit, a timeout, bad JSON, `ok` false, or `result.truncated` true."""
-    exe = which("orca")
-    if not exe:
-        return None, "orca not on PATH"
+def _start_orca(argv: list[str], out: Path, err: Path) -> subprocess.Popen:
+    """The default orca seam: start `argv` with stdout to `out` and stderr to `err`, and do not wait. The caller
+    waits with `proc.wait(timeout)`. On a timeout nothing kills the child: it finishes and fills `out`."""
+    with open(out, "wb") as fo, open(err, "wb") as fe:
+        return subprocess.Popen(argv, stdout=fo, stderr=fe, stdin=subprocess.DEVNULL,
+                                env={**os.environ, **_ENV_OVERRIDES}, creationflags=_NO_WINDOW)
+
+
+def _parse_orca(text: str) -> tuple[dict[str, str] | None, str]:
+    """`orca worktree list --json` output -> (path key -> Orca id, "") or (None, reason)."""
     try:
-        proc = run([exe, "worktree", "list", "--limit", "10000", "--json"], timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        return None, f"orca took longer than {timeout_s:g} s"
-    except (OSError, subprocess.SubprocessError) as exc:
-        return None, f"orca could not start: {exc}"
-    if proc.returncode != 0:
-        return None, _last_line(proc, "orca")
-    try:
-        data = json.loads(proc.stdout)
+        data = json.loads(text)
     except ValueError:
         return None, "orca returned unreadable JSON"
     if not isinstance(data, dict) or data.get("ok") is not True:
@@ -278,6 +282,115 @@ def orca_worktrees(run: Callable, which: Callable, timeout_s: float = ORCA_TIMEO
     for wt in result["worktrees"]:
         if isinstance(wt, dict) and wt.get("path") and wt.get("id"):
             mapping[_key(wt["path"])] = str(wt["id"])
+    return mapping, ""
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _remove(*paths: Path) -> None:
+    for p in paths:
+        try:
+            p.unlink()
+        except OSError:
+            pass  # gone already, or still open: a later session start removes it
+
+
+def _promote_finished(cache_dir: Path, now: float) -> None:
+    """Move the newest complete `orca-worktrees.<pid>.out` (from an earlier slow call) over the cache. Delete the
+    complete ones it does not use, and unreadable ones older than ORCA_PARTIAL_MAX_AGE_S. A young unreadable file is
+    a call that still runs: leave it."""
+    complete: list[tuple[float, Path]] = []
+    for out in cache_dir.glob("orca-worktrees.*.out"):
+        err = out.with_suffix(".err")
+        try:
+            mtime = out.stat().st_mtime
+        except OSError:
+            continue
+        text = _read_text(out)
+        if text is not None and _parse_orca(text)[0] is not None:
+            complete.append((mtime, out))
+        elif now - mtime > ORCA_PARTIAL_MAX_AGE_S:
+            _remove(out, err)
+    complete.sort(reverse=True)
+    cache = cache_dir / ORCA_CACHE_NAME
+    for i, (mtime, out) in enumerate(complete):
+        try:
+            newer = i == 0 and (not cache.exists() or mtime > cache.stat().st_mtime)
+            if newer:
+                os.replace(out, cache)
+        except OSError:
+            newer = False
+        if not newer:
+            _remove(out)
+        _remove(out.with_suffix(".err"))
+
+
+def _read_orca_cache(cache_dir: Path, now: float) -> tuple[dict[str, str] | None, float]:
+    """(mapping, age in seconds) from the cache, or (None, 0) when it is missing, unreadable or too old."""
+    cache = cache_dir / ORCA_CACHE_NAME
+    try:
+        age = now - cache.stat().st_mtime
+    except OSError:
+        return None, 0.0
+    text = _read_text(cache)
+    # time.time() can lag a file's mtime by a few ms on Windows, so a just-written cache can look a little "future"
+    if text is None or not -ORCA_CLOCK_SKEW_S <= age < ORCA_CACHE_MAX_AGE_S:
+        return None, 0.0
+    return _parse_orca(text)[0], max(age, 0.0)
+
+
+def orca_worktrees(start: Callable, which: Callable, timeout_s: float = ORCA_TIMEOUT_S,
+                   cache_dir: Path | None = None, now: float | None = None) -> tuple[dict[str, str] | None, str]:
+    """Every path Orca manages -> its Orca id, keyed by `_key(path)`. (None, reason) when Orca cannot answer
+    completely: not on PATH, a non-zero exit, bad JSON, `ok` false, or `result.truncated` true.
+
+    A cache younger than ORCA_CACHE_FRESH_S answers with no orca call. Otherwise orca runs, and the hook waits at
+    most `timeout_s`. When orca is slower, the last cache (up to ORCA_CACHE_MAX_AGE_S old) answers; with no cache it
+    is a skip. The slow call is not killed, so the next session start has a fresh cache."""
+    now = time.time() if now is None else now
+    cache_dir = Path.home() / ".caddis" if cache_dir is None else Path(cache_dir)
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        _promote_finished(cache_dir, now)
+    except OSError:
+        pass  # no cache this time: orca still answers below
+    cached, age = _read_orca_cache(cache_dir, now)
+    if cached is not None and age < ORCA_CACHE_FRESH_S:
+        return cached, ""
+    exe = which("orca")
+    if not exe:
+        return None, "orca not on PATH"
+    out = cache_dir / f"orca-worktrees.{os.getpid()}.out"
+    err = out.with_suffix(".err")
+    try:
+        proc = start([exe, "worktree", "list", "--limit", "10000", "--json"], out, err)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"orca could not start: {exc}"
+    try:
+        code = proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        if cached is not None:
+            return cached, ""
+        return None, f"orca took longer than {timeout_s:g} s (its answer is cached for the next session start)"
+    text, err_text = _read_text(out) or "", _read_text(err) or ""
+    if code != 0:
+        _remove(out, err)
+        last = err_text.strip() or text.strip()
+        return None, last.splitlines()[-1].strip() if last else f"orca exited {code}"
+    mapping, reason = _parse_orca(text)
+    if mapping is None:
+        _remove(out, err)
+        return None, reason
+    try:
+        os.replace(out, cache_dir / ORCA_CACHE_NAME)
+    except OSError:
+        _remove(out)
+    _remove(err)
     return mapping, ""
 
 
@@ -448,7 +561,8 @@ def start_jobs(top: Path, git: Callable, remaining: Callable[[], float], *, want
             gh = (pool.submit(fetch_prs, main, git_dir, _run, time.time(), gh_s) if gh_s > 0
                   else _done((None, NO_TIME_LEFT)))
         if any_linked:
-            orca = pool.submit(orca_worktrees, _run, _which, orca_s) if orca_s > 0 else _done((None, NO_TIME_LEFT))
+            orca = (pool.submit(orca_worktrees, _start_orca, _which, orca_s, home / ".caddis") if orca_s > 0
+                    else _done((None, NO_TIME_LEFT)))
     finally:
         pool.shutdown(wait=False)  # the submitted calls still run; their timeouts bound them
     return Jobs(main, roots, any_linked, gh, orca)

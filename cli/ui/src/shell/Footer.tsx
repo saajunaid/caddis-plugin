@@ -31,8 +31,8 @@ export function Footer({ state, nowMs, theme, onTheme, motion, onMotion }: Props
         </div>
         <div className="spend-box">
           <div className="spend-row">
-            <span>agy spend (24 h)</span>
-            <span className="mono">
+            <span className="spend-label">agy spend · 24 h</span>
+            <span className="mono spend-amount">
               {spend.configured ? `${spend.committedEur.toFixed(2)} / ${spend.capEur.toFixed(0)} EUR` : 'no cap set'}
             </span>
           </div>
@@ -60,7 +60,9 @@ export function Footer({ state, nowMs, theme, onTheme, motion, onMotion }: Props
         )}
         {v && (
           <div className="versions mono">
-            hub {v.hub} | pool {v.pool ?? '-'} | plugin {v.plugin ?? '-'}
+            <span className="versions-item">hub {v.hub}</span>
+            <span className="versions-item">pool {v.pool ?? '-'}</span>
+            <span className="versions-item">plugin {v.plugin ?? '-'}</span>
           </div>
         )}
       </div>

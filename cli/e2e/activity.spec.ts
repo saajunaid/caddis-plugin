@@ -64,6 +64,20 @@ test.describe('Activity', () => {
     await expect(page.getByTestId('activity-empty')).toContainText('No event matches these filters');
   });
 
+  test('the All chip is pressed while no kind is chosen and clears the kinds', async ({ page, openHub }) => {
+    await openHub('full', undefined, ACTIVITY);
+    const all = page.getByTestId('kind-all');
+    await expect(all).toHaveAttribute('aria-pressed', 'true');
+    const total = await page.getByTestId('activity-item').count();
+    await page.getByTestId('kind-merge').click();
+    await expect(all).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('activity-item')).not.toHaveCount(total);
+    await all.click();
+    await expect(all).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('kind-merge')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('activity-item')).toHaveCount(total);
+  });
+
   test('a PR link goes to GitHub', async ({ page, openHub }) => {
     await openHub('full', undefined, ACTIVITY);
     await expect(page.getByTestId('activity-pr').first()).toHaveAttribute('href', /^https:\/\/github\.com\/acme\/(shop|billing|docs)\/pull\/\d+$/);

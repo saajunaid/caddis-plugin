@@ -152,5 +152,10 @@ If the directory is empty, say so in one line. Do not invent items.
 3. **For `dropped`, append a `## Why dropped` section.** This is not optional. An item deleted with
    no reason gets re-raised by the next session that has the same idea; an item kept with "no,
    because ..." does not.
-4. Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply`, which moves it into `.caddis/parking-lot/done/`.
-5. Report the file's new path in one line.
+4. Move only this item, never another session's finished item (a bare `--apply` exits 1; never pass `--all`):
+   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply --only .caddis/parking-lot/<slug>.md`.
+   It moves it into `.caddis/parking-lot/done/` and stages the move together with the uncommitted status
+   edit from steps 2 and 3 (a file `--only` names moves with its edit). If it refuses because the index holds
+   other staged changes, report the paths and stop; never unstage or commit them yourself.
+5. Report the file's new path in one line, with tidy's `STAGED:` line and its `git commit ... -- <old> <new>`
+   line, so the user can commit the move (or undo it with `git mv <new> <old>`).

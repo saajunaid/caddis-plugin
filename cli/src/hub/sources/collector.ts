@@ -108,10 +108,28 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
   // An older plugin script exits 2 on `--known`. Once seen, the hub stops sending it.
   let knownUnsupported = false;
   let prsFileUnsupported = false;
+  // Same for `--done-known` (done plans cached by tree hash).
+  let doneKnownUnsupported = false;
 
   const fail = (message: string): void => {
     lastError = message;
     lastRunOk = false;
+  };
+
+  /**
+   * Done plans ride in the plans slot (`plans.done`). `{tree, unchanged: true}` means "same tree as `--done-known`":
+   * keep the old list when its tree matches. With no usable old list the slot holds an error and no tree, so the next
+   * run asks for the full list.
+   */
+  const withDone = (entry: RepoData, old: RepoData | undefined): RepoData => {
+    const plans = entry.plans;
+    const done = plans?.done as Slot | undefined;
+    if (!plans || !done || typeof done !== 'object' || done.unchanged !== true) return entry;
+    const oldDone = old?.error === undefined ? (old?.plans?.done as Slot | undefined) : undefined;
+    const reuse = oldDone && typeof done.tree === 'string' && oldDone.tree === done.tree && Array.isArray(oldDone.plans);
+    if (reuse) return { ...entry, plans: { ...plans, done: oldDone } };
+    // No fingerprint: the next run sends no `--known` for this repo and `ingest` takes the fresh entry.
+    return { ...entry, fingerprint: undefined, plans: { ...plans, done: { error: 'done plans not cached' } } };
   };
 
   const ingest = (parsed: unknown, wanted: string[]): void => {
@@ -140,7 +158,7 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
         if (!old || old.error !== undefined) cache.set(entry.path, entry);
         continue;
       }
-      if (!old || old.error !== undefined || old.fingerprint !== entry.fingerprint) cache.set(entry.path, entry);
+      if (!old || old.error !== undefined || old.fingerprint !== entry.fingerprint) cache.set(entry.path, withDone(entry, old));
     }
     const keepOrError = (next: unknown, old: Slot | null): Slot | null => {
       if (!next || typeof next !== 'object') return old;
@@ -169,6 +187,13 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
     const known = [...cache.values()]
       .filter((r) => !knownUnsupported && r.error === undefined && typeof r.fingerprint === 'string' && repos.includes(r.path))
       .map((r) => `${r.path}=${r.fingerprint}`);
+    // Only a cached done tree is sent. A restarted hub has no cache, so it gets the full list.
+    const doneKnown = [...cache.values()]
+      .filter((r) => !knownUnsupported && !doneKnownUnsupported && r.error === undefined && repos.includes(r.path))
+      .flatMap((r) => {
+        const tree = (r.plans?.done as Slot | undefined)?.tree;
+        return typeof tree === 'string' && tree ? [`${r.path}=${tree}`] : [];
+      });
     let prsFlag: string[] = [];
     if (opts.prs && opts.prsFile && repos.length > 0 && !prsFileUnsupported) {
       try {
@@ -180,25 +205,37 @@ export function createCollectorSource(opts: CollectorOptions): CollectorSource {
       }
     }
     // The collector needs `--repos`. With none, ask for spend and guide on a path that does not exist.
-    const args = repos.length
-      ? known.length
-        ? [...pre, script, '--repos', ...repos, '--known', ...known, ...prsFlag, '--json']
-        : [...pre, script, '--repos', ...repos, ...prsFlag, '--json']
-      : [...pre, script, '--repos', path.join(os.tmpdir(), 'caddis-hub-no-repos'), '--only', 'spend,guide', '--json'];
-    let result = await spawn(cmd, args, { timeoutMs: RUN_TIMEOUT_MS });
-    if (!result.ok && prsFlag.length && /unrecognized arguments:.*--prs-file/.test(result.stderr)) {
-      prsFileUnsupported = true;
-      prsFlag = [];
-      log('caddis hub: the collector script does not know --prs-file (old plugin); branch progress is off. Update the plugin.');
-      const retryArgs = known.length
-        ? [...pre, script, '--repos', ...repos, '--known', ...known, '--json']
-        : [...pre, script, '--repos', ...repos, '--json'];
-      result = await spawn(cmd, retryArgs, { timeoutMs: RUN_TIMEOUT_MS });
-    }
-    if (!result.ok && result.code === 2 && known.length && repos.length && /unrecognized arguments:.*--known/.test(result.stderr)) {
-      knownUnsupported = true;
-      log('caddis hub: the collector script does not know --known (old plugin); sending full runs. Update the plugin.');
-      result = await spawn(cmd, [...pre, script, '--repos', ...repos, ...prsFlag, '--json'], { timeoutMs: RUN_TIMEOUT_MS });
+    const build = (): string[] =>
+      repos.length
+        ? [
+            ...pre,
+            script,
+            '--repos',
+            ...repos,
+            ...(known.length ? ['--known', ...known] : []),
+            ...(doneKnown.length ? ['--done-known', ...doneKnown] : []),
+            ...prsFlag,
+            '--json',
+          ]
+        : [...pre, script, '--repos', path.join(os.tmpdir(), 'caddis-hub-no-repos'), '--only', 'spend,guide', '--json'];
+    let result = await spawn(cmd, build(), { timeoutMs: RUN_TIMEOUT_MS });
+    // An old script rejects a flag it does not know with exit 2. Drop that flag, remember it, run again.
+    for (let attempt = 0; attempt < 3 && !result.ok; attempt += 1) {
+      if (prsFlag.length && /unrecognized arguments:.*--prs-file/.test(result.stderr)) {
+        prsFileUnsupported = true;
+        prsFlag = [];
+        log('caddis hub: the collector script does not know --prs-file (old plugin); branch progress is off. Update the plugin.');
+      } else if (result.code === 2 && known.length && repos.length && /unrecognized arguments:.*--known/.test(result.stderr)) {
+        knownUnsupported = true;
+        known.length = 0;
+        doneKnown.length = 0;
+        log('caddis hub: the collector script does not know --known (old plugin); sending full runs. Update the plugin.');
+      } else if (result.code === 2 && doneKnown.length && /unrecognized arguments:.*--done-known/.test(result.stderr)) {
+        doneKnownUnsupported = true;
+        doneKnown.length = 0;
+        log('caddis hub: the collector script does not know --done-known (old plugin); done plans are sent in full. Update the plugin.');
+      } else break;
+      result = await spawn(cmd, build(), { timeoutMs: RUN_TIMEOUT_MS });
     }
     if (result.timedOut) return fail(`collector timed out after ${RUN_TIMEOUT_MS / 1000} s`);
     if (!result.ok) {

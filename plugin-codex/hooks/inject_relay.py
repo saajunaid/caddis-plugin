@@ -763,8 +763,8 @@ except Exception as _exc:
     _hook_note("rules-budget nudge", _exc)
 
 # Tidy nudge (artifact-lifecycle-tidy Phase 3): ONE line when a finished plan/prompt is sitting
-# outside done/. Strictly read-only (dry-run scan only, no move) - the actual move happens at
-# /caddis:handoff or /caddis:implement close, never from a SessionStart hook. Fail-open & silent
+# outside done/. Strictly read-only (dry-run scan only, no move) - each session moves only its own
+# (`caddis_tidy.py --apply --only`, at /caddis:handoff or /caddis:implement close), never from a SessionStart hook. Fail-open & silent
 # like every other block here; an older install without the script just sees nothing.
 try:
     from pathlib import Path as _Path

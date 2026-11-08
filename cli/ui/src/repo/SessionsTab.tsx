@@ -1,6 +1,8 @@
 import { Copy } from 'lucide-react';
 import { useState } from 'react';
 import { ageText } from '../shell/format';
+import { Tooltip } from '../shell/Tooltip';
+import { localTime } from '../shell/time';
 import type { HubState, RepoState } from '../types';
 import { repoSessions } from './sessions';
 
@@ -51,7 +53,15 @@ export function Sessions({ state, repo, nowMs }: { state: HubState; repo: RepoSt
                     {s.agent}
                   </span>
                 )}
-                <span className={`chip tone-${s.status === 'waiting' ? 'warn' : s.status === 'busy' || s.status === 'working' ? 'good' : 'muted'}`}>{s.status}</span>
+                <Tooltip
+                  content={
+                    s.waitingFor
+                      ? `${s.status}: waiting for ${s.waitingClass ? WAIT_LABEL[s.waitingClass] : 'an answer'}: ${s.waitingFor}`
+                      : s.status
+                  }
+                >
+                  <span className={`chip tone-${s.status === 'waiting' ? 'warn' : s.status === 'busy' || s.status === 'working' ? 'good' : 'muted'}`} tabIndex={0}>{s.status}</span>
+                </Tooltip>
                 {s.copyWarning && (
                   <span className="chip tone-bad" data-testid="session-copies">
                     {s.copyWarning}
@@ -65,7 +75,16 @@ export function Sessions({ state, repo, nowMs }: { state: HubState; repo: RepoSt
               <span className="flow-why">
                 {s.kind}
                 {s.waitingFor ? ` · waiting for ${s.waitingClass ? WAIT_LABEL[s.waitingClass] : 'an answer'}: ${s.waitingFor}` : ''}
-                {s.since ? ` · since ${ageText(s.since, nowMs)}` : ''}
+                {s.since && (
+                  <>
+                    {' · since '}
+                    <Tooltip content={localTime(s.since)}>
+                      <time dateTime={s.since} tabIndex={0}>
+                        {ageText(s.since, nowMs)}
+                      </time>
+                    </Tooltip>
+                  </>
+                )}
               </span>
               {s.copyWarning && <span className="flow-why tone-bad">The same session runs in {s.copies} windows. Close the extra copy.</span>}
             </li>

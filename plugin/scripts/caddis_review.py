@@ -527,6 +527,18 @@ def phase_risk(plan: Path, n: int | str) -> str:
     return max(values, key=_RISK_ORDER.index) if values else "normal"
 
 
+_TYPE_RE = re.compile(r"^[\s>*_`~#+\-\[\]]*type\s*[*_`~]*\s*:[*_`~\s]*([a-z]+)", re.IGNORECASE)
+
+
+def phase_type(plan: Path, n: int | str) -> str | None:
+    """The phase's `Type:` value: the first word of the first `Type:` line, lower case. None when there is none."""
+    for raw in phase_section(plan, n).splitlines():
+        m = _TYPE_RE.match(_normalize(raw))
+        if m:
+            return m.group(1).lower()
+    return None
+
+
 def plan_card(plan: Path, n: int | str, plan_ref: str | None = None) -> str:
     """The review card for one plan phase: its heading, Goal, Touches and Exit gate."""
     lines = phase_section(plan, n).splitlines()

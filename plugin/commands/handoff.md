@@ -44,7 +44,8 @@ them into its commit, so check first, before Step 1.
    - Step 1: tell the `knowledge-transfer` subagent to edit files ONLY under the `WORKTREE:` path.
    - Step 3, point 4: make the plan's Tracker edit in `<worktree>/.caddis/plans/<feature>.md`, and write
      any new parking-lot item under `<worktree>/.caddis/parking-lot/`, not in this checkout.
-   - Step 4: skip `caddis_tidy.py --apply` (report `skipped: shared checkout`).
+   - Step 4: run the tidy in the worktree (`--repo-root <worktree>`), never in this checkout. With no
+     worktree (no remote), skip it (report `skipped: shared checkout`).
    - Step 6b: skip `session_state.py prune` (report `skipped: shared checkout`).
    - Step 6c: run `--reindex` in the worktree (it edits the tracked `DOC-MAP.md`).
    - Step 6d: runs as written. It never writes a file in this checkout; it only removes worktrees and
@@ -72,13 +73,14 @@ Step 8 prints all 12 in this order. Never drop a row from the report, even when 
 | 5 | `kb-index` | Step 6c: refresh the KB index | in the Step 0 worktree |
 | 6 | `violations-report` | Step 6c: report standing violations, each with a one-line fix command | runs (report only) |
 | 7 | `usage-record` | Step 6b: `session_state.py usage` | runs |
-| 8 | `tidy-apply` | Step 4: `caddis_tidy.py --apply` | `skipped: shared checkout` |
+| 8 | `tidy-apply` | Step 4: `caddis_tidy.py --apply --only` this session's own finished artifacts | in the Step 0 worktree; no worktree: `skipped: shared checkout` |
 | 9 | `state-prune` | Step 6b: `session_state.py prune` | `skipped: shared checkout` |
 | 10 | `prune-list` | Step 6b: `caddis_tidy.py --prune --temp`, list only | runs (lists, never applies) |
 | 11 | `handover-check` | Step 5 | runs |
 | 12 | `own-cleanup` | Step 6d: `caddis_created.py cleanup --apply` removes this session's merged, clean worktrees and scratch folders; lists the rest with a reason | runs (only this session's recorded worktrees and scratch) |
 
-`tidy-apply` and `state-prune` run only on `SHARED: no`. Handoff never runs
+`state-prune` runs only on `SHARED: no`; `tidy-apply` writes in this checkout only on `SHARED: no` and off the
+default branch (Step 4). Handoff never runs a bare `caddis_tidy.py --apply` (it exits 1) nor `--apply --all`, and never runs
 `caddis_tidy.py --prune --apply` on its own, in any checkout (nor `--prune --temp --apply`); only the user can ask for it (Step 6b). In a
 shared checkout the report also lists every tracked file Step 1 changed, under `Docs PR needed:`.
 
@@ -334,18 +336,80 @@ tasks file exists and is not named. If you wrote the relay before running this, 
 Step 3, point 5.
 
 ## Step 4 — tidy finished artifacts
-Flip any plan/prompt's frontmatter `status:` to `done` (or `superseded`) if this session actually
-finished it — that is your judgment call; the script below never makes it and never auto-flips
-status. In a shared checkout (Step 0), make the `status:` flip in the Step 0 worktree copy of the plan,
-never in this checkout. Then run (skip it in a shared checkout, Step 0: it moves tracked files):
-```
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --apply
-```
-(falls back to `scripts/caddis_tidy.py` from a source checkout). **If the script is missing,
-skip this step** — it degrades open, same as the other machine gates; an older install must not
-be blocked by a script it does not have. Include its report in your output. A **collision**
+Flip a prompt's or parking-lot item's frontmatter `status:` to `done` (or `superseded` / `dropped`) only if
+this session actually finished it — that is your judgment call. The script sets a plan's `status: done` by
+itself only when every `## Tracker` row is `done`. In a shared checkout (Step 0), make the `status:` flip in
+the Step 0 worktree copy, never in this checkout.
+
+**Close only this session's own artifacts.** On 2026-11-07 a bare `caddis_tidy.py --apply` here moved and
+staged 5 finished items that other sessions owned. A bare `--apply` now exits 1; never pass `--all` here (that
+is the owner's sweep).
+
+1. List this session's own finished artifacts from the Step 0 own-files temp file (in a shared checkout, add
+   `--root <worktree>`):
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_handoff.py" tidy-targets --own-files <temp-file>
+   ```
+   It prints one repo-relative path per line: each top-level plan, prompt or parking-lot item in this
+   session's own files that tidy would move or holds for open Tracker rows. Another session's finished item
+   is never printed. **If it prints
+   nothing,** row 8 is `skipped: this session closed no artifact`; go on to the `mentions` check below. The
+   own-files list holds only the last 12 files this session edited, so an item may be missing; it then stays
+   in place, and the SessionStart nudge still lists it. That is the safe side.
+2. Pick the checkout to run in:
+   - **Shared checkout, Step 0 made a worktree:** the worktree, where this session made its status flips.
+     The Step 0 `finish` commits the moves in the docs PR. No worktree (no remote): skip, row 8 is
+     `skipped: shared checkout`.
+   - **`SHARED: no` and this checkout is on the default branch** (`git branch --show-current` equals
+     `<default>`: `git symbolic-ref --short refs/remotes/origin/HEAD` with the `origin/` prefix removed):
+     never leave staged moves here, where any session's next commit takes them. Work in a docs-PR
+     worktree, in this order. Each step runs only when the one before it succeeded:
+     1. List only what tidy can move now (no held plan, no collision; those stay here, untouched, and the
+        point 1 list still reports them):
+        `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_handoff.py" tidy-targets --own-files <temp-file> --movable`.
+        If it prints nothing, row 8 reports the point 1 list and no worktree is made.
+     2. `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_docs_pr.py" start --repo .` prints `WORKTREE: <path>`.
+     3. The worktree comes from `origin/<default>`, so it lacks this session's local status flips. Copy the
+        movable paths into it (`CARRIED: <path>` per file). `carry` only copies: it never changes this checkout.
+        If one copy fails, it puts the worktree back and exits 1.
+        `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_handoff.py" carry --to <worktree> <path> [<path> ...]`
+     4. Run tidy (point 3) with `--repo-root <worktree>` and the same paths.
+     5. Read the branch name with `git -C <worktree> branch --show-current`, then open the docs PR:
+        ```
+        python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_docs_pr.py" finish --worktree <path> --title "docs(tidy): move finished artifacts to done/" --body "Handoff Step 4: this session's own finished artifacts only."
+        ```
+        Report its `PR:` line (or `PATCH:`).
+     6. Only after `finish` printed `PR: <url>`, restore those paths in this checkout:
+        `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_handoff.py" release --branch <branch> <path> [<path> ...]`.
+        It fetches the branch and restores a path only when the branch holds its moved copy in `done/` with the
+        same content; it prints `released: <path>` or `kept: <path> (<reason>)`. Report each `kept` line.
+
+     **If `carry`, tidy or `finish` fails, do not run `release`:** this checkout still holds every edit. Still
+     run `finish` after a failed `carry` or tidy, because it removes the worktree (with no change it prints
+     `PR: none`; a PR it opens holds only this session's copied edits). Row 8 is then `failed: <step>`.
+     **If `start` exits 3 (no remote), do not run tidy in this checkout:** row 8 is
+     `skipped: no remote; moves not staged on the default branch`. Print the dry run, which changes nothing:
+     `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --repo-root . --only <path> [<path> ...]`.
+   - **Otherwise** (a feature branch): this checkout.
+3. Run tidy with every printed path after `--only` (`<checkout>` is `.` or the worktree path):
+   ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --repo-root <checkout> --apply --only <path> [<path> ...]
+   ```
+4. **After a run in this checkout,** the moves are staged, not committed. Tidy prints one
+   `STAGED: <old> -> <new>` line per move and the exact pathspec command
+   `git commit -m "chore(tidy): ..." -- <old> <new> ...`. Show those lines and tell the user: commit the moves
+   with that command (it commits only those paths), or undo each one with `git mv <new> <old>`. Never leave
+   them staged on the default branch.
+
+(Both scripts fall back to `scripts/` from a source checkout.) **If a script is missing, or `tidy-targets` is
+unknown (an older install), skip this step** — it degrades open, same as the other machine gates; an older install must not
+be blocked by a script it does not have. Include the tidy report in your output. A **collision**
 (`done/<name>` already exists) is reported by the script, not fatal — surface it, do not fail the
 handoff over it. Exit 2 means a plan is held because its Tracker still has open rows (`held (open Tracker rows): ...` lines, from Phase 3): show those lines; finish, park (`.caddis/parking-lot/<file>.md` in the row) or mark the rows `dropped: <reason>`, or set the plan status back. Do not fail the handoff over it.
+Exit 1 with `the index already holds staged changes` means tidy moved nothing: row 8 is
+`failed: index holds staged changes`. Report the paths; never unstage or commit them yourself (they may be
+another session's). A file `--only` names moves even with an uncommitted edit (this session's status
+flip): tidy stages its working copy at the new path. Only an `--all` sweep skips files with uncommitted edits.
 
 After step 4, for each item this session closed (a phase `<plan>#<n>`, a plan slug, or a parking-lot slug), run `mentions` to check whether another relay's Next step still names it:
 ```
@@ -412,7 +476,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_budget.py" check --root . --report
 `caddis_budget.py` lists each handoff-grown file over its size budget (`OVER <path>: ...; fix: <rule>`); the
 `fix:` text is the one-line fix for that row.
 List each violation they print with a one-line command that fixes it (for example `/caddis:kb` for an
-un-indexed note, or `caddis_tidy.py --apply` for a finished artifact in the wrong folder). A violation is
+un-indexed note, or `caddis_tidy.py --apply --only <path>` for a finished artifact in the wrong folder). A violation is
 not a failure of the handoff: the row is `done` when all three ran. If a script is missing, the row is
 `skipped: <script> not installed`.
 
@@ -576,7 +640,8 @@ The `cd` makes the relay's repo-relative paths work from any terminal folder (`;
 - Only verified facts and real paths. Mark anything unconfirmed as `Unknown`.
 - Update the plan's tracker rows too (status + last commit) — relay and tracker must agree. In a shared
   checkout, edit the Tracker in the Step 0 worktree, never in this checkout.
-- Don't commit unless asked. Report which `.caddis/relay/<name>.md` was written and the one next action.
+- Don't commit unless asked (the docs PRs that Step 0 and Step 4 open from their own worktrees are the
+  exception). Report which `.caddis/relay/<name>.md` was written and the one next action.
 - **Prune the Done section — two rules, both apply:**
   1. **Merge-based:** Phases already merged to `main` (confirmed by a tag or commit) must be compressed
      to a single line: `- **RW-N**: merged to main as vYYYY.MM.DD.N (<commit>) ✅`. Only the current

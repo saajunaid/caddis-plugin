@@ -5,6 +5,8 @@ import { RecommendationBlock } from '../actions/Recommendation';
 import { ownerDisabledReason, ownerSpecs, queueSpecs, type ActionSpec } from '../actions/model';
 import type { ActApi } from '../actions/useActions';
 import { ageText, anySourceDown } from '../shell/format';
+import { Tooltip } from '../shell/Tooltip';
+import { localTime } from '../shell/time';
 import type { HubState, RepoState } from '../types';
 import { KIND_LABEL, samePath, type Folder, type InboxItem } from './derive';
 import { FirstRun } from '../shell/FirstRun';
@@ -17,6 +19,19 @@ const FOLDERS: { id: Folder; label: string; Icon: typeof Bell }[] = [
   { id: 'blocked', label: 'Blocked', Icon: ShieldOff },
   { id: 'resolved', label: 'Resolved, 24 h', Icon: Archive },
 ];
+
+/** A relative time that shows the absolute local time, with the zone, on hover. */
+function Age({ iso, nowMs, focusable = false }: { iso: string | null; nowMs: number; focusable?: boolean }): JSX.Element {
+  const text = shortAge(iso, nowMs);
+  if (!iso) return <>{text}</>;
+  return (
+    <Tooltip content={localTime(iso)}>
+      <time dateTime={iso} tabIndex={focusable ? 0 : undefined}>
+        {text}
+      </time>
+    </Tooltip>
+  );
+}
 
 const shortAge = (iso: string | null, now: number): string => (iso ? ageText(iso, now).replace(/ ago$/, '') : 'unknown');
 
@@ -131,7 +146,9 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
                       {r.resolved ? 'Resolved' : KIND_LABEL[r.item.kind]}
                     </span>
                     <span className="mono">{r.item.repo}</span>
-                    <span>· {shortAge(r.since, nowMs)}</span>
+                    <span>
+                      · <Age iso={r.since} nowMs={nowMs} />
+                    </span>
                     {!r.resolved && r.item.stale && (
                       <span className="chip chip-stale" data-testid="stale-chip" title="Its source is failing. Last good data is shown.">
                         stale
@@ -163,7 +180,7 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
               </span>
               <span className="mono">{sel.item.repo}</span>
               <span>
-                · {sel.resolved ? 'resolved' : 'since'} {shortAge(sel.since, nowMs)}
+                · {sel.resolved ? 'resolved' : 'since'} <Age iso={sel.since} nowMs={nowMs} focusable />
               </span>
               {!sel.resolved && sel.item.stale && <span className="chip chip-stale">stale</span>}
             </span>

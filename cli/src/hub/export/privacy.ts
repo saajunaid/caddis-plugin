@@ -127,6 +127,21 @@ function scanUrls(file: string, text: string, opts: ScanOptions, hits: Hit[]): v
   }
 }
 
+/**
+ * True when `text` holds anything `scanExport` would flag in `index.html`: a PRIVATE_NAMES entry, a PATTERNS match or a
+ * deny value (same matching as `scanDeny`). The exporter uses it to leave a row out before the page is built.
+ */
+export function isPrivateText(text: string, deny: string[]): boolean {
+  if (PRIVATE_NAMES.some((name) => text.includes(name))) return true;
+  // The shared PATTERNS are global: a fresh non-global copy keeps `lastIndex` out of the answer.
+  if (PATTERNS.some(({ re }) => new RegExp(re.source, re.flags.replace('g', '')).test(text))) return true;
+  return deny.some((value) => {
+    if (value === '') return false;
+    const re = isNumeric(value) ? new RegExp(`(?<![0-9])${escapeRe(value)}(?![0-9])`, 'i') : new RegExp(escapeRe(value), 'i');
+    return re.test(text);
+  });
+}
+
 export function scanExport(dir: string, opts: ScanOptions): Hit[] {
   const hits: Hit[] = [];
   for (const file of walk(dir)) {

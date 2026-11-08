@@ -36,7 +36,7 @@ import { spawnBounded, type SpawnFn } from '../spawn.js';
 import { defaultScriptPath, resolvePython } from '../sources/collector.js';
 import type { PrHead } from '../prHead.js';
 import { derivedDeny, exportData, GITHUB_RE, type ExportData, type Machine } from './data.js';
-import { hitLine, scanExport } from './privacy.js';
+import { hitLine, isPrivateText, scanExport } from './privacy.js';
 
 export const MARKER = '.caddis-export';
 export const PLACEHOLDER = '<!--caddis-export-data-->';
@@ -348,6 +348,15 @@ export async function hubExport(args: ExportArgs, deps: ExportDeps = {}): Promis
     if (data.overlay?.state === 'on') out(`[OVERLAY] on: ${data.overlay.count} plan(s) from PR branches`);
     else if (data.overlay?.state === 'off') out(`[OVERLAY] off: ${data.overlay.reason ?? 'unknown'}`);
     let deny = derivedDeny(first.value, machine);
+    /** Leaves out each done plan whose path or title the scan would flag, and says how many. Never prints the names. */
+    const dropPrivateDone = (page: ExportData): void => {
+      const rows = page.done_plans ?? [];
+      const kept = rows.filter((p) => !isPrivateText(p.path, deny) && !isPrivateText(p.title, deny));
+      if (kept.length === rows.length) return;
+      page.done_plans = kept;
+      out(`[DONE] ${rows.length - kept.length} done plan(s) left out: private words in the name`);
+    };
+    dropPrivateDone(data);
     const scanOpts = (): Parameters<typeof scanExport>[1] => ({
       deny,
       github: args.github ?? null,
@@ -382,6 +391,7 @@ export async function hubExport(args: ExportArgs, deps: ExportDeps = {}): Promis
         // D9.5: the union of both deny lists. A superset never weakens the scan.
         deny = [...new Set([...deny, ...derivedDeny(second.value, machine)])];
         data = mainOnly;
+        dropPrivateDone(data);
         build(data);
         hits = scanExport(staging, scanOpts());
       }

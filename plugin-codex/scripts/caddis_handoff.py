@@ -1,5 +1,11 @@
 """The checkpoint tier of /caddis:handoff: a cheap mid-phase handoff in two calls.
 
+`tidy-targets --own-files <f> [--root <dir>]` (full handoff Step 4) prints the finished top-level plans, prompts
+and parking-lot items in this session's own-files list, one per line, for `caddis_tidy.py --apply --only`.
+`carry --to <worktree> <path>...` (Step 4 on the default branch) copies those files, with their uncommitted edits,
+into the docs-PR worktree; it never changes this checkout. `release --branch <docs-pr branch> <path>...` then restores
+each one here, only when the pushed branch holds its moved copy, so no edit is lost and no move stays staged here.
+
 PREPARE (`checkpoint --session-id <id> [--name <ws>] [--plan <path> --phase <id>]`) reads the relay hash
 BEFORE the model composes the new relay, and prints the exact FINISH command. FINISH (`--relay-file` given)
 writes the relay with `put --require-status --expected-hash`, so a peer's change made in between is never
@@ -369,6 +375,215 @@ def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state:
     return 0
 
 
+_TIDY_KINDS = ("plans", "prompts", "parking-lot")
+
+
+def _caddis_rel(raw: str) -> str | None:
+    """`.caddis/<kind>/<file>.md` for an own-files line that names a top-level plan, prompt or parking-lot
+    file, whichever checkout it was edited in (this one, or the Step 0 worktree); else None."""
+    item = raw.strip()
+    if item.startswith("- "):
+        item = item[2:].strip()
+    if len(item) >= 2 and item.startswith("`") and item.endswith("`"):
+        item = item[1:-1]
+    norm = "/" + item.replace("\\", "/").lstrip("/")
+    at = norm.rfind("/.caddis/")
+    if at < 0:
+        return None
+    parts = norm[at + 1:].split("/")
+    if len(parts) != 3 or parts[1] not in _TIDY_KINDS or not parts[2].lower().endswith(".md"):
+        return None
+    return "/".join(parts)
+
+
+def tidy_targets(root: Path, own_files: Path, movable: bool = False) -> int:
+    """Print the finished top-level artifacts in this session's own-files list, one repo-relative path per
+    line: what `caddis_tidy.py --apply --only` should get at handoff Step 4. Another session's finished item
+    is never printed, so a handoff cannot sweep it (2026-11-07). Nothing printed means none.
+
+    By default a colliding item and a plan held for open Tracker rows are printed too: the `--only` run reports
+    them (exit 1 / exit 2). `movable` prints only what tidy would move now: Step 4 carries just those into the
+    docs-PR worktree, so a held or colliding item is never taken out of this checkout."""
+    root = Path(root).resolve()
+    try:
+        lines = own_files.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    own = {rel for rel in map(_caddis_rel, lines) if rel}
+    if not own:
+        return 0
+    caddis_tidy = _tidy_module()
+    report = caddis_tidy.tidy(root, apply=False)
+    finished = list(report.would_move)  # would_move never holds a collision
+    if not movable:
+        finished += [*report.collisions, *(path for path, _ in report.open_rows_held)]
+    for rel in sorted({path.relative_to(root).as_posix() for path in finished} & own):
+        print(rel)
+    return 0
+
+
+def _tidy_module():
+    if str(_HERE) not in sys.path:
+        sys.path.insert(0, str(_HERE))
+    import caddis_tidy  # ships beside this file
+
+    return caddis_tidy
+
+
+def _tracked(root: Path, rel: str) -> bool | None:
+    try:
+        res = subprocess.run(["git", "-C", str(root), "ls-files", "--error-unmatch", "--", rel],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if res.returncode == 0:
+        return True
+    return False if "did not match" in (res.stderr or "") else None
+
+
+def _artifact_paths(root: Path, paths: list[str], verb: str) -> list[str] | None:
+    """The deduplicated repo-relative artifact paths, or None (after a refusal line) when one is not a real
+    top-level file of `.caddis/{plans,prompts,parking-lot}/` in `root` (a symlink is refused too)."""
+    out: list[str] = []
+    for raw in paths:
+        rel = raw.replace("\\", "/")
+        while rel.startswith("./"):
+            rel = rel[2:]
+        src = root / rel
+        if _caddis_rel(rel) != rel or src.is_symlink() or src.resolve() != src:
+            print(f"{verb}: refused: {raw} is not a top-level file in .caddis/plans/, .caddis/prompts/ or "
+                  ".caddis/parking-lot/; nothing was changed")
+            return None
+        if rel not in out:
+            out.append(rel)
+    return out
+
+
+def carry(root: Path, to: Path, paths: list[str]) -> int:
+    """Copy this session's own artifacts, with their uncommitted edits, from this checkout into the Step 4
+    docs-PR worktree, at the same relative paths (2026-11-08). The worktree comes from origin/<default>, so
+    without this the session's local status flips are not in it. COPIES ONLY: this checkout is never changed
+    (`release` restores it later, once the docs PR branch holds the moves).
+
+    All files are copied and checked byte-equal first. If any copy fails, every file this run wrote in the
+    worktree is put back as it was (deleted when it was new) and the exit is 1. Prints `CARRIED: <path>`."""
+    root, to = Path(root).resolve(), Path(to).resolve()
+    if root == to:
+        print("CARRY: refused: --to is this checkout")
+        return 1
+    if not to.is_dir():
+        print(f"CARRY: refused: no worktree at {to}")
+        return 1
+    rels = _artifact_paths(root, paths, "CARRY")
+    if rels is None:
+        return 1
+    for rel in rels:
+        if not (root / rel).is_file():
+            print(f"CARRY: refused: {rel} does not exist in this checkout; nothing was changed")
+            return 1
+    written: list[tuple[Path, bytes | None]] = []  # (worktree file, its bytes before this run; None = new)
+    try:
+        for rel in rels:
+            data = (root / rel).read_bytes()
+            dst = to / rel
+            before = dst.read_bytes() if dst.is_file() else None
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            written.append((dst, before))
+            dst.write_bytes(data)
+            if dst.read_bytes() != data:
+                raise OSError(f"the copy of {rel} differs from this checkout")
+    except OSError as exc:
+        print(f"CARRY: failed: {exc}; the worktree is put back, this checkout was not changed")
+        for dst, before in reversed(written):
+            try:
+                if before is None:
+                    dst.unlink(missing_ok=True)
+                else:
+                    dst.write_bytes(before)
+            except OSError as undo:
+                print(f"CARRY: could not put back {dst}: {undo}")
+        return 1
+    for rel in rels:
+        print(f"CARRIED: {rel}")
+    return 0
+
+
+def _blob_id(root: Path, rel: str, data: bytes) -> str | None:
+    """The blob id git would store for `data` at `rel` (its clean filters, such as CRLF to LF, applied)."""
+    try:
+        res = subprocess.run(["git", "-C", str(root), "hash-object", "--stdin", f"--path={rel}"], input=data,
+                             capture_output=True)
+    except OSError:
+        return None
+    return res.stdout.decode("ascii", "replace").strip() if res.returncode == 0 else None
+
+
+def release(root: Path, branch: str, paths: list[str]) -> int:
+    """After the Step 4 docs PR is open, restore each carried artifact in this checkout, but only when the
+    pushed branch holds it, moved: `origin/<branch>:.caddis/<kind>/done/<file>` must be the same blob as this
+    checkout's file (as git would store it), or as that file with the `status: done` that tidy writes into a
+    plan whose Tracker is complete. Then a tracked file is restored (`git checkout -- <path>`) and an untracked
+    one deleted. Anything else is left as it is with `kept: <path> (<reason>)`. Exit 0 when all were released."""
+    root = Path(root).resolve()
+    rels = _artifact_paths(root, paths, "RELEASE")
+    if rels is None:
+        return 1
+    if not re.fullmatch(r"[A-Za-z0-9._/-]+", branch) or branch.startswith("-"):
+        print(f"RELEASE: refused: {branch!r} is not a branch name")
+        return 1
+    fetched = _git(root, "fetch", "--quiet", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
+    if fetched is None:
+        for rel in rels:
+            print(f"kept: {rel} (cannot fetch origin/{branch})")
+        return 1
+    caddis_tidy = _tidy_module()
+    kept = 0
+    for rel in rels:
+        kind, name = rel.split("/")[1], rel.split("/")[2]
+        done_rel = f".caddis/{kind}/done/{name}"
+        src = root / rel
+        reason = None
+        remote = _git(root, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}:{done_rel}")
+        tracked = _tracked(root, rel)
+        try:
+            data = src.read_bytes() if src.is_file() else None
+        except OSError as exc:
+            data, reason = None, f"cannot read it: {exc}"
+        if reason is None and data is None:
+            reason = "it is no longer in this checkout"
+        elif reason is None and not remote:
+            reason = f"origin/{branch} has no {done_rel}"
+        elif reason is None and tracked is None:
+            reason = "git cannot say whether it is tracked"
+        elif reason is None and tracked and _git(root, "diff", "--cached", "--name-only", "--", rel):
+            reason = "it has a staged change"
+        if reason is None:
+            candidates = {_blob_id(root, rel, data)}
+            text = data.decode("utf-8", "replace")
+            flipped = caddis_tidy._set_header(text, {"status": "done"}) if kind == "plans" else None
+            if flipped is not None:
+                candidates.add(_blob_id(root, rel, flipped.encode("utf-8")))
+            if remote not in candidates:
+                reason = f"it differs from {done_rel} on origin/{branch}"
+        if reason is None:
+            try:
+                if tracked:
+                    res = subprocess.run(["git", "-C", str(root), "checkout", "--", rel], capture_output=True,
+                                         text=True, encoding="utf-8", errors="replace")
+                    if res.returncode != 0:
+                        reason = "git could not restore it: " + (res.stderr or "").strip()[:160]
+                else:
+                    src.unlink()
+            except OSError as exc:
+                reason = f"could not restore it: {exc}"
+        if reason is None:
+            print(f"released: {rel}")
+        else:
+            kept += 1
+            print(f"kept: {rel} ({reason})")
+    return 1 if kept else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -376,6 +591,10 @@ def main(argv: list[str] | None = None) -> int:
         pass
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
+    t = sub.add_parser("tidy-targets", help="print this session's finished top-level artifacts (handoff Step 4)")
+    t.add_argument("--own-files", required=True, type=Path,
+                   help="the Step 0 temp file: this session's `## Files changed this session` lines")
+    t.add_argument("--root", type=Path, help="the checkout tidy runs in (default: the git top level of the cwd)")
     p = sub.add_parser("checkpoint", help="prepare (no --relay-file) or finish (--relay-file) a checkpoint")
     p.add_argument("--session-id", required=True)
     p.add_argument("--name", help="workstream name (default: caddis_workstreams.py resolve)")
@@ -385,7 +604,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--expected-hash", help="FINISH: the hash PREPARE printed")
     p.add_argument("--kt", help="FINISH: done | skipped:<reason>")
     p.add_argument("--idle", action="store_true", help="FINISH: no agent or background command runs")
+    t.add_argument("--movable", action="store_true",
+                   help="print only what tidy would move now (no held plan, no collision): the set to carry")
+    c = sub.add_parser("carry", help="copy own artifacts with their edits into the Step 4 docs-PR worktree")
+    c.add_argument("--to", required=True, type=Path, help="the WORKTREE: path that caddis_docs_pr.py start printed")
+    c.add_argument("--root", type=Path, help="this checkout (default: the git top level of the cwd)")
+    c.add_argument("paths", nargs="+", help="repo-relative paths that tidy-targets --movable printed")
+    r = sub.add_parser("release", help="restore carried artifacts here once origin/<branch> holds their moves")
+    r.add_argument("--branch", required=True, help="the docs-PR branch that caddis_docs_pr.py finish pushed")
+    r.add_argument("--root", type=Path, help="this checkout (default: the git top level of the cwd)")
+    r.add_argument("paths", nargs="+", help="the paths given to carry")
     args = parser.parse_args(argv)
+    if args.cmd == "tidy-targets":
+        return tidy_targets(args.root or _repo_root(), args.own_files, movable=args.movable)
+    if args.cmd == "carry":
+        return carry(args.root or _repo_root(), args.to, args.paths)
+    if args.cmd == "release":
+        return release(args.root or _repo_root(), args.branch, args.paths)
     try:
         args.root = _repo_root()  # once: every path and every sibling call uses it
         return finish(args) if args.relay_file else prepare(args)

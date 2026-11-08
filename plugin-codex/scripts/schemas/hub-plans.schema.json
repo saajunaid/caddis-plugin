@@ -62,6 +62,62 @@
         }
       }
     },
+    "done": {
+      "description": "Finished plans from origin/<default>:.caddis/plans/done (origin source only). unchanged: the tree equals --done-known.",
+      "type": "object",
+      "properties": {
+        "tree": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unchanged": {
+          "const": true
+        },
+        "error": {
+          "type": "string"
+        },
+        "plans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closed_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "phases": {
+                "type": "integer"
+              },
+              "pr": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "plans": {
       "type": "array",
       "items": {
@@ -137,7 +193,10 @@
                 "type": "integer"
               },
               "changed_at": {
-                "type": ["integer", "null"],
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "description": "Unix time of the last change: the commit time on origin, or the file time in the working tree. null when unknown."
               },
               "overlay": {

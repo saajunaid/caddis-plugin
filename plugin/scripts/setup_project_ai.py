@@ -1603,7 +1603,7 @@ life. `future` asks whether we have committed to it. An item can be `status: ope
 |---|---|
 | `open` | Raised, not started. |
 | `doing` | Someone is on it now. |
-| `done` | Finished. `caddis_tidy.py --apply` moves it to `done/`. |
+| `done` | Finished. `caddis_tidy.py --apply --only <this item>` moves it to `done/`. |
 | `dropped` | Deliberately abandoned. **Write why in the body**, or the next session re-raises it. |
 
 The list is closed on purpose. `wip`, `todo` and `pending` are not accepted, because "how many open
@@ -1629,7 +1629,8 @@ items?" has no answer when one state has three spellings.
 
 - `/caddis:park` - file an item correctly, or list what is open.
 - `python scripts/caddis_tidy.py --check` - fails (exit 1) on any item that breaks the contract.
-- `python scripts/caddis_tidy.py --apply` - sweeps `done` and `dropped` items into `done/`.
+- `python scripts/caddis_tidy.py --apply --only .caddis/parking-lot/<item>.md` - moves your own `done` or
+  `dropped` item into `done/`. A bare `--apply` exits 1; `--apply --all` sweeps every finished item (the owner's call).
 """
 
 
@@ -2080,6 +2081,60 @@ def ensure_superpowers_deny(dry: bool, home: Path | None = None) -> str:
     return f"superpowers deny rules: {verb} {len(missing)} to permissions.deny in {path}"
 
 
+# ── Orca worktree cache ─────────────────────────────────────────────────────────────────────
+# The session-start hook (claude-harness/hooks/repo_hygiene.py) waits at most 3 s for `orca worktree list`. A cold
+# call can take longer (9.5 s on the owner's server), so the hook keeps the answer in this file. Setup fills it once,
+# with a long time limit, so the first session start on a new machine already has an answer.
+ORCA_CACHE_NAME = "orca-worktrees.json"  # must equal repo_hygiene.ORCA_CACHE_NAME (a test checks)
+ORCA_WARM_TIMEOUT_S = 30.0
+
+
+def warm_orca_cache(dry: bool, home: Path | None = None, run=None, which=shutil.which) -> str:
+    """Ask orca for its worktree list once and write `~/.caddis/orca-worktrees.json`. Writes only a complete list
+    (`ok` true, not truncated). Every failure is a "skipped" line, never an error: setup goes on.
+    `CADDIS_NO_ORCA_WARM` skips it."""
+    if os.environ.get("CADDIS_NO_ORCA_WARM"):
+        return "orca cache: skipped (CADDIS_NO_ORCA_WARM set)"
+    exe = which("orca")
+    if not exe:
+        return "orca cache: skipped (orca not on PATH)"
+    root = home or Path(os.environ.get("CADDIS_HOME") or Path.home())
+    dest = root / ".caddis" / ORCA_CACHE_NAME
+    if dry:
+        return f"orca cache: would ask orca once and write {dest}"
+    import subprocess
+    argv = [exe, "worktree", "list", "--limit", "10000", "--json"]
+    kw = {"capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace",
+          "timeout": ORCA_WARM_TIMEOUT_S, "stdin": subprocess.DEVNULL, "check": False}
+    try:
+        if run is not None:  # the test seam
+            proc = run(argv, **kw)
+        else:
+            proc = subprocess.run(argv, **kw, creationflags=0x08000000 if os.name == "nt" else 0)
+    except subprocess.TimeoutExpired:
+        return f"orca cache: skipped (orca took longer than {ORCA_WARM_TIMEOUT_S:g} s)"
+    except OSError as exc:
+        return f"orca cache: skipped (orca could not start: {exc})"
+    if proc.returncode != 0:
+        last = (proc.stderr or proc.stdout or "").strip().splitlines()
+        return f"orca cache: skipped ({last[-1].strip() if last else f'orca exited {proc.returncode}'})"
+    try:
+        data = json.loads(proc.stdout)
+    except ValueError:
+        data = None
+    result = data.get("result") if isinstance(data, dict) and data.get("ok") is True else None
+    if not isinstance(result, dict) or not isinstance(result.get("worktrees"), list) or result.get("truncated"):
+        return "orca cache: skipped (orca did not return a complete worktree list)"
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
+        tmp.write_text(proc.stdout, encoding="utf-8")
+        os.replace(tmp, dest)
+    except OSError as exc:
+        return f"orca cache: skipped (could not write {dest}: {exc})"
+    return f"orca cache: wrote {dest} ({len(result['worktrees'])} worktrees)"
+
+
 CLEANUP_PERIOD_KEY = "cleanupPeriodDays"
 CLEANUP_PERIOD_DAYS = 120
 
@@ -2437,6 +2492,9 @@ def main() -> int:
         print(f"   {line}")
     print(f"   {ensure_cleanup_period(args.dry_run)}")
     print(f"   {ensure_superpowers_deny(args.dry_run)}")
+
+    print("-- Orca worktree cache (so the first session start does not wait for orca)")
+    print(f"   {warm_orca_cache(args.dry_run)}")
 
     print("-- doc-coverage discipline (DOC-MAP + page guide + checker)")
     for line in emit_doc_discipline(target, ident, args.force, args.dry_run):

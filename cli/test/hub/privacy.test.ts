@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hitLine, scanExport, type Hit } from '../../src/hub/export/privacy.js';
+import { hitLine, isPrivateText, scanExport, type Hit } from '../../src/hub/export/privacy.js';
 
 /**
  * H6.3: the privacy scan (R62). Each planted value must give a hit. The values are samples, and the tokens that look
@@ -172,5 +172,22 @@ describe.skipIf(!existsSync(path.join(BUILT, 'index.html')))('a real dist/export
   it('passes the URL rule', () => {
     const hits = scanExport(BUILT, { deny: [], github: 'acme/shop' }).filter((h) => h.rule === 'url-not-allowed');
     expect(hits).toEqual([]);
+  });
+});
+
+describe('isPrivateText', () => {
+  const DRIVE_PATH = ['C:', 'x'].join('\\');
+
+  it('is true for a private name, a pattern and a deny value', () => {
+    expect(isPrivateText('.caddis/plans/done/analytics-rebuild-prompt.md', [])).toBe(true);
+    expect(isPrivateText('.caddis/plans/done/roadmap-pages-github.md', [])).toBe(true);
+    expect(isPrivateText(DRIVE_PATH, [])).toBe(true);
+    expect(isPrivateText('hub-done-plans.md', ['hub-done'])).toBe(true);
+  });
+
+  it('is false for a plain name, and gives the same answer on every call', () => {
+    expect(isPrivateText('hub-done-plans.md', [])).toBe(false);
+    expect(isPrivateText(DRIVE_PATH, [])).toBe(true);
+    expect(isPrivateText(DRIVE_PATH, [])).toBe(true);
   });
 });

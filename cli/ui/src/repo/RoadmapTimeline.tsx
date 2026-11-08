@@ -1,9 +1,11 @@
 import { ArrowRightLeft, Circle, CircleCheck, Loader, OctagonAlert } from 'lucide-react';
+import { Tooltip } from '../shell/Tooltip';
 import { PhasePrs, Pill } from './PhasePanel';
 import {
   phaseMeta,
   TILE_LABEL,
   type Match,
+  type MilestoneView,
   type PhaseView,
   type RoadmapModel,
   type Tile,
@@ -21,6 +23,33 @@ export const ICON = { size: 14, 'aria-hidden': true } as const;
 export function TileIcon({ tile }: { tile: Tile }): JSX.Element {
   const Icon = TILE_ICON[tile];
   return <Icon {...ICON} />;
+}
+
+/** The hover text of a phase tile: only what the phase already holds. */
+export function PhaseTip({ p }: { p: PhaseView }): JSX.Element {
+  const meta = phaseMeta(p);
+  return (
+    <>
+      <strong>
+        {p.ref} {p.name}
+      </strong>
+      <span>
+        {TILE_LABEL[p.tile]} · {p.tracker || p.stage}
+      </span>
+      {p.prs.length > 0 && <span>{p.prs.map((pr) => `#${pr.number}`).join(' ')}</span>}
+      {meta && <span>{meta}</span>}
+      {p.highRisk && <span>high risk</span>}
+    </>
+  );
+}
+
+export const gateCountText = (n: number): string => `${n} ${n === 1 ? 'gate' : 'gates'}`;
+
+/** The milestone line: who runs it, the target, and what it waits for (left out when nothing). */
+export function milestoneMeta(ms: Pick<MilestoneView, 'owner' | 'target' | 'depends'>): string {
+  return [`run by ${ms.owner}`, ms.target ? `target ${ms.target}` : '', ms.depends.length ? `after ${ms.depends.join(', ')}` : '']
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export function Bar({ done, total }: { done: number; total: number }): JSX.Element {
@@ -57,7 +86,7 @@ export function Timeline({ m, match, onOpen }: { m: RoadmapModel; match: Match |
             <div key={ms.id} className="rm-cell rm-head">
               <strong>{ms.id}</strong> <Pill status={ms.status} />
               <span className="rm-sub">{ms.depends.length ? `after ${ms.depends.join(', ')}` : 'starts first'}</span>
-              {ms.blockers.length > 0 && <span className="rm-gate-count">{ms.blockers.length} gate(s)</span>}
+              {ms.blockers.length > 0 && <span className="rm-gate-count">{gateCountText(ms.blockers.length)}</span>}
             </div>
           ))}
         </div>
@@ -74,13 +103,15 @@ export function Timeline({ m, match, onOpen }: { m: RoadmapModel; match: Match |
                 {ms.phases
                   .filter((p) => p.plan === lane.plan && shown(p))
                   .map((p) => (
-                    <button key={p.ref} type="button" className="rm-tile" data-state={p.tile} data-risk={p.highRisk ? 'high' : undefined} title={`${p.ref} ${p.name} | ${p.tracker || p.stage}`} onClick={(e) => onOpen(p.ref, e.currentTarget)}>
-                      <TileIcon tile={p.tile} />
-                      {m.kind !== 'plan' && <b className="mono">{p.num}</b>}
-                      <span>{p.name}</span>
-                      <span className="sr-only">{TILE_LABEL[p.tile]}</span>
-                      {p.highRisk && <i className="rm-risk" aria-label="high risk" />}
-                    </button>
+                    <Tooltip key={p.ref} content={<PhaseTip p={p} />}>
+                      <button type="button" className="rm-tile" data-state={p.tile} data-risk={p.highRisk ? 'high' : undefined} onClick={(e) => onOpen(p.ref, e.currentTarget)}>
+                        <TileIcon tile={p.tile} />
+                        {m.kind !== 'plan' && <b className="mono">{p.num}</b>}
+                        <span>{p.name}</span>
+                        <span className="sr-only">{TILE_LABEL[p.tile]}</span>
+                        {p.highRisk && <i className="rm-risk" aria-label="high risk" />}
+                      </button>
+                    </Tooltip>
                   ))}
               </div>
             ))}
@@ -92,9 +123,11 @@ export function Timeline({ m, match, onOpen }: { m: RoadmapModel; match: Match |
             {m.milestones.map((ms) => (
               <div key={ms.id} className="rm-cell">
                 {ms.blockers.map((b, i) => (
-                  <div key={i} className="rm-gate-note" title={b.reason}>
-                    {b.type}: {b.reason.length > 60 ? `${b.reason.slice(0, 60)}…` : b.reason}
-                  </div>
+                  <Tooltip key={i} content={`${b.type}: ${b.reason}`}>
+                    <div className="rm-gate-note" tabIndex={0}>
+                      {b.type}: {b.reason.length > 60 ? `${b.reason.slice(0, 60)}…` : b.reason}
+                    </div>
+                  </Tooltip>
                 ))}
               </div>
             ))}
@@ -108,17 +141,19 @@ export function Timeline({ m, match, onOpen }: { m: RoadmapModel; match: Match |
               {ms.id} <Pill status={ms.status} />
             </h4>
             {ms.phases.filter(shown).map((p) => (
-              <button key={p.ref} type="button" className="rm-tile" data-state={p.tile} data-risk={p.highRisk ? 'high' : undefined} onClick={(e) => onOpen(p.ref, e.currentTarget)}>
-                <TileIcon tile={p.tile} />
-                {m.kind !== 'plan' && (
-                  <b className="mono">
-                    {p.plan} {p.num}
-                  </b>
-                )}
-                <span>{p.name}</span>
-                <span className="sr-only">{TILE_LABEL[p.tile]}</span>
-                {p.highRisk && <i className="rm-risk" aria-label="high risk" />}
-              </button>
+              <Tooltip key={p.ref} content={<PhaseTip p={p} />}>
+                <button type="button" className="rm-tile" data-state={p.tile} data-risk={p.highRisk ? 'high' : undefined} onClick={(e) => onOpen(p.ref, e.currentTarget)}>
+                  <TileIcon tile={p.tile} />
+                  {m.kind !== 'plan' && (
+                    <b className="mono">
+                      {p.plan} {p.num}
+                    </b>
+                  )}
+                  <span>{p.name}</span>
+                  <span className="sr-only">{TILE_LABEL[p.tile]}</span>
+                  {p.highRisk && <i className="rm-risk" aria-label="high risk" />}
+                </button>
+              </Tooltip>
             ))}
           </div>
         ))}
@@ -143,8 +178,7 @@ export function Milestones({ m, match, onOpen }: { m: RoadmapModel; match: Match
               <strong>{ms.id}</strong> <Pill status={ms.status} />
               {m.kind !== 'plan' && (
                 <span className="rm-sub">
-                  owner {ms.owner}
-                  {ms.target ? ` · target ${ms.target}` : ''} · after {ms.depends.join(', ') || '-'}
+                  {milestoneMeta(ms)}
                 </span>
               )}
             </summary>

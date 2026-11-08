@@ -126,6 +126,7 @@ source checkout; skip this step if the script is missing or the repo has no `.ca
 Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: one `/caddis:cross-review` by one other vendor (two only when the owner asks). No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
+When `review-tier` prints `AREA: security-analyst`, also dispatch `security-analyst` on the diff. `ui-design-reviewer` never runs per PR.
 
 > **Why this is mechanical and not "consider a review here".** a fleet app shipped four
 > production releases in one day — sixteen fixes across SQL, caches, refresh jobs and React — and

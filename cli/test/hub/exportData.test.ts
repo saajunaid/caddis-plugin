@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { derivedDeny, ERROR_TEXT, exportData, type ExportRoadmap } from '../../src/hub/export/data.js';
+import { scanExport } from '../../src/hub/export/privacy.js';
 
 /**
  * H6.2: the Pages export allow-list (R59). The fixture holds every allowed key and many private values.
@@ -88,7 +92,7 @@ describe('exportData (R59)', () => {
   const text = JSON.stringify(data);
 
   it('keeps every allowed key with its value', () => {
-    expect(Object.keys(data)).toEqual(['schema', 'generated_at', 'label', 'github', 'commit', 'roadmaps', 'plans', 'overlay']);
+    expect(Object.keys(data)).toEqual(['schema', 'generated_at', 'label', 'github', 'commit', 'roadmaps', 'plans', 'done_plans', 'overlay']);
     const rm = data.roadmaps[0] as ExportRoadmap;
     expect(rm).toMatchObject({ roadmap: 'launch', branch: 'main', done: 1, total: 2, lanes: ['p-shop'] });
     expect(rm.next).toEqual({ milestone: 'S2', plan: 'p-shop', phase: 3 });
@@ -191,6 +195,67 @@ describe('exportData overlay (plan D9 allow-list)', () => {
   it('never exports the row source', () => {
     const data = withOverlay(null, undefined, { phase: '1', status: 'done', state: 'done', source: 'branch' });
     expect(Object.keys(data.plans[0]!.tracker[0]!)).toEqual(['phase', 'status', 'state']);
+  });
+});
+
+describe('exportData done plans (plan D7)', () => {
+  const T = Date.UTC(2026, 10, 7, 23, 59, 59) / 1000;
+  function withDone(done: unknown) {
+    const raw = collector();
+    ((raw.repos as Record<string, unknown>[])[0]!.plans as Record<string, unknown>).done = done;
+    return exportData(raw, opts);
+  }
+
+  it('is an empty list when the collector sent no done plans', () => {
+    expect(exportData(collector(), opts).done_plans).toEqual([]);
+    expect(withDone({ error: 'x' }).done_plans).toEqual([]);
+    expect(withDone({ tree: 't', unchanged: true }).done_plans).toEqual([]);
+  });
+
+  it('keeps only the five D7 keys and writes the date as UTC text', () => {
+    const data = withDone({
+      tree: 't1',
+      plans: [
+        { path: '.caddis/plans/done/a.md', title: 'A', closed_at: T, phases: 3, pr: 12, extra: 'done-canary-zz', commit: 'abc' },
+        { path: '.caddis/plans/done/b.md', title: 'B', closed_at: null, phases: 1, pr: 0 },
+      ],
+    });
+    expect(data.done_plans).toEqual([
+      { path: '.caddis/plans/done/a.md', title: 'A', closed_at: '2026-11-07', phases: 3, pr: 12 },
+      { path: '.caddis/plans/done/b.md', title: 'B', closed_at: null, phases: 1, pr: null },
+    ]);
+    expect(JSON.stringify(data)).not.toContain('done-canary-zz');
+  });
+
+  it('drops an error row and an unsafe path', () => {
+    const data = withDone({
+      tree: 't1',
+      plans: [
+        { path: '.caddis/plans/done/ok.md', title: 'ok', closed_at: 1, phases: 1, pr: null },
+        { path: '.caddis/plans/done/bad.md', error: 'done-error-canary' },
+        { path: '../outside/x.md', title: 'dots-canary', closed_at: 1, phases: 1, pr: null },
+        { path: `${WIN_REPO}\\.caddis\\plans\\done\\abs.md`, title: 'abs-canary', closed_at: 1, phases: 1, pr: null },
+      ],
+    });
+    expect(data.done_plans!.map((p) => p.path)).toEqual(['.caddis/plans/done/ok.md']);
+    expect(JSON.stringify(data)).not.toMatch(/done-error-canary|dots-canary|abs-canary/);
+  });
+
+  it('a title with a home path fails the privacy scan, as plans do', () => {
+    const raw = collector();
+    ((raw.repos as Record<string, unknown>[])[0]!.plans as Record<string, unknown>).done = {
+      tree: 't1',
+      plans: [{ path: '.caddis/plans/done/x.md', title: `fix ${WIN_REPO}\\src`, closed_at: 1, phases: 1, pr: null }],
+    };
+    const machine = { repoPath: WIN_REPO, home: ['C:', 'Users', 'sample-user'].join('\\'), user: 'sample-user', host: 'sample-box-01' };
+    const dir = mkdtempSync(path.join(tmpdir(), 'caddis-done-scan-'));
+    try {
+      writeFileSync(path.join(dir, 'index.html'), `<script type="application/json">${JSON.stringify(exportData(raw, opts))}</script>`);
+      const hits = scanExport(dir, { deny: derivedDeny(raw, machine), github: 'acme/shop' });
+      expect(hits.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
