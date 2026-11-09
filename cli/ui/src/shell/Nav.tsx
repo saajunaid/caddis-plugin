@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Inbox as InboxIcon, LayoutDashboard, Menu, X } from 'lucide-react';
+import { Activity, BookOpen, Inbox as InboxIcon, LayoutDashboard, Menu, Search, X } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import type { HubState, RepoState } from '../types';
 import { Logo } from './Logo';
@@ -34,6 +34,8 @@ interface Props {
   inbox: number;
   open: boolean;
   onToggle: (open: boolean) => void;
+  /** Open the "Jump to anything" palette; focus goes back to the given element when it closes. */
+  onJump?: (returnTo: HTMLElement | null) => void;
   /** The footer, shown at the bottom of the sidebar. */
   children?: ReactNode;
 }
@@ -61,7 +63,7 @@ function Link({ href, active, icon, label, badge, hint, onGo }: {
   );
 }
 
-export function Nav({ route, state, inbox, open, onToggle, children }: Props): JSX.Element {
+export function Nav({ route, state, inbox, open, onToggle, onJump, children }: Props): JSX.Element {
   const close = (): void => onToggle(false);
   const panel = useRef<HTMLElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -96,6 +98,23 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
           <div className="brand-row">
             <Logo />
           </div>
+          {onJump && (
+            <button
+              type="button"
+              className="jump-btn"
+              aria-keyshortcuts="Control+K Meta+K"
+              onClick={(e) => {
+                // From the phone drawer: close it, and give focus back to the menu button (the drawer hides this one).
+                const from = open ? opener.current : e.currentTarget;
+                if (open) close();
+                onJump(from);
+              }}
+            >
+              <Search size={15} aria-hidden="true" />
+              <span className="jump-text">Jump to anything</span>
+              <kbd>Ctrl K</kbd>
+            </button>
+          )}
           <ul className="nav-list">
             <Link
               href="#/inbox"

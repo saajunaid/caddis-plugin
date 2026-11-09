@@ -7,3 +7,14 @@ export function copyText(text: string): void {
     /* clipboard can be blocked */
   }
 }
+
+/** Copy text and report whether it worked. A denied or missing clipboard gives false, never a rejected promise. */
+export async function tryCopy(text: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.writeText) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}

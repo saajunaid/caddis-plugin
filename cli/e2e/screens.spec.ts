@@ -55,6 +55,15 @@ test.describe('hub screenshots', () => {
             await page.mouse.move(0, 0);
             await page.screenshot({ path: join(DIR as string, `${p.name}-${theme}-${vp.width}.png`), fullPage: true, animations: 'disabled' });
           }
+          // The Ctrl K palette, open over the Inbox with a query.
+          await page.evaluate(() => {
+            window.location.hash = '#/inbox';
+          });
+          await expect(page.getByTestId('inbox-item').first()).toBeVisible();
+          await page.keyboard.press('Control+k');
+          await page.getByRole('combobox', { name: 'Jump to anything' }).fill('shop');
+          await expect(page.getByTestId('palette-option').first()).toBeVisible();
+          await page.screenshot({ path: join(DIR as string, `palette-${theme}-${vp.width}.png`), animations: 'disabled' });
         });
       }
     });

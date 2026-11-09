@@ -1,0 +1,213 @@
+/* "Jump to anything" (Ctrl K). Loaded with the palette chunk only. The panel is the one blurred layer of the palette:
+   its rows use plain fills (Global Constraints, plan hub-aurora-glass). */
+.pal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+}
+
+.pal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 2, 20, 0.55);
+  animation: hub-fade var(--dur-1) var(--ease-out);
+}
+
+[data-theme='light'] .pal-backdrop {
+  background: rgba(22, 19, 46, 0.28);
+}
+
+.pal-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 76vh;
+  min-width: 0;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-hl), var(--glass-drop);
+  overflow: hidden;
+  animation: hub-rise var(--dur-1) var(--ease-out) backwards;
+}
+
+.pal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--glass-line);
+}
+
+.pal-search {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.pal-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-size: 16px;
+}
+
+.pal-input::placeholder {
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+/* The field is the dialog's only text control and has focus while it is open: no ring of its own. */
+.pal-input:focus-visible {
+  outline: none;
+}
+
+.pal-esc {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--glass-line);
+  border-radius: 7px;
+  background: var(--kbd-bg);
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pal-esc:hover {
+  border-color: var(--glass-line-hover);
+}
+
+.pal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px 8px;
+  scrollbar-width: thin;
+}
+
+.pal-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 10px 12px 4px;
+}
+
+.pal-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  color: var(--text-main);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* The selected row: the Inbox selected-row style. Hover moves the selection, so there is no separate hover style. */
+.pal-opt.sel {
+  background: var(--row-sel-bg);
+  box-shadow: var(--row-sel-ring);
+}
+
+.pal-ico {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.pal-opt.sel .pal-ico {
+  color: var(--purple);
+}
+
+.pal-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pal-hint {
+  flex-shrink: 1;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.pal-act {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.pal-empty {
+  padding: 18px 12px;
+  color: var(--text-dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+.pal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--glass-line);
+  background: var(--glass-foot);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.pal-keys kbd {
+  margin-right: 2px;
+}
+
+.pal-status {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.pal-status.bad {
+  color: var(--mk-bad);
+}
+
+/* Phone: a full-width sheet from the top; no key hints (touch). */
+@media (max-width: 720px) {
+  .pal-root {
+    padding: 0;
+  }
+
+  .pal-panel {
+    max-width: none;
+    max-height: 82vh;
+    border-width: 0 0 1px;
+    border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+  }
+
+  .pal-keys {
+    display: none;
+  }
+
+  .pal-hint {
+    max-width: 40%;
+  }
+}

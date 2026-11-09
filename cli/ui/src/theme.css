@@ -802,6 +802,45 @@ html[data-motion='off'] .brand-mark-still {
   font-size: 13px;
 }
 
+/* "Jump to anything" (Ctrl K) under the logo, as in the Hybrid mockup. The palette itself is a lazy chunk. */
+.jump-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 36px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-tint-low);
+  color: var(--text-sub);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) ease,
+    color var(--dur-1) ease;
+}
+
+.jump-btn:hover {
+  border-color: var(--glass-line-hover);
+  color: var(--text-main);
+}
+
+.jump-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jump-btn kbd {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
 .nav-section-label {
   font-size: 12px;
   font-weight: 600;

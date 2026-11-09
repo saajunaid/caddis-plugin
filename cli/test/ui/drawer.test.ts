@@ -63,3 +63,29 @@ describe('phone drawer', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open navigation menu' }));
   });
 });
+
+describe('Jump to anything button', () => {
+  afterEach(cleanup);
+
+  it('only with onJump; on the desktop it passes itself as the focus to give back', () => {
+    nav(false);
+    expect(screen.queryByRole('button', { name: /Jump to anything/ })).toBeNull();
+    cleanup();
+    const onJump = vi.fn();
+    render(createElement(Nav, { route: { page: 'inbox' }, state: full, inbox: 3, open: false, onToggle: vi.fn(), onJump }));
+    const btn = screen.getByRole('button', { name: /Jump to anything/ });
+    expect(btn.getAttribute('aria-keyshortcuts')).toBe('Control+K Meta+K');
+    expect(btn.textContent).toContain('Ctrl K');
+    fireEvent.click(btn);
+    expect(onJump).toHaveBeenCalledWith(btn);
+  });
+
+  it('in the open drawer it closes the drawer and gives focus back to the menu button', () => {
+    const onJump = vi.fn();
+    const onToggle = vi.fn();
+    render(createElement(Nav, { route: { page: 'inbox' }, state: full, inbox: 3, open: true, onToggle, onJump }));
+    fireEvent.click(screen.getByRole('button', { name: /Jump to anything/ }));
+    expect(onToggle).toHaveBeenCalledWith(false);
+    expect(onJump).toHaveBeenCalledWith(screen.getByRole('button', { name: 'Close navigation menu' }));
+  });
+});

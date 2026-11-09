@@ -3,6 +3,7 @@ import { useActions } from './actions/useActions';
 import { Inbox } from './inbox/Inbox';
 import { useInbox } from './inbox/useInbox';
 import { Overview } from './overview/Overview';
+import { PaletteHost, usePalette } from './palette/PaletteHost';
 import { RepoPage } from './repo/RepoPage';
 import { Banners } from './shell/Banners';
 import { Footer } from './shell/Footer';
@@ -47,6 +48,7 @@ export function App(): JSX.Element {
   const [theme, setTheme] = useTheme();
   const [motion, setMotion] = useMotion();
   const [menu, setMenu] = useState(false);
+  const pal = usePalette();
   const api = useInbox(state, nowMs);
   const count = api.model.items.length;
 
@@ -98,7 +100,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <Nav route={route} state={state} inbox={count} open={menu} onToggle={setMenu}>
+      <Nav route={route} state={state} inbox={count} open={menu} onToggle={setMenu} onJump={pal.show}>
         <Footer state={state} nowMs={nowMs} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />
       </Nav>
       <main className="main-area" id="main-content">
@@ -108,6 +110,7 @@ export function App(): JSX.Element {
           {body}
         </div>
       </main>
+      <PaletteHost pal={pal} state={state} inbox={api.model.items} nowMs={nowMs} />
     </div>
   );
 }
