@@ -70,7 +70,7 @@ export function App(): JSX.Element {
   } else if (!state) {
     body = loading ? <LoadingSkeleton /> : <LoadError onRetry={refresh} />;
   } else if (route.page === 'inbox') {
-    body = <Inbox state={state} nowMs={nowMs} api={api} act={act} />;
+    body = <Inbox state={state} nowMs={nowMs} api={api} act={act} item={route.item} />;
   } else if (route.page === 'overview') {
     body = <Overview state={state} nowMs={nowMs} api={api} />;
   } else if (route.page === 'repo') {

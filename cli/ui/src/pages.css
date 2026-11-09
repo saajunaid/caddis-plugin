@@ -419,6 +419,13 @@
   color: var(--text-sub);
 }
 
+/* The line above the list when a palette link names an item that is gone. */
+.list-notice {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
 /* The detail: the one glass panel of the page with a backdrop blur. The key on the article re-runs the fade. */
 .mailbox-detail {
   flex: 1 1 380px;

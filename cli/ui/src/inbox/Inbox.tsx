@@ -55,11 +55,27 @@ function specsFor(repo: RepoState | undefined, item: InboxItem): ActionSpec[] {
   return [];
 }
 
-export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: number; api: InboxApi; act: ActApi }): JSX.Element {
+export function Inbox({
+  state,
+  nowMs,
+  api,
+  act,
+  item = null,
+}: {
+  state: HubState;
+  nowMs: number;
+  api: InboxApi;
+  act: ActApi;
+  /** The id from `#/inbox/<id>` (a palette link): select that item once. */
+  item?: string | null;
+}): JSX.Element {
   const [folder, setFolder] = useState<Folder>('needs');
   const [selId, setSelId] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const appliedItem = useRef<string | null>(null);
+  const scrollTo = useRef<string | null>(null);
   const rowEls = useRef(new Map<string, HTMLButtonElement>());
   const { model, resolved, read } = api;
 
@@ -79,8 +95,10 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
     setFolder(f);
     setSelId(null);
     setDetail(false);
+    setMissing(false);
   };
   const pickItem = (r: Row): void => {
+    setMissing(false);
     setSelId(r.item.id);
     setDetail(true);
     if (!r.resolved) api.markRead(r.item.id);
@@ -90,6 +108,37 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
+
+  // A route item (from the palette) is applied once per distinct id, not on every poll.
+  useEffect(() => {
+    if (!item) {
+      appliedItem.current = null;
+      setMissing(false);
+      return;
+    }
+    if (appliedItem.current === item) return;
+    appliedItem.current = item;
+    const open = model.items.find((i) => i.id === item);
+    const done = open ? undefined : resolved.find((r) => r.item.id === item);
+    if (!open && !done) {
+      setMissing(true);
+      return;
+    }
+    setMissing(false);
+    setFolder(open ? open.folder : 'resolved');
+    setSelId(item);
+    setDetail(true);
+    if (open) api.markRead(item);
+    scrollTo.current = item;
+  }, [item, model.items, resolved, api.markRead]);
+  // The row exists only after the folder switch has rendered.
+  useEffect(() => {
+    const id = scrollTo.current;
+    const el = id ? rowEls.current.get(id) : undefined;
+    if (!id || !el) return;
+    scrollTo.current = null;
+    el.scrollIntoView?.({ block: 'nearest' });
+  });
 
   // The key listener is added once; it reads the rows of the last render through this ref.
   const live = useRef({ rows, sel, pickItem, copySel });
@@ -152,6 +201,11 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
       )}
       <div className={`mailbox${detail && sel ? ' show-detail' : ''}`}>
         <div className="mailbox-list" data-testid="inbox-list">
+          {missing && (
+            <div className="list-notice" role="status" data-testid="inbox-notice">
+              That item is no longer in the Inbox.
+            </div>
+          )}
           {rows.map((r) => {
             const unread = !r.resolved && !read.has(r.item.id);
             const on = sel?.item.id === r.item.id;

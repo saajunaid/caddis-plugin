@@ -1,6 +1,6 @@
 import { KIND_LABEL, asArray, repoLabel, samePath, type InboxItem } from '../inbox/derive';
 import { ageText } from '../shell/format';
-import { guideHref, repoId, repoTabHref, type GuideTab, type RepoTab } from '../shell/route';
+import { guideHref, inboxItemHref, repoId, repoTabHref, type GuideTab, type RepoTab } from '../shell/route';
 import type { HubState, RepoState } from '../types';
 
 /** The "Jump to anything" palette (Ctrl K): one flat list of places and actions, built from one state snapshot. */
@@ -56,7 +56,7 @@ const repoWords = (r: RepoState): string[] => [...new Set([r.name, repoLabel(r)]
 /**
  * Every palette item, in group order: pages, repo tabs, roadmaps, open PRs, sessions, Inbox items. Pure.
  * Plans without a roadmap have no route of their own (the Roadmap tab lists them), so they are not items.
- * The Inbox selects its row in local state only, so an Inbox item opens the Inbox.
+ * An Inbox item opens `#/inbox/<id>`, and the Inbox selects that row.
  */
 export function buildPaletteItems(state: HubState, inbox: InboxItem[], now: number): PaletteItem[] {
   const out: PaletteItem[] = [];
@@ -124,7 +124,7 @@ export function buildPaletteItems(state: HubState, inbox: InboxItem[], now: numb
       label: i.title,
       hint: `${KIND_LABEL[i.kind]} · ${i.repo}${age}`,
       keywords: [i.repo, KIND_LABEL[i.kind], 'inbox'],
-      action: { kind: 'route', href: '#/inbox' },
+      action: { kind: 'route', href: inboxItemHref(i.id) },
     });
   }
   return out;

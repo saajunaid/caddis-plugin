@@ -4,7 +4,7 @@ import { bannersFor } from '../../ui/src/shell/bannerRules';
 import { ageText, anySourceDown, dataAgeText, formatEur, quotaLow, spendView, titleFor } from '../../ui/src/shell/format';
 import { repoTone } from '../../ui/src/shell/Nav';
 import { ringDash } from '../../ui/src/shell/Ring';
-import { guideHref, parseRoute, repoTabHref } from '../../ui/src/shell/route';
+import { guideHref, inboxItemHref, parseRoute, repoTabHref } from '../../ui/src/shell/route';
 import { loadTheme, resolveTheme, saveTheme, THEME_KEY } from '../../ui/src/shell/theme';
 import type { HubState } from '../../ui/src/types';
 
@@ -90,16 +90,31 @@ describe('spend', () => {
 });
 
 describe('routes', () => {
+  it('Inbox item routes round-trip ids with : and /', () => {
+    for (const id of ['waiting:abc', 'owner:acme/shop:gate-1', 'merge:acme/billing:212']) {
+      const href = inboxItemHref(id);
+      expect(href).toBe(`#/inbox/${encodeURIComponent(id)}`);
+      expect(href.slice('#/inbox/'.length)).not.toContain('/');
+      expect(parseRoute(href)).toEqual({ page: 'inbox', item: id });
+    }
+    expect(parseRoute('#/inbox')).toEqual({ page: 'inbox', item: null });
+    expect(parseRoute('#/inbox/')).toEqual({ page: 'inbox', item: null });
+  });
+
+  it('a malformed escape in an Inbox item falls back to no item', () => {
+    expect(parseRoute('#/inbox/%E0%A4%A')).toEqual({ page: 'inbox', item: null });
+  });
+
   it('parses hash routes', () => {
-    expect(parseRoute('')).toEqual({ page: 'inbox' });
+    expect(parseRoute('')).toEqual({ page: 'inbox', item: null });
     expect(parseRoute('#/overview')).toEqual({ page: 'overview' });
     expect(parseRoute('#/repo/acme__shop')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'flow', roadmap: null });
     expect(parseRoute('#/repo/acme__shop/roadmap')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'roadmap', roadmap: null });
     expect(parseRoute('#/repo/acme__shop/roadmap/launch')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'roadmap', roadmap: 'launch' });
     expect(parseRoute('#/repo/acme__shop/sessions')).toEqual({ page: 'repo', id: 'acme__shop', tab: 'sessions', roadmap: null });
     expect(parseRoute('#/repo/acme__shop/nope')).toMatchObject({ tab: 'flow' });
-    expect(parseRoute('#/repo/')).toEqual({ page: 'inbox' });
-    expect(parseRoute('#/nope')).toEqual({ page: 'inbox' });
+    expect(parseRoute('#/repo/')).toEqual({ page: 'inbox', item: null });
+    expect(parseRoute('#/nope')).toEqual({ page: 'inbox', item: null });
     expect(parseRoute('#/guide')).toEqual({ page: 'guide', tab: 'poster', item: null });
     expect(parseRoute('#/guide/details')).toEqual({ page: 'guide', tab: 'details', item: null });
     expect(parseRoute('#/guide/details/g-command-handoff')).toEqual({ page: 'guide', tab: 'details', item: 'g-command-handoff' });

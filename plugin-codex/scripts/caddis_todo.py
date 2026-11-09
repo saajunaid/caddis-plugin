@@ -323,8 +323,11 @@ class _Batch:
     def get(self, name: str) -> tuple[str, str, bytes] | None:
         """(oid, type, content) of `name`, or None when git says it is missing."""
         assert self.proc.stdin is not None and self.proc.stdout is not None
-        self.proc.stdin.write(name.encode("utf-8") + b"\n")
-        self.proc.stdin.flush()
+        try:
+            self.proc.stdin.write(name.encode("utf-8") + b"\n")
+            self.proc.stdin.flush()
+        except OSError:  # git already exited (not a repo): its stdin is closed, so the object is missing
+            return None
         header = self.proc.stdout.readline().split()
         if len(header) != 3:
             return None  # "<name> missing" (or ambiguous)
@@ -334,7 +337,10 @@ class _Batch:
 
     def close(self) -> None:
         if self.proc.stdin:
-            self.proc.stdin.close()
+            try:
+                self.proc.stdin.close()
+            except OSError:  # a failed write left bytes that cannot reach an exited git
+                pass
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:

@@ -2,16 +2,23 @@ export type RepoTab = 'flow' | 'roadmap' | 'sessions';
 export type GuideTab = 'poster' | 'details' | 'wall' | 'map';
 
 export type Route =
-  | { page: 'inbox' }
+  | { page: 'inbox'; item: string | null }
   | { page: 'overview' }
   | { page: 'repo'; id: string; tab: RepoTab; roadmap: string | null }
   | { page: 'activity' }
   | { page: 'guide'; tab: GuideTab; item: string | null };
 
-/** Hash routes, no router library: `#/inbox`, `#/overview`, `#/repo/<id>[/<tab>[/<slug>]]`. Unknown gives the Inbox. */
+/** Hash routes, no router library: `#/inbox[/<item>]`, `#/overview`, `#/repo/<id>[/<tab>[/<slug>]]`. Unknown gives the Inbox. */
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/');
   const head = parts[0];
+  if (head === 'inbox') {
+    try {
+      return { page: 'inbox', item: parts[1] ? decodeURIComponent(parts[1]) : null };
+    } catch {
+      return { page: 'inbox', item: null };
+    }
+  }
   if (head === 'overview') return { page: 'overview' };
   if (head === 'activity') return { page: 'activity' };
   if (head === 'guide') {
@@ -20,7 +27,7 @@ export function parseRoute(hash: string): Route {
       const item = parts[2] ? decodeURIComponent(parts[2]) : null;
       return { page: 'guide', tab, item };
     } catch {
-      return { page: 'inbox' };
+      return { page: 'inbox', item: null };
     }
   }
   if (head === 'repo' && parts[1]) {
@@ -29,14 +36,17 @@ export function parseRoute(hash: string): Route {
       const roadmap = tab === 'roadmap' && parts[3] ? decodeURIComponent(parts[3]) : null;
       return { page: 'repo', id: decodeURIComponent(parts[1]), tab, roadmap };
     } catch {
-      return { page: 'inbox' };
+      return { page: 'inbox', item: null };
     }
   }
-  return { page: 'inbox' };
+  return { page: 'inbox', item: null };
 }
 
 /** The id the hub uses for a repo: `repo_id`, else its path. One definition for every page. */
 export const repoId = (r: { repo_id?: string; path: string }): string => r.repo_id ?? r.path;
+
+/** `#/inbox/<id>`: the Inbox with that item selected. Ids hold `:` and `/`, so the id is escaped. */
+export const inboxItemHref = (id: string): string => `#/inbox/${encodeURIComponent(id)}`;
 
 export const repoHref = (id: string): string => `#/repo/${encodeURIComponent(id)}`;
 

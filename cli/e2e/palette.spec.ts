@@ -28,6 +28,20 @@ test.describe('command palette (Ctrl K)', () => {
     expect(problems.console).toEqual([]);
   });
 
+  test('an Inbox item opens the Inbox with that item selected', async ({ page, openHub }) => {
+    const { problems } = await openHub('full', undefined, '#/overview');
+    await page.keyboard.press('Control+k');
+    const input = page.getByRole('combobox', { name: 'Jump to anything' });
+    await input.fill('required check lint failed');
+    await expect(page.getByTestId('palette-option').first()).toContainText('PR #88: required check lint failed');
+    await page.keyboard.press('Enter');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/inbox\//);
+    await expect(page.getByTestId('inbox-detail')).toContainText('PR #88: required check lint failed');
+    await expect(page.getByTestId('folder-blocked')).toHaveAttribute('aria-selected', 'true');
+    expect(problems.console).toEqual([]);
+  });
+
   test('the sidebar button opens it; Escape closes it and focus goes back to the button', async ({ page, openHub }) => {
     await openHub('full', undefined, '#/overview');
     const btn = page.getByRole('button', { name: /Jump to anything/ });

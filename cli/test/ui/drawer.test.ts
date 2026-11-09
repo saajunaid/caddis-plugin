@@ -15,7 +15,7 @@ const full = JSON.parse(
 ) as HubState;
 
 const nav = (open: boolean, onToggle = vi.fn()) =>
-  render(createElement(Nav, { route: { page: 'inbox' }, state: full, inbox: 3, open, onToggle }));
+  render(createElement(Nav, { route: { page: 'inbox', item: null }, state: full, inbox: 3, open, onToggle }));
 
 describe('trapIndex', () => {
   it('wraps forward and back, else steps by one', () => {
@@ -59,7 +59,7 @@ describe('phone drawer', () => {
 
   it('focus goes back to the menu button when the drawer closes', () => {
     const view = nav(true);
-    view.rerender(createElement(Nav, { route: { page: 'inbox' }, state: full, inbox: 3, open: false, onToggle: vi.fn() }));
+    view.rerender(createElement(Nav, { route: { page: 'inbox', item: null }, state: full, inbox: 3, open: false, onToggle: vi.fn() }));
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open navigation menu' }));
   });
 });
@@ -72,7 +72,7 @@ describe('Jump to anything button', () => {
     expect(screen.queryByRole('button', { name: /Jump to anything/ })).toBeNull();
     cleanup();
     const onJump = vi.fn();
-    render(createElement(Nav, { route: { page: 'inbox' }, state: full, inbox: 3, open: false, onToggle: vi.fn(), onJump }));
+    render(createElement(Nav, { route: { page: 'inbox', item: null }, state: full, inbox: 3, open: false, onToggle: vi.fn(), onJump }));
     const btn = screen.getByRole('button', { name: /Jump to anything/ });
     expect(btn.getAttribute('aria-keyshortcuts')).toBe('Control+K Meta+K');
     expect(btn.textContent).toContain('Ctrl K');
@@ -83,7 +83,7 @@ describe('Jump to anything button', () => {
   it('in the open drawer it closes the drawer and gives focus back to the menu button', () => {
     const onJump = vi.fn();
     const onToggle = vi.fn();
-    render(createElement(Nav, { route: { page: 'inbox' }, state: full, inbox: 3, open: true, onToggle, onJump }));
+    render(createElement(Nav, { route: { page: 'inbox', item: null }, state: full, inbox: 3, open: true, onToggle, onJump }));
     fireEvent.click(screen.getByRole('button', { name: /Jump to anything/ }));
     expect(onToggle).toHaveBeenCalledWith(false);
     expect(onJump).toHaveBeenCalledWith(screen.getByRole('button', { name: 'Close navigation menu' }));

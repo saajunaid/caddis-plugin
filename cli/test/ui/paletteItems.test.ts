@@ -82,11 +82,16 @@ describe('buildPaletteItems on the full fixture', () => {
     expect(s.action).toEqual({ kind: 'copy', text: 'demo-session-export' });
   });
 
-  it('inbox items go to the Inbox', () => {
+  it('inbox items open the Inbox with that item selected', () => {
     const inbox = items().filter((i) => i.group === 'Inbox');
-    expect(inbox.every((i) => i.action.kind === 'route' && i.action.href === '#/inbox')).toBe(true);
-    const first = deriveInbox(full, now).items[0]!;
+    const derived = deriveInbox(full, now).items;
+    expect(inbox).toHaveLength(derived.length);
+    inbox.forEach((p, n) => {
+      expect(p.action).toEqual({ kind: 'route', href: `#/inbox/${encodeURIComponent(derived[n]!.id)}` });
+    });
+    const first = derived[0]!;
     expect(inbox[0]!.label).toBe(first.title);
+    expect(inbox[0]!.action).toEqual({ kind: 'route', href: '#/inbox/waiting%3Ademo-session-api' });
   });
 
   it('a state with no repos has only the pages', () => {
