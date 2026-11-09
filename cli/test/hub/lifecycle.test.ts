@@ -706,3 +706,82 @@ describe('self-restart wiring (H1.8 review)', () => {
     ]);
   });
 });
+
+describe('self-update wiring', () => {
+  const npmRoot = path.resolve('/npm/node_modules');
+  const globalPkg = path.join(npmRoot, '@caddis', 'cli');
+
+  it('a verified install hands over in order: install, close and release the lock, spawn, exit', async () => {
+    let disk = versions.cli;
+    let fire: (() => void) | null = null;
+    const order: string[] = [];
+    const spawn: Spawner = () => {
+      order.push(`spawn (lock ${readLock(home) ? 'held' : 'free'})`);
+      return { pid: 4242, exited: new Promise(() => {}) };
+    };
+    const serving = hubServe({
+      ...deps({ spawn }),
+      restart: { readVersion: () => disk, probe: async () => disk, every: () => () => {} },
+      update: {
+        packageRoot: globalPkg,
+        fetchLatest: async () => '9.9.9',
+        globalRoot: async () => npmRoot,
+        install: async (v) => {
+          order.push(`install ${v} (lock ${readLock(home) ? 'held' : 'free'})`);
+          disk = v;
+          return { ok: true, detail: '' };
+        },
+        readVersion: () => disk,
+        after: (fn) => {
+          fire ??= fn;
+          return () => {};
+        },
+      },
+    });
+    const deadline = Date.now() + 5000;
+    while ((!fire || !readLock(home)?.port) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    fire!();
+    expect(await serving).toBe(0);
+    expect(order).toEqual(['install 9.9.9 (lock held)', 'spawn (lock free)']);
+    expect(readFileSync(path.join(path.dirname(lockPath(home)), 'hub.log'), 'utf8')).toMatch(/installed 9\.9\.9; restarting/);
+  });
+
+  it('a failed install keeps the hub serving and never spawns', async () => {
+    let fire: (() => void) | null = null;
+    let installs = 0;
+    const spawned: string[][] = [];
+    const serving = hubServe({
+      ...deps({
+        spawn: (_c, args) => {
+          spawned.push(args);
+          return { pid: 4242, exited: new Promise(() => {}) };
+        },
+      }),
+      restart: { readVersion: () => versions.cli, every: () => () => {} },
+      update: {
+        packageRoot: globalPkg,
+        fetchLatest: async () => '9.9.9',
+        globalRoot: async () => npmRoot,
+        install: async () => {
+          installs++;
+          return { ok: false, detail: 'EBUSY: resource busy or locked' };
+        },
+        readVersion: () => versions.cli,
+        after: (fn) => {
+          fire ??= fn;
+          return () => {};
+        },
+      },
+    });
+    const deadline = Date.now() + 5000;
+    while ((!fire || !readLock(home)?.port) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const lock = readLock(home)!;
+    fire!();
+    while (!stderr().includes('install of 9.9.9 failed') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    expect(installs).toBe(1);
+    expect(spawned).toEqual([]);
+    expect(readLock(home)?.instance).toBe(lock.instance);
+    process.emit('SIGTERM');
+    expect(await serving).toBe(0);
+  });
+});

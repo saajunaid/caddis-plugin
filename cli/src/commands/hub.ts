@@ -27,8 +27,10 @@ import {
   writeLock,
   type LockInfo,
 } from '../hub/lock.js';
+import { hubLog } from '../hub/hubLog.js';
 import { hubDir, keyPath, sessionsPath } from '../hub/paths.js';
 import { createRestarter, readInstalledVersion, type RestartDeps } from '../hub/restart.js';
+import { createUpdater, fetchLatestVersion, INSTALL_TIMEOUT_MS, type UpdateDeps } from '../hub/selfUpdate.js';
 import { createActions } from '../hub/actions.js';
 import { KEY_HEADER, startServer } from '../hub/server.js';
 import { createHub, type StateHub } from '../hub/state.js';
@@ -375,10 +377,27 @@ export async function startHub(deps: HubDeps = {}): Promise<RunningHub> {
   return { port: server.port, stop, done };
 }
 
-/** Options to test the self-restart. Production uses the defaults. */
+/** Options to test the self-restart and self-update. Production uses the defaults. */
 export interface ServeDeps extends HubDeps {
   /** Replace the restarter's side effects (timer, file read, probe, exit). */
   restart?: Partial<RestartDeps>;
+  /** Replace the updater's side effects (registry, npm, timer). */
+  update?: Partial<UpdateDeps>;
+}
+
+/** `npm root -g`, or null when npm does not answer. */
+async function npmGlobalRoot(cwd: string): Promise<string | null> {
+  const r = await run('npm', ['root', '-g'], { cwd, timeout: TOOL_TIMEOUT_MS * 2 });
+  const root = r.stdout.trim().split(/\r?\n/).pop() ?? '';
+  return r.ok && root ? root : null;
+}
+
+/** `npm i -g @caddis/cli@<version>`. The cwd is the hub folder, so npm never holds the package folder open. */
+async function npmInstall(version: string, cwd: string): Promise<{ ok: boolean; detail: string }> {
+  const r = await run('npm', ['i', '-g', `@caddis/cli@${version}`], { cwd, timeout: INSTALL_TIMEOUT_MS });
+  if (r.ok) return { ok: true, detail: '' };
+  const tail = (r.failure ?? r.stderr.trim().split(/\r?\n/).slice(-3).join(' ')) || `exit ${r.code}`;
+  return { ok: false, detail: tail.slice(0, 300) };
 }
 
 /** Kill the child of a failed restart, but only when it still runs. */
@@ -417,9 +436,13 @@ export async function hubServe(deps: ServeDeps = {}): Promise<number> {
   // The child runs the code next to the package.json that was read, so the version read and the code run match.
   const newEntry = path.join(pkgRoot, 'dist', 'cli.js');
   const runningVersion = (deps.versions ?? defaultVersions()).cli ?? packageInfo().version;
+  // A detached hub has no console: each step also goes to hub.log.
+  const log = (text: string): void => hubLog(text, home, deps.now);
+  let installing = (): boolean => false;
   const restarter = createRestarter({
     currentVersion: runningVersion,
-    readVersion: () => readInstalledVersion(pkgRoot),
+    // While npm replaces the package, package.json can show the new version before all files are there.
+    readVersion: () => (installing() ? null : readInstalledVersion(pkgRoot)),
     closeServer: async () => {
       restarting = true;
       await hub.stop();
@@ -448,7 +471,7 @@ export async function hubServe(deps: ServeDeps = {}): Promise<number> {
       exitCode = code;
       resolveFinished();
     },
-    log: errorLine,
+    log,
     every: (fn, ms) => {
       const t = setInterval(fn, ms);
       t.unref();
@@ -456,9 +479,31 @@ export async function hubServe(deps: ServeDeps = {}): Promise<number> {
     },
     ...deps.restart,
   });
+  const updater = createUpdater({
+    currentVersion: runningVersion,
+    packageRoot: pkgRoot,
+    autoUpdate: () => readConfig(home).value.auto_update,
+    fetchLatest: () => fetchLatestVersion(),
+    globalRoot: () => npmGlobalRoot(hubDir(home)),
+    install: (version) => npmInstall(version, hubDir(home)),
+    readVersion: () => readInstalledVersion(pkgRoot),
+    // The restarter does the hand-over: close, release the lock, start the new server, exit.
+    onInstalled: () => restarter.tick(),
+    log,
+    now: deps.now ?? Date.now,
+    after: (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      t.unref();
+      return () => clearTimeout(t);
+    },
+    ...deps.update,
+  });
+  installing = updater.installing;
   restarter.start();
+  updater.start();
   await finished;
   restarter.stop();
+  updater.stop();
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
   process.off('exit', onExit);

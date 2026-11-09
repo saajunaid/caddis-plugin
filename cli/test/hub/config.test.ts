@@ -31,7 +31,7 @@ describe('config', () => {
   it('returns defaults when the file is missing', () => {
     const r = readConfig();
     expect(r.error).toBeUndefined();
-    expect(r.value).toEqual({ schema: 1, port: DEFAULT_PORT, accounts: {}, pinned: [], hidden: [] });
+    expect(r.value).toEqual({ schema: 1, port: DEFAULT_PORT, accounts: {}, pinned: [], hidden: [], auto_update: true });
     expect(DEFAULT_PORT).toBe(47821);
   });
 
@@ -44,7 +44,7 @@ describe('config', () => {
   });
 
   it('round trips', () => {
-    const cfg = { schema: 1 as const, port: 50001, accounts: { 'acme/shop': 'acme-bot' }, pinned: ['acme/shop'], hidden: ['x'] };
+    const cfg = { schema: 1 as const, port: 50001, accounts: { 'acme/shop': 'acme-bot' }, pinned: ['acme/shop'], hidden: ['x'], auto_update: false };
     writeJsonAtomic(configPath(), cfg);
     expect(readConfig().value).toEqual(cfg);
   });
@@ -76,6 +76,15 @@ describe('config', () => {
     writeJsonAtomic(configPath(home), { schema: 1, port: 50003 });
     resetHubCache();
     expect(readConfig(home).value.port).toBe(50003);
+  });
+
+  it('auto_update is true unless the file says false', () => {
+    writeJsonAtomic(configPath(), { schema: 1, auto_update: false });
+    expect(readConfig().value.auto_update).toBe(false);
+    writeJsonAtomic(configPath(), { schema: 1, auto_update: 'no' });
+    expect(readConfig().value.auto_update).toBe(true);
+    writeJsonAtomic(configPath(), { schema: 1 });
+    expect(readConfig().value.auto_update).toBe(true);
   });
 
   it('rejects a wrong-typed port with defaults for that key', () => {

@@ -16,6 +16,8 @@ export const configPath = (home?: string): string => path.join(hubDir(home), 'co
 export const registryPath = (home?: string): string => path.join(hubDir(home), 'repos.json');
 export const keyPath = (home?: string): string => path.join(hubDir(home), 'key');
 export const lockPath = (home?: string): string => path.join(hubDir(home), 'hub.lock');
+/** The serve log: self-update and restart steps. A detached hub has no console, so this is where they go. */
+export const logPath = (home?: string): string => path.join(hubDir(home), 'hub.log');
 /** The one audit file: the action route writes it and the state reads it, so both use `hubHome`. */
 export const auditPath = (home?: string): string => path.join(hubHome(home), 'audit.jsonl');
 

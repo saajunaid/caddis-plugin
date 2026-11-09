@@ -12,6 +12,7 @@ import {
   enableAutostart,
   plistPath,
   schtasksCreateArgs,
+  startupVbsPath,
   vbsPath,
   type CmdRunner,
 } from '../../src/hub/autostart.js';
@@ -67,33 +68,95 @@ describe('builders', () => {
 });
 
 describe('windows runner', () => {
-  it('enable writes the vbs and creates the task', async () => {
-    const r = await enableAutostart({ home, platform: 'win32', node: NODE, entry: ENTRY, runCmd });
-    expect(r.ok).toBe(true);
-    expect(readFileSync(vbsPath(home), 'utf8')).toBe(buildVbs(NODE, path.resolve(ENTRY)));
-    expect(calls).toEqual([['schtasks', schtasksCreateArgs(vbsPath(home))]]);
+  // Every Windows test injects APPDATA under the temp home: a test never touches the real Startup folder.
+  const win = () => ({ home, platform: 'win32' as const, runCmd, appData: path.join(home, 'AppData', 'Roaming') });
+  const startup = () => startupVbsPath(win().appData);
+
+  it('the Startup launcher path is under APPDATA', () => {
+    expect(startupVbsPath('C:\\Users\\demo\\AppData\\Roaming')).toBe(
+      path.join('C:\\Users\\demo\\AppData\\Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'caddis-hub.vbs'),
+    );
   });
 
-  it('enable reports a schtasks failure', async () => {
+  it('enable writes the vbs and creates the task', async () => {
+    const r = await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/logon task caddis-hub/);
+    expect(readFileSync(vbsPath(home), 'utf8')).toBe(buildVbs(NODE, path.resolve(ENTRY)));
+    expect(calls).toEqual([['schtasks', schtasksCreateArgs(vbsPath(home))]]);
+    expect(existsSync(startup())).toBe(false);
+  });
+
+  it('a task that works removes a Startup launcher left by an earlier fallback', async () => {
     result = { ok: false, code: 1 };
-    const r = await enableAutostart({ home, platform: 'win32', node: NODE, entry: ENTRY, runCmd });
-    expect(r.ok).toBe(false);
+    await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
+    expect(existsSync(startup())).toBe(true);
+    result = { ok: true, code: 0 };
+    await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
+    expect(existsSync(startup())).toBe(false);
+  });
+
+  it('schtasks /Create denied: the same vbs goes into the Startup folder, and the message says so', async () => {
+    result = { ok: false, code: 1 };
+    const r = await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
+    expect(r.ok).toBe(true);
+    expect(r.message).toContain(`Startup folder: ${startup()}`);
+    expect(r.message).toMatch(/logon task failed \(schtasks exit 1\)/);
+    expect(readFileSync(startup(), 'utf8')).toBe(buildVbs(NODE, path.resolve(ENTRY)));
+  });
+
+  it('schtasks /Create denied and no APPDATA: enable fails with the reason', async () => {
+    const saved = process.env.APPDATA;
+    delete process.env.APPDATA;
+    try {
+      result = { ok: false, code: 1 };
+      const r = await enableAutostart({ home, platform: 'win32', runCmd, node: NODE, entry: ENTRY });
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/schtasks \/Create failed \(exit 1\).*APPDATA/);
+    } finally {
+      if (saved !== undefined) process.env.APPDATA = saved;
+    }
   });
 
   it('disable deletes the task and removes the vbs', async () => {
-    await enableAutostart({ home, platform: 'win32', node: NODE, entry: ENTRY, runCmd });
+    await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
     calls = [];
-    const r = await disableAutostart({ home, platform: 'win32', runCmd });
+    const r = await disableAutostart(win());
     expect(r.ok).toBe(true);
+    expect(r.message).toBe('caddis hub autostart disabled (removed logon task caddis-hub)');
     expect(calls).toEqual([['schtasks', ['/Delete', '/TN', 'caddis-hub', '/F']]]);
     expect(existsSync(vbsPath(home))).toBe(false);
   });
 
+  it('disable removes the Startup launcher too', async () => {
+    result = { ok: false, code: 1 };
+    await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
+    const r = await disableAutostart(win());
+    expect(r.message).toBe('caddis hub autostart disabled (removed Startup folder launcher)');
+    expect(existsSync(startup())).toBe(false);
+    expect(existsSync(vbsPath(home))).toBe(false);
+  });
+
+  it('disable with nothing enabled says so', async () => {
+    result = { ok: false, code: 1 };
+    const r = await disableAutostart(win());
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/was not enabled/);
+  });
+
   it('status uses the query exit code', async () => {
-    expect((await autostartStatus({ home, platform: 'win32', runCmd })).ok).toBe(true);
+    const on = await autostartStatus(win());
+    expect(on).toEqual({ ok: true, message: 'caddis hub autostart is enabled (logon task caddis-hub)' });
     expect(calls).toEqual([['schtasks', ['/Query', '/TN', 'caddis-hub']]]);
     result = { ok: false, code: 1 };
-    expect((await autostartStatus({ home, platform: 'win32', runCmd })).ok).toBe(false);
+    expect((await autostartStatus(win())).ok).toBe(false);
+  });
+
+  it('status is enabled when only the Startup launcher exists, and names it', async () => {
+    result = { ok: false, code: 1 };
+    await enableAutostart({ ...win(), node: NODE, entry: ENTRY });
+    const r = await autostartStatus(win());
+    expect(r).toEqual({ ok: true, message: `caddis hub autostart is enabled (Startup folder: ${startup()})` });
   });
 });
 

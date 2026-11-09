@@ -137,6 +137,10 @@ the prompt for CI.
 A local web page (127.0.0.1 only) with your repos, PRs, plans and live sessions. `caddis hub start`
 starts it in the background; `caddis hub stop` stops it.
 
+**Updates by itself.** A running hub checks npm for a new `@caddis/cli` 60 s after it starts, then every 30 minutes. When a newer version is published, the hub installs it (`npm i -g @caddis/cli@<version>`), checks the installed version, and restarts on the same port. Open tabs show "caddis hub updated to X, reloading" and reload. A manual `npm i -g @caddis/cli` also restarts the hub within a minute. A failed install keeps the old hub running and tries again after an hour. Only a hub that runs from the global npm install installs updates: a hub from a dev checkout or `npx` only logs "update available". To check and log only, set `"auto_update": false` in `~/.caddis/hub/config.json`. Each step goes to `~/.caddis/hub/hub.log`.
+
+**Start at logon.** `caddis hub autostart enable` starts the hub after each logon, so it comes back after a reboot. On Windows it creates the logon task `caddis-hub`. When Windows refuses the task ("Access is denied" for a user who is not an administrator), it puts `caddis-hub.vbs` in your Startup folder instead, and the message says which one it used. `caddis hub autostart status` shows which is in place; `caddis hub autostart disable` removes both.
+
 **Logins that last.** Run `caddis hub open` to get a one-time login code and open the hub. Your session lasts 7 days without use and 30 days at most, and it survives a hub restart.
 
 **Timeline first, Board second.** Roadmaps and plans open on the Timeline view by default, with the Board view as the second option. Click any phase tile on the Timeline to open the phase panel and read its Tracker status, PR links and plan section text.

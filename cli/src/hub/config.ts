@@ -12,6 +12,8 @@ export interface HubConfig {
   accounts: Record<string, string>;
   pinned: string[];
   hidden: string[];
+  /** Install a newer published `@caddis/cli` and restart. False: check and log only. */
+  auto_update: boolean;
 }
 
 export interface RepoEntry {
@@ -33,7 +35,7 @@ export interface ReadResult<T> {
 const isWin = (): boolean => process.platform === 'win32';
 
 function defaultConfig(): HubConfig {
-  return { schema: 1, port: DEFAULT_PORT, accounts: {}, pinned: [], hidden: [] };
+  return { schema: 1, port: DEFAULT_PORT, accounts: {}, pinned: [], hidden: [], auto_update: true };
 }
 
 function defaultRegistry(): Registry {
@@ -128,6 +130,8 @@ function normalizeConfig(raw: unknown): HubConfig {
   }
   d.pinned = strings(raw.pinned);
   d.hidden = strings(raw.hidden);
+  // Only an explicit false turns it off.
+  if (raw.auto_update === false) d.auto_update = false;
   return d;
 }
 

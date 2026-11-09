@@ -2,7 +2,9 @@
  * Opt-in logon autostart for the hub (H1.8): `caddis hub autostart enable | disable | status`.
  *
  * - Windows: a logon task `caddis-hub` runs `wscript.exe <hubDir>/autostart.vbs`. The vbs starts
- *   `caddis hub serve` with no console window (style 0, no wait).
+ *   `caddis hub serve` with no console window (style 0, no wait). Some machines refuse `schtasks /Create`
+ *   to a user who is not an administrator ("Access is denied"). Then the same vbs goes into the user's
+ *   Startup folder (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\caddis-hub.vbs`).
  * - macOS: a LaunchAgent `dev.caddis.hub`.
  * - Linux: `~/.config/autostart/caddis-hub.desktop`.
  * The builders are pure. The runner takes the home, the platform and the command runner as deps,
@@ -25,6 +27,10 @@ export function buildVbs(node: string, entry: string): string {
 }
 
 export const vbsPath = (home?: string): string => path.join(hubDir(home), 'autostart.vbs');
+
+/** The Startup folder launcher, the fallback when the logon task cannot be created. */
+export const startupVbsPath = (appData: string): string =>
+  path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', `${TASK_NAME}.vbs`);
 
 /** Args for `schtasks /Create`. Pass them to execa with `shell: false`. */
 export function schtasksCreateArgs(vbs: string): string[] {
@@ -88,6 +94,8 @@ export interface AutostartDeps {
   node?: string;
   entry?: string;
   runCmd?: CmdRunner;
+  /** Windows `%APPDATA%`, for the Startup folder fallback. Default: the `APPDATA` environment variable. */
+  appData?: string;
 }
 
 export interface AutostartResult {
@@ -105,6 +113,8 @@ function writeText(file: string, text: string): void {
   writeFileSync(file, text, 'utf8');
 }
 
+const appDataOf = (deps: AutostartDeps): string | undefined => deps.appData ?? process.env.APPDATA;
+
 type Kind = 'win' | 'mac' | 'linux';
 const kindOf = (p: NodeJS.Platform): Kind => (p === 'win32' ? 'win' : p === 'darwin' ? 'mac' : 'linux');
 
@@ -118,11 +128,24 @@ export async function enableAutostart(deps: AutostartDeps = {}): Promise<Autosta
   const kind = kindOf(deps.platform ?? process.platform);
   if (kind === 'win') {
     const vbs = vbsPath(home);
-    writeText(vbs, buildVbs(node, entry));
+    const text = buildVbs(node, entry);
+    writeText(vbs, text);
     const r = await runCmd('schtasks', schtasksCreateArgs(vbs));
-    return r.ok
-      ? { ok: true, message: `caddis hub autostart enabled (logon task ${TASK_NAME})` }
-      : { ok: false, message: `schtasks /Create failed (exit ${r.code})` };
+    const appData = appDataOf(deps);
+    if (r.ok) {
+      // One launcher only: a Startup file from an earlier fallback would start a second serve.
+      if (appData) rmSync(startupVbsPath(appData), { force: true });
+      return { ok: true, message: `caddis hub autostart enabled (logon task ${TASK_NAME})` };
+    }
+    if (!appData) {
+      return { ok: false, message: `schtasks /Create failed (exit ${r.code}) and APPDATA is not set, so there is no Startup folder` };
+    }
+    const startup = startupVbsPath(appData);
+    writeText(startup, text);
+    return {
+      ok: true,
+      message: `caddis hub autostart enabled (Startup folder: ${startup}); the logon task failed (schtasks exit ${r.code})`,
+    };
   }
   if (kind === 'mac') {
     const file = plistPath(home);
@@ -144,9 +167,14 @@ export async function disableAutostart(deps: AutostartDeps = {}): Promise<Autost
   if (kind === 'win') {
     const r = await runCmd('schtasks', schtasksDeleteArgs());
     rmSync(vbsPath(home), { force: true });
-    return r.ok
-      ? { ok: true, message: 'caddis hub autostart disabled' }
-      : { ok: true, message: 'caddis hub autostart was not enabled (no logon task to delete)' };
+    const appData = appDataOf(deps);
+    const startup = appData ? startupVbsPath(appData) : null;
+    const hadStartup = startup !== null && existsSync(startup);
+    if (startup) rmSync(startup, { force: true });
+    const removed = [r.ok ? `logon task ${TASK_NAME}` : '', hadStartup ? 'Startup folder launcher' : ''].filter(Boolean);
+    return removed.length
+      ? { ok: true, message: `caddis hub autostart disabled (removed ${removed.join(' and ')})` }
+      : { ok: true, message: 'caddis hub autostart was not enabled (no logon task or Startup launcher to remove)' };
   }
   if (kind === 'mac') {
     const file = plistPath(home);
@@ -163,9 +191,16 @@ export async function autostartStatus(deps: AutostartDeps = {}): Promise<Autosta
   const home = deps.home ?? caddisHome();
   const runCmd = deps.runCmd ?? defaultRun;
   const kind = kindOf(deps.platform ?? process.platform);
-  const enabled =
-    kind === 'win'
-      ? (await runCmd('schtasks', schtasksQueryArgs())).ok
-      : existsSync(kind === 'mac' ? plistPath(home) : desktopPath(home));
+  if (kind === 'win') {
+    const task = (await runCmd('schtasks', schtasksQueryArgs())).ok;
+    const appData = appDataOf(deps);
+    const startup = appData ? startupVbsPath(appData) : null;
+    const how = [task ? `logon task ${TASK_NAME}` : '', startup && existsSync(startup) ? `Startup folder: ${startup}` : ''];
+    const on = how.filter(Boolean);
+    return on.length
+      ? { ok: true, message: `caddis hub autostart is enabled (${on.join('; ')})` }
+      : { ok: false, message: 'caddis hub autostart is not enabled' };
+  }
+  const enabled = existsSync(kind === 'mac' ? plistPath(home) : desktopPath(home));
   return { ok: enabled, message: enabled ? 'caddis hub autostart is enabled' : 'caddis hub autostart is not enabled' };
 }
