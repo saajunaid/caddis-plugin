@@ -70,11 +70,11 @@
 | Deploy Local | `devops/deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
 | Gh CLI | `devops/gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `devops/git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
-| Graph Email | `devops/graph-email/` | Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note. |
 | Monorepo | `devops/monorepo/` | Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting. |
 | Port To GitHub | `devops/port-to-github/` | Port an app or repo to GitHub with verified history, CI translation, and deploy cutover. Use when the user says "move this app to GitHub", "port X to GitHub", or "migrate from Gitea". |
 | Runner Move | `devops/runner-move/` | Move GitHub Actions jobs from self-hosted to GitHub-hosted runners. Use when the user says "move CI to GitHub-hosted runners", "stop using self-hosted runners", or "runner migration". |
 | Safe Cleanup | `devops/safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
+| Send Email | `devops/send-email/` | Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note. |
 | Update README | `devops/update-readme/` | Detect feature commits and update README sections (Features, API, Usage) to match, then stage only the README. Use when features, routes or components were added. |
 | Using Git Worktrees | `devops/using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
 | Windows Deployment | `devops/windows-deployment/` | Deploy FastAPI + React/Vite apps to Windows Server with NSSM services, IIS or nginx reverse proxy and git-pull. Use for Windows prod deploys, NSSM, reverse proxy setup, dev/prod config, or prod troubleshooting. |

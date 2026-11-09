@@ -1,0 +1,44 @@
+# Example config for the send-email skill. Copy to ~/.caddis/email.toml and fill in your values.
+#
+# Precedence for every setting: command-line flag, then environment variable, then this file.
+# Secrets (Graph client secret, SMTP password) never go in this file. They come from the process
+# environment or from the env file named by `env_file` below.
+
+# Which sender to use: "graph" (Microsoft Graph sendMail) or "smtp". Default: "graph".
+# Env var: CADDIS_EMAIL_PROVIDER. Flag: --provider.
+provider = "graph"
+
+# The mailbox or address the mail is sent from.
+# Env var: CADDIS_EMAIL_SENDER. Flag: --sender.
+sender = ""
+
+# Path to an env file (KEY=value lines) that holds the secrets. Use a literal string
+# (single quotes) so a Windows path needs no escaping.
+# Env var: CADDIS_EMAIL_ENV_FILE. Flag: --env-file.
+env_file = ""
+
+[graph]
+# The NAMES of the keys in the env file (or environment) that hold the values.
+# These are the defaults. Change them only if your env file uses other names.
+tenant_id_key = "ALERT_GRAPH_TENANT_ID"
+client_id_key = "ALERT_GRAPH_CLIENT_ID"
+client_secret_key = "ALERT_GRAPH_CLIENT_SECRET"
+
+[smtp]
+# Used when provider = "smtp".
+# Env vars: CADDIS_EMAIL_SMTP_HOST, _PORT, _SECURITY, _USERNAME, _TIMEOUT.
+# Flags: --smtp-host, --smtp-port, --smtp-security, --smtp-username, --smtp-timeout.
+host = ""
+# "starttls" (port 587), "ssl" (port 465) or "none" (port 25, no encryption).
+security = "starttls"
+# With security "none", the script refuses to send a username or password. Set this to true
+# (a boolean, not a string) only for a local test relay. File only: no env var or flag.
+# allow_insecure_auth = false
+# Leave out `port` to use the default for the security mode.
+# port = 587
+# Leave empty if the server needs no login.
+username = ""
+# The NAME of the key that holds the password (in the environment or the env file).
+password_key = "EMAIL_SMTP_PASSWORD"
+# Seconds to wait for the server.
+timeout = 30

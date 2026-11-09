@@ -1,14 +1,21 @@
 ---
-name: graph-email
+name: send-email
 description: Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note.
 ---
 
-# graph-email
+# send-email
 
 Sends one email. The provider is `graph` (Microsoft Graph `sendMail`, client credentials) or `smtp`.
 The body is a Markdown file. The script turns it into simple HTML. It never prints a secret or a token.
 
 ## One-time setup (per machine)
+
+Run `caddis email setup` in a terminal. In a Claude Code session, type `! caddis email setup` in the prompt: the `!`
+runs it in your terminal, so the secret never enters the chat. It asks for the provider, the sender mailbox and the
+secrets (an env file you already have, or the values, which it saves to `~/.caddis/email.env`). It writes
+`~/.caddis/email.toml`, then runs the check. `caddis email check` repeats the check at any time.
+
+Manual setup, if the command is not available:
 
 1. Copy `email.toml.example` from this skill folder to `~/.caddis/email.toml`.
 2. Set `provider`, `sender` and `env_file`. For SMTP also set the `[smtp]` table.

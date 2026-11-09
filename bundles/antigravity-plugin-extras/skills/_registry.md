@@ -52,7 +52,6 @@
 |-------|------|-------------|
 | Changelog Generator | `changelog-generator/` | Create user-facing changelogs and release notes from git commit history, grouping changes and rewriting technical commits in plain language. |
 | Deploy Local | `deploy-local/` | Local deployment loop for Gitea-hosted projects: commit on dev, push, watch the golden CI/build/deploy workflow, check prod, and fix lint/test/pipeline failures until the deploy is healthy. |
-| Graph Email | `graph-email/` | Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note. |
 | Monorepo | `monorepo/` | Turborepo and pnpm workspaces: turbo.json tasks, remote caching, shared packages, affected-only CI, apps/ vs packages/ layout, and pitfalls like circular deps, version drift and hoisting. |
 | Runner Move | `runner-move/` | >- |
 | Safe Cleanup | `safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |

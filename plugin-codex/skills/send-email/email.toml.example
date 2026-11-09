@@ -1,4 +1,4 @@
-# Example config for the graph-email skill. Copy to ~/.caddis/email.toml and fill in your values.
+# Example config for the send-email skill. Copy to ~/.caddis/email.toml and fill in your values.
 #
 # Precedence for every setting: command-line flag, then environment variable, then this file.
 # Secrets (Graph client secret, SMTP password) never go in this file. They come from the process

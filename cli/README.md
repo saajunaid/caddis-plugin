@@ -132,6 +132,14 @@ caddis update --extras     # add extras to an existing install
 The first run. Detects, shows exactly what it is about to run, asks, then installs. `--yes` skips
 the prompt for CI.
 
+### `caddis email`
+
+`caddis email setup` is the guided one-time setup for the send-email skill. It asks for the provider (Graph or SMTP), the sender
+mailbox and the secrets, writes `~/.caddis/email.toml` (settings only) and, if you enter values, `~/.caddis/email.env` (mode 0600), then
+runs the check. A secret is never printed and never goes into `email.toml`. An existing file is replaced only on a yes or `--force`.
+For scripts, use `--provider --sender --env-file --tenant-id --client-id --yes`; the secret comes from `CADDIS_EMAIL_CLIENT_SECRET`
+(SMTP: `CADDIS_EMAIL_SMTP_PASSWORD`) or the env file, never a flag. `caddis email check` runs the skill's `send_email.py --check`.
+
 ### `caddis hub`
 
 A local web page (127.0.0.1 only) with your repos, PRs, plans and live sessions. `caddis hub start`

@@ -121,6 +121,77 @@ withGlobalFlags(program.command('status'))
     finish(await status({ adapters: resolveAdapters(flags), json: options.json }));
   });
 
+const email = program
+  .command('email')
+  .description('one-time setup and check for the send-email skill (Microsoft Graph or SMTP)');
+
+withGlobalFlags(email.command('setup'))
+  .description('guided setup: ask a few questions, write ~/.caddis/email.toml (and email.env), then check it')
+  .option('--provider <name>', 'graph (default) or smtp')
+  .option('--sender <address>', 'the mailbox mail is sent from')
+  .option('--env-file <path>', 'an existing env file that holds the secrets (key names are checked, values never shown)')
+  .option('--tenant-id <guid>', 'graph: the Entra tenant ID')
+  .option('--client-id <guid>', 'graph: the app (client) ID')
+  .option('--smtp-host <host>', 'smtp: the server host')
+  .option('--smtp-security <mode>', 'smtp: starttls, ssl or none')
+  .option('--smtp-port <port>', 'smtp: the port (default by security)')
+  .option('--smtp-username <name>', 'smtp: the login name (empty if no login)')
+  .option('-f, --force', 'replace an existing email.toml / email.env without asking', false)
+  .option('--no-check', 'do not run the check after writing')
+  .addHelpText(
+    'after',
+    `
+The secret is never a flag, so it never lands in shell history. A script sets it in the environment:
+  CADDIS_EMAIL_CLIENT_SECRET   graph client secret
+  CADDIS_EMAIL_SMTP_PASSWORD   smtp password
+or points --env-file at a file that holds it. With --yes nothing is asked: a missing value is an error.`,
+  )
+  .action(
+    async (
+      options: GlobalFlags & {
+        provider?: string;
+        sender?: string;
+        envFile?: string;
+        tenantId?: string;
+        clientId?: string;
+        smtpHost?: string;
+        smtpSecurity?: string;
+        smtpPort?: string;
+        smtpUsername?: string;
+        force?: boolean;
+        check?: boolean;
+      },
+    ) => {
+      const flags = mergeFlags(options);
+      const { emailSetup } = await import('./commands/email.js');
+      finish(
+        await emailSetup({
+          provider: options.provider,
+          sender: options.sender,
+          envFile: options.envFile,
+          tenantId: options.tenantId,
+          clientId: options.clientId,
+          smtpHost: options.smtpHost,
+          smtpSecurity: options.smtpSecurity,
+          smtpPort: options.smtpPort,
+          smtpUsername: options.smtpUsername,
+          yes: flags.yes,
+          force: options.force === true,
+          dryRun: flags.dryRun,
+          noCheck: options.check === false,
+        }),
+      );
+    },
+  );
+
+email
+  .command('check')
+  .description('check the email setup: runs the skill script with --check (sends nothing, prints no secret)')
+  .action(async () => {
+    const { emailCheck } = await import('./commands/email.js');
+    finish(await emailCheck());
+  });
+
 const hub = program.command('hub').description('the local caddis hub web server (127.0.0.1 only)');
 
 hub

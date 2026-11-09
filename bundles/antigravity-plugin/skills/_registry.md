@@ -40,9 +40,9 @@
 | Ci Cd Pipeline | `ci-cd-pipeline/` | CI/CD pipelines for GitHub Actions and Azure DevOps: build and deploy workflows, quality gates, environment promotion and release automation. |
 | Gh Cli | `gh-cli/` | GitHub CLI operations — issues, PRs, releases, and repo management |
 | Git Commit | `git-commit/` | Create well-structured conventional commit messages following Conventional Commits standard. Use when committing changes, preparing PRs, or generating changelogs. |
-| Graph Email | `graph-email/` | Send a Markdown file as an email through Microsoft Graph or SMTP, as set in ~/.caddis/email.toml. Default recipient is the owner. |
 | Port To Github | `port-to-github/` | >- |
 | Safe Cleanup | `safe-cleanup/` | Use BEFORE deleting a directory tree, scratchpad or git worktree, or "tidying up" generated folders, especially on Windows, where deleting through a junction or symlink destroys its target; and to verify a venv or node_modules survived. |
+| Send Email | `send-email/` | Email a Markdown file via Microsoft Graph or SMTP. Use to email a draft or note. |
 | Using Git Worktrees | `using-git-worktrees/` | Use when starting feature work that needs isolation from the current workspace, or before executing an implementation plan: creates an isolated git worktree safely. |
 | Windows Deployment | `windows-deployment/` | Deploy FastAPI + React/Vite apps to Windows Server with NSSM services, IIS or nginx reverse proxy and git-pull. Use for Windows prod deploys, NSSM, reverse proxy setup, dev/prod config, or prod troubleshooting. |
 
@@ -91,6 +91,7 @@
 | Gate Preflight | `gate-preflight/` | Deterministic headless preflight — validates a plan against the actual codebase, self-contained (never depends on a skill activating) |
 | Gate Review | `gate-review/` | Deterministic headless code review — adversarial diff review, self-contained (never depends on a skill activating) |
 | Glossary | `glossary/` | Define the words this project invented, in one place — .caddis/kb/GLOSSARY.md |
+| Graph Email | `graph-email/` | Send a Markdown file as an email through Microsoft Graph or SMTP, as set in ~/.caddis/email.toml. Default recipient is the owner. |
 | Handoff | `handoff/` | End-of-session handoff — capture exact state so the next session resumes with zero re-discovery |
 | Implement | `implement/` | Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase |
 | Install Statusline | `install-statusline/` | Install the caddis status line into Claude Code and agy — one renderer, once per machine |
