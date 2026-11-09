@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { isTyping } from '../shell/keys';
 import type { RepoState } from '../types';
 import { PhaseLoaderContext } from './phaseLoader';
 import { PhasePanel } from './PhasePanel';
@@ -42,7 +43,7 @@ export function ViewSwitch({ view, choose }: { view: RoadmapView; choose: (v: Ro
   );
 }
 
-export const isTyping = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+export { isTyping };
 
 export function usePhasePanel({
   m,

@@ -1,43 +1,51 @@
-/* Inbox and Overview. Colours follow the approved mockup (accent, chips, tones) per theme. */
+/* Inbox and Overview. Colours follow the aurora glass mockups (accent, chips, kind tiles) per theme. Dark --mk-bad and
+   the gate and bad chip text are lighter than the mockup so they pass 4.5:1 on glass over every glow (D6). */
 :root,
 [data-theme='dark'] {
-  --mk-accent: #00cad5;
-  --mk-sel: #343746;
-  --mk-bad: #ff7a7a;
-  --mk-good: #91d202;
-  --mk-warn: #fdad01;
-  --mk-warn-bg: rgba(253, 173, 1, 0.1);
-  --mk-warn-line: rgba(253, 173, 1, 0.45);
-  --chip-waiting-bg: rgba(0, 202, 213, 0.16);
-  --chip-waiting-fg: #5fe6ee;
-  --chip-gate-bg: rgba(135, 48, 251, 0.22);
-  --chip-gate-fg: #c9a7ff;
-  --chip-bad-bg: rgba(255, 122, 122, 0.16);
-  --chip-bad-fg: #ff9b9b;
-  --chip-coord-bg: rgba(253, 173, 1, 0.16);
-  --chip-coord-fg: #fdad01;
-  --chip-done-bg: rgba(145, 210, 2, 0.16);
-  --chip-done-fg: #a8e23a;
+  --mk-accent: #22d3ee;
+  --mk-sel: #2a2652;
+  --mk-bad: #fda4af;
+  --mk-good: #34d399;
+  --mk-warn: #fbbf24;
+  --mk-warn-bg: rgba(251, 191, 36, 0.1);
+  --mk-warn-line: rgba(251, 191, 36, 0.45);
+  --chip-waiting-bg: rgba(34, 211, 238, 0.16);
+  --chip-waiting-fg: #67e8f9;
+  --chip-gate-bg: rgba(167, 139, 250, 0.18);
+  --chip-gate-fg: #ddd6fe;
+  --chip-bad-bg: rgba(251, 113, 133, 0.16);
+  --chip-bad-fg: #fecdd3;
+  --chip-coord-bg: rgba(251, 191, 36, 0.16);
+  --chip-coord-fg: #fcd34d;
+  --chip-done-bg: rgba(52, 211, 153, 0.16);
+  --chip-done-fg: #6ee7b7;
+  --tile-amber: linear-gradient(135deg, #fbbf24, #f97316);
+  --tile-red: linear-gradient(135deg, #fb7185, #e11d48);
+  --tile-violet: linear-gradient(135deg, #a78bfa, #7c3aed);
+  --tile-cyan: linear-gradient(135deg, #22d3ee, #0891b2);
+  --tile-pink: linear-gradient(135deg, #f472b6, #db2777);
+  --tile-grey: linear-gradient(135deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.12));
 }
 
 [data-theme='light'] {
-  --mk-accent: #0d42fc;
-  --mk-sel: #e8eefe;
-  --mk-bad: #c0262d;
-  --mk-good: #3d6b00;
-  --mk-warn: #8a5a00;
-  --mk-warn-bg: rgba(253, 173, 1, 0.14);
-  --mk-warn-line: rgba(154, 101, 0, 0.45);
-  --chip-waiting-bg: #dff7f8;
-  --chip-waiting-fg: #006b72;
-  --chip-gate-bg: #efe5ff;
-  --chip-gate-fg: #5b1bb5;
-  --chip-bad-bg: #fde4e4;
-  --chip-bad-fg: #a11d24;
-  --chip-coord-bg: #fff1cf;
-  --chip-coord-fg: #7a5000;
-  --chip-done-bg: #e9f6d2;
-  --chip-done-fg: #3d6b00;
+  --mk-accent: #0b6577;
+  --mk-sel: #e6e1fb;
+  --mk-bad: #be123c;
+  --mk-good: #04694c;
+  --mk-warn: #92400e;
+  --mk-warn-bg: rgba(146, 64, 14, 0.08);
+  --mk-warn-line: rgba(146, 64, 14, 0.4);
+  --chip-waiting-bg: #dbf4fa;
+  --chip-waiting-fg: #0e5f73;
+  --chip-gate-bg: #ede7fe;
+  --chip-gate-fg: #5b21b6;
+  --chip-bad-bg: #fde4e8;
+  --chip-bad-fg: #9f1239;
+  --chip-coord-bg: #fef0c7;
+  --chip-coord-fg: #7c3a0a;
+  --chip-done-bg: #d9f5e8;
+  --chip-done-fg: #065f46;
+  --tile-grey: linear-gradient(135deg, #8b87a8, #6b6790);
 }
 
 .btn {
@@ -65,8 +73,8 @@
 }
 
 .kpi-tile .kpi-num {
-  font-size: 30px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 800;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
@@ -114,32 +122,114 @@
   overflow-wrap: anywhere;
 }
 
-/* Inbox mailbox */
-.mailbox {
+/* Sentence header (D8): the page name as a small eyebrow, the sentence, one line of context; controls on the right. */
+.page-head {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 16px;
-  align-items: flex-start;
 }
 
-.mailbox-folders {
-  flex: 1 1 180px;
+.page-head-text {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.page-head .page-title.page-eyebrow {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+.page-head .headline,
+.page-head .headline-sub {
+  margin: 0;
+}
+
+.page-head .headline-sub {
+  margin-top: 2px;
+}
+
+.page-head.stale .headline-sub {
+  opacity: 0.7;
+}
+
+/* Folder pills: one glass group, the selected pill lifted. */
+.pill-group {
+  display: inline-flex;
+  flex-wrap: wrap;
   gap: 2px;
-  padding: 8px;
-  border-radius: 12px;
-  background: var(--glass-tint-low);
-  border: 1px solid var(--glass-bd);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
   box-shadow: var(--glass-hl);
 }
 
-.folder-btn,
-.item-btn {
+.pill-group .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-1) ease,
+    color var(--dur-1) ease,
+    transform 100ms var(--ease-out);
+}
+
+.pill-group .pill:hover {
+  background: var(--row-hover-bg);
+  color: var(--text-main);
+}
+
+.pill-group .pill.sel {
+  background: var(--row-sel-bg);
+  box-shadow: var(--glass-hl);
+  color: var(--text-main);
+}
+
+[data-theme='light'] .pill-group .pill.sel {
+  background: var(--tone-purple-bg);
+}
+
+.pill-group .pill:active {
+  transform: scale(0.97);
+}
+
+.pill-count {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* Inbox mailbox: the list and the glass detail side by side. */
+.mailbox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+/* Repo tabs reuse the folder button. */
+.folder-btn {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
   min-height: 44px;
   padding: 0 10px;
   border: 0;
@@ -151,71 +241,142 @@
   cursor: pointer;
 }
 
-.folder-btn span:first-of-type {
-  flex-grow: 1;
-}
-
-.folder-btn.sel,
-.item-btn.sel {
+.folder-btn.sel {
   background: var(--mk-sel);
 }
 
-.folder-btn:hover,
-.item-btn:hover {
+.folder-btn:hover {
   background: var(--bg-elevated);
 }
 
 .mailbox-list {
-  flex: 2 1 280px;
+  flex: 1 1 420px;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  border-radius: 12px;
-  background: var(--glass-tint-low);
-  border: 1px solid var(--glass-bd);
-  box-shadow: var(--glass-hl);
+  gap: 2px;
+  padding: 14px;
+  border-radius: var(--radius-panel);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl), var(--glass-drop);
 }
 
 .item-btn {
-  align-items: flex-start;
-  padding: 10px;
-  min-height: 56px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--radius-row);
+  text-align: left;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background var(--dur-2) ease,
+    box-shadow var(--dur-2) ease,
+    transform var(--dur-2) var(--ease-out);
 }
 
+.item-btn:hover {
+  background: var(--row-hover-bg);
+}
+
+.item-btn.sel {
+  background: var(--row-sel-bg);
+  box-shadow: var(--row-sel-ring);
+}
+
+.mailbox-list .item-btn:active {
+  transform: scale(0.993);
+}
+
+/* Unread: a small dot on the top left corner of the kind tile. */
 .unread-dot {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 1;
   width: 9px;
   height: 9px;
-  margin-top: 6px;
   border-radius: 50%;
-  flex-shrink: 0;
   background: transparent;
 }
 
 .unread-dot.on {
   background: var(--mk-accent);
+  box-shadow: 0 0 0 2px var(--bg-lane);
+}
+
+.kind-tile {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.kind-tile.tile-amber {
+  background: var(--tile-amber);
+}
+.kind-tile.tile-red {
+  background: var(--tile-red);
+}
+.kind-tile.tile-violet {
+  background: var(--tile-violet);
+}
+.kind-tile.tile-cyan {
+  background: var(--tile-cyan);
+}
+.kind-tile.tile-pink {
+  background: var(--tile-pink);
+}
+.kind-tile.tile-grey {
+  background: var(--tile-grey);
 }
 
 .item-main {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
   min-width: 0;
+}
+
+.item-title {
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .item-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 13px;
   color: var(--text-dim);
 }
 
-.item-title {
-  font-weight: 400;
-  overflow-wrap: anywhere;
+.item-meta .mono {
+  font-size: 12px;
+}
+
+.item-age {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .chip {
@@ -258,21 +419,39 @@
   color: var(--text-sub);
 }
 
+/* The detail: the one glass panel of the page with a backdrop blur. The key on the article re-runs the fade. */
 .mailbox-detail {
-  flex: 3 1 320px;
+  flex: 1 1 380px;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 12px;
-  background: var(--bg-lane);
-  border: 1px solid var(--border-dim);
+  gap: 18px;
+  padding: 24px;
+  border-radius: var(--radius-panel);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl), var(--glass-drop);
+  animation: hub-fade-up 320ms var(--ease-out);
+}
+
+.detail-meta {
+  font-size: 12px;
+  gap: 8px;
+}
+
+.detail-meta .chip {
+  padding: 3px 10px;
+  font-weight: 700;
 }
 
 .mailbox-detail h2 {
-  font-size: 20px;
-  line-height: 1.3;
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   overflow-wrap: anywhere;
 }
 
@@ -284,15 +463,64 @@
 
 .detail-label {
   font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 700;
   color: var(--text-dim);
 }
 
 .detail-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.mailbox-detail .btn {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--pill-ghost-bd);
+  background: var(--pill-ghost-bg);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.mailbox-detail .btn:hover:not(:disabled) {
+  background: var(--row-hover-bg);
+  border-color: var(--glass-line-hover);
+}
+
+.btn.btn-primary,
+.mailbox-detail .btn.btn-primary {
+  height: 38px;
+  min-height: 38px;
+  padding: 0 18px;
+  border-radius: var(--radius-pill);
+  border: 0;
+  background: var(--pill-primary-bg);
+  color: var(--pill-primary-fg);
+  font-weight: 700;
+  transition:
+    filter var(--dur-1) ease,
+    box-shadow var(--dur-2) ease,
+    transform 100ms var(--ease-out);
+}
+
+.btn.btn-primary:hover:not(:disabled),
+.mailbox-detail .btn.btn-primary:hover:not(:disabled) {
+  background: var(--pill-primary-bg);
+  filter: brightness(1.05);
+  box-shadow: 0 10px 30px -10px rgba(167, 139, 250, 0.8);
+}
+
+.btn.btn-primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.key-hints {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .back-btn {
@@ -308,14 +536,169 @@
   color: var(--text-sub);
 }
 
-/* Phone: the list and the detail pane are separate views. */
+.notify-row .btn {
+  border-radius: var(--radius-pill);
+  border-color: var(--pill-ghost-bd);
+  background: var(--pill-ghost-bg);
+}
+
+/* Below the Inbox: roadmaps and recent ships. Repeated surfaces: glass fill, no blur. */
+.inbox-strips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.strip-card {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: var(--radius-panel);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl);
+}
+
+.strip-card.strip-ships {
+  flex-basis: 380px;
+  gap: 6px;
+  padding: 18px 8px 10px;
+}
+
+.strip-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+.strip-ships .strip-title {
+  padding: 0 12px 4px;
+}
+
+.strip-rm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.strip-rm-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.strip-rm-name a {
+  font-weight: 600;
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+.strip-rm-name a:hover {
+  text-decoration: underline;
+}
+
+.strip-repo,
+.ship-repo {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.strip-rm-label {
+  color: var(--text-sub);
+}
+
+.seg-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.seg {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--ring-track);
+}
+
+.seg-done {
+  background: linear-gradient(90deg, var(--purple), var(--cyan));
+}
+.seg-prog {
+  background: var(--tone-purple-bd);
+}
+.seg-wait {
+  background: var(--yellow);
+}
+.seg-block {
+  background: var(--red);
+}
+.seg-todo {
+  background: var(--ring-track);
+}
+
+.ship-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.ship-row:hover {
+  background: var(--row-hover-bg);
+}
+
+.ship-check {
+  flex: none;
+  color: var(--green);
+}
+
+.ship-repo {
+  flex: none;
+  width: 124px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ship-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-main);
+}
+
+.ship-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ship-title a:hover {
+  text-decoration: underline;
+}
+
+.ship-age {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* Phone: the list and the detail pane are separate views; the pills may wrap (no sideways scroll). */
 @media (max-width: 720px) {
   .mailbox {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .mailbox.show-detail .mailbox-folders,
   .mailbox.show-detail .mailbox-list {
     display: none;
   }
@@ -324,112 +707,461 @@
     display: none;
   }
 
-  .mailbox-folders {
-    flex-direction: row;
-    flex-wrap: wrap;
+  .mailbox-list {
+    padding: 8px;
   }
 
-  .folder-btn {
-    width: auto;
-    flex: 1 1 140px;
+  .mailbox-detail {
+    padding: 18px;
+  }
+
+  /* The four pills share the full width (one line at 390 px); a wrap keeps a rounded box, not a stretched capsule. */
+  .page-head > .pill-group {
+    display: flex;
+    width: 100%;
+    border-radius: 18px;
+  }
+
+  .pill-group .pill {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0 8px;
+    font-size: 12px;
   }
 
   .back-btn {
     display: inline-flex;
     align-self: flex-start;
   }
+
+  .ship-repo {
+    width: 96px;
+  }
 }
 
-/* Overview lanes */
-.lanes {
+/* Overview (Aurora mockup B): Needs you and Live now side by side, then one glass card per repo. Repeated surfaces
+   use the glass fill with no backdrop blur (perf rule). */
+.glass-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 22px;
+  border-radius: 26px;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl), var(--glass-drop);
+}
+
+.ov-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.ov-needs {
+  flex: 2 1 560px;
+  gap: 10px;
+}
+
+.ov-live {
+  flex: 1 1 320px;
+  gap: 16px;
+}
+
+.ov-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 0 6px 6px;
+}
+
+.ov-live .ov-panel-head {
+  padding-bottom: 0;
+}
+
+.ov-panel-head h2,
+.ov-repos-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.ov-all {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--purple);
+  text-decoration: none;
+}
+
+.ov-all:hover {
+  text-decoration: underline;
+}
+
+.ov-empty {
+  margin: 0;
+  padding: 6px;
+  color: var(--text-sub);
+}
+
+.ov-need-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ov-need {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-line);
+}
+
+.ov-need .kind-tile {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+}
+
+.ov-need-main {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ov-need-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.ov-need-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.ov-need-meta .mono {
+  font-size: 12px;
+}
+
+.ov-need .btn {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.btn.btn-ghost {
+  border: 1px solid var(--pill-ghost-bd);
+  background: var(--pill-ghost-bg);
+  color: var(--text-main);
+}
+
+.btn.btn-ghost:hover:not(:disabled) {
+  background: var(--row-hover-bg);
+  border-color: var(--glass-line-hover);
+}
+
+.ov-need .btn.btn-primary {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 16px;
+}
+
+/* Live now: a busy session gets a turning colour ring; the others are a quiet list. */
+.live-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--tone-cyan-bg);
+  border: 1px solid var(--tone-cyan-bd);
+}
+
+.live-mark {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 52px;
+}
+
+.live-orb {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #22d3ee, #a78bfa, #f472b6, #22d3ee);
+  animation: hub-spin 6s linear infinite;
+}
+
+.live-core {
+  position: absolute;
+  inset: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-lane);
+  color: var(--chip-waiting-fg);
+}
+
+.live-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.live-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.live-where {
+  font-size: 13px;
+  color: var(--chip-waiting-fg);
+}
+
+.live-idle {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-idle li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  min-width: 0;
+}
+
+.live-idle-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0.6;
+}
+
+.live-idle-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-idle-repo {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.live-idle .live-more {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.ov-spend {
+  margin-top: auto;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-line);
+}
+
+.ov-spend .spend-block {
+  gap: 14px;
+}
+
+.ov-spend .spend-amount {
+  font-size: 18px;
+}
+
+.ov-spend .spend-label {
+  font-size: 13px;
+}
+
+/* Repo cards: the whole card is the link to the repo Flow tab (the link's ::after covers the card). */
+.ov-repos {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.lane {
-  border-radius: 14px;
-  background: var(--glass-tint-low);
-  border: 1px solid var(--glass-bd);
-  box-shadow: var(--glass-hl), var(--shadow-1);
+.ov-repos-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 8px;
 }
 
-.lane.down .lane-body .card.grey > :not(.action-row),
-.lane.stopped .lane-body .card.grey > :not(.action-row) {
-  opacity: 0.55;
+.ov-repos-head span {
+  font-size: 13px;
+  color: var(--text-dim);
 }
-.lane.stopped .lane-note {
+
+.repo-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.repo-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl);
+  transition:
+    transform var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) ease;
+}
+
+@media (hover: hover) {
+  .repo-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--glass-line-hover);
+  }
+}
+
+.repo-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.repo-card-id {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.repo-card-link {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-card-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.repo-card-link:focus-visible {
+  outline: none;
+}
+
+.repo-card-link:focus-visible::after {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.repo-card-status {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.repo-card-status.tone-good {
+  color: var(--chip-waiting-fg);
+}
+.repo-card-status.tone-warn {
+  color: var(--chip-coord-fg);
+}
+.repo-card-status.tone-bad {
+  color: var(--mk-bad);
+}
+.repo-card-status.tone-muted {
+  color: var(--text-sub);
+}
+
+.repo-card .ring {
+  flex: none;
+}
+
+.repo-card p {
+  margin: 0;
+}
+
+.repo-card-line {
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.repo-card-sessions {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.repo-card .lane-note {
+  font-size: 13px;
+  border-radius: 12px;
+}
+
+.repo-card.down .lane-note.repo-card-note,
+.repo-card.stopped .lane-note.repo-card-note {
   background: var(--mk-warn-bg);
   border-color: var(--mk-warn-line);
 }
 
-.lane-headrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-right: 14px;
-}
-
-.lane-open {
-  flex: none;
-  font-size: 13px;
-  color: var(--purple);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.lane-open:hover {
-  text-decoration: underline;
-}
-
-.lane-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0 14px;
-  border: 0;
-  background: transparent;
-  color: var(--text-main);
-  font-size: 15px;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 12px;
-}
-
-.lane-head:hover .lane-name {
-  color: var(--purple);
-}
-
-.lane-head .chev {
-  margin-left: auto;
-  flex-shrink: 0;
+.repo-card-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-line);
+  font-size: 12px;
   color: var(--text-dim);
-  transition: transform var(--dur-1) var(--ease-out);
 }
 
-.lane-name {
-  font-weight: 400;
-  font-family: var(--font-mono);
-  font-size: 14px;
+/* Phone: the kind tile and the text share a line; the button sits under the text. */
+@media (max-width: 720px) {
+  .glass-panel {
+    padding: 16px;
+  }
+
+  .ov-need-main {
+    flex: 1 1 calc(100% - 56px);
+  }
+
+  .ov-need .btn {
+    margin-left: 56px;
+  }
 }
 
-.lane-summary {
-  color: var(--text-dim);
-  font-size: 13.5px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.lane-body {
-  padding: 0 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
+/* Shared with Activity, the export app and the Roadmap tab. */
 .lane-note {
   padding: 10px 12px;
   border-radius: 8px;
@@ -438,84 +1170,9 @@
   font-size: 14px;
 }
 
-.lane.down .lane-note {
-  background: var(--mk-warn-bg);
-  border-color: var(--mk-warn-line);
-}
-
-.lane-cols {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.lane-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.col-title {
-  font-size: 12.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  font-weight: 600;
-}
-
-/* A column with something in it reads one step stronger than an empty one (the empty keeps its heading only). */
-.lane-col:not(.empty) .col-title {
-  color: var(--text-sub);
-}
-
-.lane-empty-line {
-  display: none;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 9px 11px;
-  border-radius: 10px;
-  background: var(--glass-tint);
-  border: 1px solid var(--glass-bd);
-  box-shadow: var(--glass-hl), var(--shadow-1);
-  overflow-wrap: anywhere;
-}
-
-.card-title {
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.card-sub {
-  font-size: 13px;
-}
-
 .col-empty {
   font-size: 13px;
   color: var(--text-dim);
-}
-
-@media (max-width: 1100px) {
-  .lane-cols {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .lane-cols {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .lane-head {
-    flex-wrap: wrap;
-    padding: 10px 14px;
-  }
 }
 
 /* H2.6: empty and degraded states */
@@ -549,8 +1206,7 @@
   color: var(--text-dim);
 }
 .kpi-strip.stale .kpi-num,
-.kpi-strip.stale .kpi-val,
-.lanes.stale .lane-body {
+.kpi-strip.stale .kpi-val {
   opacity: 0.55;
 }
 .gh-fail {
@@ -619,17 +1275,40 @@
   flex-wrap: nowrap;
   overflow-x: auto;
   scroll-snap-type: x proximity;
-  gap: 6px;
-  margin: 0 0 14px;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  margin: 0 0 16px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl);
 }
 .repo-tabs .folder-btn {
   flex: 0 0 auto;
   scroll-snap-align: start;
   white-space: nowrap;
   width: auto;
-  min-height: 38px;
+  min-height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--border-dim);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--text-sub);
+  font-size: 13px;
+  font-weight: 600;
+}
+.repo-tabs .folder-btn:hover {
+  background: var(--row-hover-bg);
+  color: var(--text-main);
+}
+.repo-tabs .folder-btn.sel {
+  background: var(--row-sel-bg);
+  box-shadow: var(--glass-hl);
+  color: var(--text-main);
+}
+[data-theme='light'] .repo-tabs .folder-btn.sel {
+  background: var(--tone-purple-bg);
 }
 .flow {
   display: flex;
@@ -645,8 +1324,13 @@
 .flow-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl);
 }
 .flow-h {
   margin: 0;
@@ -667,10 +1351,10 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-dim);
+  padding: 10px 14px;
+  border-radius: var(--radius-row);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
   overflow-wrap: anywhere;
   min-width: 0;
 }
@@ -703,9 +1387,6 @@
 .flow-why {
   font-size: 13px;
   color: var(--text-sub);
-}
-.card .action-row {
-  margin-top: 4px;
 }
 
 /* H4: repo tabs as links, Roadmap tab, Sessions tab, Activity */
@@ -853,10 +1534,10 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 10px;
-  border: 1px solid var(--glass-bd);
-  border-radius: 10px;
-  background: var(--glass-tint);
+  padding: 10px 14px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-row);
+  background: var(--glass-fill);
   box-shadow: var(--glass-hl), var(--shadow-1);
   color: var(--text-main);
   font: inherit;
@@ -904,7 +1585,7 @@ select:focus-visible {
   cursor: default;
 }
 .rm-pcard:hover {
-  background: var(--glass-tint);
+  background: var(--glass-fill);
 }
 .rm-pcard.is-moved {
   opacity: 0.55;
@@ -1149,10 +1830,11 @@ select:focus-visible {
 
 /* A plan board: a card that opens and closes. The KPI line stays visible when it is closed. */
 .rm-plan {
-  border: 1px solid var(--border-dim);
-  border-radius: 10px;
-  background: var(--bg-card);
-  padding: 12px 14px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-card);
+  background: var(--glass-fill);
+  box-shadow: var(--glass-hl);
+  padding: 14px 18px;
 }
 .rm-plan[open] {
   gap: 12px;
@@ -1284,11 +1966,11 @@ select:focus-visible {
 }
 /* Done plans: a closed card like a plan board, with a plain list inside. */
 .rm-done {
-  border: 1px solid var(--glass-bd);
-  border-radius: 12px;
-  background: var(--glass-tint);
-  box-shadow: var(--glass-hl), var(--shadow-1);
-  padding: 12px 14px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-card);
+  background: var(--glass-fill);
+  box-shadow: var(--glass-hl);
+  padding: 14px 18px;
 }
 .rm-done-sum {
   cursor: pointer;
@@ -1343,13 +2025,17 @@ select:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-row);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
 }
 .act-filters select {
   min-height: 38px;
   padding: 0 8px;
-  border: 1px solid var(--border-bright);
-  border-radius: 8px;
-  background: var(--bg-card);
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--pill-ghost-bg);
   color: var(--text-main);
   font: inherit;
   max-width: 100%;
@@ -1360,19 +2046,23 @@ select:focus-visible {
   gap: 6px;
 }
 .act-kind {
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--border-bright);
-  border-radius: 99px;
-  background: transparent;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--pill-ghost-bd);
+  border-radius: var(--radius-pill);
+  background: var(--pill-ghost-bg);
   color: var(--text-main);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 .act-kind[aria-pressed="true"] {
-  background: var(--mk-sel);
-  border-color: var(--mk-accent);
+  background: var(--row-sel-bg);
+  border-color: var(--focus-ring);
+  box-shadow: var(--glass-hl);
+}
+[data-theme='light'] .act-kind[aria-pressed="true"] {
+  background: var(--tone-purple-bg);
 }
 .act-time {
   font-size: 12px;
@@ -1390,7 +2080,7 @@ select:focus-visible {
   .kpi-tile {
     padding: 8px 8px 9px;
     gap: 3px;
-    border-radius: 10px;
+    border-radius: 14px;
   }
   .kpi-label {
     font-size: 11.5px;
@@ -1434,29 +2124,6 @@ select:focus-visible {
   .mailbox > * {
     flex: none;
     min-width: 0;
-  }
-  .mailbox-folders {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 4px;
-  }
-  .mailbox-folders .folder-btn {
-    flex: 0 0 auto;
-    min-height: 38px;
-    padding: 0 10px;
-    gap: 6px;
-    font-size: 14px;
-    white-space: nowrap;
-  }
-  .mailbox-folders .folder-btn svg {
-    display: none;
-  }
-  .lane-col.empty {
-    display: none;
-  }
-  .lane-empty-line {
-    display: block;
   }
   .rm-chain {
     flex-direction: column;

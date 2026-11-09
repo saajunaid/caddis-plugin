@@ -33,27 +33,35 @@ export function clockText(iso: string | null | undefined): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** The spend level that triggers an advice note when the slot has none (owner rule: advise at EUR 300). */
+export const ADVISE_EUR_DEFAULT = 300;
+
 export interface SpendView {
-  configured: boolean;
-  capEur: number;
   committedEur: number;
-  /** 0-100 */
+  adviseEur: number;
+  /** True when the collector flags the spend, or the spend reaches the advise level. */
+  advisory: boolean;
+  /** 0-100, the spend as a share of the advise level. */
   pct: number;
 }
 
-/** Read the collector's spend slot. It is untyped on the server (a plain record). */
+/** Read the collector's spend slot. It is untyped on the server (a plain record). There is no cap any more
+    (removed 1 Nov 2026): `cap_eur` is ignored, and a slot without a valid `advise_eur` uses 300. */
 export function spendView(slot: Record<string, unknown> | null | undefined): SpendView {
-  const cap = Number(slot?.cap_eur);
+  const advise = Number(slot?.advise_eur);
   const used = Number(slot?.committed_eur);
-  const configured = slot?.configured === true && Number.isFinite(cap) && cap > 0;
+  const adviseEur = Number.isFinite(advise) && advise > 0 ? advise : ADVISE_EUR_DEFAULT;
   const committedEur = Number.isFinite(used) ? used : 0;
   return {
-    configured,
-    capEur: configured ? cap : 0,
     committedEur,
-    pct: configured ? Math.min(100, Math.max(0, (committedEur / cap) * 100)) : 0,
+    adviseEur,
+    advisory: slot?.advisory === true || committedEur >= adviseEur,
+    pct: Math.min(100, Math.max(0, (committedEur / adviseEur) * 100)),
   };
 }
+
+/** "300" for a whole number, "2.50" otherwise. */
+export const formatEur = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
 /** True when any source fails or is stale: the numbers on the page are then greyed. */
 export const anySourceDown = (state: HubState): boolean =>

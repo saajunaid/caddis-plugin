@@ -53,3 +53,9 @@ export function repoSessions(state: HubState, repo: RepoState): SessionsModel {
   const unknown = failed && rows.length === 0;
   return { unknown, error: agents.ok ? null : agents.last_error, rows };
 }
+
+/** Tab label: "Sessions · 3", or plain "Sessions" when the repo has none. */
+export function sessionsTabLabel(state: HubState, repo: RepoState): string {
+  const n = repoSessions(state, repo).rows.length;
+  return n > 0 ? `Sessions · ${n}` : 'Sessions';
+}

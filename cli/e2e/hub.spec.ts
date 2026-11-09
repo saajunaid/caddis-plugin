@@ -21,14 +21,14 @@ test.describe('sign in and render', () => {
     const { problems } = await openHub('full');
     await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible();
     await expect(page.getByTestId('inbox-item').first()).toBeVisible();
-    await expect(page.getByTestId('tiles')).toBeVisible();
+    await expect(page.getByTestId('headline')).toContainText('need');
     await expect(page).toHaveTitle(/^\(\d+\) caddis hub$/);
     // The #tab token (when the server sends one) is removed from the URL by the page.
     expect(page.url()).not.toContain('tab=');
 
     await page.getByRole('link', { name: 'Overview' }).click();
     await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
-    await expect(page.getByTestId('lane')).toHaveCount(3);
+    await expect(page.getByTestId('repo-card')).toHaveCount(3);
     expect(await cspViolations(page)).toEqual([]);
     expect(problems.console).toEqual([]);
   });
@@ -76,6 +76,25 @@ test.describe('360 px: no horizontal scroll', () => {
     await expect(page.getByTestId('inbox-detail')).toBeVisible();
     await noHorizontalScroll(page);
   });
+
+  test('Inbox keys: Enter opens the detail', async ({ page, openHub }) => {
+    await openHub('full', undefined, '#/inbox');
+    await page.getByTestId('inbox-item').first().waitFor();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('inbox-detail')).toBeVisible();
+    await noHorizontalScroll(page);
+  });
+
+  test('drawer: a dialog that Escape closes, focus back on the menu button', async ({ page, openHub }) => {
+    await openHub('full', undefined, '#/inbox');
+    await page.getByRole('button', { name: 'Open navigation menu' }).click();
+    await expect(page.locator('#app-sidebar')).toHaveAttribute('role', 'dialog');
+    await page.keyboard.press('Escape');
+    const menu = page.getByRole('button', { name: 'Open navigation menu' });
+    await expect(menu).toBeFocused();
+    await expect(menu).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 
 test.describe('empty and degraded states (design section 6)', () => {
@@ -92,18 +111,19 @@ test.describe('empty and degraded states (design section 6)', () => {
     await expect(page.getByTestId('first-run')).toBeVisible();
   });
 
-  test('repo with no coordinator: queue column text and the hint', async ({ page, openHub }) => {
+  test('repo with no coordinator: the card note and the hint', async ({ page, openHub }) => {
     await openHub('no-coordinator', undefined, '#/overview');
-    await expect(page.getByTestId('lane-note')).toContainText('No coordinator: each session merges its own PRs.');
-    await expect(page.getByTestId('lane-note')).toContainText('/caddis:coordinate');
-    await expect(page.getByTestId('col-waiting')).toContainText('No coordinator: each session merges its own PRs.');
+    await expect(page.getByTestId('repo-card-note')).toContainText('No coordinator: each session merges its own PRs.');
+    await expect(page.getByTestId('repo-card-note')).toContainText('/caddis:coordinate');
   });
 
   test('coordinator down: the time, and the greyed last known queue', async ({ page, openHub }) => {
     await openHub('full', undefined, '#/overview');
-    await expect(page.getByTestId('lane-summary').filter({ hasText: 'Coordinator not responding since' })).toHaveCount(1);
-    await expect(page.getByTestId('lane-note').filter({ hasText: 'last known queue' })).toHaveCount(1);
-    await expect(page.locator('.card.grey').first()).toBeVisible();
+    await expect(page.getByTestId('repo-card-status').filter({ hasText: 'Coordinator down' })).toHaveCount(1);
+    await expect(page.getByTestId('repo-card-note').filter({ hasText: 'Coordinator not responding since' })).toHaveCount(1);
+    await expect(page.getByTestId('repo-card-note').filter({ hasText: 'last known queue' })).toHaveCount(1);
+    await go(page, '#/repo/acme__billing');
+    await expect(page.locator('.flow-row.grey').first()).toBeVisible();
   });
 
   test('repo with no sessions says so', async ({ page, openHub }) => {
@@ -114,7 +134,7 @@ test.describe('empty and degraded states (design section 6)', () => {
       },
       '#/overview',
     );
-    await expect(page.getByTestId('col-sessions')).toContainText('No sessions running');
+    await expect(page.getByTestId('repo-card-sessions').first()).toContainText('No sessions running');
   });
 
   test('inbox with no items: Nothing needs you', async ({ page, openHub }) => {
@@ -138,8 +158,8 @@ test.describe('empty and degraded states (design section 6)', () => {
     const gh = page.getByTestId('gh-fail');
     await expect(gh).toContainText('account demo');
     await expect(gh).toContainText('gh auth login -h github.com');
-    await expect(page.getByTestId('col-sessions')).toContainText('unknown');
-    await expect(page.getByTestId('tiles')).toHaveAttribute('data-stale', 'true');
+    await expect(page.getByTestId('repo-card-sessions').first()).toContainText('unknown');
+    await expect(page.getByTestId('page-head')).toHaveAttribute('data-stale', 'true');
   });
 
   test('a schema newer than the hub: banner, and the page still renders', async ({ page, openHub }) => {
@@ -190,9 +210,30 @@ test.describe('themes and keyboard', () => {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await expect(page.getByTestId('inbox-item').first()).toBeVisible();
       await page.getByRole('link', { name: 'Overview' }).click();
-      await expect(page.getByTestId('lane').first()).toBeVisible();
+      await expect(page.getByTestId('repo-card').first()).toBeVisible();
     });
   }
+
+  test('Inbox keys: J, K and the arrows move the selection', async ({ page, openHub }) => {
+    await openHub('full');
+    const rows = page.getByTestId('inbox-item');
+    await expect(rows.nth(0)).toHaveAttribute('aria-current', 'true');
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('j');
+    await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press('k');
+    await expect(rows.nth(0)).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press('ArrowDown');
+    await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press('ArrowUp');
+    await expect(rows.nth(0)).toHaveAttribute('aria-current', 'true');
+    await expect(rows.nth(1)).not.toHaveAttribute('aria-current', 'true');
+  });
+
+  test('Inbox shows the shipped strip', async ({ page, openHub }) => {
+    await openHub('full');
+    await expect(page.getByTestId('strip-shipped')).toContainText('#209');
+  });
 
   test('the two themes use different backgrounds', async ({ page, openHub }) => {
     await openHub('full');
@@ -227,14 +268,22 @@ test.describe('themes and keyboard', () => {
 });
 
 test.describe('hover information (D12)', () => {
-  test('a KPI tile: hover shows the tip, keyboard focus shows it, Escape hides it', async ({ page, openHub }) => {
+  test('the Inbox detail age: hover shows the local time, keyboard focus shows it, Escape hides it', async ({ page, openHub }) => {
     await openHub('full');
     const tip = page.getByTestId('tip');
-    const tile = page.locator('.kpi-tile', { hasText: 'Waiting on you' });
+    const tile = page.getByTestId('inbox-detail').locator('time');
+    // The first selected item has a start time; else pick the first item that has one.
+    if ((await tile.count()) === 0) {
+      const rows = page.getByTestId('inbox-item');
+      for (let i = 0; i < (await rows.count()); i++) {
+        await rows.nth(i).click();
+        if ((await tile.count()) > 0) break;
+      }
+    }
 
     await tile.hover();
     await expect(tip).toBeVisible();
-    await expect(tip).toContainText('items in Needs you that wait on your answer');
+    await expect(tip).toContainText('2026');
     await expect(tile).toHaveAttribute('aria-describedby', /.+/);
     // The pointer is on the bubble: it stays.
     await tip.hover();
@@ -252,7 +301,7 @@ test.describe('hover information (D12)', () => {
     }
     await expect(tile).toBeFocused();
     await expect(tip).toBeVisible();
-    await expect(tip).toContainText('items in Needs you that wait on your answer');
+    await expect(tip).toContainText('2026');
     await page.keyboard.press('Escape');
     await expect(tip).toBeHidden();
   });

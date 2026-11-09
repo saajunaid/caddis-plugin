@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiHeaders, captureTab, getState, getTab, TAB_KEY } from '../../ui/src/api';
 import { bannersFor } from '../../ui/src/shell/bannerRules';
-import { ageText, anySourceDown, dataAgeText, quotaLow, spendView, titleFor } from '../../ui/src/shell/format';
+import { ageText, anySourceDown, dataAgeText, formatEur, quotaLow, spendView, titleFor } from '../../ui/src/shell/format';
 import { repoTone } from '../../ui/src/shell/Nav';
+import { ringDash } from '../../ui/src/shell/Ring';
 import { guideHref, parseRoute, repoTabHref } from '../../ui/src/shell/route';
 import { loadTheme, resolveTheme, saveTheme, THEME_KEY } from '../../ui/src/shell/theme';
 import type { HubState } from '../../ui/src/types';
@@ -63,11 +64,28 @@ describe('title and data age', () => {
 });
 
 describe('spend', () => {
-  it('reads the slot', () => {
-    expect(spendView({ configured: true, cap_eur: 200, committed_eur: 50 })).toMatchObject({ configured: true, pct: 25 });
-    expect(spendView({ configured: true, cap_eur: 200, committed_eur: 900 }).pct).toBe(100);
-    expect(spendView({ configured: false, cap_eur: null, committed_eur: 0 }).configured).toBe(false);
-    expect(spendView(null).pct).toBe(0);
+  it('reads the slot against the advise level', () => {
+    expect(spendView({ committed_eur: 1.95, advise_eur: 300 })).toEqual({ committedEur: 1.95, adviseEur: 300, advisory: false, pct: 0.65 });
+    expect(spendView({ committed_eur: 450, advise_eur: 300 })).toMatchObject({ pct: 100, advisory: true });
+    expect(spendView(null)).toEqual({ committedEur: 0, adviseEur: 300, advisory: false, pct: 0 });
+  });
+
+  it('old slot shape falls back to the 300 note level', () => {
+    const v = spendView({ configured: true, cap_eur: 200, committed_eur: 34 });
+    expect(v.adviseEur).toBe(300);
+    expect(v.pct).toBeCloseTo(11.33, 2);
+  });
+
+  it('ringDash clamps the fraction and turns NaN into 0', () => {
+    expect(ringDash(0.5, 19)).toBe('59.7 119.4');
+    expect(ringDash(2, 19)).toBe('119.4 119.4');
+    expect(ringDash(NaN, 19)).toBe('0.0 119.4');
+    expect(ringDash(0, 18)).toBe('0.0 113.1');
+  });
+
+  it('formatEur drops cents only on a whole number', () => {
+    expect(formatEur(300)).toBe('300');
+    expect(formatEur(2.5)).toBe('2.50');
   });
 });
 

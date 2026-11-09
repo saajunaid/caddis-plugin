@@ -14,20 +14,21 @@ describe('build-ui-fonts (R27)', () => {
   it('writes woff2 files and a CSS file with no data: URL', () => {
     const cssOut = path.join(tmp, 'fonts.generated.css');
     const names = buildFonts({ publicDir: tmp, cssOut });
-    expect(LICENCES).toEqual(['OFL-IBMPlexSans.txt', 'OFL-IBMPlexMono.txt', 'LICENSE-Lucide.txt']);
-    expect(names.length).toBe(6);
+    expect(LICENCES).toEqual(['OFL-PlusJakartaSans.txt', 'OFL-JetBrainsMono.txt', 'LICENSE-Lucide.txt']);
+    expect(names.length).toBe(8);
     const files = readdirSync(path.join(tmp, 'fonts'));
     expect(files.filter((f) => f.endsWith('.woff2')).length).toBe(names.length);
     for (const n of names) {
-      expect(n).toMatch(/^(ibm-plex-sans-|ibm-plex-mono-)/);
+      expect(n).toMatch(/^(plus-jakarta-sans-|jetbrains-mono-)/);
       const head = readFileSync(path.join(tmp, 'fonts', n)).subarray(0, 4).toString('latin1');
       expect(head).toBe('wOF2');
     }
     const css = readFileSync(cssOut, 'utf8');
     expect(css).not.toContain('data:');
     expect(css).toContain('url(/fonts/');
-    expect(css).toContain('IBM Plex Sans');
-    expect(css).toContain('IBM Plex Mono');
+    expect(css).toContain('Plus Jakarta Sans');
+    expect(css).toContain('JetBrains Mono');
+    expect(css).not.toContain('IBM Plex');
     expect(css).not.toContain(['Atkin', 'son'].join(''));
     expect(css).not.toContain('Maple');
   });

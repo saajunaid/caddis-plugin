@@ -12,6 +12,7 @@ import { deriveFlow, type FlowItem } from './flow';
 import { PhaseLoaderContext } from './phaseLoader';
 import { collectorStale, roadmapTabLabel } from './roadmap';
 import { Sessions } from './SessionsTab';
+import { sessionsTabLabel } from './sessions';
 
 // The Roadmap tab is its own chunk (R54): the initial bundle does not grow.
 const RoadmapTab = lazy(() => import('./RoadmapTab'));
@@ -200,7 +201,7 @@ export function RepoPage({ state, repo, nowMs, act, tab, roadmap }: PageProps): 
             href={repoTabHref(id, t.id)}
             data-testid={`tab-${t.id}`}
           >
-            {t.id === 'roadmap' ? roadmapTabLabel(repo) : t.label}
+            {t.id === 'roadmap' ? roadmapTabLabel(repo) : t.id === 'sessions' ? sessionsTabLabel(state, repo) : t.label}
           </a>
         ))}
       </nav>

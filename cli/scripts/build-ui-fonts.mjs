@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cliRoot = path.resolve(here, '..');
 export const DEFAULT_ASSETS = path.resolve(cliRoot, 'ui', 'fonts-src');
-export const LICENCES = ['OFL-IBMPlexSans.txt', 'OFL-IBMPlexMono.txt', 'LICENSE-Lucide.txt'];
+export const LICENCES = ['OFL-PlusJakartaSans.txt', 'OFL-JetBrainsMono.txt', 'LICENSE-Lucide.txt'];
 
 const FACE_RE = /@font-face\{([^}]*)\}/g;
 const DATA_RE = /url\(data:font\/woff2;base64,([A-Za-z0-9+/=]+)\)/;

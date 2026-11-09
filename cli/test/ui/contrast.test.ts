@@ -59,6 +59,25 @@ describe.each(['dark', 'light'] as const)('%s theme text contrast', (theme) => {
     }
   });
 
+  // Repeated surfaces are translucent glass with no blur, so text sits on glass over the canvas and over each glow.
+  it('text and chips pass on glass over each glow', () => {
+    for (const glow of ['--glow-1', '--glow-2', '--glow-3', null]) {
+      for (const stop of ['--glass-fill-top', '--glass-fill-bot']) {
+        const under = glow ? solid(get(glow), get('--bg-canvas')) : get('--bg-canvas');
+        const base = solid(get(stop), under);
+        const where = `${stop} over ${glow ?? 'canvas'}`;
+        for (const fg of TEXT) {
+          const ratio = contrastRatio(get(fg), base);
+          expect(ratio, `${theme} ${fg} on ${where} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+        }
+        for (const c of CHIPS) {
+          const ratio = contrastRatio(get(`--chip-${c}-fg`), solid(get(`--chip-${c}-bg`), base));
+          expect(ratio, `${theme} chip ${c} on ${where} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
   it('command text and the active nav link pass', () => {
     expect(contrastRatio(get('--yellow'), get('--bg-elevated'))).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(get('--purple'), solid(get('--tone-purple-bg'), get('--bg-card')))).toBeGreaterThanOrEqual(4.5);

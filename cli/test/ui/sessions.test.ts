@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { repoSessions } from '../../ui/src/repo/sessions';
+import { repoSessions, sessionsTabLabel } from '../../ui/src/repo/sessions';
 import type { HubState } from '../../ui/src/types';
 
 const load = (name: string): HubState =>
@@ -86,5 +86,13 @@ describe('repoSessions (P20, R50)', () => {
     expect(m.unknown).toBe(false);
     expect(m.error).toBe('claude agents failed');
     expect(m.rows.map((row) => row.key)).toEqual(['agy:conv-1']);
+  });
+  it('the tab label carries the session count', () => {
+    const s = load('full');
+    const shop = s.repos[0]!;
+    expect(sessionsTabLabel(s, shop)).toBe(`Sessions · ${repoSessions(s, shop).rows.length}`);
+    const docs = s.repos.find((r) => r.name === 'docs')!;
+    s.sessions = s.sessions.filter((x) => x.repo_path !== docs.path);
+    expect(sessionsTabLabel(s, docs)).toBe('Sessions');
   });
 });

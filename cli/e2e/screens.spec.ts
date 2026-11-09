@@ -18,7 +18,7 @@ const withGuide = (s: State): void => {
 // roadmap detail and the guide details are added because the audit needs them too.
 const PAGES = [
   { name: 'inbox', hash: '#/inbox', ready: 'inbox-item' },
-  { name: 'overview', hash: '#/overview', ready: 'lanes' },
+  { name: 'overview', hash: '#/overview', ready: 'repo-cards' },
   { name: 'roadmap', hash: '#/repo/acme__shop/roadmap', ready: 'rm-list' },
   { name: 'roadmap-detail', hash: '#/repo/acme__shop/roadmap/launch', ready: 'rm-detail' },
   { name: 'sessions', hash: '#/repo/acme__shop/sessions', ready: 'sessions' },

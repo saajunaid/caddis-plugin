@@ -1,7 +1,8 @@
 import { Clock, Monitor, Moon, Pause, Play, Sun } from 'lucide-react';
 import type { HubState } from '../types';
-import { dataAgeText, clockText, quotaLow, quotaLowest, spendView } from './format';
+import { dataAgeText, clockText, quotaLow, quotaLowest } from './format';
 import { MOTION_CHOICES, type MotionChoice } from './motion';
+import { SpendBlock } from './Ring';
 import { THEME_CHOICES, type ThemeChoice } from './theme';
 
 const ICON = { dark: Moon, light: Sun, system: Monitor } as const;
@@ -18,34 +19,16 @@ interface Props {
 }
 
 export function Footer({ state, nowMs, theme, onTheme, motion, onMotion }: Props): JSX.Element {
-  const spend = spendView(state?.spend);
   const v = state?.versions;
   const quota = quotaLow(state);
   const left = quotaLowest(state);
   return (
     <footer className="sidebar-footer">
-      <div className="footer-meta">
+      <div className="footer-card">
+        <SpendBlock slot={state?.spend} size={36} />
         <div className="updated-line">
-          <Clock size={14} aria-hidden="true" />
+          <Clock size={13} aria-hidden="true" />
           <span data-testid="data-age">{state ? dataAgeText(state.generated_at, nowMs) : 'Waiting for data'}</span>
-        </div>
-        <div className="spend-box">
-          <div className="spend-row">
-            <span className="spend-label">agy spend · 24 h</span>
-            <span className="mono spend-amount">
-              {spend.configured ? `${spend.committedEur.toFixed(2)} / ${spend.capEur.toFixed(0)} EUR` : 'no cap set'}
-            </span>
-          </div>
-          <div
-            className="meter-track"
-            role="progressbar"
-            aria-label="agy spend"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(spend.pct)}
-          >
-            <div className={`meter-fill${spend.pct >= 80 ? ' hot' : ''}`} style={{ width: `${spend.pct}%` }} />
-          </div>
         </div>
         {left && !quota && (
           <div className="quota-line mono" data-testid="quota">
@@ -65,35 +48,37 @@ export function Footer({ state, nowMs, theme, onTheme, motion, onMotion }: Props
             <span className="versions-item">plugin {v.plugin ?? '-'}</span>
           </div>
         )}
-      </div>
-      <div className="theme-switch" role="group" aria-label="Theme">
-        {THEME_CHOICES.map((c) => {
-          const Icon = ICON[c];
-          return (
-            <button key={c} type="button" className={`theme-btn${theme === c ? ' active' : ''}`} aria-pressed={theme === c} title={c} onClick={() => onTheme(c)}>
-              <Icon size={15} aria-hidden="true" />
-              <span>{c}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="theme-switch" role="group" aria-label="Logo animation">
-        {MOTION_CHOICES.map((m) => {
-          const Icon = MOTION_ICON[m];
-          return (
-            <button
-              key={m}
-              type="button"
-              className={`theme-btn${motion === m ? ' active' : ''}`}
-              aria-pressed={motion === m}
-              title={m === 'on' ? 'Animate the logo' : 'Stop the logo animation'}
-              onClick={() => onMotion(m)}
-            >
-              <Icon size={15} aria-hidden="true" />
-              <span>{MOTION_LABEL[m]}</span>
-            </button>
-          );
-        })}
+        <div className="footer-toggles">
+          <div className="theme-switch" role="group" aria-label="Theme">
+            {THEME_CHOICES.map((c) => {
+              const Icon = ICON[c];
+              return (
+                <button key={c} type="button" className={`theme-btn${theme === c ? ' active' : ''}`} aria-pressed={theme === c} title={c} onClick={() => onTheme(c)}>
+                  <Icon size={14} aria-hidden="true" />
+                  <span>{c}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="theme-switch" role="group" aria-label="Motion">
+            {MOTION_CHOICES.map((m) => {
+              const Icon = MOTION_ICON[m];
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  className={`theme-btn${motion === m ? ' active' : ''}`}
+                  aria-pressed={motion === m}
+                  title={m === 'on' ? 'Animations on' : 'Animations off'}
+                  onClick={() => onMotion(m)}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                  <span>{MOTION_LABEL[m]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </footer>
   );

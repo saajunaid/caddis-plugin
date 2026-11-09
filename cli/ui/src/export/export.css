@@ -1,11 +1,11 @@
 /* The few rules the export page needs beyond pages.css. */
-/* Dense tables sit on a solid surface, not on glass (D11). */
+/* Table rows sit on the glass fill (no backdrop filter). */
 .ex-table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--border-dim);
-  border-radius: 12px;
-  background: var(--bg-card);
-  box-shadow: var(--shadow-1);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-row);
+  background: var(--glass-fill);
+  box-shadow: var(--glass-hl);
 }
 .ex-table {
   width: 100%;
@@ -17,7 +17,7 @@
   text-align: left;
   vertical-align: top;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border-dim);
+  border-bottom: 1px solid var(--glass-line);
 }
 .ex-table tbody tr:last-child td {
   border-bottom: 0;
@@ -25,10 +25,10 @@
 .ex-table th {
   color: var(--text-sub);
   font-weight: 600;
-  background: var(--bg-lane);
+  background: var(--glass-tint-low);
 }
 .ex-table tbody tr:hover td {
-  background: var(--bg-elevated);
+  background: var(--row-hover-bg);
 }
 .ex-note {
   margin-top: 24px;

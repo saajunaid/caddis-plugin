@@ -1,7 +1,9 @@
 import { Activity, BookOpen, Inbox as InboxIcon, LayoutDashboard, Menu, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { HubState, RepoState } from '../types';
 import { Logo } from './Logo';
+import { repoBusy, repoHint } from './repoHint';
+import { useDrawer } from './useDrawer';
 import { guideHref, repoHref, repoId, type GuideTab, type Route } from './route';
 
 /** The caddis guide sub pages, in the order of the tabs on the guide page. */
@@ -36,12 +38,13 @@ interface Props {
   children?: ReactNode;
 }
 
-function Link({ href, active, icon, label, badge, onGo }: {
+function Link({ href, active, icon, label, badge, hint, onGo }: {
   href: string;
   active: boolean;
   icon: JSX.Element;
   label: string;
   badge?: JSX.Element | undefined;
+  hint?: string;
   onGo: () => void;
 }): JSX.Element {
   return (
@@ -51,6 +54,7 @@ function Link({ href, active, icon, label, badge, onGo }: {
           {icon}
           <span className="nav-text">{label}</span>
         </span>
+        {hint && <span className="nav-hint">{hint}</span>}
         {badge}
       </a>
     </li>
@@ -59,13 +63,17 @@ function Link({ href, active, icon, label, badge, onGo }: {
 
 export function Nav({ route, state, inbox, open, onToggle, children }: Props): JSX.Element {
   const close = (): void => onToggle(false);
+  const panel = useRef<HTMLElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  useDrawer(open, close, panel, opener);
   return (
     <>
       <header className="mobile-topbar">
         <button
+          ref={opener}
           type="button"
           className="menu-btn"
-          aria-label="Open navigation menu"
+          aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
           aria-expanded={open}
           aria-controls="app-sidebar"
           onClick={() => onToggle(!open)}
@@ -76,7 +84,14 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
         <Logo />
       </header>
       <div className={`drawer-backdrop${open ? ' open' : ''}`} onClick={close} aria-hidden="true" />
-      <aside className={`sidebar${open ? ' drawer-open' : ''}`} id="app-sidebar">
+      <aside
+        ref={panel}
+        className={`sidebar${open ? ' drawer-open' : ''}`}
+        id="app-sidebar"
+        role={open ? 'dialog' : undefined}
+        aria-modal={open ? true : undefined}
+        aria-label={open ? 'Navigation' : undefined}
+      >
         <nav className="sidebar-top" aria-label="Main">
           <div className="brand-row">
             <Logo />
@@ -91,6 +106,29 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
               onGo={close}
             />
             <Link href="#/overview" active={route.page === 'overview'} icon={<LayoutDashboard size={18} />} label="Overview" onGo={close} />
+            <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" onGo={close} />
+            <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" onGo={close} />
+            {route.page === 'guide' && (
+              <li>
+                <ul className="nav-sublist" aria-label="caddis guide pages">
+                  {GUIDE_PAGES.map(([tab, label]) => {
+                    const active = route.tab === tab;
+                    return (
+                      <li key={tab}>
+                        <a
+                          className={`nav-link nav-sublink${active ? ' active' : ''}`}
+                          href={guideHref(tab)}
+                          aria-current={active ? 'true' : undefined}
+                          onClick={close}
+                        >
+                          <span className="nav-text">{label}</span>
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            )}
           </ul>
           <div className="nav-section-label">Repos</div>
           <ul className="nav-list">
@@ -103,36 +141,13 @@ export function Nav({ route, state, inbox, open, onToggle, children }: Props): J
                   key={r.path}
                   href={repoHref(id)}
                   active={active}
-                  icon={<span className={`repo-dot ${repoTone(r, state)}`} aria-hidden="true" />}
+                  icon={<span className={`repo-dot ${repoTone(r, state)}${repoBusy(state, r) ? ' working' : ''}`} aria-hidden="true" />}
                   label={r.name}
+                  hint={repoHint(state, r)}
                   onGo={close}
                 />
               );
             })}
-          </ul>
-          <div className="nav-section-label">More</div>
-          <ul className="nav-list">
-            <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" onGo={close} />
-            <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" onGo={close} />
-            <li>
-              <ul className="nav-sublist" aria-label="caddis guide pages">
-                {GUIDE_PAGES.map(([tab, label]) => {
-                  const active = route.page === 'guide' && route.tab === tab;
-                  return (
-                    <li key={tab}>
-                      <a
-                        className={`nav-link nav-sublink${active ? ' active' : ''}`}
-                        href={guideHref(tab)}
-                        aria-current={active ? 'true' : undefined}
-                        onClick={close}
-                      >
-                        <span className="nav-text">{label}</span>
-                      </a>
-                    </li>
-                  );
-                })}
-              </ul>
-            </li>
           </ul>
         </nav>
         {children}

@@ -26,11 +26,17 @@ const LONG_MS = 50;
 const KEY_HEADER = 'x-caddis-hub-key';
 
 const PAGES = [
-  { name: 'overview', hash: '#/overview', ready: 'lanes', hover: '[data-testid="lane-card"]' },
+  { name: 'inbox', hash: '#/inbox', ready: '[data-testid="inbox-list"]', hover: '[data-testid="inbox-item"]' },
+  {
+    name: 'overview',
+    hash: '#/overview',
+    ready: '[data-testid="lanes"], [data-testid="repo-cards"]',
+    hover: '[data-testid="lane-card"], [data-testid="repo-card"]',
+  },
   {
     name: 'roadmap-detail',
     hash: '#/repo/acme__shop/roadmap/launch',
-    ready: 'rm-detail',
+    ready: '[data-testid="rm-detail"]',
     hover: '[data-testid="rm-kpis"] .kpi-tile, [data-testid="rm-timeline"] .rm-tile',
   },
 ] as const;
@@ -53,6 +59,9 @@ interface Report {
   long_frame_ms: number;
   results: Record<string, Record<string, Medians & { runs: Run[] }>>;
 }
+
+// Read the base once, before any write: OUT may be the same file as BASE.
+const BASE_REPORT: Report | null = BASE && existsSync(BASE) ? (JSON.parse(readFileSync(BASE, 'utf8')) as Report) : null;
 
 const report: Report = {
   schema: 1,
@@ -175,8 +184,8 @@ async function signIn(page: Page, srv: HubServer, key: string): Promise<void> {
 }
 
 function checkBudget(name: string, theme: string, now: Medians): void {
-  if (!BASE || !existsSync(BASE)) return;
-  const before = (JSON.parse(readFileSync(BASE, 'utf8')) as Report).results[name]?.[theme];
+  if (!BASE_REPORT) return;
+  const before = BASE_REPORT.results[name]?.[theme];
   if (!before) return;
   const where = `${name} ${theme}`;
   // FCP: x 1.10 OR + 8 ms (orchestrator, 8 Nov: the 16-40 ms base is inside timer noise; one frame step misses x 1.10).
@@ -188,6 +197,7 @@ function checkBudget(name: string, theme: string, now: Medians): void {
 }
 
 test.describe('hub render budget', () => {
+  test.describe.configure({ mode: 'serial' });
   test.skip(!OUT, 'set CADDIS_PERF_OUT to measure');
   test.use({ viewport: { width: 1360, height: 900 } });
 
@@ -226,13 +236,19 @@ test.describe('hub render budget', () => {
           for (let r = 0; r < RUNS; r++) {
             await page.reload({ waitUntil: 'load' });
             await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-            await expect(page.getByTestId(p.ready).first()).toBeVisible();
+            await expect(page.locator(p.ready).first()).toBeVisible();
             const fcp = await page.evaluate(
               () =>
                 new Promise<number>((done) => {
                   const e = performance.getEntriesByName('first-contentful-paint')[0];
                   if (e) return done(e.startTime);
-                  new PerformanceObserver((l) => done(l.getEntries()[0]?.startTime ?? 0)).observe({ type: 'paint', buffered: true });
+                  const obs = new PerformanceObserver((l) => {
+                    const f = l.getEntriesByName('first-contentful-paint')[0];
+                    if (!f) return;
+                    obs.disconnect();
+                    done(f.startTime);
+                  });
+                  obs.observe({ type: 'paint', buffered: true });
                 }),
             );
             await page.evaluate(() => document.fonts.ready);

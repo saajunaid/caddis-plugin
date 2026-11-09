@@ -36,8 +36,8 @@ const EXPECTED_FILES = [
   'fonts/sample-400.abc.woff2',
   'index.html',
   'licenses/LICENSE-Lucide.txt',
-  'licenses/OFL-IBMPlexMono.txt',
-  'licenses/OFL-IBMPlexSans.txt',
+  'licenses/OFL-JetBrainsMono.txt',
+  'licenses/OFL-PlusJakartaSans.txt',
 ];
 
 function walk(dir: string, rel = ''): string[] {
@@ -476,7 +476,7 @@ describe.skipIf(!HAVE_PYTHON || !existsSync(path.join(REAL_DIST, 'index.html')))
     const files = walk(out);
     expect(files).toContain('index.html');
     expect(files).toContain('404.html');
-    expect(files.filter((f) => f.startsWith('licenses/')).sort()).toEqual(['licenses/LICENSE-Lucide.txt', 'licenses/OFL-IBMPlexMono.txt', 'licenses/OFL-IBMPlexSans.txt']);
+    expect(files.filter((f) => f.startsWith('licenses/')).sort()).toEqual(['licenses/LICENSE-Lucide.txt', 'licenses/OFL-JetBrainsMono.txt', 'licenses/OFL-PlusJakartaSans.txt']);
     expect(files.filter((f) => f.endsWith('.woff2')).length).toBeGreaterThanOrEqual(3);
   });
 });

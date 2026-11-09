@@ -435,7 +435,8 @@
 .gp-chip {
   display: inline-block;
   padding: 3px 8px;
-  border-radius: 999px;
+  /* 12px, not 999px: a long command that wraps in a narrow card stays a rounded box, not a pill split in two. */
+  border-radius: 12px;
   border: 1px solid var(--border-dim);
   margin: 0 6px 6px 0;
   font-family: var(--font-mono);
@@ -453,6 +454,11 @@
 .gp-chip.is-daily {
   font-size: 15px;
   font-weight: 600;
+}
+
+/* JetBrains Mono is wider than Plex Mono: at 13px /install-statusline wraps in a 1360px workflow card. */
+.gp-stage .gp-chip:not(.is-daily) {
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {

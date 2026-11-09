@@ -8,6 +8,7 @@ import type { InboxApi } from '../../ui/src/inbox/useInbox';
 import { Overview } from '../../ui/src/overview/Overview';
 import { gateCountText, milestoneMeta } from '../../ui/src/repo/RoadmapTimeline';
 import { Footer } from '../../ui/src/shell/Footer';
+import { LoadError, LoadingSkeleton } from '../../ui/src/shell/Loading';
 import type { HubState } from '../../ui/src/types';
 
 const load = (name: string): HubState =>
@@ -28,7 +29,7 @@ describe('UX audit fixes (hub-ux-audit rows 3, 4, 5, 6, 10)', () => {
     expect(out).toMatch(/aria-pressed="true"[^>]*data-testid="kind-all"/);
   });
 
-  describe('Overview (rows 3 and 4)', () => {
+  describe('Overview cards (B)', () => {
     const s = load('full');
     const now = Date.parse(s.generated_at);
     const api: InboxApi = {
@@ -38,21 +39,22 @@ describe('UX audit fixes (hub-ux-audit rows 3, 4, 5, 6, 10)', () => {
       markRead: () => undefined,
       notify: { supported: false, enabled: false, enable: () => undefined },
     };
-    const out = renderToStaticMarkup(createElement(Overview, { state: s, nowMs: now, api, act: { local: {}, run: () => undefined } }));
+    const out = renderToStaticMarkup(createElement(Overview, { state: s, nowMs: now, api }));
 
-    it('row 3: an empty column keeps its heading but not the word None; the lane names the empty columns', () => {
-      expect(out).toContain('lane-col empty');
-      expect(out).not.toMatch(/class="col-empty">None</);
-      expect(out).toMatch(/data-testid="lane-empty-line"[^>]*>Empty: [A-Z]/);
-    });
-
-    it('row 3: a column with its own empty text keeps it', () => {
-      expect(out).toContain('<span class="col-empty">No coordinator: each session merges its own PRs.</span>');
-    });
-
-    it('row 4: each lane head links to the repo page', () => {
+    it('one card per repo, each a link to its Flow tab, with the PR ring', () => {
+      expect((out.match(/data-testid="repo-card"/g) ?? []).length).toBe(3);
       expect(out).toContain('href="#/repo/acme__shop"');
-      expect(out).toContain('Open repo');
+      expect(out).toContain('>3/5<');
+    });
+
+    it('the Needs you and Live now panels, no lanes', () => {
+      expect(out).toContain('data-testid="ov-needs"');
+      expect(out).toContain('data-testid="ov-live"');
+      expect(out).not.toContain('lane-col');
+    });
+
+    it('no queue buttons on the Overview (D4)', () => {
+      expect(out).not.toContain('data-testid="act-');
     });
   });
 
@@ -61,8 +63,15 @@ describe('UX audit fixes (hub-ux-audit rows 3, 4, 5, 6, 10)', () => {
     const out = renderToStaticMarkup(
       createElement(Footer, { state: s, nowMs: Date.parse(s.generated_at), theme: 'dark', onTheme: () => undefined, motion: 'on', onMotion: () => undefined }),
     );
-    expect(out).toContain('agy spend · 24 h');
+    expect(out).toContain('agy, 24 h');
+    expect(out).toContain('Note at €300');
+    expect(out).not.toContain('/ 200 EUR');
     expect(out).not.toContain('(24 h)');
     expect(out).toMatch(/class="versions-item">hub /);
+  });
+
+  it('first load: a skeleton while loading, then a Retry button', () => {
+    expect(renderToStaticMarkup(createElement(LoadError, { onRetry: () => undefined }))).toContain('Retry now');
+    expect(renderToStaticMarkup(createElement(LoadingSkeleton))).toContain('aria-busy="true"');
   });
 });

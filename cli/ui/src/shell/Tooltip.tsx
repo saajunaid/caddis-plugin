@@ -36,6 +36,9 @@ export function tipPosition(
   return { top, left: Math.min(left, maxLeft), placement };
 }
 
+// One tip at a time: a tip that opens hides the one before it (a touch tap leaves no pointer-leave behind).
+let hideCurrent: (() => void) | null = null;
+
 const isEmpty = (c: ReactNode): boolean => c === null || c === undefined || c === false || c === '';
 
 type Handlers = {
@@ -78,6 +81,20 @@ export function Tooltip({ content, children }: { content: ReactNode; children: R
   }, [clear]);
 
   const visible = shown && !empty;
+
+  // This tip's hide function is stable (clear and setShown are), so the module slot can tell whose tip is open.
+  const hideSelf = useCallback((): void => {
+    clear();
+    setShown(false);
+  }, [clear]);
+  useEffect(() => {
+    if (!visible) return;
+    if (hideCurrent && hideCurrent !== hideSelf) hideCurrent();
+    hideCurrent = hideSelf;
+    return () => {
+      if (hideCurrent === hideSelf) hideCurrent = null;
+    };
+  }, [visible, hideSelf]);
 
   useEffect(() => clear, [clear]);
   // Content that goes away while the bubble is open closes it at once.

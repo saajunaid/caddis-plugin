@@ -126,8 +126,10 @@ test.describe('disabled states (spec 7 rule 7)', () => {
     await expect(queueItem(page, 213).getByTestId('act-hold')).toBeDisabled();
     await expect(queueItem(page, 213).getByTestId('action-reason')).toHaveText('The coordinator stopped. Start it again with /caddis:coordinate.');
     await page.getByRole('link', { name: 'Overview' }).click();
-    await expect(page.getByTestId('lane-summary').filter({ hasText: 'Coordinator stopped at' })).toHaveCount(1);
-    await expect(page.getByTestId('lane-summary').filter({ hasText: 'not responding' })).toHaveCount(1); // billing only
+    await expect(page.getByTestId('repo-card-status').filter({ hasText: 'Coordinator stopped' })).toHaveCount(1);
+    await expect(page.getByTestId('repo-card-note').filter({ hasText: 'Coordinator stopped at' })).toHaveCount(1);
+    await expect(page.getByTestId('repo-card-status').filter({ hasText: 'Coordinator down' })).toHaveCount(1); // billing only
+    await expect(page.getByTestId('repo-card-note').filter({ hasText: 'not responding' })).toHaveCount(1);
   });
 
   test('no coordinator: the Flow view says so, and an owner gate has Approve disabled with the reason', async ({ page, openHub }) => {
@@ -174,12 +176,13 @@ test.describe('Inbox and Overview buttons', () => {
     await expect(page.getByTestId('inbox-detail').getByTestId('recommendation')).toContainText('The change is additive.');
   });
 
-  test('Overview: queue cards have compact buttons', async ({ page, openHub }) => {
+  test('Overview: a repo card opens the Flow tab, where the queue buttons are', async ({ page, openHub }) => {
     const hub = await openHub('full', undefined, '#/overview');
-    const card = page.getByTestId('lane-card').filter({ hasText: '#213' });
-    await card.getByTestId('act-hotfix').click();
+    await page.locator('[data-testid="repo-card"] a[href="#/repo/acme__shop"]').click();
+    await expect(page.getByTestId('flow')).toBeVisible();
+    await queueItem(page, 213).getByTestId('act-hotfix').click();
     await expect.poll(() => hub.posted.map((b) => [b.action, b.pr])).toEqual([['hotfix', 213]]);
-    await expect(card.getByTestId('request-status')).toContainText('requested');
+    await expect(queueItem(page, 213).getByTestId('request-status')).toContainText('requested');
   });
 
   test('the footer shows GitHub quota left', async ({ page, openHub }) => {
@@ -201,7 +204,7 @@ test.describe('360 px', () => {
     await noHorizontalScroll(page);
     await page.getByRole('button', { name: 'Open navigation menu' }).click();
     await page.getByRole('link', { name: 'Overview' }).click();
-    await expect(page.getByTestId('lane').first()).toBeVisible();
+    await expect(page.getByTestId('repo-card').first()).toBeVisible();
     await noHorizontalScroll(page);
   });
 });

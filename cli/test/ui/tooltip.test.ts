@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Tooltip, tipPosition } from '../../ui/src/shell/Tooltip';
+import { SHOW_DELAY_MS, Tooltip, tipPosition } from '../../ui/src/shell/Tooltip';
 
 const view = { width: 1000, height: 800 };
 const rect = (top: number, left: number, w = 100, h = 20) => ({ top, left, right: left + w, bottom: top + h, width: w, height: h });
@@ -104,6 +104,26 @@ describe('Tooltip', () => {
     tick(500);
     expect(tip()).toBeNull();
     expect(t.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('only one tip shows at a time', () => {
+    render(
+      createElement(
+        'div',
+        null,
+        createElement(Tooltip, { content: 'First tip', children: createElement('button', { type: 'button', 'data-testid': 'one' }, 'One') }),
+        createElement(Tooltip, { content: 'Second tip', children: createElement('button', { type: 'button', 'data-testid': 'two' }, 'Two') }),
+      ),
+    );
+    fireEvent.focus(screen.getByTestId('one'));
+    tick(SHOW_DELAY_MS);
+    expect(screen.getAllByTestId('tip')).toHaveLength(1);
+    fireEvent.pointerEnter(screen.getByTestId('two'));
+    tick(SHOW_DELAY_MS);
+    const tips = screen.getAllByTestId('tip');
+    expect(tips).toHaveLength(1);
+    expect(tips[0]!.textContent).toBe('Second tip');
+    expect(tips[0]!.className).toBe('tip');
   });
 
   it('keeps the handlers of the child', () => {

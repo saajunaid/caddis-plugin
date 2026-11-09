@@ -1,23 +1,28 @@
-import { Archive, ArrowLeft, Bell, Check, Copy, ShieldCheck, ShieldOff } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, Bell, Check, Copy } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { ActionButtons } from '../actions/ActionButtons';
 import { RecommendationBlock } from '../actions/Recommendation';
 import { ownerDisabledReason, ownerSpecs, queueSpecs, type ActionSpec } from '../actions/model';
 import type { ActApi } from '../actions/useActions';
+import { copyText } from '../shell/clipboard';
 import { ageText, anySourceDown } from '../shell/format';
+import { inboxKey, isTyping, moveIndex } from '../shell/keys';
+import { PageHead } from '../shell/PageHead';
 import { Tooltip } from '../shell/Tooltip';
 import { localTime } from '../shell/time';
 import type { HubState, RepoState } from '../types';
 import { KIND_LABEL, samePath, type Folder, type InboxItem } from './derive';
 import { FirstRun } from '../shell/FirstRun';
-import { Tiles } from './Tiles';
+import { headline } from './headline';
+import { KindTile } from './KindTile';
+import { Strips } from './Strips';
 import type { InboxApi } from './useInbox';
 
-const FOLDERS: { id: Folder; label: string; Icon: typeof Bell }[] = [
-  { id: 'needs', label: 'Needs you', Icon: Bell },
-  { id: 'approvals', label: 'Approvals', Icon: ShieldCheck },
-  { id: 'blocked', label: 'Blocked', Icon: ShieldOff },
-  { id: 'resolved', label: 'Resolved, 24 h', Icon: Archive },
+const FOLDERS: { id: Folder; label: string }[] = [
+  { id: 'needs', label: 'Needs you' },
+  { id: 'approvals', label: 'Approvals' },
+  { id: 'blocked', label: 'Blocked' },
+  { id: 'resolved', label: 'Resolved' },
 ];
 
 /** A relative time that shows the absolute local time, with the zone, on hover. */
@@ -42,14 +47,6 @@ interface Row {
   since: string | null;
 }
 
-function copy(text: string): void {
-  try {
-    void navigator.clipboard?.writeText(text);
-  } catch {
-    /* clipboard can be blocked */
-  }
-}
-
 /** The v1 buttons of an Inbox item: Approve / Decline for an owner item, Hotfix / Hold for a queued PR. */
 function specsFor(repo: RepoState | undefined, item: InboxItem): ActionSpec[] {
   if (!repo) return [];
@@ -63,6 +60,7 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
   const [selId, setSelId] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
   const [copied, setCopied] = useState(false);
+  const rowEls = useRef(new Map<string, HTMLButtonElement>());
   const { model, resolved, read } = api;
 
   const counts: Record<Folder, number> = {
@@ -87,17 +85,60 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
     setDetail(true);
     if (!r.resolved) api.markRead(r.item.id);
   };
+  const copySel = (r: Row): void => {
+    copyText(r.item.cmd);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  // The key listener is added once; it reads the rows of the last render through this ref.
+  const live = useRef({ rows, sel, pickItem, copySel });
+  live.current = { rows, sel, pickItem, copySel };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target;
+      const onControl = t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement;
+      const action = inboxKey(e.key, { ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey }, isTyping(t), onControl);
+      const { rows: list, sel: cur, pickItem: pick, copySel: copy } = live.current;
+      if (!action || !cur) return;
+      if (action === 'next' || action === 'prev') {
+        const at = moveIndex(action, list.findIndex((r) => r.item.id === cur.item.id), list.length);
+        const to = list[at];
+        if (!to) return;
+        setSelId(to.item.id);
+        rowEls.current.get(to.item.id)?.scrollIntoView({ block: 'nearest' });
+      } else if (action === 'open') {
+        pick(cur);
+      } else {
+        copy(cur);
+      }
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <>
-      <div className="page-header">
-        <h1 className="page-title">Inbox</h1>
-        <span className="page-subtitle">
-          {state.repos.length} repos · {state.sessions.length} sessions
-        </span>
-      </div>
+      <PageHead page="Inbox" head={headline(state, model.items.length, nowMs)} stale={anySourceDown(state)}>
+        <div className="pill-group" role="tablist" aria-label="Folders">
+          {FOLDERS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={folder === id}
+              className={`folder-btn pill${folder === id ? ' sel' : ''}`}
+              onClick={() => pickFolder(id)}
+              data-testid={`folder-${id}`}
+            >
+              {label}
+              <strong className="pill-count">{counts[id]}</strong>
+            </button>
+          ))}
+        </div>
+      </PageHead>
       {state.repos.length === 0 && <FirstRun />}
-      <Tiles tiles={model.tiles} stale={anySourceDown(state)} />
       {api.notify.supported && (
         <div className="notify-row">
           <button type="button" className="btn" onClick={api.notify.enable} disabled={api.notify.enabled}>
@@ -110,52 +151,40 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
         </div>
       )}
       <div className={`mailbox${detail && sel ? ' show-detail' : ''}`}>
-        <div className="mailbox-folders" role="tablist" aria-label="Folders">
-          {FOLDERS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={folder === id}
-              className={`folder-btn${folder === id ? ' sel' : ''}`}
-              onClick={() => pickFolder(id)}
-              data-testid={`folder-${id}`}
-            >
-              <Icon size={16} aria-hidden="true" />
-              <span>{label}</span>
-              <strong>{counts[id]}</strong>
-            </button>
-          ))}
-        </div>
-
         <div className="mailbox-list" data-testid="inbox-list">
           {rows.map((r) => {
             const unread = !r.resolved && !read.has(r.item.id);
+            const on = sel?.item.id === r.item.id;
             return (
               <button
                 key={r.item.id}
+                ref={(el) => {
+                  if (el) rowEls.current.set(r.item.id, el);
+                  else rowEls.current.delete(r.item.id);
+                }}
                 type="button"
-                className={`item-btn${sel?.item.id === r.item.id ? ' sel' : ''}`}
+                className={`item-btn${on ? ' sel' : ''}`}
+                aria-current={on ? 'true' : undefined}
                 onClick={() => pickItem(r)}
                 data-testid="inbox-item"
               >
                 <span className={`unread-dot${unread ? ' on' : ''}`} role="img" aria-label={unread ? 'Unread' : 'Read'} />
+                <KindTile kind={r.resolved ? 'resolved' : r.item.kind} />
                 <span className="item-main">
+                  <span className="item-title">{r.item.title}</span>
                   <span className="item-meta">
-                    <span className={`chip chip-${r.resolved ? 'resolved' : r.item.kind}`}>
-                      {r.resolved ? 'Resolved' : KIND_LABEL[r.item.kind]}
-                    </span>
+                    <span>{r.resolved ? 'Resolved' : KIND_LABEL[r.item.kind]}</span>
+                    <span aria-hidden="true">·</span>
                     <span className="mono">{r.item.repo}</span>
-                    <span>
-                      · <Age iso={r.since} nowMs={nowMs} />
-                    </span>
                     {!r.resolved && r.item.stale && (
                       <span className="chip chip-stale" data-testid="stale-chip" title="Its source is failing. Last good data is shown.">
                         stale
                       </span>
                     )}
                   </span>
-                  <span className="item-title">{r.item.title}</span>
+                </span>
+                <span className="item-age">
+                  <Age iso={r.since} nowMs={nowMs} />
                 </span>
               </button>
             );
@@ -169,12 +198,12 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
         </div>
 
         {sel && (
-          <article className="mailbox-detail" data-testid="inbox-detail" aria-label="Item detail">
+          <article key={sel.item.id} className="mailbox-detail" data-testid="inbox-detail" aria-label="Item detail">
             <button type="button" className="btn back-btn" onClick={() => setDetail(false)}>
               <ArrowLeft size={16} aria-hidden="true" />
               Back
             </button>
-            <span className="item-meta">
+            <span className="item-meta detail-meta">
               <span className={`chip chip-${sel.resolved ? 'resolved' : sel.item.kind}`}>
                 {sel.resolved ? 'Resolved' : KIND_LABEL[sel.item.kind]}
               </span>
@@ -196,29 +225,26 @@ export function Inbox({ state, nowMs, api, act }: { state: HubState; nowMs: numb
               <code className="cmd">{sel.item.cmd}</code>
             </div>
             <div className="detail-actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  copy(sel.item.cmd);
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 1500);
-                }}
-              >
+              <button type="button" className="btn btn-primary" onClick={() => copySel(sel)}>
                 {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
                 {sel.item.kind === 'waiting' ? 'Copy session name' : 'Copy command'}
               </button>
+              {!sel.resolved &&
+                (() => {
+                  const repo = state.repos.find((r) => samePath(r.path, sel.item.repoPath));
+                  const specs = specsFor(repo, sel.item);
+                  if (!repo || specs.length === 0) return null;
+                  const reason = sel.item.owner ? ownerDisabledReason(repo, sel.item.owner) : undefined;
+                  return <ActionButtons repo={repo} specs={specs} act={act} reason={reason} />;
+                })()}
             </div>
-            {!sel.resolved && (() => {
-              const repo = state.repos.find((r) => samePath(r.path, sel.item.repoPath));
-              const specs = specsFor(repo, sel.item);
-              if (!repo || specs.length === 0) return null;
-              const reason = sel.item.owner ? ownerDisabledReason(repo, sel.item.owner) : undefined;
-              return <ActionButtons repo={repo} specs={specs} act={act} reason={reason} />;
-            })()}
+            <p className="key-hints">
+              <kbd>J</kbd> <kbd>K</kbd> move · <kbd>Enter</kbd> open · <kbd>C</kbd> copy
+            </p>
           </article>
         )}
       </div>
+      <Strips state={state} nowMs={nowMs} />
     </>
   );
 }

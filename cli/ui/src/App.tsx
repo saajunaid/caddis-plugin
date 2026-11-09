@@ -6,6 +6,7 @@ import { Overview } from './overview/Overview';
 import { RepoPage } from './repo/RepoPage';
 import { Banners } from './shell/Banners';
 import { Footer } from './shell/Footer';
+import { LoadError, LoadingSkeleton } from './shell/Loading';
 import { Nav, repoId } from './shell/Nav';
 import { setFavicon } from './shell/favicon';
 import { titleFor } from './shell/format';
@@ -65,11 +66,11 @@ export function App(): JSX.Element {
       </div>
     );
   } else if (!state) {
-    body = <p className="page-subtitle">{loading ? 'Loading...' : 'The hub did not answer. Retrying.'}</p>;
+    body = loading ? <LoadingSkeleton /> : <LoadError onRetry={refresh} />;
   } else if (route.page === 'inbox') {
     body = <Inbox state={state} nowMs={nowMs} api={api} act={act} />;
   } else if (route.page === 'overview') {
-    body = <Overview state={state} nowMs={nowMs} api={api} act={act} />;
+    body = <Overview state={state} nowMs={nowMs} api={api} />;
   } else if (route.page === 'repo') {
     const repo = state.repos.find((r) => repoId(r) === route.id);
     body = repo ? (

@@ -11,7 +11,8 @@ http://www.w3.org/XML/1998/namespace
 https://reactjs.org/docs/error-decoder.html?invariant=
 
 # Licence texts in licenses/
-https://github.com/IBM/plex
+https://github.com/JetBrains/JetBrainsMono
+https://github.com/tokotype/PlusJakartaSans
 http://scripts.sil.org/OFL
 https://scripts.sil.org/OFL
 https://openfontlicense.org

@@ -33,7 +33,18 @@ export function WallPoster({ guide }: { guide: Guide }): JSX.Element {
   const m = useMemo(() => wallModel(guide), [guide]);
   const cardsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (cardsRef.current) fitCards(cardsRef.current);
+    const fit = (): void => {
+      if (cardsRef.current) fitCards(cardsRef.current);
+    };
+    fit();
+    // The bundled faces swap in after the first fit and change the text width: fit again once they load.
+    let live = true;
+    void document.fonts?.ready.then(() => {
+      if (live) fit();
+    });
+    return () => {
+      live = false;
+    };
   }, [m]);
   const stats: [string | number, string][] = [
     [m.counts.commands, 'commands'],

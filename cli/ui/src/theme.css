@@ -1,121 +1,166 @@
-/* Tokens: Dracula dark and a light twin. Look follows the owner-approved v2 mockup. */
+/* Tokens: "Aurora glass" (plan hub-aurora-glass). A deep violet canvas with three static colour glows, frosted
+   glass panels, Plus Jakarta Sans and JetBrains Mono. A light twin: white glass on a pale aurora. */
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg-canvas: #191a23;
-  --bg-lane: #21222c;
-  --bg-card: #282a36;
-  --bg-elevated: #343746;
-  --border-dim: #363949;
-  --border-bright: #4b4f65;
-  --text-main: #f8f8f2;
-  --text-sub: #c0c4d6;
-  --text-dim: #9ca3c4;
+  --bg-canvas: #07061a;
+  --bg-lane: #0e0c24;
+  --bg-card: #15132e;
+  --bg-elevated: #1e1b3b;
+  --border-dim: #262241;
+  --border-bright: #3a355e;
+  --text-main: #f4f2ff;
+  --text-sub: #c9c4e6;
+  --text-dim: #b9b4d6;
 
-  --purple: #bd93f9;
-  --pink: #ff79c6;
-  --green: #50fa7b;
-  --yellow: #f1fa8c;
-  --red: #ff5555;
-  --cyan: #8be9fd;
-  --orange: #ffb86c;
+  --purple: #a78bfa;
+  --pink: #f472b6;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --red: #fb7185;
+  --cyan: #22d3ee;
+  --orange: #fb923c;
 
-  --tone-yellow-bg: rgba(241, 250, 140, 0.08);
-  --tone-yellow-bd: rgba(241, 250, 140, 0.42);
-  --tone-red-bg: rgba(255, 85, 85, 0.09);
-  --tone-red-bd: rgba(255, 85, 85, 0.45);
-  --tone-pink-bg: rgba(255, 121, 198, 0.11);
-  --tone-pink-bd: rgba(255, 121, 198, 0.45);
-  --tone-cyan-bg: rgba(139, 233, 253, 0.09);
-  --tone-cyan-bd: rgba(139, 233, 253, 0.36);
-  --tone-green-bg: rgba(80, 250, 123, 0.09);
-  --tone-green-bd: rgba(80, 250, 123, 0.36);
-  --tone-purple-bg: rgba(189, 147, 249, 0.12);
-  --tone-purple-bd: rgba(189, 147, 249, 0.42);
+  --tone-yellow-bg: rgba(251, 191, 36, 0.1);
+  --tone-yellow-bd: rgba(251, 191, 36, 0.42);
+  --tone-red-bg: rgba(251, 113, 133, 0.1);
+  --tone-red-bd: rgba(251, 113, 133, 0.45);
+  --tone-pink-bg: rgba(244, 114, 182, 0.12);
+  --tone-pink-bd: rgba(244, 114, 182, 0.45);
+  --tone-cyan-bg: rgba(34, 211, 238, 0.1);
+  --tone-cyan-bd: rgba(34, 211, 238, 0.36);
+  --tone-green-bg: rgba(52, 211, 153, 0.1);
+  --tone-green-bd: rgba(52, 211, 153, 0.36);
+  --tone-purple-bg: rgba(167, 139, 250, 0.14);
+  --tone-purple-bd: rgba(167, 139, 250, 0.42);
 
-  /* Dracula glass (plan hub-done-plans D11, D11b; audit 2026-11-08). Blur only on fixed layers and popovers. */
-  --glass-bg: rgba(33, 34, 44, 0.78);
-  --glass-bg-strong: rgba(52, 55, 70, 0.9);
-  --glass-tint: rgba(40, 42, 54, 0.82);
-  --glass-tint-low: rgba(33, 34, 44, 0.6);
-  --glass-bd: rgba(248, 248, 242, 0.08);
-  --glass-bd-hover: rgba(189, 147, 249, 0.5);
-  --glass-hl: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --glass-blur: 12px;
-  --glass-filter: blur(var(--glass-blur)) saturate(140%);
-  --glass-foot: rgba(0, 0, 0, 0.14);
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.18);
-  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
-  --glow-1: rgba(189, 147, 249, 0.14);
-  --glow-2: rgba(255, 121, 198, 0.1);
-  --glow-3: rgba(139, 233, 253, 0.08);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Glass. Repeated surfaces (cards, rows, panels) use --glass-fill with no filter; only fixed layers, the Inbox
+     detail panel and popovers blur (Global Constraints). The var() expressions are declared here only: the light
+     block changes the stops and the expressions pick them up. */
+  --glass-fill-top: rgba(255, 255, 255, 0.1);
+  --glass-fill-bot: rgba(255, 255, 255, 0.035);
+  --glass-fill: linear-gradient(135deg, var(--glass-fill-top), var(--glass-fill-bot));
+  --glass-fill-hover: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  --glass-bg: var(--glass-fill);
+  --glass-bg-strong: linear-gradient(135deg, rgba(40, 36, 82, 0.92), rgba(30, 27, 59, 0.92));
+  --glass-tint: var(--glass-fill);
+  --glass-tint-low: rgba(255, 255, 255, 0.04);
+  --glass-line: rgba(255, 255, 255, 0.13);
+  --glass-line-hover: rgba(207, 198, 255, 0.32);
+  --glass-bd: var(--glass-line);
+  --glass-bd-hover: var(--glass-line-hover);
+  --glass-hl: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --glass-drop: 0 30px 60px -30px rgba(3, 2, 20, 0.75);
+  --glass-blur: 24px;
+  --glass-filter: blur(var(--glass-blur)) saturate(170%);
+  --glass-foot: rgba(0, 0, 0, 0.18);
+  --shadow-1: 0 1px 2px rgba(3, 2, 20, 0.4), 0 8px 24px -12px rgba(3, 2, 20, 0.6);
+  --shadow-2: var(--glass-drop);
+  /* Glows are weaker than the mockup (violet .50) so --text-dim passes 4.5:1 on glass over each glow (D6). */
+  --glow-1: rgba(124, 92, 255, 0.3);
+  --glow-2: rgba(0, 194, 184, 0.22);
+  --glow-3: rgba(255, 79, 163, 0.2);
+
+  --row-hover-bg: rgba(255, 255, 255, 0.06);
+  --row-sel-bg: rgba(255, 255, 255, 0.1);
+  --row-sel-ring: inset 0 0 0 1px rgba(196, 181, 253, 0.45), 0 12px 30px -16px rgba(124, 92, 255, 0.7);
+  --pill-primary-bg: #ffffff;
+  --pill-primary-fg: #140f2e;
+  --pill-ghost-bg: rgba(255, 255, 255, 0.04);
+  --pill-ghost-bd: rgba(255, 255, 255, 0.16);
+  --badge-bg: #f472b6;
+  --badge-fg: #1a0a1a;
+  --ring-track: rgba(255, 255, 255, 0.12);
+  --kbd-bg: rgba(255, 255, 255, 0.08);
+
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-1: 150ms;
   --dur-2: 240ms;
+  --dur-3: 350ms;
+  --radius-panel: 24px;
+  --radius-card: 22px;
+  --radius-row: 16px;
+  --radius-pill: 999px;
 
-  --focus-ring: #bd93f9;
-  --sidebar-w: 232px;
-  --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-head: 'IBM Plex Sans', 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  --focus-ring: #c4b5fd;
+  --sidebar-w: 236px;
+  --sidebar-inset: 14px;
+  --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-head: 'Plus Jakarta Sans', system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 [data-theme='light'] {
   color-scheme: light;
-  --bg-canvas: #f2f3f8;
-  --bg-lane: #f9f9fc;
+  --bg-canvas: #f4f3fb;
+  --bg-lane: #f9f8fd;
   --bg-card: #ffffff;
-  --bg-elevated: #ebedf5;
-  --border-dim: #dcdde8;
-  --border-bright: #bfc2d4;
-  --text-main: #1b1c26;
-  --text-sub: #424659;
-  --text-dim: #60667f;
+  --bg-elevated: #eceaf7;
+  --border-dim: #e2dff0;
+  --border-bright: #c9c4e0;
+  --text-main: #16132e;
+  --text-sub: #3d3960;
+  --text-dim: #545072;
 
-  --purple: #6837e8;
-  --pink: #cf2384;
-  --green: #128038;
-  --yellow: #8f6100;
-  --red: #d12121;
-  --cyan: #096b7d;
-  --orange: #b85000;
+  --purple: #6d28d9;
+  --pink: #be185d;
+  --green: #04694c;
+  --yellow: #92400e;
+  --red: #be123c;
+  --cyan: #0b6577;
+  --orange: #c2410c;
 
-  --tone-yellow-bg: rgba(217, 155, 8, 0.11);
-  --tone-yellow-bd: rgba(168, 112, 0, 0.42);
-  --tone-red-bg: rgba(209, 33, 33, 0.07);
-  --tone-red-bd: rgba(209, 33, 33, 0.38);
-  --tone-pink-bg: rgba(207, 35, 132, 0.08);
-  --tone-pink-bd: rgba(207, 35, 132, 0.38);
-  --tone-cyan-bg: rgba(9, 107, 125, 0.08);
-  --tone-cyan-bd: rgba(9, 107, 125, 0.32);
-  --tone-green-bg: rgba(18, 128, 56, 0.08);
-  --tone-green-bd: rgba(18, 128, 56, 0.32);
-  --tone-purple-bg: rgba(104, 55, 232, 0.09);
-  --tone-purple-bd: rgba(104, 55, 232, 0.35);
+  --tone-yellow-bg: rgba(146, 64, 14, 0.08);
+  --tone-yellow-bd: rgba(146, 64, 14, 0.35);
+  --tone-red-bg: rgba(190, 18, 60, 0.08);
+  --tone-red-bd: rgba(190, 18, 60, 0.35);
+  --tone-pink-bg: rgba(190, 24, 93, 0.08);
+  --tone-pink-bd: rgba(190, 24, 93, 0.35);
+  --tone-cyan-bg: rgba(11, 101, 119, 0.08);
+  --tone-cyan-bd: rgba(11, 101, 119, 0.35);
+  --tone-green-bg: rgba(4, 105, 76, 0.08);
+  --tone-green-bd: rgba(4, 105, 76, 0.35);
+  --tone-purple-bg: rgba(109, 40, 217, 0.09);
+  --tone-purple-bd: rgba(109, 40, 217, 0.35);
 
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-bg-strong: rgba(255, 255, 255, 0.92);
-  --glass-tint: rgba(255, 255, 255, 0.8);
+  --glass-fill-top: rgba(255, 255, 255, 0.72);
+  --glass-fill-bot: rgba(255, 255, 255, 0.56);
+  --glass-fill-hover: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7));
+  --glass-bg-strong: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(249, 248, 253, 0.96));
   --glass-tint-low: rgba(255, 255, 255, 0.5);
-  --glass-bd: rgba(27, 28, 38, 0.09);
-  --glass-bd-hover: rgba(104, 55, 232, 0.45);
-  --glass-hl: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-  --glass-foot: rgba(27, 28, 38, 0.03);
-  --shadow-1: 0 1px 2px rgba(27, 28, 38, 0.06), 0 2px 8px rgba(27, 28, 38, 0.05);
-  --shadow-2: 0 10px 28px rgba(27, 28, 38, 0.12), 0 2px 6px rgba(27, 28, 38, 0.06);
-  --glow-1: rgba(104, 55, 232, 0.1);
-  --glow-2: rgba(207, 35, 132, 0.08);
-  --glow-3: rgba(9, 107, 125, 0.08);
+  --glass-line: rgba(22, 19, 46, 0.08);
+  --glass-line-hover: rgba(109, 40, 217, 0.35);
+  --glass-hl: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-drop: 0 30px 60px -30px rgba(60, 40, 140, 0.25);
+  --glass-foot: rgba(22, 19, 46, 0.03);
+  --shadow-1: 0 1px 2px rgba(40, 30, 90, 0.08), 0 8px 24px -12px rgba(40, 30, 90, 0.18);
+  --glow-1: rgba(124, 92, 255, 0.22);
+  --glow-2: rgba(0, 194, 184, 0.16);
+  --glow-3: rgba(255, 79, 163, 0.14);
 
-  --focus-ring: #6837e8;
+  --row-hover-bg: rgba(22, 19, 46, 0.04);
+  --row-sel-bg: rgba(255, 255, 255, 0.9);
+  --row-sel-ring: inset 0 0 0 1px rgba(109, 40, 217, 0.35), 0 12px 30px -16px rgba(109, 40, 217, 0.35);
+  --pill-primary-bg: #16132e;
+  --pill-primary-fg: #ffffff;
+  --pill-ghost-bg: rgba(255, 255, 255, 0.6);
+  --pill-ghost-bd: rgba(22, 19, 46, 0.16);
+  --badge-bg: #be185d;
+  --badge-fg: #ffffff;
+  --ring-track: rgba(22, 19, 46, 0.1);
+  --kbd-bg: rgba(22, 19, 46, 0.06);
+
+  --focus-ring: #6d28d9;
 }
 
-/* Glass off: no backdrop blur and solid framing layers. The Motion switch set to off, a browser without
+/* Glass off: no backdrop blur and solid surfaces. The Motion switch set to off, a browser without
    backdrop-filter, and a user who asks for less transparency all get the same solid surfaces (D11b). */
 html[data-motion='off'] {
   --glass-filter: none;
   --glass-bg: var(--bg-card);
   --glass-bg-strong: var(--bg-elevated);
+  --glass-fill: var(--bg-card);
+  --glass-fill-hover: var(--bg-elevated);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -123,6 +168,8 @@ html[data-motion='off'] {
     --glass-filter: none;
     --glass-bg: var(--bg-card);
     --glass-bg-strong: var(--bg-elevated);
+    --glass-fill: var(--bg-card);
+    --glass-fill-hover: var(--bg-elevated);
   }
 }
 
@@ -133,6 +180,8 @@ html[data-motion='off'] {
     --glass-bg-strong: var(--bg-elevated);
     --glass-tint: var(--bg-card);
     --glass-tint-low: var(--bg-lane);
+    --glass-fill: var(--bg-card);
+    --glass-fill-hover: var(--bg-elevated);
   }
 }
 
@@ -152,29 +201,33 @@ body {
   background: var(--bg-canvas);
   color: var(--text-main);
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
+  /* Plus Jakarta Sans has a narrow space (0.17 em); at 13-14 px words run together without this. */
+  word-spacing: 0.06em;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
-/* Ambient background (D11): three large, soft glows on the body background. No extra layer: in software
-   drawing (no GPU) a fixed full-screen glow layer cost about 12 ms more first paint than the body background.
-   The softness comes from the gradient stops, not from a blur filter; each glow paints only its own box
-   (no-repeat, sized to where it fades out). Static: no animation. */
+/* Aurora (D11, plan hub-aurora-glass): three large, soft glows on the body background, violet top left, teal
+   right, pink bottom. No extra layer: in software drawing (no GPU) a fixed full-screen glow layer cost about
+   12 ms more first paint than the body background. The softness comes from the gradient stops, not from a blur
+   filter; each glow paints only its own box (no-repeat, sized to where it fades out). Static: no animation. */
 body {
+  background-color: var(--bg-canvas);
+  font-variant-numeric: tabular-nums;
   background-image:
     radial-gradient(circle closest-side, var(--glow-1), transparent),
     radial-gradient(circle closest-side, var(--glow-2), transparent),
     radial-gradient(circle closest-side, var(--glow-3), transparent);
   background-size:
-    1080px 1080px,
-    840px 840px,
-    960px 960px;
+    1200px 1200px,
+    960px 960px,
+    1040px 1040px;
   background-position:
-    left calc(10vw - 540px) top -540px,
-    right -420px top calc(25vh - 420px),
-    left calc(50% - 480px) bottom -480px;
+    left calc(8vw - 600px) top -560px,
+    right -480px top calc(18vh - 480px),
+    left calc(45% - 520px) bottom -560px;
   background-repeat: no-repeat;
 }
 
@@ -184,15 +237,18 @@ body {
   }
 }
 
-/* Weight scale: 400 body, 500 labels and buttons, 600 headings, 700 the brand only.
-   The fonts ship 400, 500, 600 and 700, so each weight renders as asked (no fallback to bold). */
-h1,
-h2,
-h3,
-h4,
+/* Weight scale: 400 body, 500 labels and buttons, 600 strong text, 700 headings and panel titles, 800 the page
+   title and the sentence header. The fonts ship 400, 500, 600, 700 and 800 (no synthetic bold). */
 strong,
 b {
   font-weight: 600;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 700;
 }
 
 h1,
@@ -202,7 +258,54 @@ h3,
 .rm-title,
 .flow-h {
   font-family: var(--font-head);
+}
+
+/* Type scale (plan Design tokens). Tracking: negative only on large headings (20 px and up: the page title, the
+   sentence header, the detail title, the guide titles). Body, list and small heading text keep normal spacing;
+   Plus Jakarta Sans is tightly fitted, and at 12-15 px any negative tracking makes the letters crowd. */
+h1 {
   letter-spacing: -0.01em;
+}
+
+.gp-title,
+.gm-title {
+  letter-spacing: -0.02em;
+}
+
+.headline {
+  font-family: var(--font-head);
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.headline-sub {
+  font-size: 15px;
+  color: var(--text-sub);
+}
+
+.page-eyebrow {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--kbd-bg);
+  border-radius: 5px;
+  padding: 0 5px;
+  color: inherit;
+}
+
+@media (max-width: 720px) {
+  .headline {
+    font-size: 30px;
+  }
 }
 
 /* Monospace only for PR numbers, SHAs, commands and session names. */
@@ -224,6 +327,16 @@ code.cmd {
 button,
 a {
   font-family: inherit;
+}
+
+/* The browser resets letter and word spacing on form controls. Without this, text inside a button (Inbox rows,
+   pills, nav toggles) loses the body word spacing above and its words crowd together. */
+button,
+input,
+select,
+textarea {
+  letter-spacing: inherit;
+  word-spacing: inherit;
 }
 
 button:focus-visible,
@@ -264,6 +377,35 @@ a:focus-visible,
   }
 }
 
+@keyframes hub-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(52, 211, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes hub-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hub-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @keyframes hub-fill {
   from {
     transform: scaleX(0);
@@ -277,49 +419,56 @@ a:focus-visible,
    180 ms per item, 20 ms apart for items 1-6, item 7 and later at 120 ms: the run ends by 300 ms.
    The fill mode is `backwards` so that the hover lift owns `transform` after the enter ends. */
 .kpi-strip > *,
-.lanes > *,
+.repo-cards > *,
+.ov-top > *,
 .rm-cards > *,
 .gp-flow > *,
 .gp-bands > * {
   animation: hub-rise 180ms var(--ease-out) backwards;
 }
 .kpi-strip > :nth-child(2),
-.lanes > :nth-child(2),
+.repo-cards > :nth-child(2),
+.ov-top > :nth-child(2),
 .rm-cards > :nth-child(2),
 .gp-flow > :nth-child(2),
 .gp-bands > :nth-child(2) {
   animation-delay: 20ms;
 }
 .kpi-strip > :nth-child(3),
-.lanes > :nth-child(3),
+.repo-cards > :nth-child(3),
+.ov-top > :nth-child(3),
 .rm-cards > :nth-child(3),
 .gp-flow > :nth-child(3),
 .gp-bands > :nth-child(3) {
   animation-delay: 40ms;
 }
 .kpi-strip > :nth-child(4),
-.lanes > :nth-child(4),
+.repo-cards > :nth-child(4),
+.ov-top > :nth-child(4),
 .rm-cards > :nth-child(4),
 .gp-flow > :nth-child(4),
 .gp-bands > :nth-child(4) {
   animation-delay: 60ms;
 }
 .kpi-strip > :nth-child(5),
-.lanes > :nth-child(5),
+.repo-cards > :nth-child(5),
+.ov-top > :nth-child(5),
 .rm-cards > :nth-child(5),
 .gp-flow > :nth-child(5),
 .gp-bands > :nth-child(5) {
   animation-delay: 80ms;
 }
 .kpi-strip > :nth-child(6),
-.lanes > :nth-child(6),
+.repo-cards > :nth-child(6),
+.ov-top > :nth-child(6),
 .rm-cards > :nth-child(6),
 .gp-flow > :nth-child(6),
 .gp-bands > :nth-child(6) {
   animation-delay: 100ms;
 }
 .kpi-strip > :nth-child(n + 7),
-.lanes > :nth-child(n + 7),
+.repo-cards > :nth-child(n + 7),
+.ov-top > :nth-child(n + 7),
 .rm-cards > :nth-child(n + 7),
 .gp-flow > :nth-child(n + 7),
 .gp-bands > :nth-child(n + 7) {
@@ -328,7 +477,7 @@ a:focus-visible,
 
 /* Hover lift: the surface rises 2 px; a deeper shadow on a pseudo layer fades in (opacity, not box-shadow). */
 .kpi-tile,
-.card,
+.repo-card,
 .rm-rcard,
 .gp-stage,
 .gp-band,
@@ -337,7 +486,7 @@ a:focus-visible,
   transition: transform var(--dur-1) var(--ease-out);
 }
 .kpi-tile::before,
-.card::before,
+.repo-card::before,
 .rm-rcard::before,
 .gp-stage::before,
 .gp-band::before,
@@ -353,7 +502,7 @@ a:focus-visible,
 }
 @media (hover: hover) {
   .kpi-tile:hover,
-  .card:hover,
+  .repo-card:hover,
   .rm-rcard:not(.rm-pcard):hover,
   .gp-stage:hover,
   .gp-band:hover,
@@ -362,7 +511,7 @@ a:focus-visible,
     border-color: var(--glass-bd-hover);
   }
   .kpi-tile:hover::before,
-  .card:hover::before,
+  .repo-card:hover::before,
   .rm-rcard:not(.rm-pcard):hover::before,
   .gp-stage:hover::before,
   .gp-band:hover::before,
@@ -402,7 +551,6 @@ a:focus-visible,
 }
 
 /* Progress fill: the bar grows from the left on mount. */
-.meter-fill,
 .rm-bar i,
 .rm-pbar > span {
   transform-origin: left center;
@@ -427,8 +575,24 @@ html[data-motion='off'] *::after {
   transition-delay: 0s !important;
   scroll-behavior: auto !important;
 }
+/* Reduced motion (D5): the OS setting stops animation only where no Motion switch has set data-motion: the
+   static export app (no switch) and the first paint before React sets it. */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion]) *,
+  html:not([data-motion]) *::before,
+  html:not([data-motion]) *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
 html[data-motion='off'] .kpi-tile:hover,
-html[data-motion='off'] .card:hover,
+html[data-motion='off'] .repo-card:hover,
+html[data-motion='off'] .pill:active,
+html[data-motion='off'] .btn-primary:active,
 html[data-motion='off'] .rm-rcard:hover,
 html[data-motion='off'] .gp-stage:hover,
 html[data-motion='off'] .gp-band:hover,
@@ -493,7 +657,7 @@ html[data-motion='off'] .guide-jump:active {
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
-  border-bottom: 1px solid var(--glass-bd);
+  border-bottom: 1px solid var(--glass-line);
   box-shadow: var(--glass-hl);
   padding: 10px 14px;
   align-items: center;
@@ -504,14 +668,17 @@ html[data-motion='off'] .guide-jump:active {
 .menu-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-bright);
+  min-width: 44px;
+  min-height: 44px;
+  background: var(--pill-ghost-bg);
+  border: 1px solid var(--pill-ghost-bd);
   color: var(--text-main);
-  padding: 6px 10px;
-  border-radius: 7px;
+  padding: 6px 12px;
+  border-radius: 12px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -519,7 +686,7 @@ html[data-motion='off'] .guide-jump:active {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(3, 2, 20, 0.55);
   z-index: 49;
 }
 
@@ -528,30 +695,34 @@ html[data-motion='off'] .guide-jump:active {
   animation: hub-fade var(--dur-2) var(--ease-out);
 }
 
+/* The sidebar floats: a glass panel inset from the window edges (Hybrid mockup). */
 .sidebar {
   width: var(--sidebar-w);
-  background: var(--glass-bg);
+  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
-  border-right: 1px solid var(--glass-bd);
-  box-shadow: var(--glass-hl);
+  border: 1px solid var(--glass-line);
+  border-radius: 22px;
+  box-shadow: var(--glass-hl), var(--glass-drop);
   position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
+  top: var(--sidebar-inset);
+  bottom: var(--sidebar-inset);
+  left: var(--sidebar-inset);
   z-index: 50;
+  padding: 18px 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: 18px;
   transition:
     transform var(--dur-2) var(--ease-out),
     visibility 0s linear var(--dur-2);
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .sidebar-top {
-  padding: 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -560,7 +731,7 @@ html[data-motion='off'] .guide-jump:active {
 .brand-row {
   display: flex;
   align-items: center;
-  padding: 0 6px;
+  padding: 2px 8px;
 }
 
 .brand-logo {
@@ -612,7 +783,7 @@ html[data-motion='off'] .brand-mark-still {
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   list-style: none;
 }
 
@@ -621,55 +792,56 @@ html[data-motion='off'] .brand-mark-still {
   flex-direction: column;
   gap: 2px;
   list-style: none;
-  margin: 0 0 0 28px;
+  margin: 2px 0 4px 20px;
   padding-left: 8px;
-  border-left: 1px solid var(--border-dim);
+  border-left: 1px solid var(--glass-line);
 }
 
 .nav-sublink {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  height: 32px;
   font-size: 13px;
 }
 
 .nav-section-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-dim);
-  padding: 0 10px;
-  margin-bottom: -10px;
+  padding: 0 12px;
+  margin-bottom: -12px;
 }
 
 .nav-empty {
-  padding: 6px 10px;
+  padding: 6px 12px;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-  padding: 9px 10px;
-  border-radius: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
   color: var(--text-sub);
   text-decoration: none;
   font-weight: 500;
-  font-size: 15px;
-  transition: background 0.12s ease, color 0.12s ease;
+  font-size: 14px;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
   min-width: 0;
 }
 
 .nav-link:hover {
-  background: var(--bg-elevated);
+  background: var(--row-hover-bg);
   color: var(--text-main);
 }
 
 .nav-link.active {
-  background: var(--tone-purple-bg);
-  box-shadow: inset 2px 0 0 var(--purple);
-  color: var(--purple);
+  background: var(--row-sel-bg);
+  box-shadow: var(--glass-hl);
+  color: var(--text-main);
   font-weight: 600;
 }
 
@@ -678,12 +850,22 @@ html[data-motion='off'] .brand-mark-still {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .nav-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.nav-hint {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .soon {
@@ -698,31 +880,32 @@ html[data-motion='off'] .brand-mark-still {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 8px;
-  border-radius: 99px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  font-weight: 600;
-  background: linear-gradient(135deg, var(--yellow), var(--red));
-  color: #191a23;
+  font-weight: 700;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
   flex-shrink: 0;
 }
 
+/* 8 px dot, centred in the 18 px icon column. */
 .repo-dot {
-  width: 9px;
-  height: 9px;
-  margin: 0 4.5px;
+  width: 8px;
+  height: 8px;
+  margin: 0 5px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .repo-dot.attention {
   background: var(--yellow);
-  box-shadow: 0 0 0 2px var(--tone-yellow-bg);
 }
 
 .repo-dot.blocked {
   background: var(--red);
-  box-shadow: 0 0 0 2px var(--tone-red-bg);
 }
 
 .repo-dot.ok {
@@ -731,46 +914,73 @@ html[data-motion='off'] .brand-mark-still {
 
 .repo-dot.idle {
   background: var(--text-dim);
+  opacity: 0.6;
 }
 
-/* Footer */
+.repo-dot.working {
+  animation: hub-pulse 2.2s ease-out infinite;
+}
+
+/* Footer: one card with the spend ring, data age, versions and the two toggle groups. */
 .sidebar-footer {
-  padding: 14px 12px;
-  border-top: 1px solid var(--glass-bd);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  background: var(--glass-foot);
 }
 
-.footer-meta {
-  font-size: 13px;
-  color: var(--text-sub);
+.footer-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-line);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.spend-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spend-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.spend-amount {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.spend-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.spend-note {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.spend-note.hot {
+  color: var(--yellow);
+  font-weight: 600;
 }
 
 .updated-line {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   color: var(--text-dim);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.35;
-}
-
-.spend-box {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.spend-row {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  font-size: 13px;
 }
 
 .spend-label,
@@ -779,66 +989,109 @@ html[data-motion='off'] .brand-mark-still {
   white-space: nowrap;
 }
 
-.meter-track {
-  width: 100%;
-  height: 6px;
-  background: var(--bg-elevated);
-  border-radius: 99px;
-  overflow: hidden;
+/* Progress rings (shell/Ring.tsx). Colours come from the tone class, so the SVG needs no inline style. */
+.ring {
+  flex-shrink: 0;
+  display: block;
 }
 
-.meter-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--purple), var(--pink));
-  border-radius: 99px;
+.ring-track {
+  stroke: var(--ring-track);
 }
 
-.meter-fill.hot {
-  background: var(--orange);
+.ring-good .ring-fill {
+  stroke: var(--green);
+}
+
+.ring-prog .ring-fill {
+  stroke: var(--purple);
+}
+
+.ring-warn .ring-fill {
+  stroke: var(--yellow);
+}
+
+.ring-muted .ring-fill {
+  stroke: var(--text-dim);
+}
+
+.ring-text {
+  fill: var(--text-main);
+  font: 700 11px var(--font-body);
 }
 
 .versions {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 10px;
+  gap: 2px 8px;
   color: var(--text-dim);
-  font-size: 11.5px;
+  font-size: 11px;
+}
+
+.footer-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 .theme-switch {
-  display: flex;
+  display: inline-flex;
   gap: 4px;
-  background: var(--bg-elevated);
-  border-radius: 8px;
-  padding: 3px;
 }
 
+/* Icon-only 28 px buttons; the text stays for screen readers and tests (D12). */
 .theme-btn {
-  flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  width: 28px;
+  height: 28px;
   background: transparent;
-  border: 0;
-  border-radius: 6px;
+  border: 1px solid var(--glass-line);
+  border-radius: 8px;
   color: var(--text-sub);
-  padding: 5px 4px;
-  font-size: 12.5px;
   cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 100ms var(--ease-out);
+}
+
+.theme-btn:hover {
+  background: var(--row-hover-bg);
+  color: var(--text-main);
+}
+
+.theme-btn > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .theme-btn.active {
-  background: var(--bg-card);
-  box-shadow: var(--shadow-1);
-  color: var(--purple);
-  font-weight: 600;
+  background: var(--row-sel-bg);
+  box-shadow: var(--glass-hl);
+  color: var(--text-main);
+}
+
+/* On white glass a white selected fill does not show: the light theme marks the current item with a violet wash. */
+[data-theme='light'] .nav-link.active,
+[data-theme='light'] .theme-btn.active {
+  background: var(--tone-purple-bg);
 }
 
 /* Main area */
 .main-area {
   flex: 1;
-  margin-left: var(--sidebar-w);
+  margin-left: calc(var(--sidebar-w) + 2 * var(--sidebar-inset));
   min-width: 0;
   width: 100%;
 }
@@ -862,8 +1115,9 @@ html[data-motion='off'] .brand-mark-still {
 }
 
 .page-title {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   color: var(--text-main);
   display: flex;
   align-items: center;
@@ -878,12 +1132,55 @@ html[data-motion='off'] .brand-mark-still {
 .notice {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-dim);
-  border-radius: 10px;
+  gap: 10px;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-hl);
+  border-radius: var(--radius-row);
   padding: 18px 20px;
   max-width: 560px;
+}
+
+.notice .btn {
+  align-self: flex-start;
+}
+
+/* First load: grey shapes where the page will be. The shimmer stops under the Motion switch (end state: full). */
+@keyframes hub-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sk-line,
+.sk-block {
+  border-radius: var(--radius-row);
+  background: var(--glass-tint-low);
+  border: 1px solid var(--glass-line);
+  animation: hub-shimmer 1.6s ease-in-out infinite;
+}
+
+.sk-title {
+  width: min(320px, 70%);
+  height: 40px;
+}
+
+.sk-block {
+  height: 160px;
+}
+
+.sk-block + .sk-block {
+  height: 260px;
 }
 
 /* Banners */
@@ -897,11 +1194,12 @@ html[data-motion='off'] .brand-mark-still {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  border-radius: 8px;
-  padding: 10px 14px;
+  border-radius: var(--radius-row);
+  padding: 12px 16px;
   font-size: 14px;
   border: 1px solid var(--tone-yellow-bd);
-  background: var(--tone-yellow-bg);
+  background: var(--glass-fill);
+  box-shadow: var(--glass-hl);
 }
 
 .banner svg {
@@ -915,14 +1213,13 @@ html[data-motion='off'] .brand-mark-still {
 
 .banner.bad {
   border-color: var(--tone-red-bd);
-  background: var(--tone-red-bg);
 }
 
 .banner.bad svg {
   color: var(--red);
 }
 
-/* Tiles (used by Inbox and Overview) */
+/* KPI tiles (the roadmap summary strip and the export app) */
 .kpi-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -930,11 +1227,11 @@ html[data-motion='off'] .brand-mark-still {
 }
 
 .kpi-tile {
-  background: var(--glass-tint);
-  border: 1px solid var(--glass-bd);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
   box-shadow: var(--glass-hl), var(--shadow-1);
-  border-radius: 12px;
-  padding: 13px 16px;
+  border-radius: 18px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -956,9 +1253,9 @@ html[data-motion='off'] .brand-mark-still {
 }
 
 .kpi-label {
-  font-size: 13.5px;
-  color: var(--text-sub);
-  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -997,7 +1294,11 @@ html[data-motion='off'] .brand-mark-still {
   }
 
   .sidebar {
+    top: 0;
+    left: 0;
+    bottom: 0;
     width: 250px;
+    border-radius: 0 22px 22px 0;
     transform: translateX(-100%);
     visibility: hidden;
   }
@@ -1005,7 +1306,7 @@ html[data-motion='off'] .brand-mark-still {
   .sidebar.drawer-open {
     transform: translateX(0);
     visibility: visible;
-    box-shadow: var(--glass-hl), var(--shadow-2);
+    box-shadow: var(--glass-hl), var(--glass-drop);
     transition:
       transform var(--dur-2) var(--ease-out),
       visibility 0s;
