@@ -586,7 +586,8 @@ def _claim_stamp(stamp: Path, now: float) -> bool:
     """True when this process won the sweep for this window. Two sessions that start at once: exactly one wins.
 
     The stamp is created with O_EXCL. An existing stamp inside the window means no. An expired one is moved aside
-    with one rename (only one racer's rename succeeds), then created again with O_EXCL.
+    with one rename (only one racer's rename succeeds), then created again with O_EXCL. An empty stamp (a racer
+    has not written the time yet, or was killed before it did) dates from its modified time, so it expires too.
     """
     for _ in range(2):
         try:
@@ -594,9 +595,7 @@ def _claim_stamp(stamp: Path, now: float) -> bool:
         except FileExistsError:
             try:
                 text = stamp.read_text(encoding="utf-8").strip()
-                if not text:  # a racer created it and has not written the time yet
-                    return False
-                last = float(text)
+                last = float(text) if text else stamp.stat().st_mtime
             except ValueError:
                 last = 0.0  # unreadable: treat as expired
             except OSError:
