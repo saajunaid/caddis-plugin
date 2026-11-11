@@ -39,6 +39,10 @@ For a local test relay only, set `allow_insecure_auth = true` (a boolean) in the
 1. Write the email as a Markdown file in the project's `comms/` folder (a copy stays in the repo).
    - Put `<!-- email-start -->` before the greeting and `<!-- email-end -->` after the sign-off. Only that part is sent.
    - Write plain, short sentences. No em dashes, no arrows, no emoji, no check marks.
+   - Sign off with the owner's first name: the first word of `git config user.name`. Put `Thanks,` on one line
+     and the name on the next line. Never sign as Claude, an agent, a bot or the sender mailbox.
+   - Write a list as `1.` or `-` lines, one item per line. Wrapped lines join into one paragraph. To force a new
+     line inside a paragraph, end the line with `\`. The sign-off line keeps its break by itself.
 2. Subject line: `caddis-<app-name> <short subject>`, for example `caddis-myapp Data request for the weekly report`.
 3. Dry run. It sends nothing, needs no credentials and writes `<file>.preview.html`:
    `python -I scripts/send_email.py --dry-run --to x@example.com --subject t --body-file <file.md>`

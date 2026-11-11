@@ -40,6 +40,7 @@ SMTP_PORTS = {"starttls": 587, "ssl": 465, "none": 25}
 DEFAULT_GRAPH_KEYS = ("ALERT_GRAPH_TENANT_ID", "ALERT_GRAPH_CLIENT_ID", "ALERT_GRAPH_CLIENT_SECRET")
 DEFAULT_SMTP_PASSWORD_KEY = "EMAIL_SMTP_PASSWORD"
 STYLE = "font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;color:#222"
+SIGN_OFF = re.compile(r"^(thanks|thank you|many thanks|regards|kind regards|best regards|best|cheers),?$", re.I)
 
 
 class ConfigError(Exception):
@@ -65,8 +66,17 @@ def md_to_html(md: str) -> str:
     out, para, lines, i = [], [], md.splitlines(), 0
 
     def flush():
+        # Wrapped lines join into one paragraph, as in Markdown. A line keeps its break when it
+        # ends in "\" or two spaces, or when it is a sign-off such as "Thanks," before the name.
         if para:
-            out.append("<p>" + " ".join(inline(p) for p in para) + "</p>")
+            text = ""
+            for n, raw in enumerate(para):
+                hard = raw.endswith("  ") or raw.rstrip().endswith("\\")
+                line = raw.strip().removesuffix("\\").rstrip()
+                text += inline(line)
+                if n < len(para) - 1:
+                    text += "<br>" if hard or SIGN_OFF.match(line) else " "
+            out.append(f"<p>{text}</p>")
             para.clear()
 
     def cells(row):
@@ -96,21 +106,26 @@ def md_to_html(md: str) -> str:
             for r in rows[1:]:
                 t += "<tr>" + "".join(f"<td>{inline(c)}</td>" for c in cells(r)) + "</tr>"
             out.append(t + "</table>")
-        elif re.match(r"^[-*] ", s):
+        elif re.match(r"^[-*] ", s) or re.match(r"^\d+[.)] ", s):
             flush()
+            ordered = bool(re.match(r"^\d", s))
+            marker = re.compile(r"^\s*\d+[.)] " if ordered else r"^\s*[-*] ")
+            start = int(re.match(r"\d+", s).group()) if ordered else 1
             items = []
-            while i < len(lines) and re.match(r"^\s*[-*] ", lines[i]):
-                item = re.sub(r"^\s*[-*] ", "", lines[i])
+            while i < len(lines) and marker.match(lines[i]):
+                item = marker.sub("", lines[i])
                 i += 1
                 while (i < len(lines) and lines[i].startswith("  ") and lines[i].strip()
-                       and not re.match(r"^\s*[-*] ", lines[i])):
+                       and not marker.match(lines[i])):
                     item += " " + lines[i].strip()
                     i += 1
                 items.append(f"<li>{inline(item)}</li>")
             i -= 1
-            out.append("<ul>" + "".join(items) + "</ul>")
+            tag = "ol" if ordered else "ul"
+            attr = f' start="{start}"' if start != 1 else ""
+            out.append(f"<{tag}{attr}>" + "".join(items) + f"</{tag}>")
         else:
-            para.append(s)
+            para.append(lines[i])
         i += 1
     flush()
     return f'<div style="{STYLE}">' + "\n".join(out) + "</div>"
