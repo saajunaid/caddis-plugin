@@ -1360,6 +1360,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="list every worktree and local branch of the repo with an action and a reason "
                          "(with --apply: remove only the ones proved finished)")
     ap.add_argument("--json", action="store_true", help="with --hygiene: print the rows as JSON")
+    ap.add_argument("--worktree", default=None, metavar="PATH",
+                    help="with --hygiene: only this linked worktree (no branch rows)")
+    ap.add_argument("--session-cwd", default=None, metavar="PATH",
+                    help="with --hygiene: keep a worktree that holds this folder (the calling session's folder)")
+    ap.add_argument("--own-terminal", default=None, metavar="HANDLE",
+                    help="with --hygiene: this Orca terminal does not block removal (a session removing its own "
+                         "worktree; pass $ORCA_TERMINAL_HANDLE). The branches then go first.")
+    ap.add_argument("--orca-only", action="store_true",
+                    help="with --hygiene: only Orca-managed worktrees (no branch rows)")
     args = ap.parse_args(argv)
     # A status or path the console cannot encode prints as `?`, never a crash (a cp1252 pipe).
     for stream in (sys.stdout, sys.stderr):
@@ -1373,12 +1382,16 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--json only works together with --hygiene")
     if args.all and (args.hygiene or args.prune):
         ap.error("--all is for the mover (--apply), not --hygiene or --prune")
+    if (args.worktree or args.session_cwd or args.own_terminal or args.orca_only) and not args.hygiene:
+        ap.error("--worktree, --session-cwd, --own-terminal and --orca-only only work together with --hygiene")
     if args.hygiene:
         if args.check or args.commit_range or args.only or args.prune or args.temp or args.verbose:
             ap.error("--hygiene runs alone: not with --check, --commit-range, --only, --prune, --temp or --verbose")
         import caddis_repo_tidy  # ships beside this file
 
-        return caddis_repo_tidy.run_cli(repo_root, apply=args.apply, as_json=args.json)
+        return caddis_repo_tidy.run_cli(repo_root, apply=args.apply, as_json=args.json, only=args.worktree,
+                                        session_cwd=args.session_cwd, own_terminal=args.own_terminal,
+                                        orca_only=args.orca_only)
     if args.temp and not args.prune:
         ap.error("--temp only works together with --prune")
     if args.verbose and not args.temp:

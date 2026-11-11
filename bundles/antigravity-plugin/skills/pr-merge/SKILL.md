@@ -181,6 +181,9 @@ If the default branch triggers an automated deployment pipeline:
 ## Step 9 — Close feature-branch lifecycle (Clean up)
 
 **Only after** the merge is complete and deployment (if any) is validated green:
+- In a linked worktree (an Orca one included), skip the switch, the pull and the local branch delete:
+  git cannot switch to a branch the main checkout holds. Delete only the remote branch here; the last
+  step removes an Orca worktree with its local branch.
 - Run `git status --short`. If it shows changes you did not make, do not switch, stash, reset or commit:
   leave them, report them, and stop cleanup here (a shared checkout often holds a peer's edits).
 - In a shared checkout (Step 0b says `SHARED: yes`), skip the switch and the pull below. Clean up as Step 0b
@@ -206,6 +209,23 @@ Deploy:        <job ✓ / ✗ per job | n/a>
 Prod SHA:      matches merge ✓ | n/a
 Cleanup:       remote branch deleted / local branch deleted / backup ref dropped | SKIPPED (<why>)
 ```
+
+## Step 11 — Remove this Orca worktree (the last action)
+
+Only when cleanup ran (it was not skipped), this session works in a linked worktree, and `orca` is on PATH. Do this
+after the report is printed: Orca stops this session when it removes the worktree. Run it from the main checkout,
+in one command:
+```
+(cd "<main checkout>" && python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --hygiene --apply --orca-only \
+  --repo-root "<main checkout>" --worktree "<this worktree>" --session-cwd "<this worktree>" \
+  --own-terminal "$ORCA_TERMINAL_HANDLE")
+```
+The parentheses keep this session in its own folder when the result is `KEPT`.
+It acts only on an Orca-managed worktree that is merged (the same proof as `caddis_tidy.py --hygiene`) and clean, with
+no Orca terminal open in it except this session's own. It deletes the local and remote branch first, then removes
+the worktree with `orca worktree rm` (never `--force`). Any other case prints `KEPT` and the reason, and changes
+nothing. A `KEPT` worktree is removed later by the Orca sweep at the next session start, after its terminal closes.
+This step never fails the merge: if it prints `FAILED`, say so in one line and stop.
 
 ## Rules
 

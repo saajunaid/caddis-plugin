@@ -8,7 +8,8 @@ deleted: the caller gets the problem back.
     remove_links(root)                 -> the links removed (raises LinkRemovalError when one cannot go)
     remove_tree(path)                  -> None, or the problem (links first, then rmtree)
     safe_remove_worktree(repo, wt)     -> None, or the problem (refuses the main checkout, unregistered paths, and
-                                          a locked or dirty worktree that git would keep, before any link goes)
+                                          a locked or dirty worktree that git would keep, before any link goes).
+                                          `remover` replaces the final `git worktree remove` (Orca uses it).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import os
 import shutil
 import stat
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
@@ -142,7 +143,8 @@ def remote_delete_args(branch: str, expected_tip: str, remote: str = "origin") -
 
 
 def safe_remove_worktree(repo: Path, worktree: Path, *, force: bool = True, force_locked: bool = False,
-                         git_flags: Sequence[str] = (), env: Mapping[str, str] | None = None) -> str | None:
+                         git_flags: Sequence[str] = (), env: Mapping[str, str] | None = None,
+                         remover: Callable[[Path], str | None] | None = None) -> str | None:
     """Remove the linked worktree `worktree` of `repo`: its links first, then `git worktree remove`.
 
     None when git removed it, else the problem. Before any link is touched it refuses a path that is a link, the
@@ -150,7 +152,9 @@ def safe_remove_worktree(repo: Path, worktree: Path, *, force: bool = True, forc
     `force_locked`, and a dirty one unless `force`: git would keep those, and a kept worktree must keep its links.
     `force` passes `--force` (a dirty worktree goes); `force_locked` passes it twice (a locked one goes too). A
     relative `worktree` is taken from `repo`, not from the process cwd. `git_flags` go before `-C` (for example
-    `-c core.hooksPath=...`); `env` is the git environment."""
+    `-c core.hooksPath=...`); `env` is the git environment. `remover(worktree) -> None | problem` replaces the final
+    `git worktree remove` (for example `orca worktree rm`); every check and the link removal still run first, and
+    the worktree must then be gone from disk and from `git worktree list`."""
     worktree = Path(worktree)
     if not worktree.is_absolute():
         worktree = Path(repo) / worktree
@@ -184,6 +188,8 @@ def safe_remove_worktree(repo: Path, worktree: Path, *, force: bool = True, forc
         removed = remove_links(worktree)
     except OSError as exc:
         return f"not removed: {worktree}: a link could not be removed: {exc}; no file was deleted"
+    if remover is not None:
+        return _after_remover(Path(repo), worktree, remover(worktree), removed, git_flags, env)
     flags = ["--force", "--force"] if force_locked else (["--force"] if force else [])
     proc = _run_git(Path(repo), ("worktree", "remove", *flags, str(worktree)), git_flags, env)
     if proc.returncode != 0:
@@ -191,4 +197,20 @@ def safe_remove_worktree(repo: Path, worktree: Path, *, force: bool = True, forc
         if removed:
             detail += f" ({len(removed)} link(s) inside it were removed first)"
         return f"git worktree remove failed: {detail}"
+    return None
+
+
+def _after_remover(repo: Path, worktree: Path, problem: str | None, removed: list[Path],
+                   git_flags: Sequence[str], env: Mapping[str, str] | None) -> str | None:
+    """None only when the remover reported success AND the worktree is gone from disk and from git's list."""
+    links = f" ({len(removed)} link(s) inside it were removed first)" if removed else ""
+    if problem:
+        return f"{problem}{links}"
+    if os.path.lexists(worktree):
+        return f"the remover reported success but {worktree} is still on disk{links}"
+    listing = _run_git(repo, ("worktree", "list", "--porcelain"), git_flags, env)
+    if listing.returncode != 0:
+        return f"git worktree list failed after the removal: {(listing.stderr or '').strip()}"
+    if any(_same(worktree, b[0][len("worktree "):]) for b in _worktree_blocks(listing.stdout)[1:]):
+        return f"the folder is gone but git still lists {worktree}"
     return None

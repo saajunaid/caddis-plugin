@@ -19,7 +19,7 @@ aliases), so "finished" has one definition for `/handoff` own-cleanup and `caddi
 
     prove_worktree_finished(entry, path, cwd, pr_lookup) -> ("REMOVE", reason, facts) | ("KEPT"/"GONE", reason, {})
     prove_branch_finished(repo, branch, pr_lookup)       -> ("REMOVE", reason, facts) | ("KEPT"/"TRIAGE", reason, {})
-    remove_finished(path | None, facts)                  -> ("REMOVED" | "FAILED", notes); path None = branches only
+    remove_finished(path | None, facts, remover=None)    -> ("REMOVED" | "FAILED", notes); path None = branches only
 
 `pr_lookup(main_repo, branch, pr) -> list[{number, state, headRefOid, headRefName}]` (newest first) is the gh seam;
 it raises PrLookupError. `gh_pr_lookup` calls plain `gh` with the inherited environment (never `gh auth switch`).
@@ -488,26 +488,52 @@ def prove_branch_finished(repo: Path, branch: str, pr_lookup: Callable) -> tuple
     return "REMOVE", f"PR #{number} merged, tree equals origin/{default}", facts
 
 
-def remove_finished(path: Path | None, facts: dict) -> tuple[str, str]:
+def remove_finished(path: Path | None, facts: dict, remover: Callable | None = None,
+                    branches_first: bool = False) -> tuple[str, str]:
     """Remove what a proof returned REMOVE for: ("REMOVED", notes) or ("FAILED", problem).
 
     `path` None skips the worktree step and removes only the branches; then any kept branch is "FAILED", so a
     caller that reads only the outcome never reports a kept branch as removed. Worktree: `safe_remove_worktree(...,
     force=False)` (links first, never --force). Local branch: only while its tip is HEAD or the PR head and no
     worktree has it checked out. Remote branch: only while its tip is the PR head or HEAD, as one compare-and-delete
-    push.
+    push. `remover(path) -> None | problem` replaces `git worktree remove` (an Orca worktree goes through Orca).
+    `branches_first`: detach the worktree's HEAD, delete the branches, then remove the worktree. For a session that
+    removes its own Orca worktree: the removal stops that session, so nothing may be left to do after it.
     """
     import caddis_worktree_safety as safety
 
     repo, branch, head, pr_head = facts["repo"], facts["branch"], facts["head"], facts["pr_head"]
-    local_tip = branch_tip(repo, branch) if branch else None
     landed = {pr_head, head.lower()} - {""}  # only tips this proof showed landed
+    if path is not None and branches_first:
+        if branch:  # update-ref detaches without running a post-checkout hook (git switch would run it)
+            detach = _git(path, "update-ref", "--no-deref", "HEAD", head)
+            if detach.returncode != 0:
+                return "FAILED", f"git update-ref --no-deref HEAD failed: {_err(detach)}"
+        notes = _delete_branches(repo, branch, landed)
+        problem = safety.safe_remove_worktree(repo, path, force=False, env=_env(), remover=remover)
+        if problem:
+            return "FAILED", "; ".join([problem, *notes, "HEAD was detached and the branches went first"])
+        return "REMOVED", "; ".join(notes)
+    local_tip = branch_tip(repo, branch) if branch else None
     if path is not None:
-        problem = safety.safe_remove_worktree(repo, path, force=False, env=_env())
+        problem = safety.safe_remove_worktree(repo, path, force=False, env=_env(), remover=remover)
         if problem:
             return "FAILED", problem
+    notes = _delete_branches(repo, branch, landed, local_tip)
+    if path is None and any(" branch kept:" in n for n in notes):
+        return "FAILED", "; ".join(notes)
+    return "REMOVED", "; ".join(notes)
+
+
+def _delete_branches(repo: Path, branch: str | None, landed: set[str], local_tip: str | None = None) -> list[str]:
+    """Delete the local and the remote `branch`, each only while its tip is one the proof showed landed."""
+    import caddis_worktree_safety as safety
+
     notes: list[str] = []
-    if branch and local_tip:
+    if not branch:
+        return notes
+    local_tip = local_tip or branch_tip(repo, branch)
+    if local_tip:
         listing = _git(repo, "worktree", "list", "--porcelain")
         if listing.returncode != 0 or f"branch refs/heads/{branch}" in listing.stdout.splitlines():
             notes.append("local branch kept: another worktree has it checked out")
@@ -516,22 +542,18 @@ def remove_finished(path: Path | None, facts: dict) -> tuple[str, str]:
         else:
             gone = _git(repo, "branch", "-D", "--", branch)
             notes.append("local branch deleted" if gone.returncode == 0 else f"local branch kept: {_err(gone)}")
-    if branch:
-        ls = _git(repo, "ls-remote", "--heads", "origin", f"refs/heads/{branch}", timeout=NET_TIMEOUT)
-        tips = [ln.split()[0] for ln in ls.stdout.splitlines() if ln.strip()] if ls.returncode == 0 else []
-        if ls.returncode != 0:
-            notes.append(f"remote branch kept: ls-remote failed: {_err(ls)}")
-        elif tips:
-            tip = tips[0].lower()
-            if tip in landed:
-                try:
-                    push = _git(repo, *safety.remote_delete_args(branch, tip), timeout=NET_TIMEOUT)
-                    notes.append("remote branch deleted" if push.returncode == 0
-                                 else f"remote branch kept: {_err(push)}")
-                except ValueError as exc:
-                    notes.append(f"remote branch kept: {exc}")
-            else:
-                notes.append("remote branch kept: its tip moved past the PR head")
-    if path is None and any(" branch kept:" in n for n in notes):
-        return "FAILED", "; ".join(notes)
-    return "REMOVED", "; ".join(notes)
+    ls = _git(repo, "ls-remote", "--heads", "origin", f"refs/heads/{branch}", timeout=NET_TIMEOUT)
+    tips = [ln.split()[0] for ln in ls.stdout.splitlines() if ln.strip()] if ls.returncode == 0 else []
+    if ls.returncode != 0:
+        notes.append(f"remote branch kept: ls-remote failed: {_err(ls)}")
+    elif tips:
+        tip = tips[0].lower()
+        if tip in landed:
+            try:
+                push = _git(repo, *safety.remote_delete_args(branch, tip), timeout=NET_TIMEOUT)
+                notes.append("remote branch deleted" if push.returncode == 0 else f"remote branch kept: {_err(push)}")
+            except ValueError as exc:
+                notes.append(f"remote branch kept: {exc}")
+        else:
+            notes.append("remote branch kept: its tip moved past the PR head")
+    return notes

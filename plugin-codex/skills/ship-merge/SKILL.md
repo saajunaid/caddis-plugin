@@ -34,7 +34,7 @@ job names and default branch — never assume.
 Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
 `stash`, `reset --hard`). Before the first of them, run:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.188/scripts/caddis_checkout_guard.py" shared --root .
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_checkout_guard.py" shared --root .
 ```
 It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
 `Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
@@ -42,11 +42,11 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
 
 - **On `SHARED: no`,** do the steps as written, in this checkout.
 - **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
-  - **Rebase:** `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.188/scripts/caddis_worktree_root.py" rebase-<name> --record --purpose "rebase <name>")" <branch>`, then
+  - **Rebase:** `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_worktree_root.py" rebase-<name> --record --purpose "rebase <name>")" <branch>`, then
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
-    `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.188/scripts/caddis_worktree_root.py" test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
-    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.188/scripts/caddis_worktree_root.py" --bootstrap` (run in the worktree); never link `node_modules` or a venv.
+    `git worktree add --detach "$(python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_worktree_root.py" test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_worktree_root.py" --bootstrap` (run in the worktree); never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
     checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no
@@ -84,7 +84,7 @@ future run — ask every time, even for the same PR five minutes later.
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.188/scripts/caddis_merge_chain.py"` does this check.
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_merge_chain.py"` does this check.
 
 ## Step 3 — Merge
 
@@ -116,7 +116,7 @@ The merge lands on the default branch and triggers the pipeline. Watch it via th
   → `notify` (`deploy-local` skill §monitoring; classify + minimum-fix on failure).
 - GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.188/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_lanes.py" ci-watch --run <run-id>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 6). This step already watches the run with `--run`, so do not watch it again; write no "still waiting" turns.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If the workflow has a deploy job, watch it through; if CI-only, note that no deploy occurs.
@@ -132,6 +132,9 @@ attempt a silent re-deploy — and **skip cleanup** (Step 6).
 ## Step 6 — Branch cleanup — only after a confirmed-green deploy
 
 **Only after** Step 5 is green:
+- In a linked worktree (an Orca one included), skip the switch, the pull and the local branch delete:
+  git cannot switch to a branch the main checkout holds. Delete only the remote branch here; the last
+  step removes an Orca worktree with its local branch.
 - Run `git status --short`. If it shows changes you did not make, do not switch, stash, reset or commit:
   leave them, report them, and stop cleanup here.
 - In a shared checkout (Step 0b says `SHARED: yes`), do not switch or pull. Clean up as Step 0b says:
@@ -153,6 +156,23 @@ Prod SHA:      matches merge ✓ | MISMATCH
 Health:        green ✓ | red — reported, cleanup skipped
 Cleanup:       remote branch ✗ deleted / local ✗ deleted / backup ref dropped | SKIPPED (<why>)
 ```
+
+## Step 8 — Remove this Orca worktree (the last action)
+
+Only when cleanup ran (it was not skipped), this session works in a linked worktree, and `orca` is on PATH. Do this
+after the report is printed: Orca stops this session when it removes the worktree. Run it from the main checkout,
+in one command:
+```
+(cd "<main checkout>" && python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.189/scripts/caddis_tidy.py" --hygiene --apply --orca-only \
+  --repo-root "<main checkout>" --worktree "<this worktree>" --session-cwd "<this worktree>" \
+  --own-terminal "$ORCA_TERMINAL_HANDLE")
+```
+The parentheses keep this session in its own folder when the result is `KEPT`.
+It acts only on an Orca-managed worktree that is merged (the same proof as `caddis_tidy.py --hygiene`) and clean, with
+no Orca terminal open in it except this session's own. It deletes the local and remote branch first, then removes
+the worktree with `orca worktree rm` (never `--force`). Any other case prints `KEPT` and the reason, and changes
+nothing. A `KEPT` worktree is removed later by the Orca sweep at the next session start, after its terminal closes.
+This step never fails the merge: if it prints `FAILED`, say so in one line and stop.
 
 ## Rules
 - Never merge without: green required checks **and** the explicit human deploy-confirm.

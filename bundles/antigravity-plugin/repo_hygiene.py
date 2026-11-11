@@ -3,9 +3,13 @@
 Plan: `.caddis/plans/repo-hygiene-report.md` (Phase 3). `repo_freshness._report` calls `report_lines()`, so Claude
 Code, Codex and agy all get the report through one function, one process and one time budget.
 
-REPORT ONLY. Nothing here deletes, moves or changes anything. The only files it writes are the gh cache
-`<git-common-dir>/caddis-hygiene-prs.json` and the Orca cache `~/.caddis/orca-worktrees.json`. Removal is `caddis_tidy.py --hygiene --apply`, which re-proves every
-candidate with the deletion-grade test in `caddis_finished.py`.
+REPORT ONLY, with one exception. Nothing here deletes, moves or changes anything. The only files it writes are the gh cache
+`<git-common-dir>/caddis-hygiene-prs.json`, the Orca cache `~/.caddis/orca-worktrees.json` and the Orca sweep stamp.
+Removal is `caddis_tidy.py --hygiene --apply`, which re-proves every candidate with the deletion-grade test in
+`caddis_finished.py`. The exception: when the current repo has an Orca-managed linked worktree, this starts
+`caddis_tidy.py --hygiene --apply --orca-only` in the background and does not wait (the Orca sweep). That run
+removes only Orca worktrees that are merged, clean and have no open Orca terminal. At most once per
+ORCA_SWEEP_EVERY_S per repo; `CADDIS_ORCA_SWEEP=0` turns it off.
 
 Every decision lives in `caddis_finished.py` (stdlib only). This module holds the I/O and the formatting. Every git
 call goes through the `git(cwd, *args) -> (code, stdout)` seam (`repo_freshness._git` in the hook). gh goes
@@ -61,6 +65,8 @@ NO_TIME_LEFT = "no time left in the session-start budget"
 
 # No child opens a console window on Windows; git never takes an optional lock or asks for a credential.
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+_NEW_GROUP = 0x00000200 if os.name == "nt" else 0  # CREATE_NEW_PROCESS_GROUP: the sweep outlives the hook
+ORCA_SWEEP_EVERY_S = 900
 _ENV_OVERRIDES = {"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
 
 
@@ -568,10 +574,82 @@ def start_jobs(top: Path, git: Callable, remaining: Callable[[], float], *, want
     return Jobs(main, roots, any_linked, gh, orca)
 
 
+def _start_sweep(argv: list[str], log: Path) -> None:
+    """The default sweep seam: start `argv` detached, output appended to `log`, and do not wait."""
+    with open(log, "ab") as fo:
+        subprocess.Popen(argv, stdout=fo, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                         env={**os.environ, **_ENV_OVERRIDES}, creationflags=_NO_WINDOW | _NEW_GROUP,
+                         start_new_session=os.name != "nt", close_fds=True)
+
+
+def _claim_stamp(stamp: Path, now: float) -> bool:
+    """True when this process won the sweep for this window. Two sessions that start at once: exactly one wins.
+
+    The stamp is created with O_EXCL. An existing stamp inside the window means no. An expired one is moved aside
+    with one rename (only one racer's rename succeeds), then created again with O_EXCL.
+    """
+    for _ in range(2):
+        try:
+            fd = os.open(stamp, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                text = stamp.read_text(encoding="utf-8").strip()
+                if not text:  # a racer created it and has not written the time yet
+                    return False
+                last = float(text)
+            except ValueError:
+                last = 0.0  # unreadable: treat as expired
+            except OSError:
+                return False
+            if 0 <= now - last < ORCA_SWEEP_EVERY_S:
+                return False
+            try:
+                stamp.rename(stamp.with_name(f"{stamp.name}.{os.getpid()}.old"))
+            except OSError:
+                return False  # another racer moved it first
+            stamp.with_name(f"{stamp.name}.{os.getpid()}.old").unlink(missing_ok=True)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(str(int(now)))
+        return True
+    return False
+
+
+def orca_sweep(main: Path, orca_linked: int, env: Mapping[str, str], home: Path, now: float,
+               start: Callable = _start_sweep) -> str | None:
+    """Start the background Orca sweep for `main` and return the report line, or None when it does not start.
+
+    It starts only when the repo has an Orca-managed linked worktree, the switch is not off, `caddis_tidy.py` is
+    found beside `caddis_finished.py`, and the repo's stamp is older than ORCA_SWEEP_EVERY_S. Any error: no sweep.
+    """
+    if orca_linked <= 0 or str(env.get("CADDIS_ORCA_SWEEP", "1")).strip() == "0" or cf is None:
+        return None
+    tidy = Path(cf.__file__).resolve().parent / "caddis_tidy.py"
+    if not tidy.is_file():
+        return None
+    stamps = home / ".caddis" / "orca-sweep"
+    stamp = stamps / (_key(main).replace(":", "").replace("\\", "-").replace("/", "-").strip("-") + ".stamp")
+    try:
+        stamps.mkdir(parents=True, exist_ok=True)
+        if not _claim_stamp(stamp, now):
+            return None
+        log = home / ".caddis" / "logs" / "orca-sweep.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            start([sys.executable, str(tidy), "--hygiene", "--apply", "--orca-only", "--repo-root", str(main)], log)
+        except OSError:
+            stamp.unlink(missing_ok=True)  # a failed start must not block the sweep for a whole window
+            return None
+    except OSError:
+        return None
+    return (f"[HARNESS] Orca sweep started in the background for {orca_linked} Orca worktree(s): removes the merged, "
+            f"clean ones with no open terminal; log ~/.caddis/logs/orca-sweep.log")
+
+
 def report_lines(top: Path | None, fresh: dict, git: Callable, remaining: Callable[[], float],
                  env: Mapping[str, str] | None = None, home: Path | None = None,
-                 jobs: Jobs | None = None) -> list[str]:
-    """The summary line, then the skipped and detail lines. REPORT ONLY: nothing here changes anything.
+                 jobs: Jobs | None = None, sweep: Callable | None = None) -> list[str]:
+    """The summary line, then the skipped and detail lines. Report only, except the Orca sweep (`orca_sweep`).
 
     `fresh` holds `branch`, `ref`, `behind`, `ahead`, `dirty`, `gate_missing` from repo_freshness. The current repo
     (resolved to its MAIN checkout, so a session in a linked worktree counts it once) gets the full report; every
@@ -627,4 +705,9 @@ def report_lines(top: Path | None, fresh: dict, git: Callable, remaining: Callab
         lines.append(_stale_line(here, other, home, main))
     if triage:
         lines.append(_triage_line(triage, main, ref, tips, git, time.time()))
+    orca_linked = sum(1 for r in records[1:] if orca_id(orca_map, r["path"])) if orca_map else 0
+    swept = orca_sweep(main, orca_linked, os.environ if env is None else env, home, time.time(),
+                       sweep or _start_sweep)
+    if swept:
+        lines.append(swept)
     return lines
