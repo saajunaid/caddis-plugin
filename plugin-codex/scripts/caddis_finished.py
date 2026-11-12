@@ -506,9 +506,10 @@ def remove_finished(path: Path | None, facts: dict, remover: Callable | None = N
     landed = {pr_head, head.lower()} - {""}  # only tips this proof showed landed
     if path is not None and branches_first:
         if branch:  # update-ref detaches without running a post-checkout hook (git switch would run it)
-            detach = _git(path, "update-ref", "--no-deref", "HEAD", head)
+            # The old value makes it compare-and-swap: a HEAD that moved after the proof is left as it is.
+            detach = _git(path, "update-ref", "--no-deref", "HEAD", head, head)
             if detach.returncode != 0:
-                return "FAILED", f"git update-ref --no-deref HEAD failed: {_err(detach)}"
+                return "FAILED", f"HEAD moved after the proof, or git update-ref failed: {_err(detach)}"
         notes = _delete_branches(repo, branch, landed)
         problem = safety.safe_remove_worktree(repo, path, force=False, env=_env(), remover=remover)
         if problem:
