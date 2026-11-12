@@ -17,6 +17,7 @@ through a `subprocess.run`-shaped seam and orca through a `Popen`-shaped one; ne
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -582,36 +583,39 @@ def _start_sweep(argv: list[str], log: Path) -> None:
                          start_new_session=os.name != "nt", close_fds=True)
 
 
-def _claim_stamp(stamp: Path, now: float) -> bool:
-    """True when this process won the sweep for this window. Two sessions that start at once: exactly one wins.
+def _claim_stamp(folder: Path, now: float) -> Path | None:
+    """The claim file when this process won the sweep for this window, else None. Two sessions at once: one wins.
 
-    The stamp is created with O_EXCL. An existing stamp inside the window means no. An expired one is moved aside
-    with one rename (only one racer's rename succeeds), then created again with O_EXCL. An empty stamp (a racer
-    has not written the time yet, or was killed before it did) dates from its modified time, so it expires too.
+    Each claim is a numbered file in `folder` that holds the claim time. The newest claim inside the window means
+    no. When it has expired, the next number is created with O_EXCL: only one racer can create it. No step moves or
+    deletes a claim that another racer may still be reading, so a racer that read an expired claim cannot remove a
+    fresh one. An empty claim (a racer has not written the time yet, or was killed before it did) dates from its
+    modified time, so it expires too. Claims older than the previous one are deleted; the previous one stays, so a
+    slow racer that read it fails its O_EXCL on ours.
     """
-    for _ in range(2):
+    numbers = sorted((int(p.name) for p in folder.iterdir() if p.name.isascii() and p.name.isdigit()), reverse=True)
+    newest = numbers[0] if numbers else 0
+    if numbers:
         try:
-            fd = os.open(stamp, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                text = stamp.read_text(encoding="utf-8").strip()
-                last = float(text) if text else stamp.stat().st_mtime
-            except ValueError:
-                last = 0.0  # unreadable: treat as expired
-            except OSError:
-                return False
-            if 0 <= now - last < ORCA_SWEEP_EVERY_S:
-                return False
-            try:
-                stamp.rename(stamp.with_name(f"{stamp.name}.{os.getpid()}.old"))
-            except OSError:
-                return False  # another racer moved it first
-            stamp.with_name(f"{stamp.name}.{os.getpid()}.old").unlink(missing_ok=True)
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(str(int(now)))
-        return True
-    return False
+            text = (folder / str(newest)).read_text(encoding="utf-8").strip()
+            last = float(text) if text else (folder / str(newest)).stat().st_mtime
+        except ValueError:
+            last = 0.0  # unreadable: treat as expired
+        except OSError:
+            return None
+        if 0 <= now - last < ORCA_SWEEP_EVERY_S:
+            return None
+    claim = folder / str(newest + 1)
+    try:
+        fd = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError:
+        return None  # another racer created this claim first
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(str(int(now)))
+    for old in numbers[1:]:
+        with contextlib.suppress(OSError):
+            (folder / str(old)).unlink(missing_ok=True)
+    return claim
 
 
 def orca_sweep(main: Path, orca_linked: int, env: Mapping[str, str], home: Path, now: float,
@@ -627,10 +631,13 @@ def orca_sweep(main: Path, orca_linked: int, env: Mapping[str, str], home: Path,
     if not tidy.is_file():
         return None
     stamps = home / ".caddis" / "orca-sweep"
-    stamp = stamps / (_key(main).replace(":", "").replace("\\", "-").replace("/", "-").strip("-") + ".stamp")
+    folder = stamps / _key(main).replace(":", "").replace("\\", "-").replace("/", "-").strip("-")
+    with contextlib.suppress(OSError):
+        folder.with_name(folder.name + ".stamp").unlink(missing_ok=True)  # the one-file stamp of caddis <= 1.3.190
     try:
-        stamps.mkdir(parents=True, exist_ok=True)
-        if not _claim_stamp(stamp, now):
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = _claim_stamp(folder, now)
+        if stamp is None:
             return None
         log = home / ".caddis" / "logs" / "orca-sweep.log"
         log.parent.mkdir(parents=True, exist_ok=True)
