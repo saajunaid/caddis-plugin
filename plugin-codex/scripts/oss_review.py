@@ -3,15 +3,15 @@
 
 A different vendor's model has different blind spots, so a second model reviewing your diff
 catches bugs a same-vendor reviewer misses. This tool is provider-agnostic: point it at
-agy Argon (default since 2026-10-21; needs no key), DeepSeek (cheap, architecturally distinct from
+agy Carbon (agy default since 2026-10-21, Carbon since 2026-11-12; needs no key), DeepSeek (cheap, architecturally distinct from
 Claude), GLM, OpenRouter, or any OpenAI-compatible `/chat/completions` endpoint via three env vars.
 
 Config precedence (highest wins): explicit CLI flag  >  env var  >  provider preset.
-  REVIEW_PROVIDER   preset name: agy-argon | deepseek | glm | openrouter   (default agy-argon)
+  REVIEW_PROVIDER   preset name: agy-carbon | deepseek | glm | openrouter   (default agy-carbon; agy-argon is an old name)
                     precedence: --provider flag, process env, then REVIEW_PROVIDER in ~/.caddis/keys.env
   REVIEW_BASE_URL   base URL, no trailing /chat/completions    (overrides the preset's URL)
   REVIEW_MODEL      model id                                   (overrides the preset's model)
-  REVIEW_API_KEY    bearer token                               (REQUIRED for an HTTP provider; agy-argon needs none)
+  REVIEW_API_KEY    bearer token                               (REQUIRED for an HTTP provider; agy-carbon needs none)
 
 Future-proofing: model ids and endpoints churn. Two layers protect against that — (1) the PROVIDERS
 table below is the ONE place a renamed model/URL is edited; (2) REVIEW_MODEL / REVIEW_BASE_URL env
@@ -48,7 +48,7 @@ verdict (exit 4). When the secret filter drops some files, the output ends with
 `REVIEW:` line. The exit code is unchanged; a caller that needs the whole change reviewed looks
 for that exact text.
 
-Provider chain (owner policy, 2026-10-21; was deepseek first from 2026-10-16): agy-argon -> deepseek -> glm.
+Provider chain (owner policy, 2026-10-21; was deepseek first from 2026-10-16): agy-carbon -> deepseek -> glm.
 A named --provider goes first, then the rest in policy order; a provider with no key (or no agy on PATH)
 is skipped. With no provider named, the chain starts at the first provider that is available. A provider failure
 moves to the next provider and never splits the diff. On HTTP 429 a `Retry-After` is honoured ONCE per
@@ -68,7 +68,7 @@ narrower case: a SINGLE file larger than the ceiling, which cannot be split, or 
 MAX_REVIEW_BATCHES. Refusal was the original behaviour and is kept for those two - a silent false
 CLEAN is the worst outcome this tool has - but it no longer fires on an ordinary large phase diff.
 
-agy limit: when agy-argon is anywhere in the provider chain, each batch is ALSO packed so its whole
+agy limit: when agy-carbon is anywhere in the provider chain, each batch is ALSO packed so its whole
 prompt (fixed text, the file list of a multi-batch run, the diff) fits AGY_MAX_PROMPT_CHARS (28,000)
 as quoted on the command line, so batches are smaller (under about 27,000 diff chars; fewer when the diff has many `"`). A single file
 whose prompt cannot fit gets its own batch: agy skips it and the next provider reviews it; with no
@@ -122,7 +122,7 @@ PROVIDERS: dict[str, dict[str, str]] = {
 # a key-lookup and label default only; it is NOT the review order (see REVIEW_ORDER).
 HTTP_DEFAULT_PROVIDER = "deepseek"
 
-# The review chain, in owner-policy order (2026-10-21): agy Argon, then DeepSeek, then GLM. A named
+# The review chain, in owner-policy order (2026-10-21): agy, then DeepSeek, then GLM. A named
 # provider goes first and the rest follow in this order; a custom endpoint (REVIEW_BASE_URL /
 # REVIEW_MODEL) never falls back, because its owner named exactly who reviews.
 #
@@ -133,17 +133,18 @@ HTTP_DEFAULT_PROVIDER = "deepseek"
 # sessions recorded "cross-review inconclusive" and moved on. A review that silently does not
 # happen is the same failure class as a diff that silently is not read.
 #
-# Order matters: agy Argon leads since 2026-10-21 (owner decision) because DeepSeek ran out of credit,
-# so every unnamed review tried DeepSeek first and failed before it reached Argon. DeepSeek stays
+# Order matters: agy leads since 2026-10-21 (owner decision) because DeepSeek ran out of credit,
+# so every unnamed review tried DeepSeek first and failed before it reached agy. DeepSeek stays
 # second: it has actually found real bugs (a date-boundary bug two same-vendor passes missed, an
 # anchor bug, an orphaned-permission-rows bug). GLM is the spare tyre, not a co-equal — an alternation
 # policy that sends half the phases to a provider that times out buys variety it never actually collects.
-AGY_PROVIDER = "agy-argon"
+AGY_PROVIDER = "agy-carbon"
+AGY_OLD_NAMES = frozenset({"agy-argon"})  # the agy reviewer's name until 2026-11-12; still accepted
 DEFAULT_PROVIDER = AGY_PROVIDER
 REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 
 # agy runs headless through caddis_spend.py run: plan mode (it needs no tools, the diff is in the prompt).
-AGY_MODEL = "gemini-4-argon-high"
+AGY_MODEL = "gemini-4-carbon-high"  # owner, 12 Nov 2026 (was gemini-4-argon-high)
 AGY_TIMEOUT_S = 15 * 60
 # The prompt is one command-line argument (`--print=<prompt>`). A Windows command line holds at most
 # 32,767 characters, so a larger prompt skips agy instead of failing to start. The limit applies to the
@@ -290,7 +291,8 @@ def named_provider(args: argparse.Namespace, env: dict[str, str]) -> str:
     chosen = args.provider or env.get("REVIEW_PROVIDER")
     if not chosen:
         chosen = _parse_keys_file(env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE).get("REVIEW_PROVIDER")
-    return (chosen or "").strip().lower()
+    chosen = (chosen or "").strip().lower()
+    return AGY_PROVIDER if chosen in AGY_OLD_NAMES else chosen
 
 
 def resolve_config(
@@ -706,7 +708,7 @@ def agy_prompt_chars(prompt: str) -> int:
 
 
 def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S) -> str:
-    """One review by agy Argon through `caddis_spend.py run` -> the reply text.
+    """One review by agy Carbon through `caddis_spend.py run` -> the reply text.
 
     ProviderSkipped: caddis_spend refused (exit 75), agy is missing, or the prompt is too long for one argument.
     ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no JSON
@@ -813,12 +815,12 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     # that can actually talk to a human. This half just answers "is it configured?" cheaply enough
     # to call before you need it, instead of finding out mid-commit.
     if args.check_config:
-        # agy Argon is the default reviewer and needs no key: agy on PATH plus caddis_spend.py is enough.
+        # agy Carbon is the default reviewer and needs no key: agy on PATH plus caddis_spend.py is enough.
         available = ([AGY_PROVIDER] if agy_launcher() is not None else []) + configured_providers(env)
         if not available:
             sys.stderr.write(
                 "no second-vendor reviewer is configured: no API key anywhere, and no agy on PATH\n"
-                "  (with caddis_spend.py) for the default agy-argon reviewer.\n"
+                "  (with caddis_spend.py) for the default agy-carbon reviewer.\n"
                 "  Cross-review needs one — the whole point is a reviewer that does not share this\n"
                 "  model's blind spots, so a same-vendor fallback would be no review at all.\n"
                 f"  Add a key to {env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, e.g.\n"
@@ -873,7 +875,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     # future-proofing path): it never falls back. A named preset falls back on a provider failure,
     # and the switch is printed, so the reviewer is never misreported.
     custom = bool(args.base_url or env.get("REVIEW_BASE_URL") or args.model or env.get("REVIEW_MODEL"))
-    # With nothing named, the default is agy Argon. A custom endpoint with no provider named is an HTTP
+    # With nothing named, the default is agy Carbon. A custom endpoint with no provider named is an HTTP
     # call (never agy), keyed and labelled as before.
     primary_provider = named or (HTTP_DEFAULT_PROVIDER if custom else DEFAULT_PROVIDER)
     agy_cmd = agy_launcher()
@@ -896,7 +898,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                 chain = []
         else:
             chain = [_http_entry(primary_provider, *resolve_config(args, env))]
-        # The rest of the chain in policy order (agy Argon -> DeepSeek -> GLM). A provider with no key, or
+        # The rest of the chain in policy order (agy -> DeepSeek -> GLM). A provider with no key, or
         # agy with no agy on PATH, is skipped: not an error, just nothing to fall back to.
         if not custom:
             for name in REVIEW_ORDER:
@@ -992,7 +994,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             "reporting a verdict that looks whole.\n"
             "  Narrow --range to a smaller commit span, or raise --max-diff-chars if you know "
             "your endpoint's real limit.\n"
-            + (f"  agy-argon is in the provider chain, so each batch prompt is also kept within "
+            + (f"  agy-carbon is in the provider chain, so each batch prompt is also kept within "
                f"{AGY_MAX_PROMPT_CHARS:,} command-line chars.\n" if agy_in_chain else "")
         )
         return EXIT_ERROR
@@ -1000,7 +1002,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         print(
             f"[cross-review] diff is {len(diff_text):,} chars — reviewing in {len(batches)} batches split on "
             f"file boundaries (ceiling {max_diff_chars:,} diff chars"
-            + (f"; agy-argon is in the chain, so each whole prompt also stays within {AGY_MAX_PROMPT_CHARS:,} "
+            + (f"; agy-carbon is in the chain, so each whole prompt also stays within {AGY_MAX_PROMPT_CHARS:,} "
                "command-line chars" if agy_in_chain else "")
             + "). Verdict is CLEAN only if every batch is clean."
         )

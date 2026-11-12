@@ -18,7 +18,7 @@ command is the quick-reference + do-it-now version.
 | **Primary** | `claude` | your Anthropic plan |
 | **OSS lane** | `claude-oss <provider> [claude args…]` | the provider's plan/pay-per-token |
 | **Convenience alias** | `claude-glm [claude args…]` | same as `claude-oss glm` |
-| **Cross-vendor review** | `/caddis:cross-review` (`oss_review.py`; default reviewer agy Argon, then DeepSeek, then GLM) | the reviewer's plan |
+| **Cross-vendor review** | `/caddis:cross-review` (`oss_review.py`; default reviewer agy Carbon, then DeepSeek, then GLM) | the reviewer's plan |
 
 To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env.
 

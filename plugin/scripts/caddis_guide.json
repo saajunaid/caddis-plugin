@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.191",
- "generated": "2026-11-12 01:33 UTC",
+ "version": "1.3.192",
+ "generated": "2026-11-12 16:20 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -158,7 +158,7 @@
   },
   {
    "name": "cross-review",
-   "description": "Cross-vendor code review of the current diff — a second-vendor model (agy Argon by default; DeepSeek, GLM or any OpenAI-compatible endpoint) reviews your changes to catch bugs a same-vendor reviewer misses",
+   "description": "Cross-vendor code review of the current diff — a second-vendor model (agy Carbon by default; DeepSeek, GLM or any OpenAI-compatible endpoint) reviews your changes to catch bugs a same-vendor reviewer misses",
    "hint": "[git range, e.g. origin/main..HEAD]",
    "steps": [
     [
@@ -1661,7 +1661,7 @@
   {
    "name": "cross-review",
    "category": "coding",
-   "description": "Have a different vendor's model (agy Argon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.",
+   "description": "Have a different vendor's model (agy Carbon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.",
    "core": false
   },
   {

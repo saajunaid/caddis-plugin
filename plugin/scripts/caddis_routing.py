@@ -39,10 +39,10 @@ SESSION_DEFAULTS: dict[str, tuple[str, str]] = {
     "coordinator": ("sonnet", "low"),
     "measure": ("sonnet", "medium"),
     "critical-phase": ("opus", "medium"),
-    "coding-phase": ("agy", "medium"),
+    "coding-phase": ("agy", "high"),
     "mechanical-phase": ("haiku", "low"),
 }
-AGY_MODEL_BY_EFFORT: dict[str, str] = {"medium": "gemini-4-argon-medium", "high": "gemini-4-argon-high"}
+AGY_MODEL_BY_EFFORT: dict[str, str] = {"medium": "gemini-4-carbon-medium", "high": "gemini-4-carbon-high"}
 CLAUDE_SESSION_MODELS = frozenset({"opus", "sonnet", "haiku"})
 
 

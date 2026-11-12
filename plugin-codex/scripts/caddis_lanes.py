@@ -77,7 +77,7 @@ DEFAULT_MODELS = {
     "glm": "glm-5.3[1m]",
     "codex-sol": "gpt-5.6-sol",
     "codex-astra": "gpt-6-astra",
-    "agy": "gemini-4-argon",
+    "agy": "gemini-4-carbon",  # owner, 12 Nov 2026: Carbon high (was Argon medium)
 }
 AGY_FALLBACK_MODEL = "gemini-3.8-flash"  # used when `agy models` does not offer the default (other teams)
 AGY_PROBE_TIMEOUT_S = 30
@@ -87,7 +87,7 @@ DEFAULT_EFFORT = {
     "glm": "medium",
     "codex-sol": "medium",
     "codex-astra": "high",
-    "agy": "medium",
+    "agy": "high",
 }
 DEFAULT_CHAINS = {
     "backend": ("glm", "codex-sol", "claude"),
@@ -1198,8 +1198,8 @@ def _probe_agy_models() -> str:
     return listing
 
 
-# The agy default is used at three effort levels: ci-watch uses -low, lanes -medium, review -high. Keep it only
-# when `agy models` offers all three exact ids.
+# The agy default is used at three effort levels: ci-watch uses -low, lanes and review -high, and a plan phase may
+# ask for -medium. Keep it only when `agy models` offers all three exact ids.
 AGY_DEFAULT_EFFORT_IDS = ("low", "medium", "high")
 _AGY_FALLBACK_NOTED = False
 

@@ -1,12 +1,12 @@
 ---
 name: cross-review
-description: Have a different vendor's model (agy Argon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.
+description: Have a different vendor's model (agy Carbon by default; DeepSeek, GLM, any OpenAI-compatible endpoint) review the current diff. Use after a phase is green and before commit/merge, or for a second opinion on a risky diff.
 ---
 
 # Cross-Review — a second-vendor set of eyes on your diff
 
 A different vendor's model has different blind spots. Claude reviewing Claude's diff shares those
-blind spots; an **agy Argon** (default), DeepSeek, GLM or other OpenAI-compatible reviewer catches a different class of
+blind spots; an **agy Carbon** (default), DeepSeek, GLM or other OpenAI-compatible reviewer catches a different class of
 issue. This skill runs that second reviewer over the current changes and acts on its verdict.
 
 ## When to use
@@ -20,7 +20,7 @@ issue. This skill runs that second reviewer over the current changes and acts on
 python "$TOOL" --check-config
 ```
 
-Exit 0 prints which providers are available (agy-argon needs no key, only agy on PATH and caddis_spend.py). **Exit 3 means nothing is configured — stop and ask the
+Exit 0 prints which providers are available (agy-carbon needs no key, only agy on PATH and caddis_spend.py). **Exit 3 means nothing is configured — stop and ask the
 user before reading any diff.** Do not proceed, and do not silently skip the review.
 
 Ask with `AskUserQuestion` which provider to set up, then write the key to `~/.caddis/keys.env` as
@@ -36,16 +36,16 @@ If a key exists for a *different* provider than the one requested, the error nam
 exact flag (`--provider glm`). Read the message before concluding anything is missing.
 
 ## Prerequisites (one-time)
-The default reviewer is **agy Argon** (since 2026-10-21; no key, but agy and `caddis_spend.py` must be present). For an HTTP
+The default reviewer is **agy Carbon** (agy since 2026-10-21, Carbon since 2026-11-12; no key, but agy and `caddis_spend.py` must be present). For an HTTP
 provider only the key is mandatory — the tool ships **provider presets** (`deepseek`, `glm`, `openrouter`):
 ```
 REVIEW_API_KEY   = <your provider key>     # REQUIRED (exit 3 without it)
-REVIEW_PROVIDER  = deepseek                 # optional: agy-argon | deepseek | glm | openrouter (default agy-argon)
+REVIEW_PROVIDER  = deepseek                 # optional: agy-carbon | deepseek | glm | openrouter (default agy-carbon; agy-argon is an old name)
 REVIEW_BASE_URL  = ...                      # optional: overrides the preset's URL
 REVIEW_MODEL     = ...                      # optional: overrides the preset's model id
 ```
 Switch provider with one flag: `--provider glm` (or `REVIEW_PROVIDER=glm`, in the env or in `~/.caddis/keys.env`; flag, then env,
-then keys file, then agy Argon). To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env. **Future-proofing:** model ids
+then keys file, then agy Carbon). To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env. **Future-proofing:** model ids
 churn — the preset table in `oss_review.py` is the one place to edit a rename, and `REVIEW_MODEL` /
 `REVIEW_BASE_URL` always win, so you can point at any new id without touching code.
 
@@ -80,7 +80,7 @@ python "$TOOL" --range origin/main..HEAD                   # review a branch's c
 ```
 Optional flags: `--cwd <repo>`, `--base-url <url>`, `--model <id>` (override the env).
 
-**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). When agy Argon is anywhere in the provider chain, each batch is also kept small enough that its **whole prompt** fits the agy command line (28,000 chars once quoted, so under about 27,000 diff chars, fewer when the diff has many `"`). A *single file* too big for agy gets its own batch: agy skips it and the next provider reviews it; with no other provider (no DeepSeek or GLM key) that is exit 3. Exit 4 means a *single unsplittable file* over the 60,000 ceiling, or too many batches — not an ordinary large diff. The ceiling exists because an oversized diff has been observed to come back either an empty response, or
+**Diff-size ceiling.** A diff over `REVIEW_MAX_DIFF_CHARS` (default 60,000 chars) is **split into batches** on whole-file boundaries and each batch reviewed separately (verdict is CLEAN only if every batch is). When agy Carbon is anywhere in the provider chain, each batch is also kept small enough that its **whole prompt** fits the agy command line (28,000 chars once quoted, so under about 27,000 diff chars, fewer when the diff has many `"`). A *single file* too big for agy gets its own batch: agy skips it and the next provider reviews it; with no other provider (no DeepSeek or GLM key) that is exit 3. Exit 4 means a *single unsplittable file* over the 60,000 ceiling, or too many batches — not an ordinary large diff. The ceiling exists because an oversized diff has been observed to come back either an empty response, or
 worse, a `REVIEW: CLEAN` with zero real engagement. If you hit this, review that file separately or narrow `--range`; don't just raise `--max-diff-chars` without knowing the endpoint's real limit.
 
 **Verdict and scope.** Only the last non-empty line of the reply counts, and it must be exactly `REVIEW: CLEAN` or `REVIEW: BLOCKING`; a reply that quotes the marker earlier and ends some other way has no verdict (exit 4). An explicit `--range` with no changes is exit 3 (a review of nothing is not CLEAN); the working tree with no changes is still CLEAN. When the secret filter drops some files, the output ends with `REVIEW-SCOPE: PARTIAL (<n> file(s) excluded by the secret filter: <names>)` and then the overall `REVIEW:` line. The exit code does not change, but those files were not reviewed: say so, and never report it as a full CLEAN.

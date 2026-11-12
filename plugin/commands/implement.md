@@ -87,7 +87,7 @@ and 95-154 turns per session were started by background events. Each turn re-rea
   (source checkout: `claude-harness/scripts/caddis_routing.py`). Opus stays for plans, designs and
   critical-code subagents (`plan-writer`, `critical-phase`).
 - **Escalation.** Escalate to Opus through a SMALL subagent (by-reference brief, reply ≤ 10 lines), never `/model opus` mid-session (the prompt cache is per model, so a switch at 200k re-writes the whole cache), when: a card fails again after its one fix card; a measurement fails a rule (isolate the cause first, then give the owner options); a plan amendment changes the design, not only facts; a risk-high phase reaches review. A fresh Opus session only to write a new plan or a redesign.
-- **One phase review.** Run `/caddis:cross-review --range <base>..HEAD` (one other vendor; agy Argon by default).
+- **One phase review.** Run `/caddis:cross-review --range <base>..HEAD` (one other vendor; agy Carbon by default).
   Never use a Claude reviewer subagent. Exception: every other-vendor provider failed. Then say so in the review file.
 - **Mechanical tasks** (literal tests, moves, deletes, renames) go to agy through
   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy ...`.

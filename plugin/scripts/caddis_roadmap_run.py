@@ -154,7 +154,7 @@ import caddis_workstreams  # noqa: E402
 
 ENGINES: dict[str, dict] = {
     "claude": {"live_tested": True, "default_model": "opus", "limit_key": "claude"},
-    "agy": {"live_tested": False, "default_model": "gemini-4-argon-medium", "limit_key": "agy"},
+    "agy": {"live_tested": False, "default_model": "gemini-4-carbon-high", "limit_key": "agy"},
     "codex": {"live_tested": False, "default_model": "gpt-5", "limit_key": "codex-sol"},
 }
 PROMPT_ON_STDIN = {"claude"}
@@ -392,7 +392,7 @@ def parse_result(stdout: str) -> dict | None:
 
 
 def _agy_engine_model(repo: Path) -> str:
-    """`<agy model>-medium`: the `[lanes.models] agy` pin in `<repo>/.caddis/config.toml` when set, else the default
+    """`<agy model>-high`: the `[lanes.models] agy` pin in `<repo>/.caddis/config.toml` when set, else the default
     agy model as `agy models` offers it here (see caddis_lanes.resolve_models)."""
     try:
         try:
@@ -400,7 +400,7 @@ def _agy_engine_model(repo: Path) -> str:
         except ModuleNotFoundError:
             sys.path.insert(0, str(_HERE))
             import caddis_lanes
-        return caddis_lanes.resolve_models(caddis_lanes.load_lanes_config(repo))["agy"] + "-medium"
+        return caddis_lanes.resolve_models(caddis_lanes.load_lanes_config(repo))["agy"] + "-high"
     except Exception:  # the lane engine is missing or the config is bad: the display default
         return ENGINES["agy"]["default_model"]
 
@@ -1239,7 +1239,7 @@ def run(*, repo: Path, plan: str | None = None, roadmap: str | None = None, caps
     if engine not in ENGINES:
         print(f"caddis_roadmap_run: unknown engine {engine!r}", file=sys.stderr)
         return caddis_exit.ERROR
-    if not model and engine == "agy":  # the model this machine offers (Argon, else the fallback); the table is display only
+    if not model and engine == "agy":  # the model this machine offers (Carbon, else the fallback); the table is display only
         model = _agy_engine_model(repo)
     model = model or ENGINES[engine]["default_model"]
     template = prompt_template or find_prompt_template(target.prompt_name)
