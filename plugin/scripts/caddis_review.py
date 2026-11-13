@@ -687,8 +687,9 @@ def _claude_exe() -> str | None:
     return _find_on_path("claude")
 
 
-def launch_claude(prompt: str, worktree: Path, out: Path) -> str:
-    """One review run: `claude -p` in `worktree`, the prompt on stdin. Writes the masked output to `out`, returns it.
+def launch_claude(prompt: str, worktree: Path, out: Path, model: str = "opus", effort: str | None = None) -> str:
+    """One review run: `claude -p --model <model>` (plus `--effort <effort>` when set) in `worktree`, the prompt
+    on stdin. Writes the masked output to `out`, returns it.
     A timeout, a start failure or a non-zero exit returns a `caddis_review: ` line first, which makes the run NOT_RUN."""
     # Read only: `--tools` gives Read, Grep and Glob and nothing else (no Bash, no Edit); dontAsk refuses any other
     # call and no prompt waits (`--permission-prompts none`). `--restricted` ignores the settings files (no settings
@@ -712,7 +713,7 @@ def launch_claude(prompt: str, worktree: Path, out: Path) -> str:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(output, encoding="utf-8")
         return output
-    cmd = [exe, "-p", "--model", "opus", "--restricted",
+    cmd = [exe, "-p", "--model", model, *(["--effort", effort] if effort else []), "--restricted",
            "--tools", ",".join(REVIEWER_TOOLS), "--permission-mode", "dontAsk", "--permission-prompts", "none",
            "--strict-mcp-config", "--disable-slash-commands",
            "--output-format", "json", "--max-budget-usd", str(MAX_BUDGET_USD)]

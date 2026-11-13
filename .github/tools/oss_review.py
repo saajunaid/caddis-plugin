@@ -57,6 +57,12 @@ the same run. agy runs through `caddis_spend.py run` (usage log, timeout, depth 
 the prompt (no tools needed). The secret filter runs once, before any provider, agy included. The
 provider that gave each verdict is printed.
 
+Reviewer chosen by author (owner decision, 12-13 Nov 2026): `--author <a> --tier <t>` builds the chain from
+review_order(a, t) (agy-written code -> claude-sonnet, claude-opus at tier 2; Claude-written code -> agy-carbon).
+A reviewer of the author's vendor never runs: an explicit --provider of that vendor exits 3 ("same-vendor
+review refused"), a REVIEW_PROVIDER of that vendor (env or keys file) is dropped with a note, and the built
+chain is filtered once more. No --author keeps the order above.
+
 Diff-size ceiling: an oversized diff sent to a chat-completions endpoint has been observed, live, to
 come back two different unsafe ways — an empty `content` field on an HTTP 200 (at least fails closed:
 no verdict line ⇒ exit 4), and, worse, a `REVIEW: CLEAN` verdict with no substantive engagement (a
@@ -68,11 +74,8 @@ narrower case: a SINGLE file larger than the ceiling, which cannot be split, or 
 MAX_REVIEW_BATCHES. Refusal was the original behaviour and is kept for those two - a silent false
 CLEAN is the worst outcome this tool has - but it no longer fires on an ordinary large phase diff.
 
-agy limit: when agy-carbon is anywhere in the provider chain, each batch is ALSO packed so its whole
-prompt (fixed text, the file list of a multi-batch run, the diff) fits AGY_MAX_PROMPT_CHARS (28,000)
-as quoted on the command line, so batches are smaller (under about 27,000 diff chars; fewer when the diff has many `"`). A single file
-whose prompt cannot fit gets its own batch: agy skips it and the next provider reviews it; with no
-other provider that is exit 3. With no agy in the chain the 60,000 ceiling alone applies.
+agy gets the prompt on stdin (stream-json), not on the command line, so agy batches follow the same
+ceiling as every other provider.
 
 Stdlib-only (urllib) so it runs anywhere with no pip install.
 """
@@ -80,12 +83,14 @@ from __future__ import annotations
 
 import argparse
 import http.client
+import importlib.util
 import json
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -146,17 +151,53 @@ REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 # agy runs headless through caddis_spend.py run: plan mode (it needs no tools, the diff is in the prompt).
 AGY_MODEL = "gemini-4-carbon-medium"  # owner, 12 Nov 2026; -high stalls past agy's 5-min stream idle timeout on reviews
 AGY_TIMEOUT_S = 15 * 60
-# The prompt is one command-line argument (`--print=<prompt>`). A Windows command line holds at most
-# 32,767 characters, so a larger prompt skips agy instead of failing to start. The limit applies to the
-# argument AS QUOTED (`agy_prompt_chars`): quoting escapes every `"`, so a diff of string literals costs more
-# than len(prompt). Each hop (oss_review -> caddis_spend -> caddis_hidden_desktop -> agy) quotes the same
-# argument once, not nested, so the cost is the same at every hop. The 4,767 chars left over hold the rest of
-# the longest command line: python, two script paths, the agy path and the fixed flags.
-WINDOWS_CMDLINE_MAX = 32_767
-AGY_MAX_PROMPT_CHARS = 28_000
+# The prompt goes on stdin as one stream-json user event, never on the command line: a Windows command line
+# holds at most 32,767 chars, and `--print=<prompt>` made batches shrink for agy. Verified live 13 Nov 2026 with a
+# 40,000-char prompt. `--print=` must be empty and last; caddis_spend and caddis_hidden_desktop pass stdin through.
+AGY_STREAM_FLAGS = ("--input-format", "stream-json", "--output-format", "stream-json")
 # `caddis_spend.py run` refusal code: 75 = headless depth at its limit, or the usage log could not be locked or
 # written. Never agy's own. (78 "cap not configured" is gone with the cap, 1 Nov 2026.)
 SPEND_REFUSED = (75,)
+
+# Claude reviewers: `claude -p` through caddis_review.launch_claude (governor, depth guard, redaction), never a
+# raw call. Provider name -> the `--model` alias. Only when named: the default chain (REVIEW_ORDER) has no Claude
+# entry, because the default author is Claude. A vendored copy of this tool without caddis_review.py skips them.
+CLAUDE_PROVIDERS: dict[str, str] = {"claude-sonnet": "sonnet", "claude-opus": "opus"}
+CLAUDE_EFFORT = "high"
+# `--author` and `--tier` choices. Only tier "2" changes the order (see review_order).
+AUTHORS: tuple[str, ...] = ("agy", "claude", "opus", "sonnet", "haiku", "glm", "deepseek", "codex")
+TIERS: tuple[str, ...] = ("0", "1-small", "1", "2")
+
+# Reviewer chosen by author (owner decision, 12-13 Nov 2026): a vendor never reviews its own code.
+# Keys: every `--author` choice and every provider name. "openrouter" is its own vendor: it is never in an order.
+VENDOR_OF: dict[str, str] = {
+    "claude": "anthropic", "opus": "anthropic", "sonnet": "anthropic", "haiku": "anthropic",
+    "claude-sonnet": "anthropic", "claude-opus": "anthropic",
+    "agy": "google", "agy-carbon": "google", "agy-carbon-medium": "google", "agy-carbon-high": "google",
+    "deepseek": "deepseek", "glm": "zhipu", "codex": "openai", "openrouter": "openrouter",
+}
+REVIEW_ORDER_BY_AUTHOR: dict[str, tuple[str, ...]] = {
+    "anthropic": REVIEW_ORDER,
+    "google": ("claude-sonnet", "deepseek", "glm"),
+}
+_OTHER_VENDOR_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm", "claude-sonnet")
+
+
+def review_order(author: str | None, tier: str) -> tuple[str, ...]:
+    """The reviewer chain for code written by `author` at review `tier`. No entry shares the author's vendor.
+    Tier "2" swaps claude-sonnet for claude-opus. Raises ValueError for an unknown author."""
+    if author is None:
+        return REVIEW_ORDER_BY_AUTHOR["anthropic"]
+    if author not in VENDOR_OF:
+        raise ValueError(f"unknown author {author!r}; expected one of {', '.join(sorted(VENDOR_OF))}")
+    vendor = VENDOR_OF[author]
+    if vendor in REVIEW_ORDER_BY_AUTHOR:
+        order = REVIEW_ORDER_BY_AUTHOR[vendor]
+    else:
+        order = tuple(name for name in _OTHER_VENDOR_ORDER if VENDOR_OF[name] != vendor)
+    if tier == "2":
+        order = tuple("claude-opus" if name == "claude-sonnet" else name for name in order)
+    return order
 
 # On HTTP 429, wait for `Retry-After` once per provider per run, at most this long.
 RETRY_AFTER_CAP_S = 60.0
@@ -285,14 +326,27 @@ def _parse_keys_file(path: str) -> dict[str, str]:
     return out
 
 
+def named_provider_source(args: argparse.Namespace, env: dict[str, str]) -> tuple[str, str]:
+    """(provider, source) the caller chose, or ("", ""). Source: "flag" (--provider), "env" (process env
+    REVIEW_PROVIDER) or "keys" (REVIEW_PROVIDER in the keys file, ~/.caddis/keys.env). --author needs the
+    source: an explicit flag of the author's vendor is refused, a standing default of that vendor is dropped."""
+    if args.provider:
+        chosen, source = args.provider, "flag"
+    elif env.get("REVIEW_PROVIDER"):
+        chosen, source = env["REVIEW_PROVIDER"], "env"
+    else:
+        chosen = _parse_keys_file(env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE).get("REVIEW_PROVIDER")
+        source = "keys"
+    chosen = (chosen or "").strip().lower()
+    if not chosen:
+        return "", ""
+    return (AGY_PROVIDER if chosen in AGY_OLD_NAMES else chosen), source
+
+
 def named_provider(args: argparse.Namespace, env: dict[str, str]) -> str:
     """The provider the caller chose, or "". Order: --provider flag, process env REVIEW_PROVIDER,
     REVIEW_PROVIDER in the keys file (~/.caddis/keys.env), so a default is switched with one line there."""
-    chosen = args.provider or env.get("REVIEW_PROVIDER")
-    if not chosen:
-        chosen = _parse_keys_file(env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE).get("REVIEW_PROVIDER")
-    chosen = (chosen or "").strip().lower()
-    return AGY_PROVIDER if chosen in AGY_OLD_NAMES else chosen
+    return named_provider_source(args, env)[0]
 
 
 def resolve_config(
@@ -484,11 +538,8 @@ def changed_paths(diff_text: str) -> list[str]:
     return paths
 
 
-def batch_diff(diff_text: str, max_chars: int, fits=None) -> list[str]:
+def batch_diff(diff_text: str, max_chars: int) -> list[str]:
     """Pack whole files into as few batches as possible, each under `max_chars`.
-
-    `fits(batch) -> bool`, when given, is a second test every batch must also pass (main() uses it to keep
-    each whole agy prompt within the agy command-line limit).
 
     A single file larger than the ceiling gets its own batch and is sent anyway — it is
     over the limit either way, and reviewing it is strictly better than skipping it. The
@@ -501,7 +552,7 @@ def batch_diff(diff_text: str, max_chars: int, fits=None) -> list[str]:
     current = ""
     for chunk in files:
         candidate = current + chunk
-        if current and (len(candidate) > max_chars or (fits is not None and not fits(candidate))):
+        if current and len(candidate) > max_chars:
             batches.append(current)
             current = chunk
         else:
@@ -638,14 +689,79 @@ def _spend_script() -> Path | None:
     return None
 
 
-def agy_launcher() -> list[str] | None:
+def _load_caddis_review():
+    """caddis_review as a module: beside this file in a bundle, else the source repo's scripts/ folder (the
+    `_spend_script` order). None when it is absent, broken or fails to import: this tool stays one stdlib file,
+    and a vendored copy without caddis_review.py only loses the Claude providers.
+    sys.path is restored afterwards. caddis_spend (launch_claude's lazy depth guard) is imported while the
+    folder is still on the path, so the guard still works after the restore."""
+    loaded = sys.modules.get("caddis_review")
+    if loaded is not None and callable(getattr(loaded, "launch_claude", None)):
+        return loaded
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "caddis_review.py", here.parents[1] / "scripts" / "caddis_review.py"):
+        if not candidate.is_file():
+            continue
+        saved_path = list(sys.path)
+        sys.path.insert(0, str(candidate.parent))
+        try:
+            spec = importlib.util.spec_from_file_location("caddis_review", candidate)
+            if spec is None or spec.loader is None:
+                return None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["caddis_review"] = module  # dataclasses look their module up while it executes
+            spec.loader.exec_module(module)
+            try:
+                import caddis_spend  # noqa: F401
+            except Exception:  # noqa: BLE001 - launch_claude runs without the depth guard, as it does today
+                pass
+        except Exception:  # noqa: BLE001 - a broken file must not stop a review by another provider
+            sys.modules.pop("caddis_review", None)
+            return None
+        finally:
+            sys.path[:] = saved_path
+        if not callable(getattr(module, "launch_claude", None)) or not callable(
+                getattr(module, "_extract_review_text", None)):
+            sys.modules.pop("caddis_review", None)
+            return None
+        return module
+    return None
+
+
+def _claude_available() -> bool:
+    """A Claude reviewer can run here: the claude CLI is on PATH AND caddis_review.py loads. The one check for
+    the chain, --check-config and an explicit --provider claude-*. The repo always has caddis_review.py, so the
+    CLI check is what tells a box without Claude Code apart."""
+    return bool(shutil.which("claude")) and _load_caddis_review() is not None
+
+
+def call_claude(alias: str, prompt: str, cwd: str) -> str:
+    """One review by `claude -p --model <alias> --effort high` through caddis_review.launch_claude, in `cwd`.
+    A `caddis_review: ` line (timeout, start failure, non-zero exit, no governor, depth limit) or an empty
+    review is a ProviderFailure: NOT_RUN, and the chain falls back like any provider failure."""
+    module = _load_caddis_review()
+    if module is None:
+        raise ProviderSkipped("caddis_review.py is not beside this script or in the repo's scripts/ folder")
+    prefix = getattr(module, "_PREFIX", "caddis_review: ")
+    out = Path(tempfile.gettempdir()) / f"oss-review-{alias}-{os.getpid()}.md"
+    output = module.launch_claude(prompt, Path(cwd), out, model=alias, effort=CLAUDE_EFFORT)
+    if output.startswith(prefix):
+        raise ProviderFailure(output.strip().splitlines()[0])
+    text = module._extract_review_text(output)
+    if not (text or "").strip():
+        raise ProviderFailure(f"claude {alias} returned an empty review")
+    return text
+
+
+def agy_launcher(caller: str = "oss-review") -> list[str] | None:
     """The command prefix that runs agy through `caddis_spend.py run`, or None when agy or caddis_spend is missing.
+    `caller` is the label caddis_spend logs the run under.
     Every agy call goes through `caddis_spend.py run` (usage log, timeout and depth guard; there is no EUR cap)."""
     agy = shutil.which("agy")
     spend = _spend_script()
     if not agy or spend is None:
         return None
-    return [sys.executable, str(spend), "run", "--caller", "oss-review", "--", agy]
+    return [sys.executable, str(spend), "run", "--caller", caller, "--", agy]
 
 
 def _kill_tree(proc) -> None:
@@ -659,16 +775,17 @@ def _kill_tree(proc) -> None:
             proc.kill()
 
 
-def _run_capped(argv: list[str], timeout: float) -> tuple[int, str, str]:
-    """Run `argv` with stdin closed; (exit, stdout, stderr). On timeout kill the whole tree and raise
-    TimeoutError: a killed caddis_spend must not leave agy running on."""
+def _run_capped(argv: list[str], timeout: float, stdin_text: str | None = None) -> tuple[int, str, str]:
+    """Run `argv`; (exit, stdout, stderr). stdin carries `stdin_text`, then closes (closed at once when None).
+    On timeout kill the whole tree and raise TimeoutError: a killed caddis_spend must not leave agy running on."""
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     env = {**os.environ, "CADDIS_HEADLESS": "1"}
-    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    stdin = subprocess.DEVNULL if stdin_text is None else subprocess.PIPE
+    proc = subprocess.Popen(argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, encoding="utf-8", errors="replace", env=env, **group)
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
+        stdout, stderr = proc.communicate(input=stdin_text, timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
         try:
@@ -682,53 +799,50 @@ def _run_capped(argv: list[str], timeout: float) -> tuple[int, str, str]:
     return proc.returncode, stdout or "", stderr or ""
 
 
-def _agy_document(stdout: str) -> dict | None:
-    """The last agy JSON document (keys status/response) that starts a line of `stdout`.
+def _agy_result(stdout: str) -> dict | None:
+    """The `result` object of the LAST stream-json line with `"event":"result"` in `stdout`, else None.
 
-    Mirror of scripts/caddis_spend.py::_agy_document, duplicated so this tool stays one stdlib-only file.
-    A `{` inside the model reply never starts a line of the raw output (it is inside a JSON string)."""
-    decoder = json.JSONDecoder()
-    text = stdout or ""
-    starts = [0] if text.startswith("{") else []
-    starts += [i + 1 for i, ch in enumerate(text) if ch == "\n" and text[i + 1:i + 2] == "{"]
+    agy `--output-format stream-json` writes one JSON event per line; the reply is the last result event:
+    {"event":"result","result":{"status":"SUCCESS","response":"...","usage":{...}}}. Other lines (init events,
+    `[caddis-governor] ...`) are skipped. The model reply is inside a JSON string, so it cannot pose as a line."""
     found = None
-    for start in starts:
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
         try:
-            obj, _end = decoder.raw_decode(text, start)
+            obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(obj, dict) and {"status", "response"} <= obj.keys():
-            found = obj
+        if isinstance(obj, dict) and obj.get("event") == "result" and isinstance(obj.get("result"), dict):
+            found = obj["result"]
     return found
 
 
-def agy_prompt_chars(prompt: str) -> int:
-    """What the prompt costs on the command line: the `--print=<prompt>` argument as subprocess quotes it."""
-    return len(subprocess.list2cmdline([f"--print={prompt}"]))
+def agy_stdin(prompt: str) -> str:
+    """The one stream-json user event agy reads on stdin, then a newline. `message` must be an object."""
+    return json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"
 
 
-def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S) -> str:
-    """One review by agy Carbon through `caddis_spend.py run` -> the reply text.
+def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, model: str = AGY_MODEL) -> str:
+    """One review by agy Carbon (`model`) through `caddis_spend.py run` -> the reply text.
 
-    ProviderSkipped: caddis_spend refused (exit 75), agy is missing, or the prompt is too long for one argument.
-    ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no JSON
-    document, or an empty reply."""
-    cost = agy_prompt_chars(prompt)
-    if cost > AGY_MAX_PROMPT_CHARS:
-        raise ProviderSkipped(f"prompt is {cost:,} chars once quoted, over the {AGY_MAX_PROMPT_CHARS:,}-char "
-                              "agy command-line limit", for_run=False)
-    argv = [*launcher, "--model", AGY_MODEL, "--mode", "plan", "--output-format", "json",
-            f"--print={prompt}"]
-    code, stdout, stderr = _run_capped(argv, timeout)
+    The prompt goes on stdin (agy_stdin), never on the command line.
+    ProviderSkipped: caddis_spend refused (exit 75) or agy is missing.
+    ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no result
+    event, or an empty reply."""
+    argv = [*launcher, "--model", model, "--mode", "plan", *AGY_STREAM_FLAGS, "--print="]
+    code, stdout, stderr = _run_capped(argv, timeout, stdin_text=agy_stdin(prompt))
     if code in SPEND_REFUSED:
         raise ProviderSkipped(f"caddis_spend refused the agy call (exit {code}): "
                               f"{stderr.strip()[-300:]}")
     if code == 127:
         raise ProviderSkipped(f"agy could not start: {stderr.strip()[-300:]}")
-    doc = _agy_document(stdout)
-    status = str(doc.get("status")) if doc else "no JSON document"
+    doc = _agy_result(stdout)
+    status = str(doc.get("status")) if doc else "no result event"
     if code != 0 or status != "SUCCESS":
-        raise ProviderFailure(f"agy exit {code}, status {status}: {(stderr or stdout).strip()[-300:]}")
+        error = f" ({str(doc.get('error'))[:300]})" if doc and doc.get("error") else ""
+        raise ProviderFailure(f"agy exit {code}, status {status}{error}: {(stderr or stdout).strip()[-300:]}")
     response = doc.get("response")
     if not isinstance(response, str) or not response.strip():
         raise ProviderFailure("agy returned an empty response")
@@ -784,6 +898,110 @@ def _config_is_changed(diff_text: str) -> bool:
     return False
 
 
+def build_chain(args: argparse.Namespace, env: dict[str, str]) -> list[tuple]:
+    """The reviewer chain: [(name, model, where, call(prompt) -> review), ...], first entry first.
+
+    One resolution for a real run and for --check-config, so "ready" means a real run has a reviewer.
+    Raises ConfigError when no reviewer is available, and when an explicit --provider is the author's
+    vendor. A same-vendor REVIEW_PROVIDER from the environment or the keys file is dropped with a note."""
+    author_vendor = VENDOR_OF[args.author] if args.author else None
+    author_order = review_order(args.author, args.tier) if args.author else REVIEW_ORDER
+
+    def _same_vendor(name: str) -> bool:
+        return author_vendor is not None and VENDOR_OF.get(name) == author_vendor
+
+    def _no_reviewer_for_author() -> str:
+        return (f"no non-author reviewer is available for author {args.author} (vendor {author_vendor}); "
+                f"the order is {', '.join(author_order)} and a same-vendor review never runs. ")
+
+    named, named_source = named_provider_source(args, env)
+    if named and _same_vendor(named):
+        if named_source == "flag":
+            raise ConfigError(f"same-vendor review refused: --provider {named} is the vendor of the author "
+                              f"{args.author} ({author_vendor}). A vendor never reviews its own code; leave "
+                              f"out --provider to use the order {', '.join(author_order)}.")
+        where = "the environment" if named_source == "env" else "the keys file"
+        sys.stderr.write(f"[cross-review] note: REVIEW_PROVIDER={named} from {where} is the author's vendor "
+                         f"({author_vendor}); it is not used for this review.\n")
+        named = ""
+    # A custom ENDPOINT names exactly who reviews (REVIEW_BASE_URL/REVIEW_MODEL, the documented
+    # future-proofing path): it never falls back. A named preset falls back on a provider failure,
+    # and the switch is printed, so the reviewer is never misreported.
+    custom = bool(args.base_url or env.get("REVIEW_BASE_URL") or args.model or env.get("REVIEW_MODEL"))
+    # With nothing named, the default is agy Carbon. A custom endpoint with no provider named is an HTTP
+    # call (never agy), keyed as before and labelled "custom" (see below).
+    primary_provider = named or (HTTP_DEFAULT_PROVIDER if custom else DEFAULT_PROVIDER)
+    agy_cmd = agy_launcher()
+
+    def _http_entry(name: str, url: str, key: str, mdl: str):
+        return (name, mdl, url, lambda prompt: call_llm(url, key, mdl, prompt))
+
+    def _agy_entry(launcher: list[str]):
+        return (AGY_PROVIDER, AGY_MODEL, "caddis_spend run", lambda prompt: call_agy(launcher, prompt))
+
+    review_cwd = str(Path(args.cwd).resolve())
+
+    def _claude_entry(name: str):
+        alias = CLAUDE_PROVIDERS[name]
+        return (name, alias, "claude -p", lambda prompt: call_claude(alias, prompt, review_cwd))
+
+    if args.author and not named and not custom:
+        # Nothing named: the author's order alone builds the chain (the loop below), and its first
+        # available entry goes first. An unavailable entry is skipped, never an error.
+        chain = []
+    elif primary_provider in CLAUDE_PROVIDERS and not custom:
+        if not _claude_available():
+            raise ConfigError(f"{primary_provider} needs the claude CLI on PATH and caddis_review.py (beside "
+                              "this script or in the repo's scripts/ folder); one of them is missing here.")
+        chain = [_claude_entry(primary_provider)]
+    elif primary_provider == AGY_PROVIDER and not custom:
+        if agy_cmd is not None:
+            chain = [_agy_entry(agy_cmd)]
+        elif named:
+            raise ConfigError(f"provider {AGY_PROVIDER!r} needs agy on PATH and caddis_spend.py "
+                              "(beside this script or in the repo's scripts/ folder).")
+        else:
+            # The default degrades: no agy here, so the chain starts at the next provider with a key.
+            chain = []
+    else:
+        # A custom endpoint with no preset named is labelled "custom": its vendor is unknown, so the
+        # same-vendor filter never drops it (the owner named it). Keys resolve as before (the preset default).
+        label = named if named in PROVIDERS else ("custom" if custom else primary_provider)
+        chain = [_http_entry(label, *resolve_config(args, env, provider=primary_provider))]
+    # The rest of the chain in order: REVIEW_ORDER (agy -> DeepSeek -> GLM), or review_order(author, tier)
+    # with --author. A provider with no key, agy with no agy on PATH, or a Claude provider with no
+    # caddis_review.py is skipped: not an error, just nothing to fall back to.
+    if not custom:
+        for name in author_order:
+            if chain and name == chain[0][0]:
+                continue
+            if name == AGY_PROVIDER:
+                if agy_cmd is not None:
+                    chain.append(_agy_entry(agy_cmd))
+                continue
+            if name in CLAUDE_PROVIDERS:
+                if _claude_available():
+                    chain.append(_claude_entry(name))
+                continue
+            try:
+                chain.append(_http_entry(name, *resolve_config(args, env, provider=name, use_overrides=False)))
+            except ConfigError:
+                continue
+    # The same-vendor guard is a final filter on the built chain, so no path above (primary, fallback, a
+    # future edit) can put the author's vendor in front of its own code.
+    chain = [entry for entry in chain if not _same_vendor(entry[0])]
+    if not chain and args.author:
+        raise ConfigError(_no_reviewer_for_author()
+                          + "Make claude (with caddis_review.py), agy or a provider key available, "
+                            f"e.g. DEEPSEEK_API_KEY in {env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}.")
+    if not chain:
+        raise ConfigError(
+            "no reviewer is available: agy is not on PATH (with caddis_spend.py) and no provider has an "
+            "API key. Set $REVIEW_API_KEY, or add a key such as DEEPSEEK_API_KEY or GLM_API_KEY to "
+            f"{env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, or install agy.")
+    return chain
+
+
 def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> int:
     _force_utf8_stdio()
     env = os.environ if env is None else env
@@ -792,7 +1010,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                         help="git range to review (e.g. origin/main..HEAD); default = working tree")
     parser.add_argument("--cwd", default=".", help="repo directory (default: cwd)")
     parser.add_argument("--provider", default=None,
-                        help=f"preset: {', '.join(sorted(PROVIDERS))} or {AGY_PROVIDER} (default "
+                        help=f"preset: {', '.join(sorted(PROVIDERS))}, {AGY_PROVIDER} or "
+                             f"{', '.join(CLAUDE_PROVIDERS)} (default "
                              f"{DEFAULT_PROVIDER}, then the next available provider); env REVIEW_PROVIDER "
                              f"or REVIEW_PROVIDER in the keys file. "
                              f"A provider failure falls back in the order {' -> '.join(REVIEW_ORDER)}")
@@ -807,6 +1026,14 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                         metavar="GLOB",
                         help="re-admit a file the secret-filter deny list would otherwise drop "
                              "(repeatable)")
+    parser.add_argument("--author", default=None, choices=AUTHORS,
+                        help="who wrote the change. The chain then follows review_order(author, tier) and a "
+                             "reviewer of the author's vendor never runs (an explicit --provider of that vendor "
+                             "exits 3). Default: none, the order "
+                             f"{' -> '.join(REVIEW_ORDER)}")
+    parser.add_argument("--tier", default="1", choices=TIERS,
+                        help="review tier from `caddis_gate.py review-tier` (default 1). Tier 2 gives "
+                             "agy-written code claude-opus instead of claude-sonnet")
     args = parser.parse_args(argv)
 
     # --check-config is deliberately NON-INTERACTIVE. This script runs headless — from CI, from a
@@ -817,16 +1044,28 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     if args.check_config:
         # agy Carbon is the default reviewer and needs no key: agy on PATH plus caddis_spend.py is enough.
         available = ([AGY_PROVIDER] if agy_launcher() is not None else []) + configured_providers(env)
-        if not available:
-            sys.stderr.write(
-                "no second-vendor reviewer is configured: no API key anywhere, and no agy on PATH\n"
-                "  (with caddis_spend.py) for the default agy-carbon reviewer.\n"
-                "  Cross-review needs one — the whole point is a reviewer that does not share this\n"
-                "  model's blind spots, so a same-vendor fallback would be no review at all.\n"
-                f"  Add a key to {env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, e.g.\n"
-                "    GLM_API_KEY=<your-key>\n")
+        if _claude_available():
+            available += list(CLAUDE_PROVIDERS)
+        # The chain resolution a real run uses, in every case, so "ready" means a real run has a reviewer.
+        try:
+            chain = build_chain(args, env)
+        except ConfigError as exc:
+            if available:
+                sys.stderr.write(f"{exc}\n  Providers available here: {', '.join(available)}.\n")
+            else:
+                sys.stderr.write(
+                    "no second-vendor reviewer is configured: no API key anywhere, and no agy on PATH\n"
+                    "  (with caddis_spend.py) for the default agy-carbon reviewer.\n"
+                    "  Cross-review needs one — the whole point is a reviewer that does not share this\n"
+                    "  model's blind spots, so a same-vendor fallback would be no review at all.\n"
+                    f"  Add a key to {env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, e.g.\n"
+                    "    GLM_API_KEY=<your-key>\n")
             return EXIT_CONFIG
-        print(f"cross-review is ready. Providers available: {', '.join(available)}")
+        print(f"cross-review is ready. Providers available: {', '.join(available) or 'none (custom endpoint)'}")
+        if args.author:
+            print(f"review order for author {args.author} (tier {args.tier}): "
+                  f"{', '.join(review_order(args.author, args.tier))}")
+        print(f"reviewers here, in order: {', '.join(entry[0] for entry in chain)}")
         return EXIT_CLEAN
 
     try:
@@ -870,53 +1109,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     scope_line = (f"REVIEW-SCOPE: PARTIAL ({len(dropped)} file(s) excluded by the secret filter: "
                   f"{', '.join(dropped)})" if dropped else "")
 
-    named = named_provider(args, env)
-    # A custom ENDPOINT names exactly who reviews (REVIEW_BASE_URL/REVIEW_MODEL, the documented
-    # future-proofing path): it never falls back. A named preset falls back on a provider failure,
-    # and the switch is printed, so the reviewer is never misreported.
-    custom = bool(args.base_url or env.get("REVIEW_BASE_URL") or args.model or env.get("REVIEW_MODEL"))
-    # With nothing named, the default is agy Carbon. A custom endpoint with no provider named is an HTTP
-    # call (never agy), keyed and labelled as before.
-    primary_provider = named or (HTTP_DEFAULT_PROVIDER if custom else DEFAULT_PROVIDER)
-    agy_cmd = agy_launcher()
-
-    def _http_entry(name: str, url: str, key: str, mdl: str):
-        return (name, mdl, url, lambda prompt: call_llm(url, key, mdl, prompt))
-
-    def _agy_entry(launcher: list[str]):
-        return (AGY_PROVIDER, AGY_MODEL, "caddis_spend run", lambda prompt: call_agy(launcher, prompt))
-
     try:
-        if primary_provider == AGY_PROVIDER and not custom:
-            if agy_cmd is not None:
-                chain = [_agy_entry(agy_cmd)]
-            elif named:
-                raise ConfigError(f"provider {AGY_PROVIDER!r} needs agy on PATH and caddis_spend.py "
-                                  "(beside this script or in the repo's scripts/ folder).")
-            else:
-                # The default degrades: no agy here, so the chain starts at the next provider with a key.
-                chain = []
-        else:
-            chain = [_http_entry(primary_provider, *resolve_config(args, env))]
-        # The rest of the chain in policy order (agy -> DeepSeek -> GLM). A provider with no key, or
-        # agy with no agy on PATH, is skipped: not an error, just nothing to fall back to.
-        if not custom:
-            for name in REVIEW_ORDER:
-                if chain and name == chain[0][0]:
-                    continue
-                if name == AGY_PROVIDER:
-                    if agy_cmd is not None:
-                        chain.append(_agy_entry(agy_cmd))
-                    continue
-                try:
-                    chain.append(_http_entry(name, *resolve_config(args, env, provider=name, use_overrides=False)))
-                except ConfigError:
-                    continue
-        if not chain:
-            raise ConfigError(
-                "no reviewer is available: agy is not on PATH (with caddis_spend.py) and no provider has an "
-                "API key. Set $REVIEW_API_KEY, or add a key such as DEEPSEEK_API_KEY or GLM_API_KEY to "
-                f"{env.get('CADDIS_KEYS_FILE') or DEFAULT_KEYS_FILE}, or install agy.")
+        chain = build_chain(args, env)
     except ConfigError as exc:
         sys.stderr.write(f"{exc}\n")
         return EXIT_CONFIG
@@ -944,16 +1138,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         max_diff_chars = int(env_val) if env_val.isdigit() else DEFAULT_MAX_DIFF_CHARS
     branch = current_branch(args.cwd)
     whole_change = changed_paths(diff_text)
-    # With agy in the chain, every batch must also fit agy: the WHOLE prompt (fixed text, the file list of
-    # a multi-batch run, the diff) as quoted on the command line. Without this, a 36k phase diff was one
-    # 60k-ceiling batch that agy skipped, and a machine with no other key got exit 3 and no review.
-    # A single file that cannot fit still gets its own batch: agy skips it, and the next provider reviews it.
-    agy_in_chain = any(name == AGY_PROVIDER for name, *_ in chain)
-
-    def _fits_agy(batch: str) -> bool:
-        return agy_prompt_chars(build_review_prompt(batch, branch, args.range, whole_change)) <= AGY_MAX_PROMPT_CHARS
-
-    batches = batch_diff(diff_text, max_diff_chars, _fits_agy if agy_in_chain else None) or [diff_text]
+    batches = batch_diff(diff_text, max_diff_chars) or [diff_text]
     # Batching only helps when the diff HAS file boundaries to cut on. A single file (or a
     # blob with no `diff --git` headers) larger than the ceiling cannot be split, and sending
     # it anyway would reintroduce exactly the silent false-CLEAN the ceiling exists to stop.
@@ -994,17 +1179,12 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             "reporting a verdict that looks whole.\n"
             "  Narrow --range to a smaller commit span, or raise --max-diff-chars if you know "
             "your endpoint's real limit.\n"
-            + (f"  agy-carbon is in the provider chain, so each batch prompt is also kept within "
-               f"{AGY_MAX_PROMPT_CHARS:,} command-line chars.\n" if agy_in_chain else "")
         )
         return EXIT_ERROR
     if len(batches) > 1:
         print(
             f"[cross-review] diff is {len(diff_text):,} chars — reviewing in {len(batches)} batches split on "
-            f"file boundaries (ceiling {max_diff_chars:,} diff chars"
-            + (f"; agy-carbon is in the chain, so each whole prompt also stays within {AGY_MAX_PROMPT_CHARS:,} "
-               "command-line chars" if agy_in_chain else "")
-            + "). Verdict is CLEAN only if every batch is clean."
+            f"file boundaries (ceiling {max_diff_chars:,} diff chars). Verdict is CLEAN only if every batch is clean."
         )
 
     # Per run: a provider that failed (429, 5xx, timeout, empty reply, caddis_spend refusal) gets no more calls,

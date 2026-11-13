@@ -187,16 +187,16 @@ def _locked(home: Path):
 
 
 def json_mode(argv: list[str]) -> bool:
-    """True only when the command has exactly ONE output-format flag and its value is `json`
-    (`--output-format json` or `--output-format=json`). A second flag could switch agy to text, where the
-    model's own lines could pose as a usage document."""
+    """True only when the command has exactly ONE output-format flag and its value is `json` or `stream-json`
+    (`--output-format json`, `--output-format=stream-json`, ...). A second flag could switch agy to text, where
+    the model's own lines could pose as a usage document."""
     values = []
     for i, arg in enumerate(argv):
         if arg == "--output-format":
             values.append(argv[i + 1] if i + 1 < len(argv) else "")
         elif arg.startswith("--output-format="):
             values.append(arg.split("=", 1)[1])
-    return values == ["json"]
+    return values in (["json"], ["stream-json"])
 
 
 def _read(home: Path) -> list[dict]:
@@ -302,7 +302,9 @@ def settle(home: Path, rid: str, tokens: tuple[int, int] | None, now: datetime,
 
 
 def _agy_document(stdout: str) -> dict | None:
-    """agy's own JSON document from `agy --output-format json` (sample: scripts/tests/fixtures/agy-json-sample.json).
+    """agy's own JSON document from `agy --output-format json` (sample: scripts/tests/fixtures/agy-json-sample.json),
+    or the `result` of the last `"event": "result"` line from `--output-format stream-json`
+    (sample: scripts/tests/fixtures/agy-stream-json-sample.ndjson).
 
     The document may follow other lines (on Windows the governor writes `[caddis-governor] scope=...` first,
     and run_lane merges stderr into stdout), and agy pretty-prints it over several lines. So: try every `{`
@@ -319,6 +321,10 @@ def _agy_document(stdout: str) -> dict | None:
             obj, _end = decoder.raw_decode(text, start)
         except json.JSONDecodeError:
             continue
+        # stream-json (`--output-format stream-json`): one event per line; the `"event": "result"` line holds
+        # the same document under `result`. The reply is an escaped string inside a line, as in json mode.
+        if isinstance(obj, dict) and obj.get("event") == "result" and isinstance(obj.get("result"), dict):
+            obj = obj["result"]
         if isinstance(obj, dict) and {"status", "response", "usage"} <= obj.keys():
             found = obj
     return found

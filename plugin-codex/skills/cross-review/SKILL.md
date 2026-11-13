@@ -44,8 +44,8 @@ Resolve the tool path deterministically — check only these two exact locations
 ```bash
 # THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
 # of whatever caddis shipped the day someone copied it, and it never updates again.
-if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.195/scripts/oss_review.py" ]; then
-  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.195/scripts/oss_review.py"
+if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.196/scripts/oss_review.py" ]; then
+  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.196/scripts/oss_review.py"
   # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
   if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
     echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"
@@ -77,17 +77,17 @@ writes. This line used to prefix the flag itself, which turned that into a doubl
 /caddis:cross-review                          -> the working tree, agy Carbon
 /caddis:cross-review --range main..HEAD       -> that range
 /caddis:cross-review --provider glm           -> GLM eyes
+/caddis:cross-review --author agy --tier 2    -> Claude Opus reviews agy-written code
+/caddis:cross-review --author claude          -> agy Carbon medium reviews Claude-written code
 ```
 Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
 
 **A large diff is batched, not refused.** Over `REVIEW_MAX_DIFF_CHARS` (default 60,000) the tool splits
-on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. When agy
-Carbon is anywhere in the provider chain, each batch is also kept small enough that its **whole prompt** fits
-the agy command line (28,000 chars once quoted, so under about 27,000 diff chars, fewer when the diff has many `"`). A **single file** too
-big for agy gets its own batch: agy skips it and the next provider reviews it. With no other provider (no
-DeepSeek or GLM key), that file gives exit **3**. Exit **4** means a **single file** over the 60,000 ceiling,
-or more batches than the cap. When you see either, review that one file separately (or add a key for an
-HTTP provider), not a narrower `--range`; don't raise `--max-diff-chars` blind.
+on whole-file boundaries and reviews each batch, and the verdict is CLEAN only if every batch is. agy gets
+the prompt on stdin (stream-json), not on the command line, so agy batches follow only
+`REVIEW_MAX_DIFF_CHARS`, the same as every other provider. Exit **4** means a **single file** over the
+60,000 ceiling, or more batches than the cap. When you see it, review that one file separately, not a
+narrower `--range`; don't raise `--max-diff-chars` blind.
 
 **The verdict is the last line.** Only the last non-empty line of the reply counts, and it must be
 exactly `REVIEW: CLEAN` or `REVIEW: BLOCKING`. A reply that quotes the marker earlier and ends some other
@@ -115,13 +115,13 @@ a reason.
   justify why one is a false positive). Fix it, then re-review only the fix diff. After 3 rounds, ask the owner (rule 3).
 - **4 — error** → no verdict parsed, or a git/endpoint failure. Read stderr; do NOT treat as clean.
 - **3 — could not run** → no key (see Prerequisite), the secret filter refused, an explicit `--range` has
-  no changes, or every provider
+  no changes, a same-vendor review refused (`--author` and the chosen provider share a vendor), or every provider
   failed (429, 5xx, timeout, empty reply). Read stderr. A provider failure is not a verdict: re-run later.
 
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.195/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.196/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.

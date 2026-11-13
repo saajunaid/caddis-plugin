@@ -947,7 +947,70 @@ def _kill_tree(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
-def run_review(worktree: Path, env: dict, timeout_s: int = LANE_REVIEW_TIMEOUT_S) -> ReviewResult:
+# The lane's review author, as `oss_review.py --author` names it. The reviewer comes from the author's vendor:
+# the review never runs on the vendor that wrote the code. `claude` has no entry: no `--author` keeps the default chain.
+LANE_AUTHOR = {"agy": "agy", "glm": "glm", "codex-sol": "codex", "codex-astra": "codex"}
+
+_REVIEW_TIERS = ("0", "1-small", "1", "2")
+
+
+def _untracked_files(worktree: Path) -> list[Path]:
+    """Untracked, not-ignored files in `worktree` (`git ls-files --others --exclude-standard`), relative paths.
+    Raises on a git failure: the caller counts that as tier 2."""
+    res = subprocess.run(["git", "-C", str(worktree), "ls-files", "-z", "--others", "--exclude-standard"],
+                         capture_output=True, timeout=60, check=True)
+    return [Path(p) for p in res.stdout.decode("utf-8", errors="replace").split("\0") if p]
+
+
+def _file_lines(path: Path, binary_lines: int) -> int:
+    """Changed lines a new file adds: its line count, or `binary_lines` for a binary file."""
+    data = path.read_bytes()
+    if b"\0" in data:
+        return binary_lines
+    return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+
+
+def _review_tier(worktree: Path, base_sha: str, runner=subprocess.run, untracked=_untracked_files) -> str:
+    """The review tier for the lane's change, from `caddis_gate.py review-tier`. Any failure gives "2".
+
+    The range is `base_sha` alone, not `base_sha..HEAD`: the lane review runs only while HEAD is still the base,
+    so `base_sha..HEAD` is always empty. `git diff <base_sha>` compares the worktree with the base.
+    `git diff` does not see untracked new files, so when one is not a tier-0 path the tier is computed again by
+    the gate's own `review_tier` over the tracked numstat plus (path, line count) of each untracked file."""
+    gate = Path(__file__).with_name("caddis_gate.py")
+    argv = [sys.executable, str(gate), "review-tier", "--range", base_sha, "--repo-root", str(worktree)]
+    try:
+        proc = runner(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return "2"
+    if proc.returncode != 0:
+        return "2"
+    tier = "2"
+    for line in _as_text(proc.stdout).splitlines():
+        if line.startswith("TIER:"):
+            tier = line.split(":", 1)[1].strip()
+            tier = tier if tier in _REVIEW_TIERS else "2"
+            break
+    if tier == "2":
+        return tier
+    try:
+        new_files = untracked(worktree)
+        if not new_files:
+            return tier
+        gate_mod = _load_file_module("_caddis_gate_for_lanes", gate)
+        posix = [p.as_posix() for p in new_files]
+        if all(gate_mod.is_tier0_file(p) for p in posix):
+            return tier
+        files = gate_mod._numstat(base_sha, worktree)
+        files += [(p, _file_lines(worktree / rel, gate_mod.BINARY_LINES)) for p, rel in zip(posix, new_files)]
+        combined = gate_mod.review_tier(files)
+    except Exception:  # noqa: BLE001 - a change we cannot measure is reviewed in full
+        return "2"
+    return combined if combined in _REVIEW_TIERS else "2"
+
+
+def run_review(worktree: Path, env: dict, timeout_s: int = LANE_REVIEW_TIMEOUT_S,
+               author: str | None = None, tier: str = "1") -> ReviewResult:
     fake_review = _review_fake()
     if fake_review:
         return ReviewResult(fake_review, 0 if fake_review == "CLEAN" else 1, f"fake review: {fake_review}")
@@ -961,6 +1024,8 @@ def run_review(worktree: Path, env: dict, timeout_s: int = LANE_REVIEW_TIMEOUT_S
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32"
              else {"start_new_session": True})
     argv = [sys.executable, str(path), "--cwd", str(worktree)]
+    if author:
+        argv += ["--author", author, "--tier", tier]
     try:
         proc = subprocess.Popen(
             argv,
@@ -2062,7 +2127,12 @@ def _run_post_checks(
         # No review: it would cover only the uncommitted part and could print CLEAN over the commit.
         review = ReviewResult("COMMITTED", None, committed)
     else:
-        review = run_review(worktree, dict(os.environ))
+        review = run_review(
+            worktree,
+            dict(os.environ),
+            author=LANE_AUTHOR.get(str(packet.get("lane") or "")),  # no lane: no author, the default chain
+            tier=_review_tier(worktree, str(packet["base_sha"])),
+        )
     review_s = time.monotonic() - review_started
     pythons = list(before)
     if pythons:

@@ -159,10 +159,9 @@ must never ask for CPU burners, stress tests, load tests or "every core". `caddi
 this wording. The host guard kills runaway agent processes. On 2026-09-13, 32 all-core busy loops
 froze CI on the dev box.
 
-- **review lane (every phase that touches code)** — cross-vendor review by a vendor that did NOT
-  write the code: `/caddis:cross-review --range main..HEAD`
-  (Claude or GLM implemented) or `--provider glm` (DeepSeek-adjacent work). Never same-vendor. Never a
-  Claude reviewer subagent, unless every other-vendor provider failed; the executor says so in the review file.
+- **review lane (every phase that touches code)** — the reviewer is chosen by the author:
+  `/caddis:cross-review --range main..HEAD --author <agy|claude> --tier <TIER>`. Agy-written code gets Claude
+  (Sonnet; Opus at tier 2). Claude-written code gets agy Carbon medium. A same-vendor review never runs.
 
 **The `Lane:` line is a routing directive read by `/caddis:implement`, not a note.** An interactive
 session that is handed a phase belonging to another lane spawns that lane rather than absorbing the

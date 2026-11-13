@@ -511,8 +511,8 @@ Invent no new machinery. Everything needed already ships:
 | Cross-vendor one-shot, no repo context | `/ask-glm` / `/ask-deepseek` |
 | Per-phase model + lane assignment in a plan | `/caddis:feature-plan` — every phase already carries **Model**, **Lane**, and a cross-review provider |
 
-**Reviewer rule (standing):** the reviewer is always a different vendor than whoever wrote the code.
-Claude or GLM implemented → agy Carbon reviews by default (DeepSeek, then GLM, as fallbacks). Never same-vendor.
+**Reviewer rule (standing):** the reviewer is chosen by the author, and is never the same vendor.
+Agy-written code gets Claude (Sonnet; Opus at tier 2). Claude-written code gets agy Carbon medium. Pass `--author` and `--tier` to `/caddis:cross-review`.
 
 Full command/billing decision table: `docs/guide/multi-model-workflow.md`.
 
