@@ -1198,7 +1198,7 @@ def _probe_agy_models() -> str:
     return listing
 
 
-# The agy default is used at three effort levels: ci-watch uses -low, lanes and review -high, and a plan phase may
+# The agy default is used at three effort levels: ci-watch uses -low, lanes -high, review -medium (oss_review), and a plan phase may
 # ask for -medium. Keep it only when `agy models` offers all three exact ids.
 AGY_DEFAULT_EFFORT_IDS = ("low", "medium", "high")
 _AGY_FALLBACK_NOTED = False

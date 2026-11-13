@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.192",
- "generated": "2026-11-12 16:20 UTC",
+ "version": "1.3.193",
+ "generated": "2026-11-13 00:19 UTC",
  "commands": [
   {
    "name": "add-rules",

@@ -144,7 +144,7 @@ DEFAULT_PROVIDER = AGY_PROVIDER
 REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 
 # agy runs headless through caddis_spend.py run: plan mode (it needs no tools, the diff is in the prompt).
-AGY_MODEL = "gemini-4-carbon-high"  # owner, 12 Nov 2026 (was gemini-4-argon-high)
+AGY_MODEL = "gemini-4-carbon-medium"  # owner, 12 Nov 2026; -high stalls past agy's 5-min stream idle timeout on reviews
 AGY_TIMEOUT_S = 15 * 60
 # The prompt is one command-line argument (`--print=<prompt>`). A Windows command line holds at most
 # 32,767 characters, so a larger prompt skips agy instead of failing to start. The limit applies to the
