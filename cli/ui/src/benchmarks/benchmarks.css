@@ -1,0 +1,87 @@
+/* Benchmarks page: tokens from theme.css only. */
+.bm {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.bm-board {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.bm-repo,
+.bm-h {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.bm-note {
+  font-weight: 400;
+  color: var(--text-sub);
+}
+.bm-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bm-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  color: var(--text-main);
+}
+.bm-label {
+  color: var(--text-sub);
+}
+.bm-source {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.bm-errors {
+  margin: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.bm-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-row);
+  background: var(--bg-card);
+}
+.bm-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-main);
+  font-size: 14px;
+}
+.bm-table th,
+.bm-table td {
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-dim);
+}
+.bm-table thead th {
+  color: var(--text-sub);
+  font-weight: 600;
+}
+.bm-table tbody th {
+  font-weight: 600;
+}
+.bm-table tbody tr:last-child th,
+.bm-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.bm-num {
+  font-variant-numeric: tabular-nums;
+}
+.bm-none {
+  color: var(--text-sub);
+}

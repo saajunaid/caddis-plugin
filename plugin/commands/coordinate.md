@@ -233,8 +233,12 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
 9. Send `merge-warning <PR> <watched sha> in 2 min. Reply ack <PR> <sha> or hold.` to every live peer
    that has a stake in this repo (design 7.3), and `queue set --repo <R> --pr <n> --state merging`. Send
    `re-warn <PR> <sha>` after any coordinator restart and after any new head on a warned PR. Old acks do not count.
-   Stake test, run for each live peer at the warning (design 7.3a). A peer has a stake when ANY of these
-   holds: its cwd is inside the checkout or one of its worktrees (for example under
+   Stake test, run at the warning (design 7.3a): run
+   `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" stake --repo <checkout>`. Warn every `STAKE`
+   peer and every peer the script does not list; warn no `NO-STAKE` peer unless the queue, the ledger or a
+   `ready`/`phase` message ties it to this repo. `STAKE-UNKNOWN` (exit 4): warn every live peer. The script
+   only decides by cwd; it never removes a stake that the queue, the ledger or a message gives. A peer has a
+   stake when ANY of these holds: its cwd is inside the checkout or one of its worktrees (for example under
    `.worktrees/<repo>/`); the queue or the ledger lists a PR, branch or plan phase of that peer in this
    repo; or it has sent `ready` or `phase` for this repo. Anything else is no stake. When the cwd is
    unknown or you are unsure, the peer has a stake. A peer with no stake gets no warning and is not in

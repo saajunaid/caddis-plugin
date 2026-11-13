@@ -95,6 +95,8 @@ export interface ServerOptions {
   onStop?: () => void;
   /** The owner actions (R32). Not set: `POST /api/actions` answers 404. */
   actions?: Actions;
+  /** Review scoreboards from the hub's repos. Not set: `GET /api/benchmarks` answers 404. */
+  getBenchmarks?: () => unknown;
   /** Where logins are saved (hashed). Not set: memory only (tests). */
   sessionsFile?: string;
 }
@@ -231,6 +233,7 @@ function keyOk(req: http.IncomingMessage, key: string): boolean {
  * - every other non-GET: Origin, then session, then CSRF token.
  * - `GET /api/session`, `GET /api/state`: a session cookie AND its tab token in `X-Caddis-Hub-Tab`.
  * - `GET /api/plan-phase`: one plan phase section, with the same session cookie AND tab token check.
+ * - `GET /api/benchmarks`: review scoreboards of the hub's repos, with the same session cookie AND tab token check.
  */
 export async function startServer(opts: ServerOptions): Promise<HubServer> {
   const host = opts.host ?? '127.0.0.1';
@@ -408,6 +411,21 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       }
       const sec = findPhaseSection(state, repo, plan, phaseKey);
       return sec ? send(res, 200, { schema: 1, ...sec }) : fail(res, 404, 'not_found');
+    }
+    if (path === '/api/benchmarks') {
+      if (!tabSessionOf(req)) return fail(res, 401, 'unauthorized');
+      if (!opts.getBenchmarks) return fail(res, 404, 'not_found');
+      let data: unknown;
+      try {
+        data = await opts.getBenchmarks();
+      } catch {
+        return fail(res, 500, 'benchmarks_failed');
+      }
+      const body =
+        data && typeof data === 'object' && !Array.isArray(data)
+          ? { schema: 1, ...(data as Record<string, unknown>) }
+          : { schema: 1, boards: [], errors: [] };
+      return send(res, 200, body);
     }
     return fail(res, 404, 'not_found');
   }

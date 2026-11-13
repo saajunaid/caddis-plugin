@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Inbox as InboxIcon, LayoutDashboard, Menu, Search, X } from 'lucide-react';
+import { Activity, BookOpen, Gauge, Inbox as InboxIcon, LayoutDashboard, Menu, Search, X } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import type { HubState, RepoState } from '../types';
 import { Logo } from './Logo';
@@ -126,6 +126,7 @@ export function Nav({ route, state, inbox, open, onToggle, onJump, children }: P
             />
             <Link href="#/overview" active={route.page === 'overview'} icon={<LayoutDashboard size={18} />} label="Overview" onGo={close} />
             <Link href="#/activity" active={route.page === 'activity'} icon={<Activity size={18} />} label="Activity" onGo={close} />
+            <Link href="#/benchmarks" active={route.page === 'benchmarks'} icon={<Gauge size={18} />} label="Benchmarks" onGo={close} />
             <Link href="#/guide" active={route.page === 'guide'} icon={<BookOpen size={18} />} label="caddis guide" onGo={close} />
             {route.page === 'guide' && (
               <li>

@@ -6,6 +6,7 @@ export type Route =
   | { page: 'overview' }
   | { page: 'repo'; id: string; tab: RepoTab; roadmap: string | null }
   | { page: 'activity' }
+  | { page: 'benchmarks' }
   | { page: 'guide'; tab: GuideTab; item: string | null };
 
 /** Hash routes, no router library: `#/inbox[/<item>]`, `#/overview`, `#/repo/<id>[/<tab>[/<slug>]]`. Unknown gives the Inbox. */
@@ -21,6 +22,7 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'overview') return { page: 'overview' };
   if (head === 'activity') return { page: 'activity' };
+  if (head === 'benchmarks') return { page: 'benchmarks' };
   if (head === 'guide') {
     try {
       const tab: GuideTab = parts[1] === 'details' || parts[1] === 'wall' || parts[1] === 'map' ? parts[1] : 'poster';

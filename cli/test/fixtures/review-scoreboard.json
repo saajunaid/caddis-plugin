@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "updated": "2026-11-12",
+  "case_set": "evals/review-cases/cases.json",
+  "cases": [
+    {
+      "id": "p12",
+      "size": "large",
+      "known": 8,
+      "repo": null
+    },
+    {
+      "id": "h1",
+      "size": "small",
+      "known": 1,
+      "repo": null
+    },
+    {
+      "id": "h2",
+      "size": "small",
+      "known": 2,
+      "repo": null
+    },
+    {
+      "id": "h3",
+      "size": "small",
+      "known": 1,
+      "repo": null
+    },
+    {
+      "id": "h4",
+      "size": "small",
+      "known": 1,
+      "repo": null
+    }
+  ],
+  "weights": {
+    "large": 2,
+    "small": 1,
+    "wrong_verdict": -1
+  },
+  "rows": [
+    {
+      "model": "sonnet",
+      "vendor": "anthropic",
+      "date": "2026-11-12",
+      "runs": 10,
+      "not_run": 0,
+      "score": 1.75,
+      "large_recall": 0.375,
+      "small_recall": 1.0,
+      "wrong_verdicts": 0,
+      "mean_seconds": 65,
+      "cost_per_run_usd": 0.2142,
+      "graded_by": "claude-opus (hand, 12 Nov)",
+      "same_vendor_grader": true,
+      "per_case": {
+        "p12": {
+          "found": [
+            2,
+            4
+          ],
+          "known": 8,
+          "consistent": 2
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 2,
+          "consistent": 2
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        }
+      },
+      "source": "evals/results/review/2026-11-12-scores.json"
+    },
+    {
+      "model": "opus",
+      "vendor": "anthropic",
+      "date": "2026-11-12",
+      "runs": 10,
+      "not_run": 0,
+      "score": 1.525,
+      "large_recall": 0.3125,
+      "small_recall": 0.9,
+      "wrong_verdicts": 0,
+      "mean_seconds": 108,
+      "cost_per_run_usd": 0.551,
+      "graded_by": "claude-opus (hand, 12 Nov)",
+      "same_vendor_grader": true,
+      "per_case": {
+        "p12": {
+          "found": [
+            3,
+            2
+          ],
+          "known": 8,
+          "consistent": 2
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            1,
+            2
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        }
+      },
+      "source": "evals/results/review/2026-11-12-scores.json"
+    },
+    {
+      "model": "agy-carbon-high",
+      "vendor": "google",
+      "date": "2026-11-12",
+      "runs": 10,
+      "not_run": 10,
+      "score": null,
+      "large_recall": null,
+      "small_recall": null,
+      "wrong_verdicts": null,
+      "mean_seconds": null,
+      "cost_per_run_usd": null,
+      "graded_by": null,
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [],
+          "known": 8,
+          "consistent": 0
+        },
+        "h1": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        },
+        "h2": {
+          "found": [],
+          "known": 2,
+          "consistent": 0
+        },
+        "h3": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        },
+        "h4": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-12-scores.json"
+    }
+  ],
+  "proposed": {
+    "anthropic": [
+      "agy-carbon",
+      "deepseek",
+      "glm"
+    ],
+    "google": [
+      "claude-sonnet",
+      "claude-opus",
+      "deepseek",
+      "glm"
+    ]
+  }
+}

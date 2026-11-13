@@ -20,6 +20,8 @@ import { useHubState } from './useHubState';
 const Guide = lazy(() => import('./guide/Guide').then((m) => ({ default: m.Guide })));
 // The Activity page is its own chunk (R54).
 const Activity = lazy(() => import('./activity/Activity'));
+// The Benchmarks page is its own chunk too.
+const Benchmarks = lazy(() => import('./benchmarks/Benchmarks'));
 
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -87,6 +89,12 @@ export function App(): JSX.Element {
     body = (
       <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
         <Guide guide={state.guide} versions={state.versions} tab={route.tab} item={route.item} />
+      </Suspense>
+    );
+  } else if (route.page === 'benchmarks') {
+    body = (
+      <Suspense fallback={<p className="page-subtitle">Loading...</p>}>
+        <Benchmarks />
       </Suspense>
     );
   } else {

@@ -1,4 +1,5 @@
 import type { ActionBody } from './actions/model';
+import type { BenchmarksResponse } from './benchmarks/derive';
 import type { HubState } from './types';
 
 export const TAB_KEY = 'caddis-hub-tab';
@@ -90,6 +91,7 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const getSession = (): Promise<SessionInfo> => getJson<SessionInfo>('/api/session');
 export const getState = (): Promise<HubState> => getJson<HubState>('/api/state');
+export const getBenchmarks = (): Promise<BenchmarksResponse> => getJson<BenchmarksResponse>('/api/benchmarks');
 
 export interface PlanPhaseSection {
   schema: number;

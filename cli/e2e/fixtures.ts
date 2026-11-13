@@ -56,7 +56,7 @@ export function acceptAction(body: Record<string, unknown>, s: State): ActionRep
 
 interface Fixtures {
   /** Start a hub on port 0 with a fixture state (optionally changed), sign in, and open the page. */
-  openHub: (name: FixtureName, tweak?: (s: State) => void, hash?: string) => Promise<Hub>;
+  openHub: (name: FixtureName, tweak?: (s: State) => void, hash?: string, benchmarks?: unknown) => Promise<Hub>;
 }
 
 const KEY_HEADER = 'x-caddis-hub-key';
@@ -64,7 +64,7 @@ const KEY_HEADER = 'x-caddis-hub-key';
 export const test = base.extend<Fixtures>({
   openHub: async ({ page }, use) => {
     const servers: HubServer[] = [];
-    await use(async (name, tweak, hash = '') => {
+    await use(async (name, tweak, hash = '', benchmarks) => {
       const state = loadFixture(name);
       tweak?.(state);
       const key = randomBytes(32).toString('hex');
@@ -74,6 +74,7 @@ export const test = base.extend<Fixtures>({
         port: 0,
         key,
         getState: () => state,
+        ...(benchmarks === undefined ? {} : { getBenchmarks: () => benchmarks }),
         versions: { hub: '0.0.0-e2e' },
         actions: {
           submit: async (body) => {

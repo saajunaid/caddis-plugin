@@ -693,6 +693,52 @@ describe('session routes', () => {
   });
 });
 
+describe('GET /api/benchmarks', () => {
+  it('GET /api/benchmarks needs a tab session', async () => {
+    await srv.close();
+    srv = await startServer({
+      host: '127.0.0.1',
+      port: 0,
+      key,
+      getState: () => state,
+      getBenchmarks: () => ({ boards: [], errors: [] }),
+      versions,
+      now: () => t,
+    });
+    expect((await req('GET', '/api/benchmarks')).status).toBe(401);
+    expect((await req('GET', '/api/benchmarks', keyHdr())).status).toBe(401);
+    const { cookie } = await login();
+    expect((await req('GET', '/api/benchmarks', { cookie })).status).toBe(401);
+  });
+
+  it('returns the getBenchmarks result', async () => {
+    const boards = [{ repo: 'acme', path: 'evals/results/review-scoreboard.json', board: { schema: 1, rows: [] } }];
+    await srv.close();
+    srv = await startServer({
+      host: '127.0.0.1',
+      port: 0,
+      key,
+      getState: () => state,
+      getBenchmarks: () => ({ boards, errors: [] }),
+      versions,
+      now: () => t,
+    });
+    const { hdr } = await login();
+    const r = await req('GET', '/api/benchmarks', hdr);
+    expect(r.status).toBe(200);
+    expect(r.headers['cache-control']).toBe('no-store');
+    expect(r.headers['content-type']).toMatch(/^application\/json/);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, boards, errors: [] });
+  });
+
+  it('answers 404 when getBenchmarks is not set', async () => {
+    const { hdr } = await login();
+    const r = await req('GET', '/api/benchmarks', hdr);
+    expect(r.status).toBe(404);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, error: 'not_found' });
+  });
+});
+
 describe('per-tab token (final review I2)', () => {
   it('the /login redirect carries the token in the fragment, not in the cookie', async () => {
     const code = await mintCode();

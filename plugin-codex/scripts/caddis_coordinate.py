@@ -986,6 +986,7 @@ def ask_remove(rid: str, ask_id: str) -> bool:
 # --- command line (C1.5) ------------------------------------------------------------------------------------------
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_LOCK_REFUSED = 0, 1, 2, 3
+EXIT_UNKNOWN = 4  # `stake` could not tell: the caller warns every live peer (fail closed)
 
 
 def _gh_head_of(rid: str) -> Callable[[int], str | None]:
@@ -1650,6 +1651,105 @@ def _claude_agents() -> list[dict]:
     return value
 
 
+# --- stake test (design 7.3a) --------------------------------------------------------------------------------------
+
+_SESSION_ENV_VARS = ("CADDIS_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID")  # as caddis_adhoc
+_WIN_ABS = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]{2})")  # E:\ or E:/ or a UNC path
+
+
+def _path_key(path: str) -> str | None:
+    """Return a comparable key for an absolute path, else None (unknown).
+
+    Separators become `/`, `.` and `..` collapse, and case folds on every platform: a false match only adds a
+    warning, a missed match drops one (fail closed). A path real on this machine is resolved first (junctions)."""
+    text = path.strip()
+    if not text or not (os.path.isabs(text) or _WIN_ABS.match(text)):
+        return None
+    if os.path.isabs(text):
+        text = os.path.realpath(text)
+    text = text.replace("\\", "/")
+    unc = text.startswith("//")
+    text = re.sub(r"/{2,}", "/", text)
+    parts: list[str] = []
+    for part in text.split("/"):
+        if part == "..":
+            if len(parts) > 1:
+                parts.pop()
+        elif part not in (".", "") or not parts:
+            parts.append(part)
+    return ("/" if unc else "") + "/".join(parts).casefold()
+
+
+def _inside(key: str, root: str) -> bool:
+    return key == root or key.startswith(root.rstrip("/") + "/")
+
+
+def stake_report(agents: list[dict], roots: list[str]) -> list[tuple[str, str, str]]:
+    """Return `(verdict, name, detail)` per agent: `STAKE` with a reason, or `NO-STAKE` with its cwd.
+
+    `roots` are the checkout and its worktrees. The caller's own session (sessionId equal to a session env
+    variable) is left out. A cwd that is missing, empty or not absolute is a stake."""
+    own = {os.environ[v] for v in _SESSION_ENV_VARS if os.environ.get(v)}
+    root_keys = [(root, key) for root in roots if (key := _path_key(root)) is not None]
+    report = []
+    for agent in agents:
+        if own and agent.get("sessionId") in own:
+            continue
+        name = str(agent.get("name") or agent.get("sessionId") or "<unnamed>")
+        cwd = agent.get("cwd")
+        key = _path_key(cwd) if isinstance(cwd, str) else None
+        if key is None:
+            report.append(("STAKE", name, f"cwd unknown ({cwd!r})"))
+            continue
+        hit = next((root for root, root_key in root_keys if _inside(key, root_key)), None)
+        if hit is not None:
+            report.append(("STAKE", name, f"cwd {cwd} is in {hit}"))
+        else:
+            report.append(("NO-STAKE", name, cwd))
+    return report
+
+
+def _repo_roots(repo: Path) -> list[str]:
+    """Return the checkout and every worktree of the repo at `repo`. Raise OSError when git cannot tell."""
+    try:
+        result = _run(["git", "-C", str(repo), "worktree", "list", "--porcelain"])
+    except subprocess.TimeoutExpired as exc:
+        raise OSError(f"git worktree list timed out after {_TIMEOUT} s") from exc
+    if result.returncode != 0:
+        detail = " ".join((result.stderr or result.stdout or "").split()) or f"exit {result.returncode}"
+        raise OSError(f"git worktree list failed in {repo}: {detail}")
+    roots = [line[len("worktree "):].strip() for line in result.stdout.splitlines() if line.startswith("worktree ")]
+    if not roots:
+        raise OSError(f"git worktree list printed no worktree for {repo}")
+    return [str(repo.resolve())] + roots
+
+
+def _stake(args: argparse.Namespace) -> int:
+    """Print `STAKE`/`NO-STAKE` per peer and a summary; `STAKE-UNKNOWN: <reason>` and exit 4 when it cannot tell."""
+    try:
+        if args.agents_json:
+            try:
+                agents = json.loads(Path(args.agents_json).read_text(encoding="utf-8"))
+            except ValueError as exc:
+                raise ValueError("the agents file is not JSON") from exc
+        else:
+            agents = _claude_agents()
+        if not isinstance(agents, list) or not all(isinstance(a, dict) for a in agents):
+            raise ValueError("the agents list is not a JSON list of objects")
+        report = stake_report(agents, _repo_roots(Path(args.repo)))
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        reason = " ".join(str(exc).split()) or type(exc).__name__
+        _emit(args, {"result": "unknown", "reason": reason}, f"STAKE-UNKNOWN: {reason}")
+        return EXIT_UNKNOWN
+    stakes = sum(1 for verdict, _, _ in report if verdict == "STAKE")
+    skipped = len(agents) - len(report)
+    summary = f"SUMMARY: {stakes} stake, {len(report) - stakes} no stake, {skipped} self skipped"
+    lines = [f"{verdict} {name} {detail}" for verdict, name, detail in report] + [summary]
+    _emit(args, {"result": "ok", "peers": [{"verdict": v, "name": n, "detail": d} for v, n, d in report],
+                 "self_skipped": skipped}, "\n".join(lines))
+    return EXIT_OK
+
+
 def _waits_on(text: str) -> list[dict]:
     try:
         value = json.loads(text)
@@ -1690,6 +1790,10 @@ def _parser() -> argparse.ArgumentParser:
     p = command("pr-check", config, repo=False)
     p.add_argument("--pr", type=int, required=True, help="the PR whose diff to check (`gh pr diff`)")
     p.add_argument("--gh-repo", help="owner/name for `gh pr diff -R` (default: the current folder's repo)")
+
+    p = command("stake", repo=False)
+    p.add_argument("--repo", required=True, help="a path to the checkout or one of its worktrees (not a repo id)")
+    p.add_argument("--agents-json", help="read the agents list from this file, not `claude agents --json` (tests)")
 
     p = command("session", repo=False)
     which = p.add_mutually_exclusive_group(required=True)
@@ -1778,6 +1882,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         rid = repo_id_for(Path(args.path))
         _emit(args, {"repo": rid}, rid)
         return EXIT_OK
+    if args.command == "stake":
+        return _stake(args)
     if args.command == "session":
         found = session_lookup(_claude_agents(), session_id=args.session_id, name=args.name)
         _emit(args, found, f"pid {found['pid']} ({found['name']})")
@@ -1891,7 +1997,7 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Run one subcommand. Exit 0 on success, 1 on an error (one line on stderr), 2 on a usage error, 3 when the
-    lock is refused."""
+    lock is refused, 4 when `stake` cannot tell (`STAKE-UNKNOWN`)."""
     try:
         parser = _parser()
         args = parser.parse_args(argv)
