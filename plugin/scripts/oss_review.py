@@ -775,15 +775,17 @@ def _kill_tree(proc) -> None:
             proc.kill()
 
 
-def _run_capped(argv: list[str], timeout: float, stdin_text: str | None = None) -> tuple[int, str, str]:
-    """Run `argv`; (exit, stdout, stderr). stdin carries `stdin_text`, then closes (closed at once when None).
+def _run_capped(argv: list[str], timeout: float, stdin_text: str | None = None,
+                cwd: str | None = None) -> tuple[int, str, str]:
+    """Run `argv` in `cwd` (None: this process's cwd); (exit, stdout, stderr). stdin carries `stdin_text`, then
+    closes (closed at once when None).
     On timeout kill the whole tree and raise TimeoutError: a killed caddis_spend must not leave agy running on."""
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     env = {**os.environ, "CADDIS_HEADLESS": "1"}
     stdin = subprocess.DEVNULL if stdin_text is None else subprocess.PIPE
     proc = subprocess.Popen(argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, encoding="utf-8", errors="replace", env=env, **group)
+                            text=True, encoding="utf-8", errors="replace", env=env, cwd=cwd, **group)
     try:
         stdout, stderr = proc.communicate(input=stdin_text, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -824,15 +826,18 @@ def agy_stdin(prompt: str) -> str:
     return json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"
 
 
-def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, model: str = AGY_MODEL) -> str:
+def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, model: str = AGY_MODEL,
+             cwd: str | None = None) -> str:
     """One review by agy Carbon (`model`) through `caddis_spend.py run` -> the reply text.
+
+    `cwd` roots the agy run there (None: this process's cwd).
 
     The prompt goes on stdin (agy_stdin), never on the command line.
     ProviderSkipped: caddis_spend refused (exit 75) or agy is missing.
     ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no result
     event, or an empty reply."""
     argv = [*launcher, "--model", model, "--mode", "plan", *AGY_STREAM_FLAGS, "--print="]
-    code, stdout, stderr = _run_capped(argv, timeout, stdin_text=agy_stdin(prompt))
+    code, stdout, stderr = _run_capped(argv, timeout, stdin_text=agy_stdin(prompt), cwd=cwd)
     if code in SPEND_REFUSED:
         raise ProviderSkipped(f"caddis_spend refused the agy call (exit {code}): "
                               f"{stderr.strip()[-300:]}")
