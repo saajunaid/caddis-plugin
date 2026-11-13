@@ -9,7 +9,7 @@ description: "Track milestones across plans in .caddis/roadmaps/<slug>/: next ba
 small docs PR, so it is ordered and recorded in git history. The tool's PRs are merged automatically on green checks
 by `caddis_merge_chain.py --docs-only`; a repo that wants a human to review them protects its default branch.
 
-`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.194/scripts` in an installed plugin, `scripts/` in
+`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.195/scripts` in an installed plugin, `scripts/` in
 the caddis source repo.
 
 In text that a later session reads (a roadmap row's check command, a restart prompt, a relay), write a script command as

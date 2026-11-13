@@ -591,7 +591,8 @@ def _claim_stamp(folder: Path, now: float) -> Path | None:
     deletes a claim that another racer may still be reading, so a racer that read an expired claim cannot remove a
     fresh one. An empty claim (a racer has not written the time yet, or was killed before it did) dates from its
     modified time, so it expires too. Claims older than the previous one are deleted; the previous one stays, so a
-    slow racer that read it fails its O_EXCL on ours.
+    slow racer that read it fails its O_EXCL on ours. A claim later than `now` is live while it is less than one
+    window ahead (the winner read its clock after this caller did); further ahead, the clock was wrong: expired.
     """
     numbers = sorted((int(p.name) for p in folder.iterdir() if p.name.isascii() and p.name.isdigit()), reverse=True)
     newest = numbers[0] if numbers else 0
@@ -603,8 +604,8 @@ def _claim_stamp(folder: Path, now: float) -> Path | None:
             last = 0.0  # unreadable: treat as expired
         except OSError:
             return None
-        if 0 <= now - last < ORCA_SWEEP_EVERY_S:
-            return None
+        if -ORCA_SWEEP_EVERY_S < now - last < ORCA_SWEEP_EVERY_S:
+            return None  # a claim up to one window ahead is live: another session read its clock a little later
     claim = folder / str(newest + 1)
     try:
         fd = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
