@@ -41,6 +41,8 @@ Absolute rules in this mode (they override everything below):
   a bullet under `## Constraints & decisions` — never a question to the user.
 - **Honor the caller's output path and slug** (falling back to `.caddis/plans/<feature-slug>.md`);
   set `feature: <slug>` in the frontmatter to that slug.
+- **Do not write `jira_epic` or `confluence_parent`** (Step 1b is interactive only). Add the assumption: no Jira
+  Epic or Confluence page was given (headless). Add both fields to publish the stories with `/caddis:stories`.
 - **Always write the plan file, then end with exactly one fenced `json` highlights block** — nothing
   after it:
   ```json
@@ -92,6 +94,15 @@ its functional requirements into phases (they are written *"so a test can verify
 exactly what a phase's exit gate needs) and its `## Open questions` into `## Constraints & decisions`.
 A headless pipeline that plans straight from a bare title while a complete PRD sits on disk is the
 failure this closes.
+
+## Step 1b — Jira Epic and Confluence page (interactive only)
+Skip this step in headless mode. Ask the user one self-contained AskUserQuestion with these two questions:
+- "Is there a Confluence HLA or HLSA page for this project? Give its URL."
+- "Is there a Jira Epic for this work? Give its key, for example ABC-123."
+
+Write `confluence_parent: <URL>` and `jira_epic: <KEY>` into the plan frontmatter only for the answers the user
+gives. With both fields, `/caddis:stories` publishes each phase as a development story to the Confluence page
+titled with the Epic key, and `/caddis:implement` syncs it after each Tracker update.
 
 ## Step 2 — Design phases
 Break the work into **independently completable** phases (~30–60 min each, clear exit gate). Each phase
@@ -263,6 +274,8 @@ Create `.caddis/plans/` if it doesn't exist.
 type: plan
 status: draft
 feature: <feature-slug>
+jira_epic: <KEY>
+confluence_parent: <URL of the HLA or HLSA page>
 creation-agent: caddis
 Original Author: Claude Code
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
@@ -422,6 +435,8 @@ Three rules: one attempt, one review.
 |---|---|---|---|---|---|---|---|
 | 1 | M1 | mid | claude | not started | — | — | |
 ```
+
+`jira_epic` and `confluence_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
 
 Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
 `in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell

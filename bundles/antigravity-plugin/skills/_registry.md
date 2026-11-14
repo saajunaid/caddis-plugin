@@ -109,6 +109,7 @@
 | Ship Merge | `ship-merge/` | Merge an already-green, already-reviewed PR behind an explicit deploy-confirm, monitor the deploy, validate prod, then clean up the branch — only on green. |
 | Ship Pr | `ship-pr/` | Open a reviewed PR for the current feature branch — rebase-safe push, PR create/update, monitor CI, STOP at green. Never merges, never deploys (that's /ship-merge). |
 | Spawn Session | `spawn-session/` | Hand the WORK to a fresh session — generate the handover from the repo, then validate the successor by re-deriving its answers |
+| Stories | `stories/` | Publish a plan's phases as development stories to the Jira Epic's Confluence page — one marked section per plan |
 | Tdd | `tdd/` | Run a strict red-green-refactor TDD cycle for a unit of behavior |
 | Ui Brief | `ui-brief/` | Design-first UI brief — lock the aesthetic before writing any code |
 | Usage Review | `usage-review/` | Review local caddis usage over a window, surface prioritised recommendations, and apply config changes in one step |

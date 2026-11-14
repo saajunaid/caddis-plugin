@@ -41,6 +41,8 @@ Absolute rules in this mode (they override everything below):
   a bullet under `## Constraints & decisions` — never a question to the user.
 - **Honor the caller's output path and slug** (falling back to `.caddis/plans/<feature-slug>.md`);
   set `feature: <slug>` in the frontmatter to that slug.
+- **Do not write `jira_epic` or `confluence_parent`** (Step 1b is interactive only). Add the assumption: no Jira
+  Epic or Confluence page was given (headless). Add both fields to publish the stories with `/caddis:stories`.
 - **Always write the plan file, then end with exactly one fenced `json` highlights block** — nothing
   after it:
   ```json
@@ -93,6 +95,15 @@ exactly what a phase's exit gate needs) and its `## Open questions` into `## Con
 A headless pipeline that plans straight from a bare title while a complete PRD sits on disk is the
 failure this closes.
 
+## Step 1b — Jira Epic and Confluence page (interactive only)
+Skip this step in headless mode. Ask the user one self-contained AskUserQuestion with these two questions:
+- "Is there a Confluence HLA or HLSA page for this project? Give its URL."
+- "Is there a Jira Epic for this work? Give its key, for example ABC-123."
+
+Write `confluence_parent: <URL>` and `jira_epic: <KEY>` into the plan frontmatter only for the answers the user
+gives. With both fields, `/caddis:stories` publishes each phase as a development story to the Confluence page
+titled with the Epic key, and `/caddis:implement` syncs it after each Tracker update.
+
 ## Step 2 — Design phases
 Break the work into **independently completable** phases (~30–60 min each, clear exit gate). Each phase
 follows the harness loop: **RED → GREEN → REFACTOR → VERIFY → COMMIT**. Front-load risk.
@@ -111,7 +122,7 @@ names the model AND the effort, in this form:
 `**Model:** <model>, effort <low|medium|high> — <one-line reason tied to this phase's difficulty>`.
 Take the default from the session table. It prints `<model> <effort>`:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.198/scripts/caddis_routing.py" session --role <role>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_routing.py" session --role <role>
 ```
 (Source checkout: `claude-harness/scripts/caddis_routing.py`.) Pick the role by the phase:
 - `mechanical-phase` — mechanical, fully specified phases that repeat an existing pattern.
@@ -148,7 +159,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   - `ui`: `claude`, `codex-astra`
   - `tests`: `codex-sol`, `glm`, `claude`
   - `docs`: `agy`, `glm`, `claude`
-  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.198/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
   --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
   has budget, give any phase the `claude` lane. Override chains and model pins per project in
   `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
@@ -169,7 +180,7 @@ work; a headless one records the deviation in the Tracker. Write the launch comm
 phase — it is executed verbatim.
 
 **Choose each phase's Lane from the routing table.** Run
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.198/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_routing.py" show --json`. A phase the orchestrator
 does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
 Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
 of that role and write its Lane line as follows:
@@ -178,7 +189,7 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.198/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
 always starts with `caddis_spend.py run`: it logs the call's usage and sets its time limit (there is no spend cap), and
@@ -263,6 +274,8 @@ Create `.caddis/plans/` if it doesn't exist.
 type: plan
 status: draft
 feature: <feature-slug>
+jira_epic: <KEY>
+confluence_parent: <URL of the HLA or HLSA page>
 creation-agent: caddis
 Original Author: Claude Code
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
@@ -422,6 +435,8 @@ Three rules: one attempt, one review.
 |---|---|---|---|---|---|---|---|
 | 1 | M1 | mid | claude | not started | — | — | |
 ```
+
+`jira_epic` and `confluence_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
 
 Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
 `in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell

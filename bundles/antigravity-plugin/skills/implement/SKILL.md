@@ -369,6 +369,11 @@ report — do not redo completed work.
      ACTUALLY ran on (not the planned one — see Step 1), and add a one-line note. This is what lets a
      future session (or the runner) see progress. Commit the Tracker update with the phase (or as a tiny
      follow-up commit) — it lives in the plan file, which is fine to commit on this branch.
+   - **SYNC THE STORIES** — only when the plan frontmatter has both `jira_epic` and `confluence_parent`. After
+     the Tracker commit, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_stories.py" sync --plan <plan path>`.
+     On exit 0, print nothing more. On any other exit, print one line
+     `WARN: stories sync exit <n> - <first output line>` and go on. The sync never stops, fails or blocks a
+     phase, and you do not retry it in that phase. Never print the Confluence token.
 
    If a phase cannot be completed (a blocking gap the plan did not resolve, or a rule above would be
    violated), **stop there**: leave later phases untouched, record the blocker in the review file, mark the

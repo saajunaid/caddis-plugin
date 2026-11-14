@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.197",
- "generated": "2026-11-13 19:04 UTC",
+ "version": "1.3.198",
+ "generated": "2026-11-14 01:11 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -309,6 +309,10 @@
      "Scope check"
     ],
     [
+     "1b",
+     "Jira Epic and Confluence page (interactive only)"
+    ],
+    [
      "2",
      "Design phases"
     ],
@@ -331,10 +335,6 @@
     [
      "",
      "Global Constraints"
-    ],
-    [
-     "",
-     "Review Focus"
     ]
    ],
    "scripts": [
@@ -633,6 +633,7 @@
     "caddis_silence_watch.py",
     "caddis_spend.py",
     "caddis_status.py",
+    "caddis_stories.py",
     "caddis_tidy.py",
     "caddis_todo.py"
    ],
@@ -1268,6 +1269,32 @@
    ],
    "noArgs": false,
    "stage": "continuity",
+   "daily": false
+  },
+  {
+   "name": "stories",
+   "description": "Publish a plan's phases as development stories to the Jira Epic's Confluence page — one marked section per plan",
+   "hint": "<plan path>",
+   "steps": [
+    [
+     "",
+     "Input"
+    ],
+    [
+     "",
+     "Steps"
+    ],
+    [
+     "",
+     "Exit codes"
+    ]
+   ],
+   "scripts": [
+    "caddis_stories.py",
+    "caddis_todo.py"
+   ],
+   "noArgs": false,
+   "stage": "knowledge",
    "daily": false
   },
   {
@@ -2464,7 +2491,7 @@
   ]
  },
  "counts": {
-  "commands": 41,
+  "commands": 42,
   "agents": 12,
   "skills": 134,
   "core": 51,
