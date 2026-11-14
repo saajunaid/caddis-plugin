@@ -508,6 +508,18 @@ Small work that does not meet a trigger skips its block.
 
 **Trigger: The plan records a decision.** Record it with `/caddis:decide`.
 
+## Step 3b — Offer to publish the stories (interactive only)
+Skip this step in headless mode, and skip it when the plan frontmatter lacks either `jira_epic` or `confluence_parent`.
+Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_stories.py" sync --plan "<plan path>" --dry-run`.
+- Exit 0: show the `ACTION:` and `PAGE:` lines, then ask one AskUserQuestion: "Publish the stories to the Epic page now?
+  The page shows the plan status, for example draft. `/caddis:implement` re-syncs them after each phase." On yes, run
+  the same command without `--dry-run`. On no, print `Stories: not published - run /caddis:stories <plan path> later`.
+- Any non-zero exit, of the dry run or of the write (3 = no Confluence keys or the network failed; 1 or 4 = see
+  `/caddis:stories`): print `Stories: not published - exit <n> - <first output line>` and go on to Step 4. Never print
+  the token. The plan is still done.
+
+The plan is a draft and may change after preflight. Publish only on the user's yes.
+
 ## Step 4 — Report
 Output the plan path (`.caddis/plans/<feature-slug>.md`), the phase list (one line each, with each
 phase's model tier + lane + execution), confirm the local-coder gate passed (or list the phases that need

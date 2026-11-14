@@ -14,21 +14,21 @@ Jira is the reader's job: caddis does not call Jira.
 
 - Usage: `/caddis:stories <plan path>`. The plan path is `$ARGUMENTS`; with no argument, ask for it.
 - When no argument is given, find the plan with
-  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_todo.py" active-plan`.
+  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.200/scripts/caddis_todo.py" active-plan`.
 - The plan frontmatter must hold `jira_epic: <KEY>` and `confluence_parent: <URL of the HLA or HLSA page>`.
 - The keys must be in the environment or in `~/.caddis/keys.env`: `CONFLUENCE_URL` (https only) and
   `CONFLUENCE_TOKEN` (a personal access token). Never print, echo or show the token.
 
 ## Steps
 
-1. Show the table. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_stories.py" render --plan <plan path>` and
+1. Show the table. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.200/scripts/caddis_stories.py" render --plan <plan path>` and
    show its output to the user.
 2. Check the login and the parent page. Run
-   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_stories.py" check --plan <plan path>`. It makes read-only calls and
+   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.200/scripts/caddis_stories.py" check --plan <plan path>`. It makes read-only calls and
    prints `USER:` and `PARENT:` lines.
-3. Do a dry run. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_stories.py" sync --plan <plan path> --dry-run`.
+3. Do a dry run. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.200/scripts/caddis_stories.py" sync --plan <plan path> --dry-run`.
    Show the `ACTION:` and `PAGE:` lines. It writes nothing.
-4. Write. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.199/scripts/caddis_stories.py" sync --plan <plan path>`. Report the
+4. Write. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.200/scripts/caddis_stories.py" sync --plan <plan path>`. Report the
    `ACTION:` and `PAGE:` lines, and each `WARN:` line.
 
 Stop at the first step that does not exit 0, and report its output.

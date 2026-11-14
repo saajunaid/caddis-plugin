@@ -93,6 +93,7 @@ class PlanInfo:
     epic: str | None
     parent: str | None
     stories: list[Story]
+    status: str | None = None
 
 
 # ---------------------------------------------------------------- plan reading
@@ -138,12 +139,25 @@ def phase_headings(text: str) -> list[tuple[str, str, str | None]]:
 
 
 def plain(text: str) -> str:
-    """Short plain text: no links, bold or backticks, no `(...)` group, no dash with spaces, one space between words."""
+    """Short plain text: no links, bold or backticks, no `(...)` group, no dash with spaces, one space between words.
+    A code span keeps its brackets and dashes; only its backticks go. A `(...)` group that holds a code span still goes."""
+    code: list[str] = []
+
+    def hold(m: re.Match) -> str:
+        span = m.group(2)
+        if len(span) >= 2 and span[0] == span[-1] == " " and span.strip(" "):
+            span = span[1:-1]  # CommonMark: one padding space each side
+        code.append(span)
+        return f"\x00{len(code) - 1}\x00"
+
+    text = text.replace("\x00", "")
+    text = re.sub(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)", hold, text, flags=re.DOTALL)
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = text.replace("**", "").replace("`", "")
     text = re.sub(r"\([^()]*\)", "", text)
     text = re.sub(r"\s*[—–]\s*", " ", text)
     text = re.sub(r"\s+([,;:])(?=\s|$)", r"\1", text)
+    text = re.sub(r"\x00(\d+)\x00", lambda m: code[int(m.group(1))], text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -285,7 +299,7 @@ def read_plan(path: Path) -> PlanInfo:
         ))
         previous = pid
     return PlanInfo(path=path, slug=slug, title=title, epic=_meta_text(meta, "jira_epic"),
-                    parent=_meta_text(meta, "confluence_parent"), stories=out)
+                    parent=_meta_text(meta, "confluence_parent"), stories=out, status=_meta_text(meta, "status"))
 
 
 # ---------------------------------------------------------------- rendering
@@ -320,7 +334,8 @@ def _esc(text: str) -> str:
 
 def storage_section(info: PlanInfo) -> str:
     """The plan's section in Confluence storage format: start marker (with the hash), heading, intro, table, end marker."""
-    parts = [f"<h2>Development stories: {_esc(info.title)}</h2>",
+    status = f" (plan status: {info.status})" if info.status else ""
+    parts = [f"<h2>Development stories: {_esc(info.title + status)}</h2>",
              f"<p>caddis writes this section from the plan file {_esc(info.path.name)}. Do not edit it. "
              f"The next sync replaces it.</p>",
              "<table><tbody><tr>" + "".join(f"<th>{_esc(c)}</th>" for c in COLUMNS) + "</tr>"]
