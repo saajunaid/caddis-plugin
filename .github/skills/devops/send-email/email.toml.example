@@ -17,6 +17,10 @@ sender = ""
 # Env var: CADDIS_EMAIL_ENV_FILE. Flag: --env-file.
 env_file = ""
 
+# The name under "Thanks," at the end of every email, for example "Junaid".
+# Leave empty to use the first word of `git config user.name`. The script does not read it; the skill does.
+signature = ""
+
 [graph]
 # The NAMES of the keys in the env file (or environment) that hold the values.
 # These are the defaults. Change them only if your env file uses other names.

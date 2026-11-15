@@ -80,7 +80,14 @@ def md_to_html(md: str) -> str:
             para.clear()
 
     def cells(row):
-        return [c.strip() for c in row.strip("|").split("|")]
+        return [c.strip() for c in row.strip().strip("|").split("|")]
+
+    def is_table_start(n):
+        # A header row with a "|", then a separator row such as "|---|:---:|" or "--- | ---" (outer pipes optional).
+        if "|" not in lines[n] or n + 1 >= len(lines):
+            return False
+        sep = lines[n + 1].strip()
+        return "|" in sep and re.match(r"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$", sep) is not None
 
     while i < len(lines):
         s = lines[i].strip()
@@ -93,11 +100,11 @@ def md_to_html(md: str) -> str:
             flush()
             n = min(len(s) - len(s.lstrip("#")), 4)
             out.append(f"<h{n}>{inline(s.lstrip('#').strip())}</h{n}>")
-        elif s.startswith("|") and i + 1 < len(lines) and re.match(r"^\|[\s:|-]+\|$", lines[i + 1].strip()):
+        elif is_table_start(i):
             flush()
             rows = [s]
             i += 2
-            while i < len(lines) and lines[i].strip().startswith("|"):
+            while i < len(lines) and "|" in lines[i] and lines[i].strip():
                 rows.append(lines[i].strip())
                 i += 1
             i -= 1
