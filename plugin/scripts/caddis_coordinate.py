@@ -1130,6 +1130,11 @@ def load_config(repo_root: Path) -> dict:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"no coordinator config at {path} (run: caddis_coordinate.py config init)") from exc
+    return _parse_config(text)
+
+
+def _parse_config(text: str) -> dict:
+    """The checks of `load_config` on the text of a coordinator.md."""
     config = _config_block(text)
     if not isinstance(config, dict):
         raise ValueError("the config json block must be one JSON object")
@@ -1168,6 +1173,24 @@ def _start_mode_at(repo_root: Path, rev: str) -> str | None:
     if "start_mode" not in block:
         return None
     return block["start_mode"] if block["start_mode"] in START_MODES else "invalid"
+
+
+def load_deploy_config(repo_root: Path) -> dict:
+    """The config deploy-verify uses: `.caddis/coordinator.md` on `origin/<default branch>` after a fetch.
+
+    A coordinator's own work tree can be far behind origin, and then it reads an old `deploy.jobs` (serve-sight,
+    11 Nov 2026). With no `origin/HEAD` (not a clone), read the work tree as `load_config` does. Raise OSError
+    when the fetch fails and FileNotFoundError when origin has no config."""
+    if _origin_default_branch(repo_root) is None:
+        return load_config(repo_root)
+    fetched = _run(["git", "-C", str(repo_root), "fetch", "-q", "origin"])
+    if fetched.returncode != 0:
+        raise OSError(f"git fetch origin failed in {repo_root}: {fetched.stderr.strip()}")
+    branch = _origin_default_branch(repo_root)
+    shown = _run(["git", "-C", str(repo_root), "show", f"origin/{branch}:{_CONFIG_REL}"])
+    if shown.returncode != 0:
+        raise FileNotFoundError(f"no {_CONFIG_REL} on origin/{branch} in {repo_root}")
+    return _parse_config(shown.stdout)
 
 
 def _origin_default_branch(repo_root: Path) -> str | None:
@@ -1459,6 +1482,16 @@ def _call(runner: Callable[[list[str]], subprocess.CompletedProcess[str]], argv:
     return result
 
 
+# Jobs that may be skipped in a deploy run and still count (`deploy.skippable_jobs` replaces the list). app-ci
+# skips deploy_uat on every run that does not deploy to UAT.
+DEFAULT_SKIPPABLE_JOBS = ("deploy_uat",)
+
+
+def _job_short_name(name: object) -> str:
+    """`ci / deploy_uat` -> `deploy_uat`: a called workflow's jobs carry the caller job's name as a prefix."""
+    return str(name or "").rsplit("/", 1)[-1].strip()
+
+
 def deploy_verify(rid: str, cfg: dict, pr: int, merge_sha: str, *, docs_only: bool,
                   runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None,
                   env=os.environ, repo_root: Path | None = None) -> dict:
@@ -1468,7 +1501,8 @@ def deploy_verify(rid: str, cfg: dict, pr: int, merge_sha: str, *, docs_only: bo
     Checks run in order and stop at the first failure (the rest are `skip`). D2 does not wait: the model waits
     with `caddis_lanes.py ci-watch --run` first. Docs-only runs D1, D2 and D5 only, and D2 fails when the run
     contradicts the flag (a job named `deploy...` succeeded, or `deploy.jobs` jobs succeeded). A non-docs run needs
-    `deploy.jobs` successful jobs, and every job when it has more. `deploy.never_health_path` is never requested.
+    `deploy.jobs` successful jobs, and every job when it has more; a skipped job named in `deploy.skippable_jobs`
+    (default `deploy_uat`) counts as done. `deploy.never_health_path` is never requested.
     `GH_TOKEN` comes from the inherited environment only. `repo_root` is where the git commands of D3 run.
     A run still in progress at D2 records health `pending`, not `failed`.
     Raises ValueError, before any network call and with nothing recorded, for a merge SHA that is not a full SHA,
@@ -1555,15 +1589,21 @@ def deploy_verify(rid: str, cfg: dict, pr: int, merge_sha: str, *, docs_only: bo
             jobs = None
         if not isinstance(jobs, list):
             raise _CheckFailed("gh run view did not print a jobs list")
+        skippable = deploy.get("skippable_jobs", list(DEFAULT_SKIPPABLE_JOBS))
+        if not isinstance(skippable, list) or not all(isinstance(n, str) and n for n in skippable):
+            raise _CheckFailed(f"deploy.skippable_jobs must be a list of job names, not {skippable!r}")
         succeeded = [j for j in jobs if isinstance(j, dict) and j.get("conclusion") == "success"]
+        allowed = [j for j in jobs if isinstance(j, dict) and j.get("conclusion") == "skipped"
+                   and _job_short_name(j.get("name")) in skippable]
         done = len(succeeded)
         if docs_only:  # a docs-only push deploys nothing: a run that deployed contradicts the flag
             deployed = any("deploy" in str(j.get("name", "")).lower() for j in succeeded)
             if deployed or (want_ok and done >= want):
                 raise _CheckFailed(f"docs-only flag contradicts the run: {done} jobs succeeded")
             return
+        done += len(allowed)  # a named job that was skipped (deploy_uat on a PROD-only run) counts as done
         others = ", ".join(f"{j.get('name')}={j.get('conclusion')}" for j in jobs
-                           if isinstance(j, dict) and j.get("conclusion") != "success")
+                           if isinstance(j, dict) and j.get("conclusion") != "success" and j not in allowed)
         detail = f" ({others})" if others else ""
         if done < want:
             raise _CheckFailed(f"run {found['id']}: {done} of {want} jobs succeeded{detail}")
@@ -1958,7 +1998,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         return EXIT_OK
     if args.command == "deploy-verify":
         root = _deploy_root(args.config_path)
-        out = deploy_verify(rid, load_config(root), args.pr, args.merge_sha, docs_only=args.docs_only,
+        out = deploy_verify(rid, load_deploy_config(root), args.pr, args.merge_sha, docs_only=args.docs_only,
                             runner=_deploy_run, repo_root=root)
         marks = " ".join(f"{name}={mark}" for name, mark in out["checks"].items())
         _emit(args, out, f"{out['health']}: {marks} ({out['reason']})")

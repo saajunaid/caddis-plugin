@@ -49,3 +49,9 @@ Stop at the first step that does not exit 0, and report its output.
   call.
 - A sync rewrites the plan's whole section. A phase removed from the plan leaves the table.
 - When the stored section has the same hash, the sync writes nothing and makes no new page version.
+- On a page another user edited, the dry run prints the CURRENT version. The write bumps it (seen v5 to v6). The
+  section markers survive a real Confluence save: the next sync said `ACTION: unchanged`.
+- `plain()` in `scripts/caddis_stories.py` must protect backtick code spans. It once stripped every `(...)` group
+  and corrupted SQL such as `SUM(Base)` and `WITH (NOLOCK)` (fixed in #278). It now holds each whole backtick run
+  as a placeholder (CommonMark rule). Review found edge cases: code inside links, code inside parentheses, and
+  multi-backtick runs. Any text simplifier for published output needs the same protection.

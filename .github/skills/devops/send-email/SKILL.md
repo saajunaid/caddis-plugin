@@ -56,7 +56,8 @@ For a local test relay only, set `allow_insecure_auth = true` (a boolean) in the
    - A note to forward to another team: a plain subject with no prefix, for example `Data request for the weekly report`.
 3. Dry run. It sends nothing, needs no credentials and writes `<file>.preview.html`:
    `python -I scripts/send_email.py --dry-run --to x@example.com --subject t --body-file <file.md>`
-   Read the preview, then delete it.
+   Read the preview, then delete it. `md_to_html` writes each table on ONE line, so `grep -c "<tr"` counts tables,
+   not rows. Count rows with `grep -o "<tr" <file>.preview.html | wc -l`.
 4. Send:
    `python -I scripts/send_email.py --to <address> --subject '<subject>' --body-file <file.md> [--attach <file> ...]`
    `--to` can repeat. Graph HTTP 202 means Graph accepted the mail. An SMTP "accepted" means the server took it.
