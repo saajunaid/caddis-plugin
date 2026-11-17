@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  asScoreboard,
   caseTone,
+  currentPrice,
+  dayText,
+  nextPriceText,
+  priceCell,
+  priceRiseNotes,
   groupCases,
   headlineLines,
   pct,
@@ -64,6 +70,43 @@ describe('benchmarks derive', () => {
     expect(costCell(rowOf(b, 'sonnet'))).toBe('USD 0.21');
     expect(costCell(rowOf(b, 'opus'))).toBe('USD 0.55');
     expect(costCell(rowOf(b, 'agy-carbon-high'))).toBe('-');
+  });
+
+  it('price cell is input / output per 1M tokens, a dash without a price', () => {
+    const b = board6();
+    expect(priceCell(b.prices.sonnet, '2026-11-17')).toBe('2.00 / 10.00');
+    expect(priceCell(b.prices.opus, '2026-11-17')).toBe('4.00 / 20.00');
+    expect(priceCell(b.prices['agy-hydrogen-high'], '2026-11-17')).toBe('1.50 / 7.50');
+    expect(priceCell(undefined, '2026-11-17')).toBe('-');
+  });
+
+  it('Carbon price rises on 1 Dec 2026: the later price waits, then it is the current one', () => {
+    const carbon = board6().prices['agy-carbon-medium'];
+    expect(priceCell(carbon, '2026-11-30')).toBe('2.00 / 10.00');
+    expect(nextPriceText(carbon, '2026-11-30')).toBe('4.00 / 20.00 from 1 Dec 2026');
+    expect(priceCell(carbon, '2026-12-01')).toBe('4.00 / 20.00');
+    expect(nextPriceText(carbon, '2026-12-01')).toBeNull();
+    expect(currentPrice(undefined, '2026-11-30')).toBeNull();
+    expect(nextPriceText(board6().prices.sonnet, '2026-11-30')).toBeNull();
+  });
+
+  it('price notes name the reviewers a coming rise hits, and vanish once it starts', () => {
+    const b = board6();
+    expect(priceRiseNotes(b, '2026-11-17')).toEqual([
+      'gemini-4-carbon: the list price rises on 1 Dec 2026, from 2.00 / 10.00 to 4.00 / 20.00. This hits agy-carbon-medium, agy-carbon-high.',
+    ]);
+    expect(priceRiseNotes(b, '2026-12-01')).toEqual([]);
+    expect(priceRiseNotes(board(), '2026-11-17')).toHaveLength(1);
+  });
+
+  it('day text, and a bad price entry is dropped by asScoreboard', () => {
+    expect(dayText('2026-12-01')).toBe('1 Dec 2026');
+    expect(dayText('soon')).toBe('soon');
+    const raw = { ...board6(), prices: { sonnet: { input: 2, output: 'x' }, opus: { input: 4, output: 20, next: { from: 'soon', input: 1, output: 1 } } } };
+    const b = asScoreboard(raw)!;
+    expect(Object.keys(b.prices)).toEqual(['opus']);
+    expect(b.prices.opus!.next).toBeUndefined();
+    expect(asScoreboard({ rows: [] })!.prices).toEqual({});
   });
 
   it('same-vendor grader label', () => {

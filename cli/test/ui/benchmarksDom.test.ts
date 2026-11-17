@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Benchmarks, { BenchmarksView, INTRO } from '../../ui/src/benchmarks/Benchmarks';
 import { COLUMNS, type BenchmarksResponse, type Scoreboard } from '../../ui/src/benchmarks/derive';
 
@@ -17,7 +17,10 @@ const withBoard = (): BenchmarksResponse => ({
   errors: [],
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe('Benchmarks page in the DOM', () => {
   it('renders one table row per board row', () => {
@@ -29,6 +32,7 @@ describe('Benchmarks page in the DOM', () => {
     expect(rows[0]!.textContent).toContain('38%');
     expect(rows[0]!.textContent).toContain('100%');
     expect(rows[0]!.textContent).toContain('USD 0.21');
+    expect(rows[0]!.textContent).toContain('2.00 / 10.00');
     expect(rows[0]!.textContent).toContain('(same vendor)');
     expect(rows[1]!.textContent).toContain('1.53');
     expect(rows[2]!.textContent).toContain('no result (10 of 10 runs not run)');
@@ -57,6 +61,31 @@ describe('Benchmarks page in the DOM', () => {
     expect(heads.map((h) => h.textContent)).toContain('Bugs found (large changes)');
     expect(heads.every((h) => (h.getAttribute('title') ?? '').length > 20)).toBe(true);
     expect(screen.getByTestId('bm-headline').textContent).toContain('Best score: sonnet (1.75 of a possible 3).');
+  });
+
+  it('shows the price per 1M tokens, the Carbon rise note and the price line in the legend', () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-17T12:00:00Z') });
+    const b = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/review-scoreboard-6.json'), 'utf8')) as Scoreboard;
+    render(createElement(BenchmarksView, { data: { schema: 1, boards: [{ repo: 'caddis', path: 'p', board: b }], errors: [] } }));
+    const heads = within(screen.getByTestId('bm-table')).getAllByRole('columnheader');
+    expect(heads.map((h) => h.textContent)).toContain('Price per 1M tokens (in / out)');
+    const prices = screen.getAllByTestId('bm-price');
+    expect(prices).toHaveLength(5); // the no-result row has no price cell
+    const row = (name: string) => screen.getAllByTestId('bm-row').find((r) => r.querySelector('th .bm-name')!.textContent!.startsWith(name))!;
+    expect(within(row('agy-hydrogen-high')).getByTestId('bm-price').textContent).toBe('1.50 / 7.50');
+    expect(within(row('agy-carbon-medium')).getByTestId('bm-price').textContent).toBe('2.00 / 10.004.00 / 20.00 from 1 Dec 2026');
+    expect(screen.getByTestId('bm-price-note').textContent).toContain('rises on 1 Dec 2026');
+    expect(screen.getByTestId('bm-legend-price').textContent).toContain('public list prices');
+    expect(screen.getByTestId('bm-legend-price').textContent).toContain('company contract may differ');
+  });
+
+  it('after 1 Dec 2026 Carbon shows the new price and no rise note', () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-12-02T12:00:00Z') });
+    const b = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/review-scoreboard-6.json'), 'utf8')) as Scoreboard;
+    render(createElement(BenchmarksView, { data: { schema: 1, boards: [{ repo: 'caddis', path: 'p', board: b }], errors: [] } }));
+    const carbon = screen.getAllByTestId('bm-row').find((r) => r.querySelector('th .bm-name')!.textContent === 'agy-carbon-medium')!;
+    expect(within(carbon).getByTestId('bm-price').textContent).toBe('4.00 / 20.00');
+    expect(screen.queryByTestId('bm-price-note')).toBeNull();
   });
 
   it('marks wrong verdicts and failed runs as warnings and groups the cases by size', () => {

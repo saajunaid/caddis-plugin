@@ -94,6 +94,27 @@
   line-height: 1.5;
   color: var(--text-sub);
 }
+.bm-legend-note {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-dim);
+  max-width: 90ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-sub);
+}
+/* The price that starts later, small under the current one. */
+.bm-price-next {
+  display: block;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.bm-price-notes {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
 .bm-dir {
   padding: 1px 8px;
   border-radius: var(--radius-pill);

@@ -33,12 +33,31 @@ export interface BenchRow {
   per_case: Record<string, BenchPerCase>;
 }
 
+/** A later list price and the day it starts. */
+export interface BenchNextPrice {
+  from: string;
+  input: number;
+  output: number;
+}
+
+/** The public list price of one reviewer, in USD per 1M tokens. */
+export interface BenchPrice {
+  priced_model?: string;
+  input: number;
+  output: number;
+  source?: string;
+  as_of?: string;
+  next?: BenchNextPrice;
+}
+
 export interface Scoreboard {
   schema?: number;
   updated: string;
   cases: BenchCase[];
   rows: BenchRow[];
   proposed: Record<string, string[]>;
+  /** Price per reviewer id. A reviewer with no entry has no price. */
+  prices: Record<string, BenchPrice>;
 }
 
 export interface BenchmarksResponse {
@@ -59,7 +78,28 @@ export function asScoreboard(raw: unknown): Scoreboard | null {
     cases,
     rows,
     proposed: isObject(raw.proposed) ? (raw.proposed as Record<string, string[]>) : {},
+    prices: asPrices(raw.prices),
   };
+}
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isDay = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+/** The price entries that are well formed. A bad entry is dropped, so that reviewer shows a dash. */
+function asPrices(raw: unknown): Record<string, BenchPrice> {
+  const out: Record<string, BenchPrice> = {};
+  if (!isObject(raw)) return out;
+  for (const [model, p] of Object.entries(raw)) {
+    if (!isObject(p) || !isNum(p.input) || !isNum(p.output)) continue;
+    const price: BenchPrice = { input: p.input, output: p.output };
+    if (typeof p.priced_model === 'string') price.priced_model = p.priced_model;
+    if (typeof p.source === 'string') price.source = p.source;
+    if (typeof p.as_of === 'string') price.as_of = p.as_of;
+    const n = p.next;
+    if (isObject(n) && isDay(n.from) && isNum(n.input) && isNum(n.output)) price.next = { from: n.from, input: n.input, output: n.output };
+    out[model] = price;
+  }
+  return out;
 }
 
 /** Best score first; a row with no score goes last. The sort is stable, so equal rows keep the file order. */
@@ -99,6 +139,52 @@ export function recallCell(row: BenchRow, cases: BenchCase[], size: 'large' | 's
 }
 
 export const costCell = (row: BenchRow): string => (row.cost_per_run_usd === null ? '-' : `USD ${row.cost_per_run_usd.toFixed(2)}`);
+
+/** Today as `YYYY-MM-DD`, the form the price dates use. */
+export const todayText = (): string => new Date().toISOString().slice(0, 10);
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** `2026-12-01` as `1 Dec 2026`. Text that is not a date comes back as it is. */
+export function dayText(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  const month = m ? MONTHS[Number(m[2]) - 1] : undefined;
+  return m && month ? `${Number(m[3])} ${month} ${m[1]}` : day;
+}
+
+const pair = (input: number, output: number): string => `${input.toFixed(2)} / ${output.toFixed(2)}`;
+
+/** The price in force on `today`: the later price once its start day has come. */
+export function currentPrice(price: BenchPrice | undefined, today: string = todayText()): { input: number; output: number } | null {
+  if (!price) return null;
+  return price.next && today >= price.next.from ? price.next : price;
+}
+
+/** The price cell: `2.00 / 10.00` (USD per 1M tokens, input / output), or a dash when the reviewer has no price. */
+export function priceCell(price: BenchPrice | undefined, today: string = todayText()): string {
+  const p = currentPrice(price, today);
+  return p ? pair(p.input, p.output) : '-';
+}
+
+/** The price that starts later, as `4.00 / 20.00 from 1 Dec 2026`, or null when none is waiting. */
+export function nextPriceText(price: BenchPrice | undefined, today: string = todayText()): string | null {
+  if (!price?.next || today >= price.next.from) return null;
+  return `${pair(price.next.input, price.next.output)} from ${dayText(price.next.from)}`;
+}
+
+/** One note line per price rise that has not started yet, naming the reviewers it hits. */
+export function priceRiseNotes(b: Scoreboard, today: string = todayText()): string[] {
+  const groups = new Map<string, { models: string[]; text: string }>();
+  for (const r of b.rows) {
+    const price = b.prices[r.model];
+    if (!price?.next || today >= price.next.from) continue;
+    const text = `${price.priced_model ?? r.model}: the list price rises on ${dayText(price.next.from)}, from ${pair(price.input, price.output)} to ${pair(price.next.input, price.next.output)}.`;
+    const g = groups.get(text) ?? { models: [], text };
+    g.models.push(r.model);
+    groups.set(text, g);
+  }
+  return [...groups.values()].map((g) => `${g.text} This hits ${g.models.join(', ')}.`);
+}
 
 export function gradedByCell(row: BenchRow): string {
   if (!row.graded_by) return '-';
@@ -204,7 +290,18 @@ export const COLUMNS: Column[] = [
   },
   { id: 'failed', label: 'Failed runs', help: 'Reviews that did not finish (a time-out or an API error) and gave no result. Shown as failed out of all runs.', better: 'lower' },
   { id: 'time', label: 'Time per review', help: 'The average time the reviewer needs for one review.', better: 'lower' },
-  { id: 'cost', label: 'Cost per review', help: 'The average price of one review, in USD. A dash means the cost was not measured.', better: 'lower' },
+  {
+    id: 'price',
+    label: 'Price per 1M tokens (in / out)',
+    help: 'The public list price of the model, in USD, for every 1 million tokens it reads (in) and writes (out). Output includes the thinking tokens. A lower price is cheaper, but compare it with the score. Your company contract may differ.',
+    better: 'lower',
+  },
+  {
+    id: 'cost',
+    label: 'Cost per review',
+    help: 'The average price of one review, in USD: the tokens it used times the price. It is measured for the Claude reviewers. A dash means the cost was not measured, so use the price column.',
+    better: 'lower',
+  },
   {
     id: 'graded',
     label: 'Graded by',
@@ -212,6 +309,9 @@ export const COLUMNS: Column[] = [
     better: null,
   },
 ];
+/** The line under the column list in the legend: what the two price columns are, and what they are not. */
+export const PRICE_LEGEND =
+  'Prices are public list prices in USD, not what your company pays: a company contract may differ. Cost per review is what one review used, in tokens times price. It is not measured for the agy reviewers yet, so compare them by price.';
 export const column = (id: string): Column => COLUMNS.find((c) => c.id === id)!;
 
 export interface CaseGroup {

@@ -23,6 +23,8 @@ test.describe('Benchmarks', () => {
     await expect(page.getByTestId('bm-row')).toHaveCount(3);
     await expect(page.getByTestId('bm-row').first()).toContainText('sonnet');
     await expect(page.getByTestId('bm-row').first()).toContainText('USD 0.21');
+    await expect(page.getByTestId('bm-row').first()).toContainText('2.00 / 10.00');
+    await expect(page.getByRole('columnheader', { name: 'Price per 1M tokens (in / out)' })).toBeVisible();
     await expect(page.getByTestId('bm-row').last()).toContainText('no result (10 of 10 runs not run)');
     await expect(page.getByTestId('bm-proposed')).toContainText('claude-sonnet (tier 2: claude-opus)');
     expect(await cspViolations(page)).toEqual([]);

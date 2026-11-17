@@ -69,6 +69,61 @@
     "small": 1,
     "wrong_verdict": -1
   },
+  "price_unit": "USD per 1M tokens",
+  "prices": {
+    "opus": {
+      "priced_model": "claude-opus-5-5",
+      "input": 4.0,
+      "output": 20.0,
+      "source": "Anthropic pricing page, base input and output tokens (platform.claude.com/docs/en/about-claude/pricing)",
+      "as_of": "2026-11-17"
+    },
+    "agy-carbon-medium": {
+      "priced_model": "gemini-4-carbon",
+      "input": 2.0,
+      "output": 10.0,
+      "source": "Google Gemini API pricing page, Standard paid tier; output includes thinking tokens (ai.google.dev/gemini-api/docs/pricing)",
+      "as_of": "2026-11-17",
+      "next": {
+        "from": "2026-12-01",
+        "input": 4.0,
+        "output": 20.0
+      }
+    },
+    "sonnet": {
+      "priced_model": "claude-sonnet-5-5",
+      "input": 2.0,
+      "output": 10.0,
+      "source": "Anthropic pricing page, base input and output tokens (platform.claude.com/docs/en/about-claude/pricing)",
+      "as_of": "2026-11-17"
+    },
+    "agy-hydrogen-high": {
+      "priced_model": "gemini-4-hydrogen",
+      "input": 1.5,
+      "output": 7.5,
+      "source": "Google Gemini API pricing page, Standard paid tier; output includes thinking tokens (ai.google.dev/gemini-api/docs/pricing)",
+      "as_of": "2026-11-17"
+    },
+    "agy-hydrogen-medium": {
+      "priced_model": "gemini-4-hydrogen",
+      "input": 1.5,
+      "output": 7.5,
+      "source": "Google Gemini API pricing page, Standard paid tier; output includes thinking tokens (ai.google.dev/gemini-api/docs/pricing)",
+      "as_of": "2026-11-17"
+    },
+    "agy-carbon-high": {
+      "priced_model": "gemini-4-carbon",
+      "input": 2.0,
+      "output": 10.0,
+      "source": "Google Gemini API pricing page, Standard paid tier; output includes thinking tokens (ai.google.dev/gemini-api/docs/pricing)",
+      "as_of": "2026-11-17",
+      "next": {
+        "from": "2026-12-01",
+        "input": 4.0,
+        "output": 20.0
+      }
+    }
+  },
   "rows": [
     {
       "model": "opus",

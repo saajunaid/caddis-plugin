@@ -11,8 +11,12 @@ import {
   gradedByCell,
   groupCases,
   headlineLines,
+  nextPriceText,
   noResultText,
   pct,
+  PRICE_LEGEND,
+  priceCell,
+  priceRiseNotes,
   proposedLists,
   recallCell,
   recallRuns,
@@ -22,6 +26,7 @@ import {
   sortRows,
   summaryLine,
   timeCell,
+  todayText,
   type BenchRow,
   type BenchmarksResponse,
   type Scoreboard,
@@ -74,6 +79,9 @@ function Legend(): JSX.Element {
           </div>
         ))}
       </dl>
+      <p className="bm-legend-note" data-testid="bm-legend-price">
+        {PRICE_LEGEND}
+      </p>
     </details>
   );
 }
@@ -88,7 +96,7 @@ function Th({ id }: { id: string }): JSX.Element {
   );
 }
 
-function ReviewerRow({ r, board, best }: { r: BenchRow; board: Scoreboard; best: boolean }): JSX.Element {
+function ReviewerRow({ r, board, best, today }: { r: BenchRow; board: Scoreboard; best: boolean; today: string }): JSX.Element {
   const meta = [r.vendor, r.date].filter(Boolean).join(' - ');
   const name = (
     <th scope="row">
@@ -104,7 +112,7 @@ function ReviewerRow({ r, board, best }: { r: BenchRow; board: Scoreboard; best:
       <tr data-testid="bm-row">
         {name}
         <td className="bm-num">-</td>
-        <td colSpan={7} className="bm-none">
+        <td colSpan={8} className="bm-none">
           {noResultText(r)}
         </td>
       </tr>
@@ -149,11 +157,25 @@ function ReviewerRow({ r, board, best }: { r: BenchRow; board: Scoreboard; best:
       <td className="bm-num" title={r.mean_seconds === null ? undefined : `${Math.round(r.mean_seconds)} seconds`}>
         {timeCell(r.mean_seconds)}
       </td>
+      <PriceTd r={r} board={board} today={today} />
       <td className="bm-num" title={r.cost_per_run_usd === null ? 'Cost was not measured' : undefined}>
         {costCell(r)}
       </td>
       <td>{r.same_vendor_grader && r.graded_by ? <Chip tone="plain">{gradedByCell(r)}</Chip> : gradedByCell(r)}</td>
     </tr>
+  );
+}
+
+/** The list price of a reviewer. A later price, when one is waiting, shows small under the current one. */
+function PriceTd({ r, board, today }: { r: BenchRow; board: Scoreboard; today: string }): JSX.Element {
+  const price = board.prices[r.model];
+  const later = nextPriceText(price, today);
+  const title = price?.source ? `${price.source}${price.as_of ? `, as of ${price.as_of}` : ''}` : 'No price known';
+  return (
+    <td className="bm-num" data-testid="bm-price" title={title}>
+      {priceCell(price, today)}
+      {later && <span className="bm-price-next">{later}</span>}
+    </td>
   );
 }
 
@@ -164,6 +186,8 @@ function Board({ board, source, repo }: { board: Scoreboard; source: string; rep
   const runs = recallRuns(board);
   const proposed = proposedLists(board);
   const groups = groupCases(board.cases);
+  const today = todayText();
+  const riseNotes = priceRiseNotes(board, today);
   const bestModel = rows[0] && rows[0].score !== null ? rows[0].model : null;
   return (
     <section className="bm-board" data-testid="bm-board">
@@ -193,17 +217,26 @@ function Board({ board, source, repo }: { board: Scoreboard; source: string; rep
               <Th id="wrong" />
               <Th id="failed" />
               <Th id="time" />
+              <Th id="price" />
               <Th id="cost" />
               <Th id="graded" />
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <ReviewerRow key={r.model} r={r} board={board} best={r.model === bestModel} />
+              <ReviewerRow key={r.model} r={r} board={board} best={r.model === bestModel} today={today} />
             ))}
           </tbody>
         </table>
       </div>
+
+      {riseNotes.length > 0 && (
+        <ul className="bm-help bm-price-notes" data-testid="bm-price-note">
+          {riseNotes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
 
       {proposed.length > 0 && (
         <div className="bm-block" data-testid="bm-proposed">
