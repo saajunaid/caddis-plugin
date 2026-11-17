@@ -914,7 +914,7 @@ def _one_session(ctx: _Ctx, prompt: str, relay_slug: str, n: int, spent: float, 
     usd = min(caps.max_usd_per_session, caps.max_usd_total - spent)
     cmd = build_command(ctx.engine, ctx.model, prompt, usd=usd, timeout_min=remaining_s / 60, governor=ctx.governor,
                         engine_cmd=ctx.engine_cmd, worktree=cwd)
-    rid = _spend_reserve(ctx.home, spend_slug, ctx.now()) if ctx.engine == "agy" else None
+    rid = _spend_reserve(ctx.home, spend_slug, ctx.now(), caddis_spend.model_from_argv(cmd)) if ctx.engine == "agy" else None
     if ctx.engine == "agy":  # agy's tool consoles open on a hidden desktop, not on the owner's screen
         g = len(ctx.governor)
         cmd = [*cmd[:g], *caddis_spend.hidden_argv(cmd[g:], session_env())]
@@ -2334,13 +2334,13 @@ def _publish_and_wait(ctx: _Ctx, repo: Path, slug: str, mid: str, plan: str, pha
     raise _Stop(f"{WAITING_PREFIX} {ref} {url}", caddis_exit.BLOCKED)
 
 
-def _spend_reserve(home: Path, slug: str, moment: datetime) -> str:
+def _spend_reserve(home: Path, slug: str, moment: datetime, model: str | None = None) -> str:
     """Write the pending line of one agy session to the usage log (caddis_spend.py; there is no cap). _Stop only when
     the log cannot be locked or written (a file error never crashes the runner: the stop is logged and notified,
     redacted, like any other). The caller name in the spend log is `runner-<slug>`. At or above the advise level it
     prints the ADVISORY line and goes on."""
     try:
-        rid = caddis_spend.reserve(home, f"runner-{slug}", moment)
+        rid = caddis_spend.reserve(home, f"runner-{slug}", moment, model=model)
     except TimeoutError:
         raise _Stop("BLOCKED spend log lock busy", caddis_exit.BLOCKED) from None
     except Exception as exc:

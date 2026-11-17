@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import Benchmarks, { BenchmarksView } from '../../ui/src/benchmarks/Benchmarks';
-import type { BenchmarksResponse, Scoreboard } from '../../ui/src/benchmarks/derive';
+import Benchmarks, { BenchmarksView, INTRO } from '../../ui/src/benchmarks/Benchmarks';
+import { COLUMNS, type BenchmarksResponse, type Scoreboard } from '../../ui/src/benchmarks/derive';
 
 // jsdom replaces the global URL, so build the path with node:path.
 const board = (): Scoreboard =>
@@ -26,8 +26,8 @@ describe('Benchmarks page in the DOM', () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]!.textContent).toContain('sonnet');
     expect(rows[0]!.textContent).toContain('1.75');
-    expect(rows[0]!.textContent).toContain('3.0/8');
-    expect(rows[0]!.textContent).toContain('5.0/5');
+    expect(rows[0]!.textContent).toContain('38%');
+    expect(rows[0]!.textContent).toContain('100%');
     expect(rows[0]!.textContent).toContain('USD 0.21');
     expect(rows[0]!.textContent).toContain('(same vendor)');
     expect(rows[1]!.textContent).toContain('1.53');
@@ -36,11 +36,38 @@ describe('Benchmarks page in the DOM', () => {
 
   it('shows the proposed order and the recall per case', () => {
     render(createElement(BenchmarksView, { data: withBoard() }));
-    expect(screen.getByTestId('bm-proposed').textContent).toContain('claude-sonnet (tier 2: claude-opus), deepseek, glm');
+    const proposed = screen.getByTestId('bm-proposed');
+    expect(proposed.textContent).toContain('Code written by agy');
+    expect(proposed.textContent).toContain('claude-sonnet (tier 2: claude-opus)');
+    expect(proposed.querySelectorAll('ol')).toHaveLength(2);
     const recall = screen.getByTestId('bm-recall');
     expect(recall.textContent).toContain('p12');
     expect(recall.textContent).toContain('2 runs each');
     expect(screen.getByText('Source: evals/results/review-scoreboard.json')).toBeTruthy();
+  });
+
+  it('explains the page: intro, a legend entry per column, column tooltips and a headline', () => {
+    render(createElement(BenchmarksView, { data: withBoard() }));
+    expect(screen.getByTestId('bm-intro').textContent).toBe(INTRO);
+    const legend = screen.getByTestId('bm-legend');
+    expect(legend.textContent).toContain('Wrong verdicts');
+    expect(legend.textContent).toContain('lower is better');
+    expect(legend.querySelectorAll('dt')).toHaveLength(COLUMNS.length);
+    const heads = within(screen.getByTestId('bm-table')).getAllByRole('columnheader');
+    expect(heads.map((h) => h.textContent)).toContain('Bugs found (large changes)');
+    expect(heads.every((h) => (h.getAttribute('title') ?? '').length > 20)).toBe(true);
+    expect(screen.getByTestId('bm-headline').textContent).toContain('Best score: sonnet (1.75 of a possible 3).');
+  });
+
+  it('marks wrong verdicts and failed runs as warnings and groups the cases by size', () => {
+    const b = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/review-scoreboard-6.json'), 'utf8')) as Scoreboard;
+    const { container } = render(createElement(BenchmarksView, { data: { schema: 1, boards: [{ repo: 'caddis', path: 'p', board: b }], errors: [] } }));
+    expect(container.querySelectorAll('.bm-chip-bad')).toHaveLength(2);
+    expect(container.querySelectorAll('.bm-chip-warn')).toHaveLength(2);
+    expect(screen.getAllByTestId('bm-row')).toHaveLength(6);
+    expect(screen.getAllByTestId('bm-row')[0]!.textContent).toContain('best');
+    expect([...container.querySelectorAll('.bm-group')].map((g) => g.textContent)).toEqual(['Large changes', 'Small changes']);
+    expect(container.querySelectorAll('.bm-recall-table .bm-case-h')).toHaveLength(10);
   });
 
   it('benchmarks empty state', () => {

@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  caseTone,
+  groupCases,
+  headlineLines,
+  pct,
+  proposedLists,
+  recallShare,
+  scoreBarPct,
+  timeCell,
   costCell,
   gradedByCell,
   noResultText,
@@ -16,6 +24,7 @@ import {
 import { parseRoute } from '../../ui/src/shell/route';
 
 const board = (): Scoreboard => JSON.parse(readFileSync(new URL('../fixtures/review-scoreboard.json', import.meta.url), 'utf8')) as Scoreboard;
+const board6 = (): Scoreboard => JSON.parse(readFileSync(new URL('../fixtures/review-scoreboard-6.json', import.meta.url), 'utf8')) as Scoreboard;
 const rowOf = (b: Scoreboard, model: string): BenchRow => b.rows.find((r) => r.model === model)!;
 
 describe('benchmarks route', () => {
@@ -69,7 +78,7 @@ describe('benchmarks derive', () => {
   });
 
   it('summary line names the case set and the date', () => {
-    expect(summaryLine(board())).toBe('Review benchmark - case set: 5 cases (1 large, 4 small) - updated 2026-11-12');
+    expect(summaryLine(board())).toBe('3 reviewers tried the same 5 code changes (1 large, 4 small). Updated 2026-11-12.');
   });
 
   it('recall runs is the most runs any case has', () => {
@@ -82,5 +91,78 @@ describe('benchmarks derive', () => {
       { label: 'agy-written code', order: 'claude-sonnet (tier 2: claude-opus), deepseek, glm' },
     ]);
     expect(orderLine(['zed', 'claude-opus'])).toBe('zed, claude-opus');
+  });
+
+  it('percent text rounds to a whole number and a missing value is a dash', () => {
+    expect(pct(0.375)).toBe('38%');
+    expect(pct(1)).toBe('100%');
+    expect(pct(0)).toBe('0%');
+    expect(pct(null)).toBe('-');
+    expect(pct(undefined)).toBe('-');
+  });
+
+  it('recall share uses the row field and falls back to the per-case counts', () => {
+    const b = board();
+    expect(recallShare(rowOf(b, 'sonnet'), b.cases, 'large')).toBe(0.375);
+    const noField = { ...rowOf(b, 'sonnet'), large_recall: null, small_recall: null };
+    expect(recallShare(noField, b.cases, 'large')).toBeCloseTo(3 / 8);
+    expect(recallShare(noField, b.cases, 'small')).toBe(1);
+    expect(recallShare(rowOf(b, 'agy-carbon-high'), b.cases, 'large')).toBeNull();
+  });
+
+  it('score bar is empty at 0 or below and full at the best possible score', () => {
+    expect(scoreBarPct(null)).toBe(0);
+    expect(scoreBarPct(-2.6)).toBe(0);
+    expect(scoreBarPct(1.5)).toBe(50);
+    expect(scoreBarPct(3)).toBe(100);
+    expect(scoreBarPct(9)).toBe(100);
+  });
+
+  it('time cell uses plain units', () => {
+    expect(timeCell(null)).toBe('-');
+    expect(timeCell(45.4)).toBe('45 s');
+    expect(timeCell(131)).toBe('2 min 11 s');
+    expect(timeCell(120)).toBe('2 min');
+  });
+
+  it('headline names the best reviewer, wrong verdicts and failed runs from the data', () => {
+    const lines = headlineLines(board6());
+    expect(lines.map((l) => l.tone)).toEqual(['good', 'bad', 'warn']);
+    expect(lines[0]!.text).toBe('Best score: opus (1.61 of a possible 3).');
+    expect(lines[1]!.text).toBe('Approved code that has a known bug: sonnet (1), agy-hydrogen-medium (7).');
+    expect(lines[2]!.text).toBe(
+      'Reviews that failed and gave no result: agy-carbon-medium (4 of 20), agy-hydrogen-high (4 of 20), agy-carbon-high (10 of 10).',
+    );
+  });
+
+  it('headline for a clean board, a board with no score and a tie', () => {
+    const b = board();
+    const clean = headlineLines({ ...b, rows: [rowOf(b, 'sonnet')] });
+    expect(clean.map((l) => l.text)).toEqual(['Best score: sonnet (1.75 of a possible 3).', 'No reviewer approved code that has a known bug.']);
+    expect(headlineLines({ ...b, rows: [rowOf(b, 'agy-carbon-high')] }).map((l) => l.tone)).toEqual(['warn', 'warn']);
+    const tie = headlineLines({ ...b, rows: [rowOf(b, 'sonnet'), { ...rowOf(b, 'opus'), score: 1.75 }] });
+    expect(tie[0]!.text).toBe('Best score (tie, 1.75): sonnet, opus.');
+  });
+
+  it('cases are grouped large first and each cell has a tone', () => {
+    const b = board6();
+    const groups = groupCases(b.cases);
+    expect(groups.map((g) => [g.label, g.cases.length])).toEqual([
+      ['Large changes', 5],
+      ['Small changes', 5],
+    ]);
+    expect(groups[0]!.cases[0]!.id).toBe('p12');
+    const c = (id: string) => b.cases.find((x) => x.id === id)!;
+    expect(caseTone(rowOf(b, 'opus'), c('h2'))).toBe('full');
+    expect(caseTone(rowOf(b, 'opus'), c('p12'))).toBe('some');
+    expect(caseTone(rowOf(b, 'opus'), c('fleet-1'))).toBe('none');
+    expect(caseTone(rowOf(b, 'agy-carbon-medium'), c('fleet-5'))).toBe('na');
+  });
+
+  it('proposed lists name the author and keep the order', () => {
+    expect(proposedLists(board())).toEqual([
+      { author: 'Claude', steps: ['agy-carbon', 'deepseek', 'glm'] },
+      { author: 'agy', steps: ['claude-sonnet (tier 2: claude-opus)', 'deepseek', 'glm'] },
+    ]);
   });
 });

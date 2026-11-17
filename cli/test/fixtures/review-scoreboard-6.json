@@ -1,0 +1,641 @@
+{
+  "schema": 1,
+  "updated": "2026-11-17",
+  "case_set": "evals/review-cases/cases.json",
+  "cases": [
+    {
+      "id": "p12",
+      "size": "large",
+      "known": 8,
+      "repo": null
+    },
+    {
+      "id": "h1",
+      "size": "small",
+      "known": 1,
+      "repo": null
+    },
+    {
+      "id": "h2",
+      "size": "small",
+      "known": 2,
+      "repo": null
+    },
+    {
+      "id": "h3",
+      "size": "small",
+      "known": 1,
+      "repo": null
+    },
+    {
+      "id": "h4",
+      "size": "small",
+      "known": 1,
+      "repo": null
+    },
+    {
+      "id": "fleet-1",
+      "size": "large",
+      "known": 2,
+      "repo": "private"
+    },
+    {
+      "id": "fleet-2",
+      "size": "large",
+      "known": 2,
+      "repo": "private"
+    },
+    {
+      "id": "fleet-3",
+      "size": "large",
+      "known": 3,
+      "repo": "private"
+    },
+    {
+      "id": "fleet-4",
+      "size": "small",
+      "known": 2,
+      "repo": "private"
+    },
+    {
+      "id": "fleet-5",
+      "size": "large",
+      "known": 1,
+      "repo": "private"
+    }
+  ],
+  "weights": {
+    "large": 2,
+    "small": 1,
+    "wrong_verdict": -1
+  },
+  "rows": [
+    {
+      "model": "opus",
+      "vendor": "anthropic",
+      "date": "2026-11-13",
+      "runs": 20,
+      "not_run": 0,
+      "score": 1.607143,
+      "large_recall": 0.375,
+      "small_recall": 0.857143,
+      "wrong_verdicts": 0,
+      "mean_seconds": 131,
+      "cost_per_run_usd": 0.8731,
+      "graded_by": "agy-carbon-medium",
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [
+            3,
+            5
+          ],
+          "known": 8,
+          "consistent": 3
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 2,
+          "consistent": 2
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "fleet-1": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-2": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-3": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 3,
+          "consistent": 2
+        },
+        "fleet-4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "fleet-5": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-13-opus-scores.json",
+      "prompt_method": "diff-file"
+    },
+    {
+      "model": "agy-carbon-medium",
+      "vendor": "google",
+      "date": "2026-11-13",
+      "runs": 20,
+      "not_run": 4,
+      "score": 1.533334,
+      "large_recall": 0.316667,
+      "small_recall": 0.9,
+      "wrong_verdicts": 0,
+      "mean_seconds": 782,
+      "cost_per_run_usd": null,
+      "graded_by": "opus",
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [
+            3,
+            2
+          ],
+          "known": 8,
+          "consistent": 2
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 2,
+          "consistent": 2
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            0,
+            1
+          ],
+          "known": 1,
+          "consistent": 0
+        },
+        "fleet-1": {
+          "found": [
+            1,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-2": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-3": {
+          "found": [
+            3
+          ],
+          "known": 3,
+          "consistent": 0
+        },
+        "fleet-4": {
+          "found": [
+            2
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-5": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-13-agy-carbon-medium-scores.json",
+      "prompt_method": "inline-diff"
+    },
+    {
+      "model": "sonnet",
+      "vendor": "anthropic",
+      "date": "2026-11-13",
+      "runs": 20,
+      "not_run": 0,
+      "score": 1.107143,
+      "large_recall": 0.375,
+      "small_recall": 0.857143,
+      "wrong_verdicts": 1,
+      "mean_seconds": 117,
+      "cost_per_run_usd": 0.4566,
+      "graded_by": "agy-carbon-medium",
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 8,
+          "consistent": 1
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 2,
+          "consistent": 2
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "fleet-1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "fleet-2": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-3": {
+          "found": [
+            3,
+            3
+          ],
+          "known": 3,
+          "consistent": 3
+        },
+        "fleet-4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "fleet-5": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-13-sonnet-scores.json",
+      "prompt_method": "diff-file"
+    },
+    {
+      "model": "agy-hydrogen-high",
+      "vendor": "google",
+      "date": "2026-11-17",
+      "runs": 20,
+      "not_run": 4,
+      "score": 1.035714,
+      "large_recall": 0.125,
+      "small_recall": 0.785714,
+      "wrong_verdicts": 0,
+      "mean_seconds": 383,
+      "cost_per_run_usd": null,
+      "graded_by": "opus",
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [],
+          "known": 8,
+          "consistent": 0
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 2,
+          "consistent": 2
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 1,
+          "consistent": 0
+        },
+        "fleet-1": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-2": {
+          "found": [
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-3": {
+          "found": [
+            2
+          ],
+          "known": 3,
+          "consistent": 0
+        },
+        "fleet-4": {
+          "found": [
+            1,
+            2
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "fleet-5": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-17-agy-hydrogen-high-scores.json",
+      "prompt_method": "inline-diff"
+    },
+    {
+      "model": "agy-hydrogen-medium",
+      "vendor": "google",
+      "date": "2026-11-17",
+      "runs": 20,
+      "not_run": 0,
+      "score": -2.607143,
+      "large_recall": 0.125,
+      "small_recall": 0.642857,
+      "wrong_verdicts": 7,
+      "mean_seconds": 205,
+      "cost_per_run_usd": null,
+      "graded_by": "opus",
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 8,
+          "consistent": 0
+        },
+        "h1": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h2": {
+          "found": [
+            2,
+            1
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "h3": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 1,
+          "consistent": 1
+        },
+        "h4": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 1,
+          "consistent": 0
+        },
+        "fleet-1": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-2": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-3": {
+          "found": [
+            2,
+            2
+          ],
+          "known": 3,
+          "consistent": 2
+        },
+        "fleet-4": {
+          "found": [
+            1,
+            1
+          ],
+          "known": 2,
+          "consistent": 1
+        },
+        "fleet-5": {
+          "found": [
+            0,
+            0
+          ],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-17-agy-hydrogen-medium-scores.json",
+      "prompt_method": "inline-diff"
+    },
+    {
+      "model": "agy-carbon-high",
+      "vendor": "google",
+      "date": "2026-11-12",
+      "runs": 10,
+      "not_run": 10,
+      "score": null,
+      "large_recall": null,
+      "small_recall": null,
+      "wrong_verdicts": null,
+      "mean_seconds": null,
+      "cost_per_run_usd": null,
+      "graded_by": null,
+      "same_vendor_grader": false,
+      "per_case": {
+        "p12": {
+          "found": [],
+          "known": 8,
+          "consistent": 0
+        },
+        "h1": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        },
+        "h2": {
+          "found": [],
+          "known": 2,
+          "consistent": 0
+        },
+        "h3": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        },
+        "h4": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        },
+        "fleet-1": {
+          "found": [],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-2": {
+          "found": [],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-3": {
+          "found": [],
+          "known": 3,
+          "consistent": 0
+        },
+        "fleet-4": {
+          "found": [],
+          "known": 2,
+          "consistent": 0
+        },
+        "fleet-5": {
+          "found": [],
+          "known": 1,
+          "consistent": 0
+        }
+      },
+      "source": "evals/results/review/2026-11-12-scores.json",
+      "prompt_method": null
+    }
+  ],
+  "proposed": {
+    "anthropic": [
+      "agy-carbon",
+      "deepseek",
+      "glm"
+    ],
+    "google": [
+      "claude-opus",
+      "claude-sonnet",
+      "deepseek",
+      "glm"
+    ]
+  }
+}

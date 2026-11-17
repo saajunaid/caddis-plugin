@@ -636,7 +636,8 @@ def run_lane(
     if Path(argv[0]).stem.lower() == "agy":
         spend_home = Path.home()
         try:
-            spend_id = caddis_spend.reserve(spend_home, spend_caller, datetime.now(timezone.utc))
+            spend_id = caddis_spend.reserve(spend_home, spend_caller, datetime.now(timezone.utc),
+                                            model=caddis_spend.model_from_argv(argv))
         except TimeoutError as exc:
             return _refused_run(3, str(exc))
         except Exception as exc:  # a file error on the log: refuse, never crash

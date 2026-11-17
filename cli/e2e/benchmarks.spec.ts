@@ -24,7 +24,7 @@ test.describe('Benchmarks', () => {
     await expect(page.getByTestId('bm-row').first()).toContainText('sonnet');
     await expect(page.getByTestId('bm-row').first()).toContainText('USD 0.21');
     await expect(page.getByTestId('bm-row').last()).toContainText('no result (10 of 10 runs not run)');
-    await expect(page.getByTestId('bm-proposed')).toContainText('claude-sonnet (tier 2: claude-opus), deepseek, glm');
+    await expect(page.getByTestId('bm-proposed')).toContainText('claude-sonnet (tier 2: claude-opus)');
     expect(await cspViolations(page)).toEqual([]);
     expect(problems.console).toEqual([]);
   });

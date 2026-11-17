@@ -15,12 +15,15 @@ plan Lane line (`caddis_spend.py run -- agy ...`) or the roadmap/plan runner (`c
 
 Log `~/.caddis/spend/agy.jsonl`, append-only. A `pending` line is written under a file lock before the
 launch and a `settled` line with the same id after it. A settled line holds the token counts and an EUR
-estimate. A pending line with no settled line (a crash) counts its `reserve_eur` (now 0) for 24 h.
+estimate. Both lines hold `model` when the agy command names one (`--model <id>`). A pending line with no settled line (a crash) counts its `reserve_eur` (now 0) for 24 h.
 
 Prices (optional): when `~/.caddis/spend-cap.toml` has an `[agy]` table with
 `eur_per_million_input_tokens` and `eur_per_million_output_tokens` (finite numbers above 0), a settled
-line records EUR from the token counts. Every other key in that file (an old `eur_per_24h`, a reserve) is
-ignored, and with no valid prices EUR is recorded as 0 with `estimated: true`. caddis never writes the file.
+line records EUR from the token counts. A model can have its own prices in an `[agy.models."<id>"]` table with the
+same two keys. `<id>` is the model id (`gemini-4-carbon-high`) or the id without its effort ending
+(`gemini-4-carbon`); the exact id wins. A model with no table, or a run with no model, uses the `[agy]` prices.
+Every other key in that file (an old `eur_per_24h`, a reserve) is ignored, and with no valid prices EUR is recorded
+as 0 with `estimated: true`. caddis never writes the file.
 
 Limits:
 - The log is per machine. agy started by hand, or by a script outside caddis, is not logged.
@@ -126,15 +129,23 @@ def _log_path(home: Path) -> Path:
     return home / ".caddis" / "spend" / "agy.jsonl"
 
 
-def load_prices(home: Path) -> tuple[float, float] | None:
-    """(EUR per million input tokens, EUR per million output tokens) from the `[agy]` table of the optional price
-    file, or None when the file is missing or unreadable, or a price is not a finite number above 0."""
-    import tomllib
+EFFORT_ENDINGS = ("-low", "-medium", "-high")
 
+
+def model_from_argv(argv: list[str]) -> str | None:
+    """The value of the first `--model <id>` or `--model=<id>` in an agy command, or None."""
+    for i, arg in enumerate(argv):
+        if arg == "--model" and i + 1 < len(argv):
+            return argv[i + 1] or None
+        if arg.startswith("--model="):
+            return arg.split("=", 1)[1] or None
+    return None
+
+
+def _price_pair(table) -> tuple[float, float] | None:
     try:
-        data = tomllib.loads(_prices_path(home).read_text(encoding="utf-8")).get("agy", {})
-        prices = (data["eur_per_million_input_tokens"], data["eur_per_million_output_tokens"])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, tomllib.TOMLDecodeError):
+        prices = (table["eur_per_million_input_tokens"], table["eur_per_million_output_tokens"])
+    except (KeyError, TypeError):
         return None
     numbers = []
     for value in prices:
@@ -146,12 +157,41 @@ def load_prices(home: Path) -> tuple[float, float] | None:
     return numbers[0], numbers[1]
 
 
+def load_prices(home: Path, model: str | None = None) -> tuple[float, float] | None:
+    """(EUR per million input tokens, EUR per million output tokens) for `model` from the optional price file: its
+    `[agy.models."<id>"]` table (the exact id, then the id without its effort ending), else the `[agy]` table. None
+    when the file is missing or unreadable, or the chosen prices are not finite numbers above 0. A model table with
+    bad prices is not skipped for the `[agy]` ones: it gives None, so a typo shows as EUR 0 estimated."""
+    import tomllib
+
+    try:
+        data = tomllib.loads(_prices_path(home).read_text(encoding="utf-8")).get("agy", {})
+    except (OSError, ValueError, tomllib.TOMLDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    models = data.get("models")
+    if model and isinstance(models, dict):
+        family = next((model[: -len(e)] for e in EFFORT_ENDINGS if model.endswith(e)), None)
+        for key in (model, family):
+            if key and key in models:
+                return _price_pair(models[key])
+    return _price_pair(data)
+
+
 @contextmanager
 def _locked(home: Path):
-    lock = _log_path(home).with_name("agy.lock")
+    with file_lock(_log_path(home).with_name("agy.lock"), LOCK_TIMEOUT_S):
+        yield
+
+
+@contextmanager
+def file_lock(lock: Path, timeout_s: float):
+    """Hold an exclusive lock on the file `lock` across processes (created when missing). Raises TimeoutError when
+    another process holds it for `timeout_s`."""
     lock.parent.mkdir(parents=True, exist_ok=True)
     fh = open(lock, "a+b")
-    deadline = time.monotonic() + LOCK_TIMEOUT_S
+    deadline = time.monotonic() + timeout_s
     try:
         while True:
             try:
@@ -167,7 +207,7 @@ def _locked(home: Path):
                 break
             except OSError:
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"caddis_spend: could not lock {lock} within {LOCK_TIMEOUT_S:g} s")
+                    raise TimeoutError(f"caddis_spend: could not lock {lock} within {timeout_s:g} s")
                 time.sleep(0.05)
         yield
     finally:
@@ -267,13 +307,16 @@ def committed_last_24h(home: Path, now: datetime) -> float:
     return total
 
 
-def reserve(home: Path, caller: str, now: datetime) -> str:
-    """Write a `pending` line for a call about to start and return its id. Never refuses for money.
-    Raises TimeoutError when the log cannot be locked, OSError when it cannot be written."""
+def reserve(home: Path, caller: str, now: datetime, model: str | None = None) -> str:
+    """Write a `pending` line for a call about to start and return its id. Never refuses for money. The line holds
+    `model` when one is given. Raises TimeoutError when the log cannot be locked, OSError when it cannot be written."""
     with _locked(home):
         rid = uuid.uuid4().hex
-        _append(home, {"kind": "pending", "id": rid, "ts": now.isoformat(), "caller": caller,
-                       "pid": os.getpid(), "reserve_eur": 0})
+        record = {"kind": "pending", "id": rid, "ts": now.isoformat(), "caller": caller,
+                  "pid": os.getpid(), "reserve_eur": 0}
+        if model:
+            record["model"] = model
+        _append(home, record)
         return rid
 
 
@@ -281,11 +324,14 @@ def settle(home: Path, rid: str, tokens: tuple[int, int] | None, now: datetime,
            duration_s: float | None = None) -> float:
     """Write the `settled` line of a call. With token counts and valid prices: the EUR from the counts. With counts
     but no prices: the counts and EUR 0, estimated. With no counts: the pending line's reserve (0 for new lines),
-    estimated. The duration is recorded when given."""
-    prices = load_prices(home)
+    estimated. The duration is recorded when given. The prices are the ones of the pending line's model."""
+    pending = next((r for r in _read(home) if r.get("kind") == "pending" and r.get("id") == rid), {})
+    model = pending.get("model") if isinstance(pending.get("model"), str) else None
+    prices = load_prices(home, model)
     record: dict = {"kind": "settled", "id": rid, "ts": now.isoformat()}
+    if model:
+        record["model"] = model
     if tokens is None:
-        pending = next((r for r in _read(home) if r.get("kind") == "pending" and r.get("id") == rid), {})
         eur = _amount(pending.get("reserve_eur")) or 0.0
         record.update({"tokens_in": 0, "tokens_out": 0, "eur": round(eur, 4), "estimated": True})
     else:
@@ -437,7 +483,7 @@ def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None
         print(str(exc), file=sys.stderr)
         return RUN_REFUSED
     try:
-        rid = reserve(home, caller, now())
+        rid = reserve(home, caller, now(), model=model_from_argv(argv))
     except TimeoutError as exc:
         print(str(exc), file=sys.stderr)
         return RUN_REFUSED

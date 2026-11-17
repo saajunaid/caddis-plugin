@@ -1,4 +1,5 @@
-/* Benchmarks page: tokens from theme.css only. */
+/* Benchmarks page: tokens from theme.css and pages.css only, so both themes work. Chips reuse the --chip-* pairs,
+   which the contrast test checks on every surface. */
 .bm {
   display: flex;
   flex-direction: column;
@@ -8,13 +9,13 @@
 .bm-board {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 22px;
   min-width: 0;
 }
 .bm-repo,
 .bm-h {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-main);
 }
@@ -26,17 +27,24 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
-.bm-list {
+.bm-block .page-subtitle {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 4px;
+}
+.bm-intro,
+.bm-help {
+  margin: 0;
+  max-width: 72ch;
+  line-height: 1.55;
+  color: var(--text-sub);
+}
+.bm-intro {
+  font-size: 15px;
   color: var(--text-main);
 }
-.bm-label {
-  color: var(--text-sub);
+.bm-help {
+  font-size: 14px;
 }
 .bm-source {
   margin: 0;
@@ -49,6 +57,80 @@
   display: grid;
   gap: 4px;
 }
+
+/* How to read this */
+.bm-legend {
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-row);
+  background: var(--bg-card);
+  padding: 12px 16px;
+  color: var(--text-main);
+}
+.bm-legend > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.bm-legend[open] > summary {
+  margin-bottom: 12px;
+}
+.bm-legend-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px 24px;
+}
+.bm-legend-item dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.bm-legend-item dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-sub);
+}
+.bm-dir {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--chip-gate-bg);
+  color: var(--chip-gate-fg);
+}
+
+/* Headline */
+.bm-headline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.bm-headline li {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-dim);
+  border-left-width: 4px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 14px;
+}
+.bm-headline-good {
+  border-left-color: var(--mk-good) !important;
+}
+.bm-headline-warn {
+  border-left-color: var(--mk-warn) !important;
+}
+.bm-headline-bad {
+  border-left-color: var(--mk-bad) !important;
+}
+
+/* Tables */
 .bm-scroll {
   overflow-x: auto;
   border: 1px solid var(--border-dim);
@@ -57,7 +139,8 @@
 }
 .bm-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   color: var(--text-main);
   font-size: 14px;
 }
@@ -66,22 +149,221 @@
   padding: 10px 14px;
   text-align: left;
   white-space: nowrap;
-  border-bottom: 1px solid var(--border-dim);
+  vertical-align: middle;
 }
 .bm-table thead th {
+  background: var(--bg-lane);
   color: var(--text-sub);
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: normal;
+  vertical-align: bottom;
+  border-bottom: 2px solid var(--border-bright);
+}
+.bm-table thead th.bm-num {
+  text-align: right;
 }
 .bm-table tbody th {
   font-weight: 600;
 }
-.bm-table tbody tr:last-child th,
-.bm-table tbody tr:last-child td {
+/* Zebra: odd rows on the card colour, even rows on the elevated colour. Painted on the cells so the sticky first
+   column keeps a solid background. */
+.bm-table tbody tr:nth-child(odd) > * {
+  background: var(--bg-card);
+}
+.bm-table tbody tr:nth-child(even) > * {
+  background: var(--bg-elevated);
+}
+.bm-table tbody tr:last-child > * {
   border-bottom: 0;
+}
+/* The reviewer name stays in view when a wide table scrolls. Only the Reviewer header and the row names: in the
+   per-case table the second header row starts with a case header (Reviewer spans both rows), which must scroll. */
+.bm-table thead tr:first-child th:first-child,
+.bm-table tbody th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  border-right: 1px solid var(--border-dim);
 }
 .bm-num {
   font-variant-numeric: tabular-nums;
+  text-align: right !important;
 }
 .bm-none {
   color: var(--text-sub);
+  text-align: left !important;
+}
+.bm-ok {
+  color: var(--mk-good);
+  font-weight: 600;
+}
+.bm-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bm-meta {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+/* Score and recall: a number with a thin bar under it. */
+.bm-share {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 72px;
+}
+.bm-share-n {
+  font-weight: 600;
+}
+.bm-score {
+  font-size: 16px;
+  font-weight: 800;
+}
+.bm-score.neg {
+  color: var(--mk-bad);
+}
+.bm-bar {
+  display: block;
+  width: 72px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--ring-track);
+  overflow: hidden;
+}
+.bm-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--mk-accent);
+}
+
+/* Chips: a colour and a word or number, so colour is never the only cue. */
+.bm-chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.bm-chip-good {
+  background: var(--chip-done-bg);
+  color: var(--chip-done-fg);
+}
+.bm-chip-warn {
+  background: var(--chip-coord-bg);
+  color: var(--chip-coord-fg);
+}
+.bm-chip-bad {
+  background: var(--chip-bad-bg);
+  color: var(--chip-bad-fg);
+}
+.bm-chip-plain {
+  background: var(--chip-gate-bg);
+  color: var(--chip-gate-fg);
+}
+
+/* Per-case table */
+.bm-recall-table thead th.bm-group {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-dim);
+}
+.bm-recall-table thead th.bm-group-large {
+  border-left: 1px solid var(--border-dim);
+}
+.bm-recall-table thead th.bm-group-small {
+  border-left: 1px solid var(--border-dim);
+}
+.bm-recall-table thead th.bm-case-h {
+  text-align: right;
+  white-space: nowrap;
+  padding-top: 6px;
+}
+.bm-case-id {
+  display: block;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.bm-case-n {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.bm-case {
+  display: inline-block;
+  min-width: 56px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.bm-case-full {
+  background: var(--chip-done-bg);
+  color: var(--chip-done-fg);
+}
+.bm-case-some {
+  background: var(--chip-coord-bg);
+  color: var(--chip-coord-fg);
+}
+.bm-case-none {
+  background: var(--chip-bad-bg);
+  color: var(--chip-bad-fg);
+}
+
+/* Proposed order */
+.bm-proposed {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.bm-proposed-card {
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-row);
+  background: var(--bg-card);
+  padding: 12px 16px;
+}
+.bm-proposed-h {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.bm-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: bm-step;
+  display: grid;
+  gap: 6px;
+  color: var(--text-main);
+}
+.bm-steps li {
+  counter-increment: bm-step;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.bm-steps li::before {
+  content: counter(bm-step);
+  flex: none;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--chip-gate-bg);
+  color: var(--chip-gate-fg);
 }
