@@ -29,10 +29,12 @@ EXIT CODES
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -131,6 +133,35 @@ def _has_print_flag(cmd: str) -> bool:
     count, or an interactive child passes the gate (R3 cross-review, 2026-09-30).
     """
     return bool(re.search(r"(?:^|\s)(?:-p|--print)(?:\s|$)", _QUOTED.sub('""', cmd)))
+
+
+# agy needs `--model <id>` BEFORE -p/--print, else it runs its own default model (a downstream project, 2026-11-18: 7 of 7 lane runs
+# had no --model, ran the wrong model and hit the 20m print timeout). A 3-task TDD phase needs 40m; caddis_spend kills at 60m.
+MIN_AGY_PRINT_TIMEOUT_S = 40 * 60
+_PRINT_TIMEOUT = re.compile(r"--print-timeout(?:\s+|=)(\d+(?:\.\d+)?)([smh]?)(?=\s|$)")
+
+
+def _agy_model_problem(inner: str) -> str:
+    """Why an agy command names no usable model, or "" when it does (`--model <id>` before -p/--print)."""
+    blank = _QUOTED.sub('""', inner)
+    model = re.search(r"(?:^|\s)--model(?:\s+|=)([^\s\-]\S*)", blank)
+    if not model:
+        return "has no --model <id>"
+    flag = re.search(r"(?:^|\s)(?:-p|--print)(?:\s|=|$)", blank)
+    if flag and flag.start() < model.start():
+        return "puts --model after -p/--print (agy reads --model only before it)"
+    return ""
+
+
+def _agy_timeout_warning(inner: str) -> str:
+    """A warning when --print-timeout is missing or under 40 minutes, else ""."""
+    match = _PRINT_TIMEOUT.search(_QUOTED.sub('""', inner))
+    if not match:
+        return "has no --print-timeout (use 40m; a 3-task TDD phase needs it)"
+    seconds = float(match.group(1)) * {"s": 1, "": 1, "m": 60, "h": 3600}[match.group(2)]
+    if seconds < MIN_AGY_PRINT_TIMEOUT_S:
+        return f"has --print-timeout {match.group(1)}{match.group(2)} (under 40m; a 3-task TDD phase needs 40m)"
+    return ""
 
 
 def gate_lane(plan: Path, phase: int) -> int:
@@ -233,6 +264,15 @@ def gate_lane(plan: Path, phase: int) -> int:
             "  Without it the child is not marked headless, reads the same Lane line, and spawns\n"
             "  again — unbounded recursion. Refusing to run it.\n")
         return EXIT_MALFORMED
+    if inner.startswith("agy"):
+        refusal = _agy_model_problem(inner)
+        if refusal:
+            sys.stderr.write(f"[caddis-gate] phase {phase}'s agy command {refusal}: {cmd}\n"
+                             "  Without --model agy runs its own default model, not the routed one. Refusing to run it.\n")
+            return EXIT_MALFORMED
+        warning = _agy_timeout_warning(inner)
+        if warning:
+            sys.stderr.write(f"[caddis-gate] WARNING phase {phase}'s agy command {warning}: {cmd}\n")
     print(cmd)
     sys.stderr.write(f"[caddis-gate] phase {phase} belongs to lane '{lane}' — spawn the command above\n")
     return EXIT_WRONG_LANE
@@ -261,6 +301,10 @@ def gate_tracker(plan: Path, cwd: Path | None = None) -> int:
         has_commit = commit not in ("", "—", "-", "–")
         if done and not has_commit:
             problems.append(f"phase {m.group(1)} is '{cells[2]}' with no commit recorded")
+    measured = measured_violations(text, plan)
+    if measured:
+        _print_measured(measured)  # a block beats the note below: a phase cannot be done with no measured value
+        return EXIT_BLOCKED
     if not problems:
         return EXIT_OK
     for p in problems:
@@ -268,6 +312,614 @@ def gate_tracker(plan: Path, cwd: Path | None = None) -> int:
     sys.stderr.write("  A done row with no commit means the Tracker and the repo disagree. Four rows\n"
                      "  were once reverted by a stray staged edit and caught two milestones later.\n")
     return EXIT_NOTE
+
+
+# ── gates: measured-check and db-plan-check (plan side of the DB review gate) ───────────────────
+#
+# uat-refresh Phase 3b passed with a PROD measurement ("step 0") not run, and no uat-refresh plan named a SQL
+# reviewer. A phase that depends on a PROD fact says so on a `**Requires measured:** <key> - <fact>` line and is
+# not done until its Tracker Notes hold `measured <key>=<value>`. A phase that touches DB code carries a
+# `**DB review:**` line and a `**DB checklist:**` that answers each SQL Server load check.
+#
+# These two gates are exceptions to DEGRADE OPEN, by owner decision: a malformed `Requires measured:` line or a
+# done row with no measured value is a positively identified violation and exits 1. A missing plan still degrades.
+
+_PHASE_ID = re.compile(r"^###\s+Phase\s+(\d+[a-z]?)\b", re.M)
+_MEASURED_LINE = re.compile(r"^\*\*Requires measured:\*\*[ 	]*(.*)$", re.M)  # [ 	]: never reads the next line
+_MEASURED_KEY = re.compile(r"^[a-z0-9][a-z0-9-]*(?=\s|$)")
+_MEASURED_VALUE = re.compile(r"measured\s+([a-z0-9][a-z0-9-]*)\s*=\s*([^;|]*)", re.I)
+MEASURED_PLACEHOLDERS = frozenset({
+    "", "?", "tbd", "todo", "n/a", "na", "-", "—", "–", "pending", "unknown", "not run", "skipped"})
+
+
+def _scripts_on_path() -> None:
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+
+
+def _phase_ids(plan_text: str) -> list[str]:
+    seen: list[str] = []
+    for m in _PHASE_ID.finditer(plan_text):
+        if m.group(1) not in seen:
+            seen.append(m.group(1))
+    return seen
+
+
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_HEADING_1_3 = re.compile(r"^#{1,3}\s")
+
+
+def _phase_text(plan_text: str, plan: Path, pid: str) -> str:
+    """The text of phase `pid`, sliced from `plan_text`: from its `### Phase <pid>` heading to the next heading of
+    level 1-3 that is outside a fenced code block (a `# comment` in a fence is not a heading). `plan` is unused; it
+    stays in the signature so callers keep one shape. Empty string when the plan has no such phase."""
+    start = re.compile(rf"^###\s+Phase\s+{re.escape(pid)}\b", re.I)
+    section: list[str] | None = None
+    fence = ""
+    for line in plan_text.splitlines():
+        in_fence = bool(fence)
+        m = _FENCE.match(line)
+        if not fence and m:
+            fence = m.group(1)
+        elif fence and m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) \
+                and not line.strip()[len(m.group(1)):].strip():
+            fence = ""
+        heading = not in_fence and not m and bool(_HEADING_1_3.match(line))
+        if section is None:
+            if heading and start.match(line):
+                section = [line]
+        elif heading:
+            break
+        else:
+            section.append(line)
+    return "" if section is None else "\n".join(section).rstrip() + "\n"
+
+
+def required_measurements(section: str) -> tuple[list[str], list[str]]:
+    """(keys, malformed_lines) from the `**Requires measured:**` lines of one phase."""
+    keys: list[str] = []
+    bad: list[str] = []
+    for m in _MEASURED_LINE.finditer(section):
+        key = _MEASURED_KEY.match(m.group(1).strip())
+        if key:
+            keys.append(key.group(0))
+        else:
+            bad.append(m.group(0).strip())
+    return keys, bad
+
+
+def measured_values(row: str) -> dict[str, str]:
+    """Every `measured <key>=<value>` pair in a Tracker row; the value ends at `;` or `|`."""
+    return {m.group(1).lower(): m.group(2).strip() for m in _MEASURED_VALUE.finditer(row)}
+
+
+def _tracker_rows(plan_text: str) -> dict[str, tuple[str, str]]:
+    """phase id -> (status cell, whole row line) from the `## Tracker` table."""
+    try:
+        import caddis_rows
+        import caddis_todo
+    except ModuleNotFoundError:
+        _scripts_on_path()
+        import caddis_rows
+        import caddis_todo
+    table = caddis_todo.tracker_table(plan_text)
+    if table is None:
+        return {}
+    columns, lines = table
+    at = columns.index("status")
+    rows: dict[str, tuple[str, str]] = {}
+    for line in lines:
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = caddis_rows.split_cells(line)
+        if len(cells) <= at:
+            continue
+        pid = re.sub(r"^(?:phase|p)\s*", "", cells[0].replace("`", "").replace("*", "").strip(), flags=re.I).lower()
+        if pid and pid not in rows:
+            rows[pid] = (cells[at], line)
+    return rows
+
+
+def measured_violations(plan_text: str, plan: Path) -> list[str]:
+    """Violations: a malformed `Requires measured:` line (always), and each required key with no real value in the
+    Tracker row of a done phase."""
+    try:
+        import caddis_status
+    except ModuleNotFoundError:
+        _scripts_on_path()
+        import caddis_status
+    rows = _tracker_rows(plan_text)
+    problems: list[str] = []
+    for pid in _phase_ids(plan_text):
+        keys, bad = required_measurements(_phase_text(plan_text, plan, pid))
+        problems += [f"phase {pid}: malformed Requires measured line: {b}" for b in bad]
+        row = rows.get(pid.lower())
+        if not keys or row is None or not caddis_status.is_done(row[0]):
+            continue
+        values = measured_values(row[1])
+        for key in keys:
+            value = values.get(key)
+            if value is None or value.lower() in MEASURED_PLACEHOLDERS or value.startswith("<"):
+                problems.append(f"phase {pid}: done without measured {key}")
+    return problems
+
+
+def _print_measured(problems: list[str]) -> None:
+    for p in problems:
+        sys.stderr.write(f"[caddis-gate] measured-check: {p}\n")
+    sys.stderr.write('  Put "measured <key>=<value>" in the phase\'s Tracker Notes, or set the row to blocked.\n')
+
+
+def gate_measured(plan: Path) -> int:
+    if not plan.is_file():
+        return _degrade(f"no plan at {plan}")
+    problems = measured_violations(plan.read_text(encoding="utf-8", errors="ignore"), plan)
+    if problems:
+        _print_measured(problems)
+        return EXIT_BLOCKED
+    print("MEASURED: ok")
+    return EXIT_OK
+
+
+DB_CHECKLIST_KEYS = (
+    "stats", "index-options", "fragmentation", "log-volume", "tempdb", "locks", "lost-objects", "dependents",
+    "source-read", "run-lock")
+
+
+def db_review_value(section: str) -> str | None:
+    """The text after `**DB review:**` on its first line, stripped; None when the phase has no such line."""
+    m = re.search(r"^\*\*DB review:\*\*[ \t]*(.*)$", section, re.M)
+    return m.group(1).strip() if m else None
+
+
+def _opt_out_reason(value: str) -> str | None:
+    """None when `value` is not a `none ...` opt-out; else the reason text (may be empty)."""
+    if not value.lower().startswith("none"):
+        return None
+    return value[4:].strip(" -—–:\t")
+
+
+def is_db_phase(section: str) -> tuple[bool, list[str]]:
+    """(is a DB phase, reasons). `**DB review:** none - <reason>` (3+ characters) is an explicit opt-out."""
+    value = db_review_value(section)
+    if value is not None:
+        reason = _opt_out_reason(value)
+        if reason is not None and len(reason) >= 3:
+            return False, []
+    reasons: list[str] = []
+    if value is not None:
+        reasons.append("DB review line")
+    for token in re.findall(r"`([^`\n]+)`", section):
+        norm = token.strip().replace("\\", "/").lower()
+        if norm.endswith(".sql") or ("/" in norm and any(seg in DB_PATH_SEGMENTS for seg in norm.split("/"))):
+            reasons.append(f"path {token.strip()}")
+    for label, rx in DB_CONTENT_TRIGGERS:
+        if rx.search(section):
+            reasons.append(f"keyword {label}")
+    return bool(reasons), reasons
+
+
+_NAME_SEP = re.compile(r" - |—|–")
+
+
+def _reviewer_tokens(value: str) -> list[str]:
+    """Raw tokens after the first `—`, `–` or ` - ` of a `**DB review:**` value; backticks stripped. None for `none`."""
+    if value.lower().startswith("none"):  # an opt-out names no reviewer; its reason text is prose
+        return []
+    m = _NAME_SEP.search(value)
+    if m is None:
+        return []
+    tokens = (t.strip("`") for t in re.split(r"[,\s]+", value[m.end():]))
+    return [t for t in tokens if t]
+
+
+def _is_reviewer(token: str, known: "set[str] | frozenset[str] | tuple[str, ...]") -> bool:
+    """An agent name that has a `-` (every shipped reviewer does) or is a configured reviewer. Filler words such as
+    `and` or `on` are neither, so prose after the name list never becomes a required reviewer."""
+    return bool(_AGENT_NAME.match(token)) and ("-" in token or token in known)
+
+
+def db_reviewer_names(value: str, known: "set[str] | frozenset[str] | tuple[str, ...]" = ()) -> list[str]:
+    """Reviewer names after the first `—`, `–` or ` - ` of a `**DB review:**` value."""
+    return [t for t in _reviewer_tokens(value) if _is_reviewer(t, known)]
+
+
+def db_unknown_reviewer_tokens(value: str, known: "set[str] | frozenset[str] | tuple[str, ...]" = ()) -> list[str]:
+    """Tokens after the separator that are not reviewer names: db-plan-check fails on these."""
+    return [t for t in _reviewer_tokens(value) if not _is_reviewer(t, known)]
+
+
+def _checklist_unanswered(section: str) -> list[str]:
+    """The `DB_CHECKLIST_KEYS` with no answer in the lines after the `**DB checklist:**` line."""
+    m = re.search(r"^\*\*DB checklist:\*\*.*$", section, re.M)
+    after = section[m.end():] if m else ""
+    missing: list[str] = []
+    for key in DB_CHECKLIST_KEYS:
+        found = re.search(rf"^[ \t]*-[ \t]*{re.escape(key)}:[ \t]*(.*)$", after, re.M)
+        answer = found.group(1).strip().lower() if found else ""
+        if answer in ("", "?", "tbd", "todo") or answer.startswith("<"):
+            missing.append(key)
+        elif answer.startswith("n/a") and len(answer[3:].strip(" -—–:\t")) < 3:
+            missing.append(key)
+    return missing
+
+
+def _db_plan_scan(plan_text: str, plan: Path, known: frozenset[str] | None = None) -> tuple[list[str], int]:
+    known = known if known is not None else frozenset({DB_REVIEWER_DEFAULT})
+    problems: list[str] = []
+    db_phases = 0
+    for pid in _phase_ids(plan_text):
+        section = _phase_text(plan_text, plan, pid)
+        value = db_review_value(section)
+        if value is not None:
+            reason = _opt_out_reason(value)
+            if reason is not None and len(reason) < 3:
+                problems.append(f"phase {pid}: DB review opt-out needs a reason")
+                continue
+        is_db, reasons = is_db_phase(section)
+        if not is_db:
+            continue
+        db_phases += 1
+        if value is None:
+            problems.append(f"phase {pid}: DB phase ({', '.join(reasons)}) has no **DB review:** line")
+        elif not (re.search(r"\bdesign\b", value, re.I) and re.search(r"\bdiff\b", value, re.I)):
+            problems.append(f"phase {pid}: DB review must say design + diff")
+        if value is not None:
+            problems += [f"phase {pid}: DB review names unknown reviewer '{t}' (list agent names, comma separated)"
+                         for t in db_unknown_reviewer_tokens(value, known)]
+        if re.search(r"^\*\*DB checklist:\*\*", section, re.M) is None:
+            problems.append(f"phase {pid}: DB phase has no **DB checklist:**")
+        else:
+            problems += [f"phase {pid}: DB checklist {key} is not answered" for key in _checklist_unanswered(section)]
+    return problems, db_phases
+
+
+def db_plan_violations(plan_text: str, plan: Path) -> list[str]:
+    return _db_plan_scan(plan_text, plan)[0]
+
+
+def gate_db_plan(plan: Path) -> int:
+    if not plan.is_file():
+        return _degrade(f"no plan at {plan}")
+    reviewer, etl_reviewer = db_review_config(Path("."))
+    known = frozenset({reviewer} | ({etl_reviewer} if etl_reviewer else set()))
+    problems, db_phases = _db_plan_scan(plan.read_text(encoding="utf-8", errors="ignore"), plan, known)
+    if problems:
+        for p in problems:
+            sys.stderr.write(f"[caddis-gate] db-plan-check: {p}\n")
+        return EXIT_BLOCKED
+    print(f"DB-PLAN: ok ({db_phases} DB phase(s))")
+    return EXIT_OK
+
+
+# ── gate: db-review (a phase or PR with DB code needs its DB reviews) ────────────────────────────
+#
+# Two stages, both recorded as one-line evidence in `.caddis/reviews/`:
+#   DB-DESIGN p<N> <reviewer> <verdict> blocking=<n> phase=<hash12>        the phase text, before coding
+#   DB-DIFF <reviewer> <verdict> blocking=<n> files=<path>@<blob12>,...    the changed DB files, before merge
+# Evidence is tied to CONTENT, not to a commit: a git blob id per DB file and a text hash per phase. A rebase that
+# keeps the content keeps the evidence; any later edit to a DB file or to the phase text makes the gate fail again.
+#
+# This is the one gate here that FAILS CLOSED when it cannot read its input. House rule is degrade open (`_degrade`),
+# but a diff we cannot read may hold the DB change nobody reviewed, and that is the exact miss this gate exists for.
+# Trust limit: the lines are written by the orchestrator from the reviewer's return block. A model can forge them,
+# as it can forge a Tracker cell. The gate makes the review happen and makes a stale review visible; it does not
+# prove the review was good. The full return block sits beside each line so a human can check it.
+
+_DB_DIFF_LINE = re.compile(
+    r"^(?:[-*]\s+)?DB-DIFF\s+(?P<reviewer>[a-z0-9][a-z0-9-]*)\s+(?P<verdict>approved|changes-suggested)\s+"
+    r"blocking=(?P<blocking>\d+)\s+files=(?P<files>\S+)\s*$", re.M)
+_DB_DESIGN_LINE = re.compile(
+    r"^(?:[-*]\s+)?DB-DESIGN\s+p(?P<phase>\d+[a-z]?)\s+(?P<reviewer>[a-z0-9][a-z0-9-]*)\s+"
+    r"(?P<verdict>approved|changes-suggested)\s+blocking=(?P<blocking>\d+)\s+phase=(?P<hash>[0-9a-f]{12})\s*$", re.M)
+
+
+@dataclass(frozen=True)
+class DiffReview:
+    reviewer: str
+    blocking: int
+    files: frozenset[str]  # each "path@blob12"
+
+
+@dataclass(frozen=True)
+class DesignReview:
+    phase: str
+    reviewer: str
+    blocking: int
+    phase_hash: str
+
+
+def parse_evidence(text: str) -> tuple[list[DiffReview], list[DesignReview]]:
+    """Every well-formed DB-DIFF and DB-DESIGN line in `text`. A malformed line is ignored, so it never counts."""
+    diffs = [DiffReview(m["reviewer"], int(m["blocking"]), frozenset(f for f in m["files"].split(",") if f))
+             for m in _DB_DIFF_LINE.finditer(text)]
+    designs = [DesignReview(m["phase"], m["reviewer"], int(m["blocking"]), m["hash"])
+               for m in _DB_DESIGN_LINE.finditer(text)]
+    return diffs, designs
+
+
+def phase_hash(plan: Path, phase: int | str) -> str:
+    """sha256 (12 hex) of the phase text without its heading line, so a status mark in the heading does not change it.
+    Raises ValueError when the plan has no such phase."""
+    plan_text = Path(plan).read_text(encoding="utf-8")
+    section = _phase_text(plan_text, Path(plan), str(phase))
+    if not section.strip():
+        raise ValueError(f"no phase {phase} in {plan}")
+    body = "\n".join(line.rstrip() for line in section.splitlines()[1:]).strip()
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
+
+
+def _range_right(rng: str | None) -> str | None:
+    """The state a range ends at: None for no range or a single rev (the working tree), else the right-hand rev."""
+    if not rng:
+        return None
+    for sep in ("...", ".."):
+        if sep in rng:
+            return rng.split(sep, 1)[1] or "HEAD"
+    return None
+
+
+def file_blob(repo_root: Path, right: str | None, path: str) -> str:
+    """First 12 hex of the git blob of `path` at `right` (a rev), or of the working-tree file when `right` is None.
+    `deleted` when the file is absent there."""
+    if right is None:
+        if not (Path(repo_root) / path).is_file():
+            return "deleted"
+        res = subprocess.run(["git", "-C", str(repo_root), "hash-object", "--", path],
+                             capture_output=True, text=True, timeout=30)
+        if res.returncode != 0 or not res.stdout.strip():
+            raise RuntimeError(f"git hash-object {path} exited {res.returncode}")
+        return res.stdout.strip()[:12]
+    res = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"{right}:{path}"],
+                         capture_output=True, text=True, timeout=30)
+    return res.stdout.strip()[:12] if res.returncode == 0 and res.stdout.strip() else "deleted"
+
+
+def evidence_files(repo_root: Path, plan: Path | None, changed_paths: list[str], explicit: Path | None) -> list[Path]:
+    """The existing evidence files to read: `explicit`; else `.caddis/reviews/<plan-stem>-db.md` for a plan; else every
+    changed `.caddis/reviews/*.md` plus `.caddis/reviews/db-<branch>.md`."""
+    reviews = Path(repo_root) / ".caddis" / "reviews"
+    if explicit is not None:
+        candidates = [Path(explicit)]
+    elif plan is not None:
+        candidates = [reviews / f"{Path(plan).stem}-db.md"]
+    else:
+        candidates = [Path(repo_root) / p for p in changed_paths
+                      if p.replace("\\", "/").startswith(".caddis/reviews/") and p.endswith(".md")]
+        res = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+                             capture_output=True, text=True, timeout=30)
+        branch = res.stdout.strip() if res.returncode == 0 else ""
+        if branch and branch != "HEAD":
+            candidates.append(reviews / f"db-{branch.replace('/', '-')}.md")
+    return [c for c in dict.fromkeys(candidates) if c.is_file()]
+
+
+def required_diff_reviews(
+    repo_root: Path,
+    rng: str | None,
+    hits: list[DbHit],
+    reviewer: str,
+    etl_reviewer: str | None,
+    extra: set[str],
+) -> dict[str, set[str]]:
+    """`path@blob12` -> the reviewers that must have reviewed that exact file content, one key per non-test hit path."""
+    right = _range_right(rng)
+    required: dict[str, set[str]] = {}
+    for path in sorted({h.path for h in hits if not h.is_test}):
+        names = {reviewer} | set(extra)
+        if etl_reviewer and is_etl_file(path, {h.label for h in hits if h.path == path}):
+            names.add(etl_reviewer)
+        required[f"{path}@{file_blob(repo_root, right, path)}"] = names
+    return required
+
+
+def _read_evidence(paths: list[Path]) -> tuple[list[DiffReview], list[DesignReview]]:
+    diffs: list[DiffReview] = []
+    designs: list[DesignReview] = []
+    for path in paths:
+        d, g = parse_evidence(path.read_text(encoding="utf-8", errors="replace"))
+        diffs += d
+        designs += g
+    return diffs, designs
+
+
+def _last_is_clean(blocking_counts: list[int]) -> bool:
+    """True when there is an entry and the LAST one (file order, then line order) has no blocking finding: a later
+    review of the same content overrides an earlier one, in either direction."""
+    return bool(blocking_counts) and blocking_counts[-1] == 0
+
+
+def _design_status(
+    plan: Path, phase: str, evidence_paths: list[Path], reviewer: str, force: bool = False,
+    known: frozenset[str] = frozenset(),
+) -> tuple[list[str], list[str], str]:
+    """(message lines, reviewers still missing, phase hash). Empty lines mean the design is reviewed (or not required).
+
+    `force` is for a diff that has DB code under a phase that did not say so: the design review is then required
+    from `reviewer`, and the lines start with the reason."""
+    section = _phase_text(Path(plan).read_text(encoding="utf-8"), Path(plan), phase)
+    is_db, _ = is_db_phase(section)
+    if not is_db and not force:
+        return [], [], ""
+    required = {reviewer} | set(db_reviewer_names(db_review_value(section) or "", known | {reviewer}))
+    current = phase_hash(plan, phase)
+    _, designs = _read_evidence(evidence_paths)
+    missing = sorted(r for r in required if not _last_is_clean(
+        [d.blocking for d in designs if d.phase == phase and d.reviewer == r and d.phase_hash == current]))
+    if not missing:
+        return [], [], current
+    lines = [f"missing design review: {r} on phase {phase} (phase={current})" for r in missing]
+    if not is_db:
+        lines.insert(0, f"phase {phase} has DB code but no **DB review:** line; review the phase text now")
+    return lines, missing, current
+
+
+def _design_missing(plan: Path, phase: str, evidence_paths: list[Path], reviewer: str) -> list[str]:
+    return _design_status(plan, phase, evidence_paths, reviewer)[0]
+
+
+# What each checklist key asks a reviewer. In the blind reviewer benchmark no reviewer found a missing statistics
+# update unprompted, and most missed MAXDOP and sp_refreshview, so every DB review brief MUST carry these.
+DB_CHECKLIST_BRIEF: dict[str, str] = {
+    "stats": "statistics updated after the load (UPDATE STATISTICS or sp_updatestats on every table loaded)",
+    "index-options": "index builds and rebuilds use SORT_IN_TEMPDB, MAXDOP and ONLINE/RESUMABLE where the edition allows",
+    "fragmentation": "fragmented indexes are reorganised or rebuilt after the load",
+    "log-volume": "transaction log volume and recovery model for the rows loaded; batch size",
+    "tempdb": "tempdb use by sorts, spills and temp tables",
+    "locks": "lock escalation, blocking and LOCK_TIMEOUT for the readers of the target tables",
+    "lost-objects": "indexes, constraints, triggers, defaults and permissions lost by a drop or rename swap",
+    "dependents": "dependent views and procedures: sp_refreshview after a drop or rename swap",
+    "source-read": "how the source is read: consistency, isolation, partial reads",
+    "run-lock": "a run lock (sp_getapplock) so two runs cannot overlap",
+}
+
+
+def db_review_brief() -> str:
+    """The SQL Server load checklist every DB review brief must carry, design review and diff review alike."""
+    assert tuple(DB_CHECKLIST_BRIEF) == DB_CHECKLIST_KEYS
+    lines = ["Check each item against SQL Server behaviour for this change. A missing or wrong step is blocking:"]
+    lines += [f"- {key}: {text}" for key, text in DB_CHECKLIST_BRIEF.items()]
+    lines.append("- large DELETE+INSERT: nonclustered indexes are disabled before and rebuilt after the load")
+    return "\n".join(lines)
+
+
+def _db_blocked(lines: list[str], triggers: list[str], searched: list[Path], records: list[str]) -> int:
+    print("DB-REVIEW: BLOCKED")
+    sys.stderr.write("[caddis-gate] db-review: a DB review is missing\n")
+    for line in lines:
+        sys.stderr.write(f"  {line}\n")
+    if triggers:
+        sys.stderr.write(f"  triggers: {', '.join(triggers)}\n")
+    sys.stderr.write(f"  evidence searched: {', '.join(p.as_posix() for p in searched) or 'none found'}\n")
+    for record in records:
+        sys.stderr.write(f"  after the review, record: {record}\n")
+    sys.stderr.write("  put this checklist in every reviewer brief (also: db-review --print-brief):\n")
+    for line in db_review_brief().splitlines():
+        sys.stderr.write(f"    {line}\n")
+    return EXIT_BLOCKED
+
+
+def _usage(msg: str) -> int:
+    sys.stderr.write(f"[caddis-gate] db-review: {msg}\n")
+    return EXIT_MALFORMED
+
+
+def gate_db_review(
+    repo_root: Path,
+    rng: str | None = None,
+    plan: Path | None = None,
+    phase: str | None = None,
+    stage: str = "diff",
+    evidence: Path | None = None,
+    print_files: bool = False,
+    print_hash: bool = False,
+    print_brief: bool = False,
+) -> int:
+    """Exit 1 unless every current DB file has a clean review from every required reviewer (stage `diff`), and, with
+    a plan and phase, the current phase text has a design review. Stage `design` checks the phase text alone.
+    Any failure to read the diff or the named plan exits 1: see the block comment above."""
+    if print_brief:
+        print(db_review_brief())
+        return EXIT_OK
+    if stage not in ("diff", "design"):
+        return _usage(f"unknown --stage '{stage}' (use diff or design)")
+    if (plan is None) != (phase is None):
+        return _usage("--plan and --phase go together")
+    if (stage == "design" or print_hash) and plan is None:
+        return _usage("--stage design and --print-hash need --plan and --phase")
+    phase = str(phase).strip() if phase is not None else None
+    try:
+        return _db_review(Path(repo_root), rng, plan, phase, stage, evidence, print_files, print_hash)
+    except Exception as exc:  # noqa: BLE001 - fail closed: an unreadable input may hide the unreviewed change
+        sys.stderr.write(f"[caddis-gate] db-review: cannot evaluate ({type(exc).__name__}: {exc}); "
+                         "a DB review is required\n")
+        print("DB-REVIEW: BLOCKED")
+        return EXIT_BLOCKED
+
+
+def _db_review(repo_root, rng, plan, phase, stage, evidence, print_files, print_hash) -> int:
+    reviewer, etl_reviewer = db_review_config(repo_root)
+    known = frozenset({reviewer} | ({etl_reviewer} if etl_reviewer else set()))
+    section = None
+    if plan is not None and (stage == "design" or print_hash):
+        section = _phase_text(Path(plan).read_text(encoding="utf-8"), Path(plan), phase)  # unreadable plan: raises
+        if not section.strip():
+            raise ValueError(f"no phase {phase} in {plan}")
+    if print_hash:
+        print(f"PHASE-HASH: {phase_hash(plan, phase)}")
+        return EXIT_OK
+
+    if stage == "design":
+        if not is_db_phase(section)[0]:
+            print("DB-REVIEW: not a DB phase")
+            return EXIT_OK
+        paths = evidence_files(repo_root, plan, [], evidence)
+        lines, missing, current = _design_status(plan, phase, paths, reviewer, known=known)
+        if lines:
+            records = [f"DB-DESIGN p{phase} {r} <approved|changes-suggested> blocking=0 phase={current}"
+                       for r in missing]
+            return _db_blocked(lines, [], paths, records)
+        print("DB-REVIEW: PASS")
+        return EXIT_OK
+
+    # stage diff. No range means the working tree against HEAD (staged and unstaged), never the unstaged part only.
+    diff_rng = rng or "HEAD"
+    try:
+        files = _numstat(diff_rng, repo_root)
+        changed = parse_diff_lines(_diff_text(diff_rng, repo_root))
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        sys.stderr.write(f"[caddis-gate] db-review: cannot read the diff ({exc}); a DB review is required\n")
+        print("DB-REVIEW: BLOCKED")
+        return EXIT_BLOCKED
+    changed_paths = [p for p, _ in files]
+    hits = db_triggers(changed_paths, changed)
+    real = [h for h in hits if not h.is_test]
+    extra: set[str] = set()
+    if plan is not None and not print_files:
+        # A named plan and phase are validated even when the diff has no DB hits: the hit rules can miss DB code.
+        section = _phase_text(Path(plan).read_text(encoding="utf-8"), Path(plan), phase)  # unreadable plan: raises
+        if not section.strip():
+            raise ValueError(f"no phase {phase} in {plan}")
+        extra = set(db_reviewer_names(db_review_value(section) or "", known))
+    if not real:
+        if section is not None and is_db_phase(section)[0]:
+            paths = evidence_files(repo_root, plan, changed_paths, evidence)
+            lines, missing, current = _design_status(plan, phase, paths, reviewer, known=known)
+            if lines:
+                records = [f"DB-DESIGN p{phase} {r} <approved|changes-suggested> blocking=0 phase={current}"
+                           for r in missing]
+                return _db_blocked(lines, [], paths, records)
+            print("DB-REVIEW: PASS")
+            return EXIT_OK
+        print("DB-REVIEW: not required - tests-only diff" if hits else "DB-REVIEW: not required")
+        return EXIT_OK
+    required = required_diff_reviews(repo_root, diff_rng, hits, reviewer, etl_reviewer, extra)
+    if print_files:
+        print(f"FILES: {','.join(sorted(required))}")
+        return EXIT_OK
+
+    paths = evidence_files(repo_root, plan, changed_paths, evidence)
+    diff_reviews, _ = _read_evidence(paths)
+    lines: list[str] = []
+    needed_by: dict[str, list[str]] = {}
+    for key in sorted(required):
+        for r in sorted(required[key]):
+            if not _last_is_clean([d.blocking for d in diff_reviews if d.reviewer == r and key in d.files]):
+                lines.append(f"missing: {r} on {key}")
+                needed_by.setdefault(r, []).append(key)
+    records = [f"DB-DIFF {r} <approved|changes-suggested> blocking=0 files={','.join(keys)}"
+               for r, keys in sorted(needed_by.items())]
+    if plan is not None:
+        design_lines, design_missing, current = _design_status(
+            plan, phase, paths, reviewer, force=not is_db_phase(section)[0], known=known)
+        lines += design_lines
+        records += [f"DB-DESIGN p{phase} {r} <approved|changes-suggested> blocking=0 phase={current}"
+                    for r in design_missing]
+    if lines:
+        return _db_blocked(lines, [f"{h.label} ({h.path})" for h in real], paths, records)
+    print("DB-REVIEW: PASS")
+    return EXIT_OK
 
 
 def gate_parking_lot(repo_root: Path) -> int:
@@ -552,6 +1204,225 @@ def review_triggers(paths: list[str], changed_lines: int) -> list[tuple[str, str
     return fired
 
 
+# ── DB triggers: SQL or DB code in a diff needs a DB review (db-review-gate) ────────────────────
+#
+# The DBA's first look at uat-refresh 0.3.0 found five standard SQL Server load gaps that no agent
+# review raised, because no plan named a SQL reviewer. `review-tier` reads the diff CONTENT for DB
+# code and prints a `DB:` line that names the reviewer and the triggers. No judgement: a path rule
+# or a regex either fires or it does not. Over-firing is the main risk (people learn to ignore the
+# line), so: code extensions only, markdown and docs never, test files marked and never required.
+
+DB_CODE_EXTS: tuple[str, ...] = (
+    ".py", ".sql", ".ps1", ".psm1", ".sh", ".cs", ".java", ".js", ".ts", ".go", ".rb", ".kt", ".scala")
+DB_PATH_SEGMENTS = frozenset({"alembic", "migrations", "migration"})
+
+# (label, pattern), in output order. `merge` is case-sensitive on purpose: prose "merge into main"
+# and identifiers like MERGE_LOCK must not fire; uppercase SQL `MERGE INTO dbo.T` must.
+DB_CONTENT_TRIGGERS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("create-alter-drop", re.compile(
+        r"\b(?:CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:(?:NON)?CLUSTERED\s+)?(?:INDEX|TABLE)\b", re.IGNORECASE)),
+    ("insert-into", re.compile(r"\bINSERT\s+INTO\b", re.IGNORECASE)),
+    ("delete-from", re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)),
+    ("merge", re.compile(
+        r"\bMERGE\s+(?:TOP\s*\(\s*\d+\s*\)\s+)?(?:INTO\s+[\[A-Za-z_#@]|\[|[A-Za-z_]\w*\.[\w\[\]]+"
+        r"|[A-Za-z_]\w*\s+(?:AS\s+)?\w+\s+USING\b)")),
+    ("sp-rename", re.compile(r"\bsp_rename\b", re.IGNORECASE)),
+    ("openjson", re.compile(r"\bOPENJSON\b", re.IGNORECASE)),
+    ("bulk-insert", re.compile(r"\bBULK\s+INSERT\b", re.IGNORECASE)),
+    ("truncate-table", re.compile(r"\bTRUNCATE\s+TABLE\b", re.IGNORECASE)),
+    ("executemany", re.compile(r"\.executemany\s*\(", re.IGNORECASE)),
+    ("cursor-execute", re.compile(
+        r"\b(?:cursor|cur|conn|connection|session|engine|db|tx|txn)\w*(?:\(\))?\.execute\s*\(", re.IGNORECASE)),
+    ("sqlalchemy-text", re.compile(
+        r"\b(?:sa|sqlalchemy)\.text\s*\(|\btext\s*\(\s*[rRuUbBfF]{0,2}(?:\"\"\"|'''|\"|')\s*"
+        r"(?:SELECT|INSERT|UPDATE|DELETE|MERGE|WITH|EXEC|EXECUTE|CREATE|ALTER|DROP|TRUNCATE)\b", re.IGNORECASE)),
+)
+
+
+@dataclass(frozen=True)
+class DbHit:
+    label: str
+    path: str
+    is_test: bool
+
+
+def parse_diff_lines(diff_text: str) -> dict[str, list[str]]:
+    """path -> changed lines (text after the leading `+`/`-`), from `git diff -U0 --no-renames` output.
+
+    The path is the `+++ b/<p>` path, or the `--- a/<p>` path when the file was deleted. File header lines
+    are read only before the first `@@` of a file, so a removed SQL comment `-- x` (shown as `--- x`) stays content."""
+    out: dict[str, list[str]] = {}
+    old_path: str | None = None
+    current: str | None = None
+    in_hunk = False
+
+    def _clean(raw: str, prefix: str) -> str:
+        raw = raw.rstrip("\t").strip()
+        if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+            raw = raw[1:-1]
+        return raw[len(prefix):] if raw.startswith(prefix) else raw
+
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            old_path, current, in_hunk = None, None, False
+            continue
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if not in_hunk:
+            if line.startswith("--- "):
+                old_path = None if line[4:].strip() == "/dev/null" else _clean(line[4:], "a/")
+            elif line.startswith("+++ "):
+                target = line[4:].strip()
+                current = old_path if target == "/dev/null" else _clean(line[4:], "b/")
+                if current is not None:
+                    out.setdefault(current, [])
+            continue
+        if current is None or not line or line[0] not in "+-":
+            continue
+        out[current].append(line[1:])
+    return out
+
+
+# The gate's own source names every trigger keyword in its pattern table, comments and tests. It is a tool, not DB
+# code, so its content is exempt (path rules still apply). Reviewed by hand; the exemption is this one path.
+DB_GATE_SELF_PATHS = frozenset({"scripts/caddis_gate.py"})
+
+
+def db_triggers(paths: list[str], changed: dict[str, list[str]]) -> list[DbHit]:
+    """DB hits for a diff: path rules on `paths`, content rules on the changed lines of code files.
+
+    One hit per (label, path). Order: by path, then `sql-file`, `migration-path`, then `DB_CONTENT_TRIGGERS` order.
+    A non-test file under docs/ or .caddis/ (tier 0) is skipped; a test file is kept and marked `is_test`."""
+    hits: list[DbHit] = []
+    for path in sorted(set(paths) | set(changed)):
+        if is_tier0_file(path) and not is_test_file(path):
+            continue
+        norm = path.replace("\\", "/").lower()
+        segs = norm.split("/")
+        is_test = is_test_file(path)
+        if norm.endswith(".sql"):
+            hits.append(DbHit("sql-file", path, is_test))
+        if any(seg in DB_PATH_SEGMENTS for seg in segs[:-1]):
+            hits.append(DbHit("migration-path", path, is_test))
+        if norm.endswith(DB_CODE_EXTS) and norm.removeprefix("./") not in DB_GATE_SELF_PATHS:
+            lines = changed.get(path, [])
+            for label, rx in DB_CONTENT_TRIGGERS:
+                if any(rx.search(ln) for ln in lines):
+                    hits.append(DbHit(label, path, is_test))
+    return hits
+
+
+DB_REVIEWER_DEFAULT = "sql-expert"
+DB_ETL_REVIEWER_DEFAULT: str | None = None  # off by default: sql-expert alone reviews every DB hit (owner, 17 Nov)
+DB_ETL_NEEDLES = frozenset({
+    "etl", "elt", "pipeline", "pipelines", "ingest", "ingestion", "loader", "loaders", "load", "extract",
+    "transform", "refresh", "sync", "dag", "dags", "warehouse"})
+DB_ETL_LABELS = frozenset({"bulk-insert", "executemany", "openjson"})
+_AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _diff_text(rng: str | None = None, repo_root: Path = Path(".")) -> str:
+    """`git diff -U0 --no-renames` text for an explicit range or the working tree.
+
+    `--no-renames` lists a moved file as a delete plus an add, so DB code moved into tests/ still shows as removed
+    lines at its old path. A failed `git diff` raises RuntimeError: the caller must not read it as an empty diff."""
+    args = ["git", "-C", str(repo_root), "-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff",
+            "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "-U0"]
+    if rng:
+        args.append(rng)
+    res = subprocess.run(args, capture_output=True, timeout=30)
+    if res.returncode != 0:
+        reason = res.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        raise RuntimeError(f"git diff -U0 exited {res.returncode}: {reason[0] if reason else 'no message'}")
+    return res.stdout.decode("utf-8", errors="replace")
+
+
+def _load_repo_config(repo_root: Path, section: str) -> dict:
+    try:
+        import claudster_config
+    except ModuleNotFoundError as exc:
+        if exc.name != "claudster_config":
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-harness" / "scripts"))
+        import claudster_config
+    return claudster_config.load_config(repo_root, section)
+
+
+def db_review_config(repo_root: Path) -> tuple[str, str | None]:
+    """(reviewer, etl_reviewer) from `[db_review]` in `.caddis/config.toml`.
+
+    A value that is not an agent name gives the default and one stderr note. `etl_reviewer` is off (None) by
+    default and when set to "none"; set it to an agent name to add a second reviewer on load/ETL files."""
+    try:
+        cfg = _load_repo_config(repo_root, "db_review")
+    except Exception:  # noqa: BLE001 - config is optional; the defaults stand
+        cfg = {}
+
+    def pick(key: str, default: str | None, allow_none: bool) -> str | None:
+        raw = cfg.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            return default
+        value = raw.strip()
+        if allow_none and value.lower() == "none":
+            return None
+        if _AGENT_NAME.match(value):
+            return value
+        sys.stderr.write(f"[caddis-gate] note: [db_review] {key} '{value}' is not an agent name; using {default or 'none'}\n")
+        return default
+
+    reviewer = pick("reviewer", DB_REVIEWER_DEFAULT, False) or DB_REVIEWER_DEFAULT
+    return reviewer, pick("etl_reviewer", DB_ETL_REVIEWER_DEFAULT, True)
+
+
+def is_etl_file(path: str, labels: set[str]) -> bool:
+    """True for a load/ETL file: an ETL label fired on it, or a folder name or the file stem names an ETL word."""
+    if set(labels) & DB_ETL_LABELS:
+        return True
+    segs = path.replace("\\", "/").lower().split("/")
+    stem = segs[-1].rsplit(".", 1)[0]
+    words: set[str] = set()
+    for part in [*segs[:-1], stem]:
+        words.update(w for w in re.split(r"[-_]", part) if w)
+    return bool(words & DB_ETL_NEEDLES)
+
+
+def db_reviewers(hits: list[DbHit], reviewer: str, etl_reviewer: str | None) -> list[str]:
+    """The DB reviewers a diff needs: none for tests-only hits; `reviewer`, plus `etl_reviewer` on a load/ETL file."""
+    real = [h for h in hits if not h.is_test]
+    if not real:
+        return []
+    names = [reviewer]
+    if etl_reviewer and etl_reviewer != reviewer:
+        for path in sorted({h.path for h in real}):
+            if is_etl_file(path, {h.label for h in real if h.path == path}):
+                names.append(etl_reviewer)
+                break
+    return names
+
+
+def db_line(hits: list[DbHit], reviewers: list[str]) -> str:
+    """The `DB:` line of `review-tier`."""
+    if not hits:
+        return "DB: none"
+    real = [h for h in hits if not h.is_test]
+    if not real:
+        return f"DB: none - tests-only diff ({len({h.path for h in hits})} test file(s) with DB code)"
+    shown = [f"{h.label} ({h.path})" for h in real[:6]]
+    extra = f", ... (+{len(real) - 6} more)" if len(real) > 6 else ""
+    return f"DB: {', '.join(reviewers)} - triggers: {', '.join(shown)}{extra}"
+
+
+def merge_area(area: list[str], db: list[str]) -> list[str]:
+    """Area reviewer order: `security-analyst`, other area names, DB reviewers not yet named, `ui-design-reviewer`."""
+    first = [n for n in area if n == "security-analyst"]
+    last = [n for n in area if n == "ui-design-reviewer"]
+    middle = [n for n in area if n not in ("security-analyst", "ui-design-reviewer")]
+    merged = first + middle
+    merged += [n for n in db if n not in merged and n not in last]
+    return merged + last
+
+
 def gate_review_trigger(repo_root: Path, rev_range: str | None = None) -> int:
     """EXIT_NOTE when the diff warrants cross-review, EXIT_OK when it does not.
 
@@ -755,12 +1626,27 @@ def gate_review_tier(
         print("TIER: 2")
         print("REVIEWERS: 1")
         print("AREA: none")
+        print("DB: unknown - diff unreadable")
         return EXIT_OK
     tier = review_tier(files, plan_risk=risk)
+    area = area_reviewers(files, ptype)
+    try:
+        # No range: the working tree against HEAD (staged and unstaged), the same read as `db-review`.
+        hits = db_triggers([p for p, _ in files], parse_diff_lines(_diff_text(rev_range or "HEAD", repo_root)))
+    except Exception as exc:  # noqa: BLE001 - content we cannot read is reported, never read as "no DB code"
+        sys.stderr.write(f"caddis-gate: review-tier could not read the diff content ({exc})\n")
+        hits, db_names, db_text = [], [], "DB: unknown - diff unreadable"
+        tier = "2"  # fail closed, like an unreadable numstat: a diff we cannot read is reviewed in full
+    else:
+        db_names = db_reviewers(hits, *db_review_config(repo_root))
+        db_text = db_line(hits, db_names)
+        if db_names:
+            tier = "2"  # DB code is a trigger on its own: a wrong number or a lost index is born here
     reviewers = TIER_REVIEWERS.get(tier, 1)
     print(f"TIER: {tier}")
     print(f"REVIEWERS: {reviewers}")
-    print(f"AREA: {', '.join(area_reviewers(files, ptype)) or 'none'}")
+    print(f"AREA: {', '.join(merge_area(area, db_names)) or 'none'}")
+    print(db_text)
     return EXIT_OK
 
 
@@ -806,6 +1692,21 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--phase", type=int, required=True)
     t = sub.add_parser("tracker-vs-git")
     t.add_argument("--plan", required=True)
+    mc = sub.add_parser("measured-check")
+    mc.add_argument("--plan", required=True)
+    dp = sub.add_parser("db-plan-check")
+    dp.add_argument("--plan", required=True)
+    dr = sub.add_parser("db-review")
+    dr.add_argument("--repo-root", default=".")
+    dr.add_argument("--range", dest="rev_range", default=None,
+                    help="revision range, e.g. origin/main...HEAD (default: the working tree against HEAD)")
+    dr.add_argument("--plan", default=None, help="path to plan markdown (needs --phase)")
+    dr.add_argument("--phase", default=None, help="phase number, e.g. 3 or 3b")
+    dr.add_argument("--stage", default="diff", help="diff (default) or design")
+    dr.add_argument("--evidence", default=None, help="evidence file (default: by plan, or by branch)")
+    dr.add_argument("--print-files", action="store_true", help="print the DB files and blob ids to record")
+    dr.add_argument("--print-hash", action="store_true", help="print the phase text hash to record")
+    dr.add_argument("--print-brief", action="store_true", help="print the SQL Server checklist for a reviewer brief")
     pl = sub.add_parser("parking-lot")
     pl.add_argument("--repo-root", default=".")
     rt = sub.add_parser("review-trigger")
@@ -839,6 +1740,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.cmd == "lane-check":
             return gate_lane(plan, a.phase)
+        if a.cmd == "measured-check":
+            return gate_measured(plan)
+        if a.cmd == "db-plan-check":
+            return gate_db_plan(plan)
+        if a.cmd == "db-review":
+            return gate_db_review(
+                Path(a.repo_root).resolve(), a.rev_range, Path(a.plan) if a.plan else None, a.phase, a.stage,
+                Path(a.evidence) if a.evidence else None, a.print_files, a.print_hash, a.print_brief)
         if a.cmd == "parking-lot":
             return gate_parking_lot(Path(a.repo_root).resolve())
         if a.cmd == "review-trigger":

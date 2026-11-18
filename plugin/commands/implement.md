@@ -90,7 +90,8 @@ and 95-154 turns per session were started by background events. Each turn re-rea
 - **One phase review.** Run `/caddis:cross-review --range <base>..HEAD --author <Implemented-By of the phase: agy or claude> --tier <TIER>`.
   The reviewer is chosen by the author: agy-written code gets Claude (Sonnet; Opus at tier 2), Claude-written code gets agy Carbon medium. A same-vendor review never runs.
 - **Mechanical tasks** (literal tests, moves, deletes, renames) go to agy through
-  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy ...`.
+  `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <id> ...`
+  (`<id>` from `caddis_routing.py agy-model --effort <the phase effort>`; agy needs `--model` before `-p`).
 - **Fewer wake-ups.** Run one `ci-watch` per PR head. When it times out on a queued run, watch that run once
   with `ci-watch --run <id>`; do not start a new PR watch. Write no "still waiting" turns.
 - **Silent agents.** For a subagent in its own worktree, start the shell watcher in the background (a script, not a
@@ -167,6 +168,7 @@ A headless session (`CADDIS_HEADLESS` set) never starts a wave: it is a wave mem
 
 **Area reviewers.** `review-tier` also prints an `AREA:` line. For each name on it, dispatch that subagent once, at the end of the phase, after the tier review.
 - `security-analyst`: review `git diff <base>...HEAD`.
+- `sql-expert` (or the reviewer set in `[db_review] reviewer`): it comes from the `DB:` line and runs in the DB DIFF step; its `blocking` findings are blocking. An ETL reviewer (`data-engineer`) runs only when the repo sets `[db_review] etl_reviewer`.
 - `ui-design-reviewer`: give it the app URL from the phase exit gate, or the run command in `.caddis/PROJECT-FACTS.md`. If no app is running, write `UI review skipped: no running app` in the review file.
 - Security findings of `critical` or `high` severity are blocking. UI findings that break use or WCAG AA are blocking. Fix them under the same 3-round limit. Park all other findings in the parking lot.
 - `AREA: none`: run nothing extra.
@@ -197,6 +199,7 @@ at the repo root and in each folder you will touch (the canonical rules; `CLAUDE
 ```bash
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-plan-check --plan <plan>
 ```
 
 Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
@@ -317,7 +320,7 @@ row, visible to any later reader without anyone having to catch it live.
     or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
     `caddis_lanes.py`), run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
-    `codex exec ...` or `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy ... -p "..."`,
+    `codex exec ...` or `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <id> ... -p "..."`,
     using the same form that `/feature-plan` writes. Never start agy without the `caddis_spend.py run`
     prefix: it logs the usage, sets the time limit and guards the headless depth (there is no spend cap).
     Its own exit codes are never agy's: **75** = headless depth at its limit or the usage log could not
@@ -355,6 +358,22 @@ report — do not redo completed work.
      After an auto-compact, re-read this EXECUTION item and `## Task progress` before the next task. Do not
      trust your memory of the rules. Resume at the first task with no entry there (adapted from superpowers
      7.0.2 `subagent-driven-development`).
+   - **DB DESIGN** — when the phase is a DB phase (it has a `**DB review:**` line that is not `none`), run
+     `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --stage design --plan <plan> --phase <N>`
+     before RED. On exit 1, get the hash with `--print-hash`. The reviewer prompt is the output of
+     `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --stage design --print-brief` (the SQL Server load checklist)
+     PLUS the phase text (Goal, Touches, DB checklist, Requires measured) and the touched files at HEAD. You assemble
+     those two parts yourself: `--print-brief` does not hold them. End the prompt with this order: "Check each DB
+     checklist answer against SQL Server behaviour for this phase. A missing or wrong answer is blocking." Dispatch
+     each reviewer the gate names. Write `DB-DESIGN p<N> <reviewer> <verdict> blocking=<n> phase=<hash>`, then the
+     reviewer's full return block under `## <reviewer> p<N> design`, in `.caddis/reviews/<plan-stem>-db.md`
+     (frontmatter `type: review`, `status: current`, `title: DB review evidence for <plan-stem>`).
+     On a blocking finding, amend the phase text in the plan. The amendment changes the phase hash. Run
+     `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --stage design --plan <plan> --phase <N> --print-hash` again and review the amended phase.
+     Write the NEW hash in the `DB-DESIGN` line. Commit the amended plan and the evidence file together, by name.
+     Do at most 3 rounds. After the 3rd round with a blocking finding, stop the phase and ask the owner.
+     Run the gate again: it must exit 0 before RED. `db-plan-check` exit 1 at Step 1 means the plan needs a DB
+     amendment before any DB phase runs.
    - **RED** — write the failing test(s) the phase names (`<test file>::<case>`). Run them; confirm they
      fail for the right reason (the missing behavior, not an import error). If a phase genuinely has no
      testable surface, say so in the review file and implement the minimal change directly.
@@ -366,6 +385,28 @@ report — do not redo completed work.
    - **COMMIT** — `git add` the phase's files by name, check `git diff --cached --name-only` shows only
      them, and `git commit -m "…" -- <files>` with the phase's conventional-commit message
      (from the plan, or a faithful equivalent). Stay on the current branch.
+   - **DB DIFF + MEASURED** — run
+     `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --range <base>...HEAD --plan <plan> --phase <N>`.
+     On exit 1, get `--print-files`. Run
+     `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output
+     into each reviewer's prompt. Dispatch the reviewers on `git diff <base>...HEAD` with this order: "Read the
+     tests of each file too. A missing statistics, index-option, lock or dependent-object step from the phase's DB
+     checklist is blocking." Fix the blocking findings, run their tests and commit the fix. Then run `--print-files`
+     again, because the gate reads the committed state. Re-review only the fix diff. Do at most 3 fix and re-review
+     rounds. After the 3rd round with a blocking finding, stop the phase and ask the owner.
+     Write `DB-DIFF <reviewer> <verdict> blocking=<n> files=<FILES after the fix>` and the reviewer's full return
+     block under `## <reviewer> p<N> diff`, in `.caddis/reviews/<plan-stem>-db.md`. Create that file (frontmatter
+     `type: review`, `status: current`, `title: DB review evidence for <plan-stem>`) if DB DESIGN did not. Commit the
+     evidence file and run the gate again until it exits 0.
+     Then check the measured facts. `measured-check` has no `--phase` option, and it checks only rows whose Status is
+     `done`. So the order is fixed. For each `Requires measured:` key of the phase, write `measured <key>=<value>` in
+     the Tracker Notes ONLY when you measured that value in this phase, from the source the key names. Never guess.
+     Never write `TBD` or any placeholder. Never write a dev-DB value for a PROD fact. A value you did not measure
+     stays unwritten, so `measured-check` exits 1. Set the Status of this phase's row to `done` in the working tree
+     only (do not commit).
+     Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" measured-check --plan <plan>`. On exit 1, set the row
+     back to `blocked` with the note `BLOCKED: unmeasured <key>` and stop the phase. On exit 0, go on to UPDATE THE
+     TRACKER, which commits the `done` row. Never commit `done` before both gates exit 0.
    - **UPDATE THE TRACKER** — edit the plan's `## Tracker` row for this phase: set Status to `done`, fill
      the short commit hash (`git rev-parse --short HEAD`), set the `Lane` column to the lane this phase
      ACTUALLY ran on (not the planned one — see Step 1), and add a one-line note. This is what lets a

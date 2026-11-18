@@ -98,6 +98,15 @@ Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: one `/caddis:cross-review` by one other vendor (two only when the owner asks). No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 When `review-tier` prints `AREA: security-analyst`, also dispatch `security-analyst` on the diff. `ui-design-reviewer` never runs per PR.
+When `review-tier` prints a `DB:` line with reviewers, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --range <base>...HEAD`. On exit 1:
+1. Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output (the SQL Server load checklist) into each reviewer's prompt.
+2. Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --range <base>...HEAD --print-files`. It prints `FILES: <path>@<blob>,...`.
+3. Dispatch each reviewer on `git diff <base>...HEAD`. Tell it to read the tests of each file too.
+4. If a reviewer returns `blocking` above 0, fix the code, run its tests and commit the fix. Run `--print-files` again and review the fix diff. Do this at most 3 rounds, then stop and ask the owner.
+5. Write `DB-DIFF <reviewer> <approved|changes-suggested> blocking=<n> files=<FILES>` and the reviewer's full return block into the evidence file. The gate reads `.caddis/reviews/db-<branch>.md`, where the branch name has every `/` replaced with `-` (branch `feat/x` gives `db-feat-x.md`). It also reads every `.caddis/reviews/*.md` file that the PR changes. A plan's evidence file `<plan-stem>-db.md` is read only with `--plan <plan> --phase <N>` or `--evidence <path>`. Give the file the frontmatter `type: review`.
+6. Commit the evidence file and run the gate again. It must exit 0.
+
+`measured-check` has no `--phase` option and checks every `done` row of the plan. For each plan file the PR changes, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" measured-check --plan <plan>`. Either gate at exit 1 stops the PR.
 
 ## Step 4 — Rebase-safe currency
 

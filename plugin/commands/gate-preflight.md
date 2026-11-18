@@ -38,6 +38,14 @@ If a `preflight` skill is available, use its methodology as a nudge — its 8-ca
 more thorough than the paragraph above. But do not wait on it or treat it as required: the check
 above is enough to produce a real verdict on its own.
 
+**DB phases.** Run the DB plan gate on the plan:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-plan-check --plan <plan>
+```
+
+Exit 1 is a blocking finding: quote each stderr line in your report. A missing script is a note, not a failure.
+
 ## HEADLESS RUN RULES (mandatory)
 - **Non-interactive. No human is present. NEVER ask a question.** Where the plan leaves a genuine
   gap, that is itself a finding — note it and keep going.

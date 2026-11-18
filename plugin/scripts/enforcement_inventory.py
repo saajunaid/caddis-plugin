@@ -140,6 +140,9 @@ GATE_SCRIPT = REPO / "scripts" / "caddis_gate.py"
 GATE_CONCERNS = {
     "lane-check": ("lane", "spawn", "launch command", "--print", "-p"),
     "tracker-vs-git": ("tracker",),
+    "db-review": ("db review", "sql-expert"),
+    "db-plan-check": ("db checklist",),
+    "measured-check": ("requires measured", "measured value"),
 }
 
 

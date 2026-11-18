@@ -826,11 +826,26 @@ def agy_stdin(prompt: str) -> str:
     return json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"
 
 
+def _agy_usage(doc: dict | None) -> dict[str, int] | None:
+    """`{"tokens_in", "tokens_out"}` from the `usage` of agy's result object, else None. The same fields and the
+    same check as `caddis_spend.tokens_from_output` (a count must be a non-negative integer); `output_tokens`
+    includes thinking tokens."""
+    usage = doc.get("usage") if doc else None
+    if not isinstance(usage, dict):
+        return None
+    counts = [usage.get("input_tokens"), usage.get("output_tokens")]
+    if any(isinstance(n, bool) or not isinstance(n, int) or n < 0 for n in counts):
+        return None
+    return {"tokens_in": counts[0], "tokens_out": counts[1]}
+
+
 def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, model: str = AGY_MODEL,
-             cwd: str | None = None) -> str:
+             cwd: str | None = None, usage_out: dict | None = None) -> str:
     """One review by agy Carbon (`model`) through `caddis_spend.py run` -> the reply text.
 
     `cwd` roots the agy run there (None: this process's cwd).
+    `usage_out`: a dict that gets `tokens_in` and `tokens_out` of THIS run (from the result event on stdout, the
+    same one `caddis_spend.py run` settles from); left empty when the run gave no usable counts.
 
     The prompt goes on stdin (agy_stdin), never on the command line.
     ProviderSkipped: caddis_spend refused (exit 75) or agy is missing.
@@ -844,6 +859,8 @@ def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, m
     if code == 127:
         raise ProviderSkipped(f"agy could not start: {stderr.strip()[-300:]}")
     doc = _agy_result(stdout)
+    if usage_out is not None:
+        usage_out.update(_agy_usage(doc) or {})
     status = str(doc.get("status")) if doc else "no result event"
     if code != 0 or status != "SUCCESS":
         error = f" ({str(doc.get('error'))[:300]})" if doc and doc.get("error") else ""

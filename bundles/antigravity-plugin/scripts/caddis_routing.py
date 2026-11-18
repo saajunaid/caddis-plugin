@@ -43,6 +43,7 @@ SESSION_DEFAULTS: dict[str, tuple[str, str]] = {
     "mechanical-phase": ("haiku", "low"),
 }
 AGY_MODEL_BY_EFFORT: dict[str, str] = {"medium": "gemini-4-carbon-medium", "high": "gemini-4-carbon-high"}
+AGY_DEFAULT_EFFORT = "high"  # owner, 12 Nov 2026: Carbon high; an effort with no row here (low, max) gets this model
 CLAUDE_SESSION_MODELS = frozenset({"opus", "sonnet", "haiku"})
 
 
@@ -118,7 +119,13 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     show.add_argument("--repo", type=Path, default=Path.cwd(), help="repository path")
     session = commands.add_parser("session", help="print the model and effort for a session role")
     session.add_argument("--role", required=True, help=f"one of: {', '.join(SESSION_DEFAULTS)}")
+    agy_model = commands.add_parser("agy-model", help="print the agy --model id for an effort (the agy Lane line takes it)")
+    agy_model.add_argument("--effort", default=AGY_DEFAULT_EFFORT, help="the effort on the phase's Model line")
     args = parser.parse_args(argv)
+
+    if args.command == "agy-model":
+        print(AGY_MODEL_BY_EFFORT.get(args.effort, AGY_MODEL_BY_EFFORT[AGY_DEFAULT_EFFORT]))
+        return 0
 
     if args.command == "session":
         if args.role not in SESSION_DEFAULTS:

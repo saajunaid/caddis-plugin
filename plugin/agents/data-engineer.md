@@ -34,6 +34,8 @@ stack (pandas, polars, SQLAlchemy, pyodbc).
 ## Return format (always end with this)
 ```
 data_engineering:
+  verdict: approved | changes-suggested
+  blocking: <count of risks that would make the load wrong or unsafe>
   task: <what was designed/reviewed>
   source_profile: <shape, key columns, null/quality notes>
   mapping:
@@ -49,5 +51,6 @@ data_engineering:
   risks:
     - <PII / parity / performance concern, or "none">
 ```
+`approved` requires `blocking: 0`.
 Design and return; the main thread writes the code. Flag PII or security-sensitive flows for a
 security-analyst pass.

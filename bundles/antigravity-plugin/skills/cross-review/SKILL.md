@@ -128,6 +128,8 @@ a reason.
 
 **Area reviewers.** `review-tier` also prints an `AREA:` line. For each name on it, dispatch that subagent once, at the end of the phase, after the tier review.
 - `security-analyst`: review `git diff <base>...HEAD`.
+- `sql-expert` (or the reviewer set in `[db_review] reviewer`): it comes from the `DB:` line and runs in the DB DIFF step; its `blocking` findings are blocking. An ETL reviewer (`data-engineer`) runs only when the repo sets `[db_review] etl_reviewer`.
+  For the DB reviewer, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output into the reviewer's prompt: it holds the SQL Server load checklist.
 - `ui-design-reviewer`: give it the app URL from the phase exit gate, or the run command in `.caddis/PROJECT-FACTS.md`. If no app is running, write `UI review skipped: no running app` in the review file.
 - Security findings of `critical` or `high` severity are blocking. UI findings that break use or WCAG AA are blocking. Fix them under the same 3-round limit. Park all other findings in the parking lot.
 - `AREA: none`: run nothing extra.

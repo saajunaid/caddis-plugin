@@ -12,7 +12,7 @@ written.
 active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.204/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -36,6 +36,14 @@ finding, not a pass.**
 If a `preflight` skill is available, use its methodology as a nudge — its 8-category framework is
 more thorough than the paragraph above. But do not wait on it or treat it as required: the check
 above is enough to produce a real verdict on its own.
+
+**DB phases.** Run the DB plan gate on the plan:
+
+```bash
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_gate.py" db-plan-check --plan <plan>
+```
+
+Exit 1 is a blocking finding: quote each stderr line in your report. A missing script is a note, not a failure.
 
 ## HEADLESS RUN RULES (mandatory)
 - **Non-interactive. No human is present. NEVER ask a question.** Where the plan leaves a genuine

@@ -191,11 +191,20 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 20m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <agy-model-id> --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 40m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
-Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. The agy line
-always starts with `caddis_spend.py run`: it logs the call's usage and sets its time limit (there is no spend cap), and
-`caddis_gate.py lane-check` refuses a bare `agy` Lane line. If the routing command fails
+Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. Replace
+`<agy-model-id>` with the id that `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" agy-model --effort <the effort
+on this phase's Model line>` prints (it reads `AGY_MODEL_BY_EFFORT`; no effort gives `gemini-4-carbon-high`). Never type
+a model id from memory: it rots. Keep `--model <id>` BEFORE `-p` (agy reads `--model` only before `--print`). Without it
+agy runs its own default model, not the routed one (a downstream run, 2026-11-18: 7 of 7 lane runs had no `--model`, ran the
+wrong model and hit the print timeout). Keep `--print-timeout 40m`: a 3-task TDD phase needs it, and `caddis_spend.py`
+kills a run at 60 minutes. The agy line always starts with `caddis_spend.py run`: it logs the call's usage and sets its time limit (there is no spend cap), and
+`caddis_gate.py lane-check` refuses a bare `agy` Lane line and an agy Lane line with no `--model` (it warns on a
+`--print-timeout` under 40m). This form, not `caddis_lanes.py run`, is the plan Lane line: `caddis_lanes.py run` also
+picks the model, hides the desktop and watches for idle, but it makes its own worktree and needs `check`/`accept` steps
+that `/caddis:implement` runs only for a `caddis_lanes.py` Lane line, so it does not fit a line run verbatim in this
+checkout. If the routing command fails
 or exits 3, use `claude — this session` and state the reason in that phase. When a phase has cards, a
 prompt for one card names it by reference ("then Phase N card B"). Never paste card text into a prompt.
 
@@ -267,6 +276,34 @@ findings, and stops `BLOCKED review` when findings remain. Roadmap mode reviews 
 `Workflow` scripts from this command; the runtime decision rules and the intent→model map live in one
 place, the `agent-orchestration` skill's *Multi-model fan-out* section.
 
+### DB phases: DB review, load checklist, measured facts
+A **DB phase** is a phase that touches a `.sql` file, an `alembic`, `migrations` or `migration` path, or
+code with SQL or a DB call: `CREATE`/`ALTER`/`DROP` `INDEX`/`TABLE`, `INSERT INTO`, `DELETE FROM`, `MERGE`,
+`TRUNCATE TABLE`, `sp_rename`, `OPENJSON`, `BULK INSERT`, `cursor.execute`, `executemany`, SQLAlchemy `text()`.
+`caddis_gate.py db-plan-check` uses the same list.
+
+- **DB review.** Every DB phase has `**DB review:** design + diff - <reviewer>`. The default reviewer is
+  `sql-expert` (or the `[db_review] reviewer`). An ETL reviewer joins only when the repo sets `[db_review] etl_reviewer`.
+  The design review runs at the start of the phase in
+  `/caddis:implement`. The diff review runs at the end, and again at the PR if the files changed. A phase that names
+  DB keywords but ships no DB code writes `**DB review:** none - <reason>`.
+- **DB checklist.** Every DB phase has a `**DB checklist:**` line with one bullet per key below. Answer each key for
+  THIS phase, or write `n/a - <reason>`:
+  - `stats`: which tables get `UPDATE STATISTICS ... WITH SAMPLE <n> PERCENT` (FULLSCAN only for small tables) after each load, append or large delete, and when.
+  - `index-options`: every index build names `SORT_IN_TEMPDB = ON` and `MAXDOP = <n>`. Add `ONLINE = ON` and `RESUMABLE = ON` where the edition allows (Enterprise, Azure SQL). For a large DELETE+INSERT, disable then rebuild the nonclustered indexes only above a stated delta share.
+  - `fragmentation`: which loads leave an index fragmented (unordered keys), and the REORGANIZE or REBUILD step and its threshold.
+  - `log-volume`: log volume per step in FULL recovery or an availability group (index builds stay fully logged; SORT_IN_TEMPDB moves only the sort), batch size, log-backup cadence, and the log-space guard.
+  - `tempdb`: tempdb use (sorts, SORT_IN_TEMPDB, spills) and version store (snapshot or RCSI readers, ONLINE builds), with the size check.
+  - `locks`: locks during a swap (Sch-M on drop, rename or `ALTER SCHEMA ... TRANSFER`), `SET LOCK_TIMEOUT <ms>` and a retry with backoff, and lock escalation on large DML.
+  - `lost-objects`: what a drop/recreate or rename loses, and the step that restores each: permissions, triggers, constraints (FK, CHECK, DEFAULT), identity seed, compression, partition scheme, extended properties.
+  - `dependents`: dependent views, procedures, functions and synonyms: `sp_refreshview` or `sp_refreshsqlmodule` after the swap (also on the stop and failure path), and schema-bound objects that block the drop.
+  - `source-read`: how the source is read: isolation level (READ COMMITTED, SNAPSHOT; the NOLOCK risk), statements or cursors held open across batches, the sort cost of ORDER BY or keyset reads, and the index hint that keeps the plan stable.
+  - `run-lock`: what stops two runs at once (`sp_getapplock` or a lock row), and what a crash leaves behind.
+- **Measured facts.** A fact that the design depends on and that only PROD can give (column types, row counts,
+  edition, recovery model) is a `**Requires measured:** <key> - <fact, where and how to measure>` line. The phase is
+  not done until its Tracker Notes hold `measured <key>=<value>`. `caddis_gate.py measured-check` (also inside
+  `tracker-vs-git`) fails the phase otherwise.
+
 ## Step 3 — Write the plan to `.caddis/plans/<feature-slug>.md`
 
 Create `.caddis/plans/` if it doesn't exist.
@@ -330,6 +367,9 @@ that run once with `--run <id>`; write no "still waiting" turns.
 **Programme phase:** yes — <why>  *(omit unless the phase breaks the size rule: one agy card ≤ 6 files; one phase ≤ 12 files and ≤ 6 cards or tasks)*
 **Depends on:** Phase <x>  *(optional: write it only when this phase does NOT need the phase before it; name the phase it does need, or "nothing". It is not a wave marker: the executor picks waves at run time, `/caddis:implement` "Waves")*
 **Risk:** high — token-verification seam; a wrong answer here is a silent auth bypass  *(omit this line when normal)*
+**DB review:** design + diff - sql-expert  *(DB phases only; or "none - <reason>")*
+**DB checklist:**  *(DB phases only; the 10 keys above, each answered)*
+**Requires measured:** <key> - <fact>  *(only when the design depends on a PROD fact)*
 **Goal:** <one sentence>
 **Touches:** `<files>`
 **TDD:**
@@ -373,6 +413,9 @@ Three rules: one attempt, one review.
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
 
+- **agy runs:** at most 2 agy runs at once, staggered (start the second a few minutes after the first); more
+  runs raise the chance of a stall and a timeout. A phase with 3 or more TDD tasks needs `--print-timeout 40m` on its
+  agy Lane line (a 20m limit killed 7 of 7 such runs, a downstream run, 2026-11-18).
 - One phase at a time: read this plan → run the phase on its **Lane** → RED→GREEN→VERIFY→CROSS-REVIEW→
   COMMIT → update the **Tracker** row. The Tracker is the resume signal for every future session.
   An `Execution: per-task` phase runs task by task: a fresh implementer per task, and no model
@@ -436,6 +479,8 @@ Three rules: one attempt, one review.
 | Phase | Milestone | Model | Lane | Status | Commit | Cross-review | Notes |
 |---|---|---|---|---|---|---|---|
 | 1 | M1 | mid | claude | not started | — | — | |
+
+Notes holds "measured <key>=<value>" for each Requires measured key of the phase.
 ```
 
 `jira_epic` and `confluence_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
@@ -487,6 +532,7 @@ done:
   whose gates pass either way (copy, nav entries, badges, ordering, wording, config defaults) must
   not take a lane that cannot escalate, no matter how completely it is specified. Every other bullet
   here checks that the spec is COMPLETE; only this one checks that a mistake would be noticed.
+- **DB phases** - `python "<home>/.caddis/bin/caddis_run.py" caddis_gate.py db-plan-check --plan <plan>` exits 0.
 
 If any phase relies on the implementer *reasoning out* a gap, close the gap in the plan now.
 
