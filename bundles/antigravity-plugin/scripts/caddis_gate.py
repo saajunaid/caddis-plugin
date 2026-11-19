@@ -530,6 +530,20 @@ def db_unknown_reviewer_tokens(value: str, known: "set[str] | frozenset[str] | t
     return [t for t in _reviewer_tokens(value) if not _is_reviewer(t, known)]
 
 
+def phase_high_reasons(reasons: list[str]) -> list[str]:
+    """The `is_db_phase` reasons that name HIGH-risk DB work: any DB path, and any keyword not on `DB_LOW_LABELS`."""
+    return [r for r in reasons
+            if r.startswith("path ") or (r.startswith("keyword ") and r[len("keyword "):] not in DB_LOW_LABELS)]
+
+
+def phase_declared_low(value: str, known: "set[str] | frozenset[str] | tuple[str, ...]" = ()) -> bool:
+    """True for a low-risk `**DB review:** diff - <reviewer>` value: it starts with `diff`, says no `design`, and
+    names a reviewer. `diff only` (no reviewer) is not a declaration."""
+    if value.lower().startswith("none") or re.search(r"\bdesign\b", value, re.I):
+        return False
+    return bool(re.match(r"diff\b", value, re.I)) and bool(db_reviewer_names(value, known))
+
+
 def _checklist_unanswered(section: str) -> list[str]:
     """The `DB_CHECKLIST_KEYS` with no answer in the lines after the `**DB checklist:**` line."""
     m = re.search(r"^\*\*DB checklist:\*\*.*$", section, re.M)
@@ -561,6 +575,16 @@ def _db_plan_scan(plan_text: str, plan: Path, known: frozenset[str] | None = Non
         if not is_db:
             continue
         db_phases += 1
+        if value is not None and phase_declared_low(value, known):
+            # Low-risk phase: one diff review, no design review and so no load checklist. Only when the phase text
+            # names no HIGH-risk DB work; the diff stage re-checks the real diff (fail closed).
+            problems += [f"phase {pid}: DB review names unknown reviewer '{t}' (list agent names, comma separated)"
+                         for t in db_unknown_reviewer_tokens(value, known)]
+            high = phase_high_reasons(reasons)
+            if high:
+                problems.append(f"phase {pid}: DB review says diff only (low-risk) but the phase names "
+                                f"high-risk DB work ({', '.join(high)}); use design + diff")
+            continue
         if value is None:
             problems.append(f"phase {pid}: DB phase ({', '.join(reasons)}) has no **DB review:** line")
         elif not (re.search(r"\bdesign\b", value, re.I) and re.search(r"\bdiff\b", value, re.I)):
@@ -584,7 +608,18 @@ def gate_db_plan(plan: Path) -> int:
         return _degrade(f"no plan at {plan}")
     reviewer, etl_reviewer = db_review_config(Path("."))
     known = frozenset({reviewer} | ({etl_reviewer} if etl_reviewer else set()))
-    problems, db_phases = _db_plan_scan(plan.read_text(encoding="utf-8", errors="ignore"), plan, known)
+    plan_text = plan.read_text(encoding="utf-8", errors="ignore")
+    if not _phase_ids(plan_text):
+        # A spec with no `### Phase N` sections gave a vacuous pass (uat-refresh spec: "ok (0 DB phase(s))"). When its
+        # text names DB code, nothing can be checked: fail. A spec with no DB code, or an explicit opt-out, passes.
+        is_db, reasons = is_db_phase(plan_text)
+        if is_db:
+            print("DB-PLAN: no phase sections; cannot check DB review lines")
+            sys.stderr.write(f"[caddis-gate] db-plan-check: the plan has no '### Phase N' sections but names DB code "
+                             f"({', '.join(reasons)}); add phase sections with **DB review:** lines, or put "
+                             f"**DB review:** none - <reason> in the plan\n")
+            return EXIT_BLOCKED
+    problems, db_phases = _db_plan_scan(plan_text, plan, known)
     if problems:
         for p in problems:
             sys.stderr.write(f"[caddis-gate] db-plan-check: {p}\n")
@@ -800,6 +835,26 @@ def _db_blocked(lines: list[str], triggers: list[str], searched: list[Path], rec
     return EXIT_BLOCKED
 
 
+def _design_needed(section: str, risk: str | None, known: "frozenset[str]" = frozenset()) -> bool:
+    """Whether the phase text needs a design review. `risk` is the diff's risk (None when no diff was read).
+    HIGH diff: always (the plan may have missed the DB code). LOW diff: only when the phase text itself names HIGH
+    work. No diff: a DB phase, unless it declares `diff - <reviewer>` and its text names no HIGH work."""
+    is_db, reasons = is_db_phase(section)
+    if risk == "high":
+        return True
+    high_text = bool(phase_high_reasons(reasons))
+    if risk == "low":
+        return is_db and high_text
+    declared_low = phase_declared_low(db_review_value(section) or "", known)
+    return is_db and (high_text or not declared_low)
+
+
+def _diff_risk(repo_root: Path, rng: str) -> str | None:
+    """The risk of the DB code in an explicit range; an unreadable diff raises (the caller fails closed)."""
+    changed = parse_diff_lines(_diff_text(rng, repo_root))
+    return db_risk(db_triggers(list(changed), changed), changed)  # path rules need the paths
+
+
 def _usage(msg: str) -> int:
     sys.stderr.write(f"[caddis-gate] db-review: {msg}\n")
     return EXIT_MALFORMED
@@ -854,8 +909,12 @@ def _db_review(repo_root, rng, plan, phase, stage, evidence, print_files, print_
         if not is_db_phase(section)[0]:
             print("DB-REVIEW: not a DB phase")
             return EXIT_OK
+        # With an explicit range the diff's risk counts; before coding there is no diff and the phase text decides.
+        if not _design_needed(section, _diff_risk(repo_root, rng) if rng else None, known):
+            print("DB-REVIEW: not required (low-risk DB change)")
+            return EXIT_OK
         paths = evidence_files(repo_root, plan, [], evidence)
-        lines, missing, current = _design_status(plan, phase, paths, reviewer, known=known)
+        lines, missing, current = _design_status(plan, phase, paths, reviewer, force=True, known=known)
         if lines:
             records = [f"DB-DESIGN p{phase} {r} <approved|changes-suggested> blocking=0 phase={current}"
                        for r in missing]
@@ -882,10 +941,11 @@ def _db_review(repo_root, rng, plan, phase, stage, evidence, print_files, print_
         if not section.strip():
             raise ValueError(f"no phase {phase} in {plan}")
         extra = set(db_reviewer_names(db_review_value(section) or "", known))
+    risk = db_risk(hits, changed)  # None without a non-test hit
     if not real:
-        if section is not None and is_db_phase(section)[0]:
+        if section is not None and _design_needed(section, None, known):
             paths = evidence_files(repo_root, plan, changed_paths, evidence)
-            lines, missing, current = _design_status(plan, phase, paths, reviewer, known=known)
+            lines, missing, current = _design_status(plan, phase, paths, reviewer, force=True, known=known)
             if lines:
                 records = [f"DB-DESIGN p{phase} {r} <approved|changes-suggested> blocking=0 phase={current}"
                            for r in missing]
@@ -894,7 +954,8 @@ def _db_review(repo_root, rng, plan, phase, stage, evidence, print_files, print_
             return EXIT_OK
         print("DB-REVIEW: not required - tests-only diff" if hits else "DB-REVIEW: not required")
         return EXIT_OK
-    required = required_diff_reviews(repo_root, diff_rng, hits, reviewer, etl_reviewer, extra)
+    # A LOW diff needs sql-expert alone: the opt-in ETL reviewer is added for HIGH diffs only.
+    required = required_diff_reviews(repo_root, diff_rng, hits, reviewer, None if risk == "low" else etl_reviewer, extra)
     if print_files:
         print(f"FILES: {','.join(sorted(required))}")
         return EXIT_OK
@@ -910,9 +971,8 @@ def _db_review(repo_root, rng, plan, phase, stage, evidence, print_files, print_
                 needed_by.setdefault(r, []).append(key)
     records = [f"DB-DIFF {r} <approved|changes-suggested> blocking=0 files={','.join(keys)}"
                for r, keys in sorted(needed_by.items())]
-    if plan is not None:
-        design_lines, design_missing, current = _design_status(
-            plan, phase, paths, reviewer, force=not is_db_phase(section)[0], known=known)
+    if plan is not None and _design_needed(section, risk, known):
+        design_lines, design_missing, current = _design_status(plan, phase, paths, reviewer, force=True, known=known)
         lines += design_lines
         records += [f"DB-DESIGN p{phase} {r} <approved|changes-suggested> blocking=0 phase={current}"
                     for r in design_missing]
@@ -1215,6 +1275,7 @@ def review_triggers(paths: list[str], changed_lines: int) -> list[tuple[str, str
 DB_CODE_EXTS: tuple[str, ...] = (
     ".py", ".sql", ".ps1", ".psm1", ".sh", ".cs", ".java", ".js", ".ts", ".go", ".rb", ".kt", ".scala")
 DB_PATH_SEGMENTS = frozenset({"alembic", "migrations", "migration"})
+DB_MULTILINE_LABELS = frozenset({"update"})  # matched on the joined changed lines: `UPDATE t` then `SET a = 1`
 
 # (label, pattern), in output order. `merge` is case-sensitive on purpose: prose "merge into main"
 # and identifiers like MERGE_LOCK must not fire; uppercase SQL `MERGE INTO dbo.T` must.
@@ -1223,6 +1284,10 @@ DB_CONTENT_TRIGGERS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
         r"\b(?:CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:(?:NON)?CLUSTERED\s+)?(?:INDEX|TABLE)\b", re.IGNORECASE)),
     ("insert-into", re.compile(r"\bINSERT\s+INTO\b", re.IGNORECASE)),
     ("delete-from", re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)),
+    # `UPDATE <target> SET` (a TOP or table-hint form too), so prose "update the docs" and `x.update(` do not fire.
+    ("update", re.compile(
+        r"\bUPDATE\s+(?:TOP\s*\(\s*\d+\s*\)\s+)?[\w\[\].#@]+(?:\s+WITH\s*\([^)]*\)|\s+(?:AS\s+)?\w+)?\s+SET\b",
+        re.IGNORECASE)),
     ("merge", re.compile(
         r"\bMERGE\s+(?:TOP\s*\(\s*\d+\s*\)\s+)?(?:INTO\s+[\[A-Za-z_#@]|\[|[A-Za-z_]\w*\.[\w\[\]]+"
         r"|[A-Za-z_]\w*\s+(?:AS\s+)?\w+\s+USING\b)")),
@@ -1307,10 +1372,188 @@ def db_triggers(paths: list[str], changed: dict[str, list[str]]) -> list[DbHit]:
             hits.append(DbHit("migration-path", path, is_test))
         if norm.endswith(DB_CODE_EXTS) and norm.removeprefix("./") not in DB_GATE_SELF_PATHS:
             lines = changed.get(path, [])
+            joined = "\n".join(lines)
             for label, rx in DB_CONTENT_TRIGGERS:
-                if any(rx.search(ln) for ln in lines):
+                if any(rx.search(ln) for ln in lines) or (label in DB_MULTILINE_LABELS and rx.search(joined)):
                     hits.append(DbHit(label, path, is_test))
     return hits
+
+
+# ── DB risk tiers (db-review-gate Phase 7) ──────────────────────────────────────────────────────
+#
+# Not every DB change is critical. A read-only SELECT in an endpoint does not need the review of a table swap
+# (measured 18 Nov: one sql-expert review of the 4 uat-refresh files took 609 s). Two tiers:
+#   HIGH  today's rule: tier 2, sql-expert at design AND diff. DDL, renames, deletes, merges, bulk loads, JSON
+#         shredding, batch writes, migrations and .sql files.
+#   LOW   one sql-expert DIFF review, no design review, no tier bump: ONLY a read-only SELECT, written as a plain
+#         string literal and passed directly inside a visible execute( / executemany( / text( call on a changed
+#         line. Every write (INSERT, UPDATE, ...) is HIGH, single or not.
+# Fail closed: anything else is HIGH: a label on neither list, a SQL string not passed in a visible call, an f-string,
+# concatenation, `%` or `.format`, a variable, an unclosed literal, and any mix. These lists are initial values:
+# the feedback loop (.caddis/kb/db-review-feedback.md) moves a label when real PRs say so.
+
+DB_HIGH_LABELS = frozenset({
+    "create-alter-drop", "sp-rename", "insert-into", "delete-from", "update", "merge", "bulk-insert",
+    "openjson", "truncate-table", "executemany", "sql-file", "migration-path"})
+DB_LOW_LABELS = frozenset({"cursor-execute", "sqlalchemy-text"})
+
+# Every call that can carry SQL. The argument must be a plain string literal (or a nested text( call).
+_CALL = re.compile(
+    r"\b(?:cursor|cur|conn|connection|session|engine|db|tx|txn)\w*(?:\(\))?\.(?:execute|executemany)\s*\("
+    r"|\b(?:sa\.|sqlalchemy\.)?text\s*\(", re.IGNORECASE)
+_TEXT_NEXT = re.compile(r"\s*(?:sa\.|sqlalchemy\.)?text\s*\(", re.IGNORECASE)
+_STR_OPEN = re.compile(r"""\s*[rRuU]{0,2}(\"\"\"|\'\'\'|\"|\')""")  # no f- or b-prefix: those are not plain
+# A word that makes a statement more than a read. `;` may only end the statement.
+_NOT_A_READ = re.compile(
+    r"\b(?:INTO|INSERT|UPDATE|DELETE|MERGE|EXEC|EXECUTE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|BACKUP|RESTORE|DBCC"
+    r"|OPENJSON|OPENROWSET|OPENQUERY|XP_\w+|SP_\w+)\b", re.IGNORECASE)
+_SQL_VERBS = r"SELECT|INSERT|UPDATE|DELETE|MERGE|EXEC|EXECUTE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|BACKUP|RESTORE|DBCC"
+# SQL left in the changed lines once the validated literals are removed: a SQL string that is not passed in a visible
+# call, or a bare SQL line (the rest of a multiline string whose opening is not in the diff).
+_LOOSE_SQL = (
+    re.compile(rf"""[rRuUbBfF]{{0,2}}[\"\']{{1,3}}\s*(?:{_SQL_VERBS}|WITH\s+\w+\s+AS\s*\()\b""", re.IGNORECASE),
+    re.compile(rf"(?im)^\s*(?:{_SQL_VERBS})\s+\S"),
+)
+
+
+def _read_literal(text: str, pos: int) -> tuple[str, int, int] | None:
+    """The plain string literal that starts at `pos` (after whitespace) and the call's argument ends right after:
+    `(content, start, end)`, else None. None for an f-string, a variable, concatenation, `%`, `.format`, adjacent
+    literals and a literal that is not closed in the changed text."""
+    m = _STR_OPEN.match(text, pos)
+    if m is None:
+        return None
+    delim, i = m.group(1), m.end()
+    while i < len(text):
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text.startswith(delim, i):
+            end = i + len(delim)
+            rest = text[end:].lstrip()
+            if rest[:1] not in (")", ","):
+                return None
+            return text[m.end():i], pos, end
+        if len(delim) == 1 and text[i] == "\n":
+            return None
+        i += 1
+    return None
+
+
+def _call_tail(text: str, pos: int) -> int | None:
+    """From the end of a call's string literal: the index just after the call's closing `)`, or None. Only `)`, or
+    `, <bind literal>` then `)`, is allowed: a bind literal is one balanced `(...)`, `{...}` or `[...]`."""
+    n = len(text)
+    i = pos
+    while i < n and text[i].isspace():
+        i += 1
+    if i < n and text[i] == ")":
+        return i + 1
+    if i >= n or text[i] != ",":
+        return None
+    i += 1
+    while i < n and text[i].isspace():
+        i += 1
+    if i < n and text[i] in "([{":
+        pairs, stack = {"(": ")", "[": "]", "{": "}"}, []
+        while i < n:
+            ch = text[i]
+            if ch in pairs:
+                stack.append(pairs[ch])
+            elif ch in ")]}":
+                if not stack or stack.pop() != ch:
+                    return None
+                if not stack:
+                    i += 1
+                    break
+            i += 1
+        else:
+            return None
+        while i < n and text[i].isspace():
+            i += 1
+        if i < n and text[i] == ",":
+            i += 1
+            while i < n and text[i].isspace():
+                i += 1
+    if i < n and text[i] == ")":
+        return i + 1
+    return None
+
+
+def _tail_ok(text: str, i: int) -> bool:
+    """What follows a call's closing `)`: end of line, another `)` or `,`, a `#` comment, or a method chain such as `.fetchall()`.
+    Anything else (`if`, `or`, `+`) can pick another statement, so the call is not LOW."""
+    n = len(text)
+    while i < n and text[i] in " \t":
+        i += 1
+    return i >= n or text[i] in "\r\n),.#"
+
+
+def _is_plain_read(content: str) -> bool:
+    """True for one SELECT statement: no INTO, no write or DDL word, and `;` only at the very end."""
+    body = content.strip()
+    if not re.match(r"\(*\s*SELECT\b", body, re.IGNORECASE):
+        return False
+    if ";" in body.rstrip().rstrip(";"):
+        return False
+    return not _NOT_A_READ.search(body)
+
+
+def _file_is_low(labels: set[str], lines: list[str]) -> bool:
+    """True when every DB hit in a file is a read-only SELECT literal passed directly in a visible call.
+    Each call is judged on its own literal, so a SELECT in one call never vouches for another."""
+    if not set(labels) <= DB_LOW_LABELS:
+        return False
+    text = "\n".join(lines)  # comments are NOT stripped: a `#` inside SQL text is plain text, never a cut
+    spans: list[tuple[int, int]] = []
+    seen_call = False
+    consumed = 0
+    for m in _CALL.finditer(text):
+        if m.start() < consumed:
+            continue  # the nested text( of an execute(text("...")) call, already judged with its outer call
+        nested = _TEXT_NEXT.match(text, m.end()) if "execute" in m.group(0).lower() else None
+        lit = _read_literal(text, nested.end() if nested else m.end())
+        if lit is None or not _is_plain_read(lit[0]):
+            return False
+        end = _call_tail(text, lit[2])  # the whole argument list: this one literal, plus a bind literal at most
+        if end is not None and nested:
+            end = _call_tail(text, end)  # execute(text(<literal>) ...): the outer call's list too
+        if end is None or not _tail_ok(text, end):
+            return False
+        consumed = end
+        spans.append((lit[1], lit[2]))
+        seen_call = True
+    if not seen_call:
+        return False
+    rest = text
+    for a, b in reversed(spans):
+        rest = rest[:a] + " " + rest[b:]
+    return not any(rx.search(rest) for rx in _LOOSE_SQL)
+
+
+def db_risk(hits: list[DbHit], changed: dict[str, list[str]]) -> str | None:
+    """`"low"`, `"high"`, or None when the diff has no non-test DB hit. LOW only when every non-test file is a
+    read-only SELECT literal in a visible call; anything else is HIGH."""
+    real = [h for h in hits if not h.is_test]
+    if not real:
+        return None
+    for path in sorted({h.path for h in real}):
+        if not _file_is_low({h.label for h in real if h.path == path}, changed.get(path, [])):
+            return "high"
+    return "low"
+
+
+def db_tier_bump(repo_root: Path) -> bool:
+    """`[db_review] tier_bump` (default true). False keeps the diff's normal tier for HIGH DB code too; the DB
+    reviews stay required either way."""
+    try:
+        raw = _load_repo_config(repo_root, "db_review").get("tier_bump", True)
+    except Exception:  # noqa: BLE001 - config is optional; the default stands
+        return True
+    if isinstance(raw, bool):
+        return raw
+    sys.stderr.write(f"[caddis-gate] note: [db_review] tier_bump '{raw}' is not true or false; using true\n")
+    return True
 
 
 DB_REVIEWER_DEFAULT = "sql-expert"
@@ -1387,13 +1630,14 @@ def is_etl_file(path: str, labels: set[str]) -> bool:
     return bool(words & DB_ETL_NEEDLES)
 
 
-def db_reviewers(hits: list[DbHit], reviewer: str, etl_reviewer: str | None) -> list[str]:
-    """The DB reviewers a diff needs: none for tests-only hits; `reviewer`, plus `etl_reviewer` on a load/ETL file."""
+def db_reviewers(hits: list[DbHit], reviewer: str, etl_reviewer: str | None, risk: str = "high") -> list[str]:
+    """The DB reviewers a diff needs: none for tests-only hits; `reviewer`, plus `etl_reviewer` on a load/ETL file.
+    A LOW diff gets `reviewer` alone."""
     real = [h for h in hits if not h.is_test]
     if not real:
         return []
     names = [reviewer]
-    if etl_reviewer and etl_reviewer != reviewer:
+    if risk != "low" and etl_reviewer and etl_reviewer != reviewer:
         for path in sorted({h.path for h in real}):
             if is_etl_file(path, {h.label for h in real if h.path == path}):
                 names.append(etl_reviewer)
@@ -1401,8 +1645,8 @@ def db_reviewers(hits: list[DbHit], reviewer: str, etl_reviewer: str | None) -> 
     return names
 
 
-def db_line(hits: list[DbHit], reviewers: list[str]) -> str:
-    """The `DB:` line of `review-tier`."""
+def db_line(hits: list[DbHit], reviewers: list[str], risk: str = "high") -> str:
+    """The `DB:` line of `review-tier`: reviewers, the risk (`high`, or `low, diff only`) and the triggers."""
     if not hits:
         return "DB: none"
     real = [h for h in hits if not h.is_test]
@@ -1410,7 +1654,8 @@ def db_line(hits: list[DbHit], reviewers: list[str]) -> str:
         return f"DB: none - tests-only diff ({len({h.path for h in hits})} test file(s) with DB code)"
     shown = [f"{h.label} ({h.path})" for h in real[:6]]
     extra = f", ... (+{len(real) - 6} more)" if len(real) > 6 else ""
-    return f"DB: {', '.join(reviewers)} - triggers: {', '.join(shown)}{extra}"
+    tag = "low, diff only" if risk == "low" else "high"
+    return f"DB: {', '.join(reviewers)} ({tag}) - triggers: {', '.join(shown)}{extra}"
 
 
 def merge_area(area: list[str], db: list[str]) -> list[str]:
@@ -1632,16 +1877,18 @@ def gate_review_tier(
     area = area_reviewers(files, ptype)
     try:
         # No range: the working tree against HEAD (staged and unstaged), the same read as `db-review`.
-        hits = db_triggers([p for p, _ in files], parse_diff_lines(_diff_text(rev_range or "HEAD", repo_root)))
+        changed = parse_diff_lines(_diff_text(rev_range or "HEAD", repo_root))
+        hits = db_triggers([p for p, _ in files], changed)
     except Exception as exc:  # noqa: BLE001 - content we cannot read is reported, never read as "no DB code"
         sys.stderr.write(f"caddis-gate: review-tier could not read the diff content ({exc})\n")
         hits, db_names, db_text = [], [], "DB: unknown - diff unreadable"
         tier = "2"  # fail closed, like an unreadable numstat: a diff we cannot read is reviewed in full
     else:
-        db_names = db_reviewers(hits, *db_review_config(repo_root))
-        db_text = db_line(hits, db_names)
-        if db_names:
-            tier = "2"  # DB code is a trigger on its own: a wrong number or a lost index is born here
+        risk = db_risk(hits, changed) or "high"
+        db_names = db_reviewers(hits, *db_review_config(repo_root), risk=risk)
+        db_text = db_line(hits, db_names, risk)
+        if db_names and risk == "high" and db_tier_bump(repo_root):
+            tier = "2"  # high-risk DB code is a trigger on its own: a wrong number or a lost index is born here
     reviewers = TIER_REVIEWERS.get(tier, 1)
     print(f"TIER: {tier}")
     print(f"REVIEWERS: {reviewers}")

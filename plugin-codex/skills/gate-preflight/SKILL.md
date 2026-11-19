@@ -12,7 +12,7 @@ written.
 active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -40,7 +40,7 @@ above is enough to produce a real verdict on its own.
 **DB phases.** Run the DB plan gate on the plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_gate.py" db-plan-check --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_gate.py" db-plan-check --plan <plan>
 ```
 
 Exit 1 is a blocking finding: quote each stderr line in your report. A missing script is a note, not a failure.

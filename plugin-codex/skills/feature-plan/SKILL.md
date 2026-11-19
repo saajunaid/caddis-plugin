@@ -122,7 +122,7 @@ names the model AND the effort, in this form:
 `**Model:** <model>, effort <low|medium|high> — <one-line reason tied to this phase's difficulty>`.
 Take the default from the session table. It prints `<model> <effort>`:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_routing.py" session --role <role>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_routing.py" session --role <role>
 ```
 (Source checkout: `claude-harness/scripts/caddis_routing.py`.) Pick the role by the phase:
 - `mechanical-phase` — mechanical, fully specified phases that repeat an existing pattern.
@@ -159,7 +159,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   - `ui`: `claude`, `codex-astra`
   - `tests`: `codex-sol`, `glm`, `claude`
   - `docs`: `agy`, `glm`, `claude`
-  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
   --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
   has budget, give any phase the `claude` lane. Override chains and model pins per project in
   `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
@@ -180,7 +180,7 @@ work; a headless one records the deviation in the Tracker. Write the launch comm
 phase — it is executed verbatim.
 
 **Choose each phase's Lane from the routing table.** Run
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_routing.py" show --json`. A phase the orchestrator
 does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
 Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
 of that role and write its Lane line as follows:
@@ -189,10 +189,10 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <agy-model-id> --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 40m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <agy-model-id> --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 40m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. Replace
-`<agy-model-id>` with the id that `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_routing.py" agy-model --effort <the effort
+`<agy-model-id>` with the id that `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_routing.py" agy-model --effort <the effort
 on this phase's Model line>` prints (it reads `AGY_MODEL_BY_EFFORT`; no effort gives `gemini-4-carbon-high`). Never type
 a model id from memory: it rots. Keep `--model <id>` BEFORE `-p` (agy reads `--model` only before `--print`). Without it
 agy runs its own default model, not the routed one (a downstream run, 2026-11-18: 7 of 7 lane runs had no `--model`, ran the
@@ -285,6 +285,13 @@ code with SQL or a DB call: `CREATE`/`ALTER`/`DROP` `INDEX`/`TABLE`, `INSERT INT
   The design review runs at the start of the phase in
   `/caddis:implement`. The diff review runs at the end, and again at the PR if the files changed. A phase that names
   DB keywords but ships no DB code writes `**DB review:** none - <reason>`.
+- **Low-risk phase.** LOW = a read-only `SELECT` literal; every write is HIGH. A phase that only reads (a plain
+  `SELECT` string passed straight into `cursor.execute` or `text()`) may write `**DB review:** diff - sql-expert`.
+  It gets one diff review, no design review, and no DB checklist. `db-plan-check` fails that line when the phase text
+  names any write (`INSERT INTO`, `UPDATE`), `CREATE`/`ALTER`/`DROP`, `sp_rename`, `DELETE FROM`, `MERGE`,
+  `TRUNCATE TABLE`, `OPENJSON`, `BULK INSERT`, `executemany`, a `.sql` file or a migrations path. At review time
+  `review-tier` prints `DB: ... (low, diff only)` or `DB: ... (high)` from the real diff. An f-string, a variable,
+  concatenation, a SQL string not passed in a visible call, or any mix is high, and a high diff needs the design review.
 - **DB checklist.** Every DB phase has a `**DB checklist:**` line with one bullet per key below. Answer each key for
   THIS phase, or write `n/a - <reason>`:
   - `stats`: which tables get `UPDATE STATISTICS ... WITH SAMPLE <n> PERCENT` (FULLSCAN only for small tables) after each load, append or large delete, and when.
@@ -556,7 +563,7 @@ Small work that does not meet a trigger skips its block.
 
 ## Step 3b — Offer to publish the stories (interactive only)
 Skip this step in headless mode, and skip it when the plan frontmatter lacks either `jira_epic` or `confluence_parent`.
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.205/scripts/caddis_stories.py" sync --plan "<plan path>" --dry-run`.
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.206/scripts/caddis_stories.py" sync --plan "<plan path>" --dry-run`.
 - Exit 0: show the `ACTION:` and `PAGE:` lines, then ask one AskUserQuestion: "Publish the stories to the Epic page now?
   The page shows the plan status, for example draft. `/caddis:implement` re-syncs them after each phase." On yes, run
   the same command without `--dry-run`. On no, print `Stories: not published - run /caddis:stories <plan path> later`.

@@ -285,6 +285,13 @@ code with SQL or a DB call: `CREATE`/`ALTER`/`DROP` `INDEX`/`TABLE`, `INSERT INT
   The design review runs at the start of the phase in
   `/caddis:implement`. The diff review runs at the end, and again at the PR if the files changed. A phase that names
   DB keywords but ships no DB code writes `**DB review:** none - <reason>`.
+- **Low-risk phase.** LOW = a read-only `SELECT` literal; every write is HIGH. A phase that only reads (a plain
+  `SELECT` string passed straight into `cursor.execute` or `text()`) may write `**DB review:** diff - sql-expert`.
+  It gets one diff review, no design review, and no DB checklist. `db-plan-check` fails that line when the phase text
+  names any write (`INSERT INTO`, `UPDATE`), `CREATE`/`ALTER`/`DROP`, `sp_rename`, `DELETE FROM`, `MERGE`,
+  `TRUNCATE TABLE`, `OPENJSON`, `BULK INSERT`, `executemany`, a `.sql` file or a migrations path. At review time
+  `review-tier` prints `DB: ... (low, diff only)` or `DB: ... (high)` from the real diff. An f-string, a variable,
+  concatenation, a SQL string not passed in a visible call, or any mix is high, and a high diff needs the design review.
 - **DB checklist.** Every DB phase has a `**DB checklist:**` line with one bullet per key below. Answer each key for
   THIS phase, or write `n/a - <reason>`:
   - `stats`: which tables get `UPDATE STATISTICS ... WITH SAMPLE <n> PERCENT` (FULLSCAN only for small tables) after each load, append or large delete, and when.
