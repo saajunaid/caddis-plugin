@@ -12,6 +12,13 @@ Config precedence (highest wins): explicit CLI flag  >  env var  >  provider pre
   REVIEW_BASE_URL   base URL, no trailing /chat/completions    (overrides the preset's URL)
   REVIEW_MODEL      model id                                   (overrides the preset's model)
   REVIEW_API_KEY    bearer token                               (REQUIRED for an HTTP provider; agy-carbon needs none)
+  REVIEW_AGY_MODEL  agy model id, e.g. gemini-4-neon-medium    (default gemini-4-carbon-medium; HTTP providers ignore it)
+                    precedence: --agy-model flag, process env, then REVIEW_AGY_MODEL in ~/.caddis/keys.env
+  REVIEW_AGY_FALLBACK  comma list of agy model ids tried in order after the first one  (default none: Carbon medium only)
+                    env, then the keys file. The agy chain moves to the next agy model ONLY on a quota/rate failure
+                    (RESOURCE_EXHAUSTED, code 429, TPM quota, Resource exhausted), then goes on to DeepSeek/GLM.
+                    The report names the model that gave the verdict: `agy-carbon (gemini-4-neon-medium)`.
+                    A bad id exits 4. agy has no flag for its 5-min stream idle timeout: no per-model limit.
 
 Future-proofing: model ids and endpoints churn. Two layers protect against that — (1) the PROVIDERS
 table below is the ONE place a renamed model/URL is edited; (2) REVIEW_MODEL / REVIEW_BASE_URL env
@@ -19,6 +26,7 @@ vars always win, so you can point at any new id without touching code. Nothing h
 
 Usage:
   python oss_review.py [--range <git range>] [--cwd <repo>] [--provider P] [--base-url U] [--model M]
+                        [--agy-model ID]
                         [--allow-path GLOB ...]
     --range        e.g. origin/main..HEAD   (default: the working tree — staged, unstaged AND
                    untracked non-ignored files; a range excludes untracked by design)
@@ -86,6 +94,7 @@ import http.client
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -150,6 +159,16 @@ REVIEW_ORDER: tuple[str, ...] = (AGY_PROVIDER, "deepseek", "glm")
 
 # agy runs headless through caddis_spend.py run: plan mode (it needs no tools, the diff is in the prompt).
 AGY_MODEL = "gemini-4-carbon-medium"  # owner, 12 Nov 2026; -high stalls past agy's 5-min stream idle timeout on reviews
+# The agy model chain when no REVIEW_AGY_MODEL / --agy-model / REVIEW_AGY_FALLBACK is set: Carbon medium ONLY.
+# Owner decision, 19 Nov 2026: the Neon medium benchmark (.caddis/reviews/2026-11-19-neon-benchmark.md) scored
+# -0.063 against Carbon medium 1.533 and approved buggy code in 3 of 20 runs. So a Carbon 429 goes to the next
+# PROVIDER, as before. Neon can still be chosen by hand: --agy-model or REVIEW_AGY_FALLBACK=gemini-4-neon-medium.
+# This is the ONE place the default order is edited.
+AGY_DEFAULT_FALLBACK: tuple[str, ...] = ()
+AGY_DEFAULT_CHAIN: tuple[str, ...] = (AGY_MODEL, *AGY_DEFAULT_FALLBACK)
+AGY_MODEL_ID_RE = re.compile(r"gemini-[a-z0-9.-]+")  # the id goes into an argv: refuse anything else
+# A quota/rate failure of one agy model. Only this text moves the chain to the next agy model.
+AGY_QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED|code 429|TPM quota|Resource exhausted", re.IGNORECASE)
 AGY_TIMEOUT_S = 15 * 60
 # The prompt goes on stdin as one stream-json user event, never on the command line: a Windows command line
 # holds at most 32,767 chars, and `--print=<prompt>` made batches shrink for agy. Verified live 13 Nov 2026 with a
@@ -251,9 +270,10 @@ class ProviderFailure(RuntimeError):
     """The provider could not answer: HTTP 429, a 5xx, a timeout, a connection error, an empty reply, an agy
     error status. NOT_RUN (exit 3), never a verdict, never a reason to split the diff."""
 
-    def __init__(self, message: str, retry_after: float | None = None):
+    def __init__(self, message: str, retry_after: float | None = None, quota: bool = False):
         super().__init__(message)
         self.retry_after = retry_after
+        self.quota = quota  # agy only: the run failed on a quota/rate limit (AGY_QUOTA_RE in its output)
 
 
 class ProviderSkipped(Exception):
@@ -790,11 +810,15 @@ def _run_capped(argv: list[str], timeout: float, stdin_text: str | None = None,
         stdout, stderr = proc.communicate(input=stdin_text, timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
+        rest = ""
         try:
-            proc.communicate(timeout=30)
+            out, err = proc.communicate(timeout=30)
+            rest = f"{out or ''}\n{err or ''}"
         except subprocess.TimeoutExpired:
             pass
-        raise TimeoutError(f"agy timed out after {int(timeout)} s; process tree killed") from None
+        exc = TimeoutError(f"agy timed out after {int(timeout)} s; process tree killed")
+        exc.output = rest  # whatever agy wrote before the kill: call_agy looks for a quota failure in it
+        raise exc from None
     except BaseException:
         _kill_tree(proc)
         raise
@@ -852,7 +876,12 @@ def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, m
     ProviderFailure: a non-zero exit, a status other than SUCCESS (ERROR, RESOURCE_EXHAUSTED), no result
     event, or an empty reply."""
     argv = [*launcher, "--model", model, "--mode", "plan", *AGY_STREAM_FLAGS, "--print="]
-    code, stdout, stderr = _run_capped(argv, timeout, stdin_text=agy_stdin(prompt), cwd=cwd)
+    try:
+        code, stdout, stderr = _run_capped(argv, timeout, stdin_text=agy_stdin(prompt), cwd=cwd)
+    except TimeoutError as exc:
+        if AGY_QUOTA_RE.search(str(getattr(exc, "output", "") or "")):
+            raise ProviderFailure(f"{exc} (the captured output shows a quota failure)", quota=True) from exc
+        raise
     if code in SPEND_REFUSED:
         raise ProviderSkipped(f"caddis_spend refused the agy call (exit {code}): "
                               f"{stderr.strip()[-300:]}")
@@ -864,7 +893,11 @@ def call_agy(launcher: list[str], prompt: str, timeout: float = AGY_TIMEOUT_S, m
     status = str(doc.get("status")) if doc else "no result event"
     if code != 0 or status != "SUCCESS":
         error = f" ({str(doc.get('error'))[:300]})" if doc and doc.get("error") else ""
-        raise ProviderFailure(f"agy exit {code}, status {status}{error}: {(stderr or stdout).strip()[-300:]}")
+        # Search ALL the output, not the 300-char tail in the message: a run the wrapper killed on timeout (exit
+        # 124) keeps its quota text far from the end.
+        quota = bool(AGY_QUOTA_RE.search(f"{status}{error}\n{stdout}\n{stderr}"))
+        raise ProviderFailure(f"agy exit {code}, status {status}{error}: {(stderr or stdout).strip()[-300:]}",
+                              quota=quota)
     response = doc.get("response")
     if not isinstance(response, str) or not response.strip():
         raise ProviderFailure("agy returned an empty response")
@@ -920,6 +953,75 @@ def _config_is_changed(diff_text: str) -> bool:
     return False
 
 
+class AgyModelError(ValueError):
+    """A REVIEW_AGY_MODEL / --agy-model / REVIEW_AGY_FALLBACK value is not a usable agy model id."""
+
+
+def _agy_model_id(value: str, where: str) -> str:
+    value = value.strip()
+    if not AGY_MODEL_ID_RE.fullmatch(value):
+        raise AgyModelError(f"invalid agy model id {value!r} from {where}: expected a name like "
+                            f"gemini-4-carbon-medium (lowercase letters, digits, '.' and '-', starting 'gemini-').")
+    return value
+
+
+def resolve_agy_models(args: argparse.Namespace, env: dict[str, str]) -> list[str]:
+    """The agy models to try, first first. The first is --agy-model, else REVIEW_AGY_MODEL (process env, then
+    the keys file), else AGY_DEFAULT_CHAIN[0]. The rest are REVIEW_AGY_FALLBACK (env, then keys file; a comma
+    list; a present empty value means none), else AGY_DEFAULT_FALLBACK (empty). Duplicates are dropped. Raises AgyModelError on a bad id."""
+    keys = _parse_keys_file(env.get("CADDIS_KEYS_FILE") or DEFAULT_KEYS_FILE)
+    first, where = getattr(args, "agy_model", None), "--agy-model"
+    if not first:
+        first, where = env.get("REVIEW_AGY_MODEL") or None, "REVIEW_AGY_MODEL (environment)"
+    if not first:
+        first, where = keys.get("REVIEW_AGY_MODEL") or None, "REVIEW_AGY_MODEL (keys file)"
+    chosen = _agy_model_id(first, where) if first else AGY_DEFAULT_CHAIN[0]
+    # A PRESENT but empty value means "no fallback": it must not fall through to the next source or the default.
+    if "REVIEW_AGY_FALLBACK" in env:
+        raw, where = env["REVIEW_AGY_FALLBACK"], "REVIEW_AGY_FALLBACK (environment)"
+    elif "REVIEW_AGY_FALLBACK" in keys:
+        raw, where = keys["REVIEW_AGY_FALLBACK"], "REVIEW_AGY_FALLBACK (keys file)"
+    else:
+        raw, where = None, ""
+    if raw is None:
+        rest = list(AGY_DEFAULT_FALLBACK)
+    else:
+        rest = [_agy_model_id(item, where) for item in raw.split(",") if item.strip()]
+    return list(dict.fromkeys([chosen, *rest]))
+
+
+class AgyReviewer:
+    """One agy review call that walks the agy model chain. A quota (429) failure of the current model moves to
+    the next agy model; any other failure is raised as it is, so the chain moves on to the next PROVIDER. A model
+    that hit its quota gets no more calls in the same run. `model` is the model of the last attempt, for the label."""
+
+    def __init__(self, launcher: list[str], models: list[str]):
+        self.launcher = launcher
+        self.models = models
+        self.index = 0
+        self.exhausted = False  # the last model hit quota: no more agy calls in this run
+
+    @property
+    def model(self) -> str:
+        return self.models[self.index]
+
+    def __call__(self, prompt: str) -> str:
+        if self.exhausted:
+            raise ProviderFailure(f"agy {self.model} already hit its quota in this run; not called again", quota=True)
+        while True:
+            try:
+                return call_agy(self.launcher, prompt, model=self.model)
+            except ProviderFailure as exc:
+                if not (exc.quota or AGY_QUOTA_RE.search(str(exc))):
+                    raise
+                if self.index + 1 >= len(self.models):
+                    self.exhausted = True
+                    raise
+                sys.stderr.write(f"[cross-review] agy {self.model} rate-limited (429); "
+                                 f"trying {self.models[self.index + 1]}\n")
+                self.index += 1
+
+
 def build_chain(args: argparse.Namespace, env: dict[str, str]) -> list[tuple]:
     """The reviewer chain: [(name, model, where, call(prompt) -> review), ...], first entry first.
 
@@ -958,8 +1060,11 @@ def build_chain(args: argparse.Namespace, env: dict[str, str]) -> list[tuple]:
     def _http_entry(name: str, url: str, key: str, mdl: str):
         return (name, mdl, url, lambda prompt: call_llm(url, key, mdl, prompt))
 
+    agy_models = resolve_agy_models(args, env)
+
     def _agy_entry(launcher: list[str]):
-        return (AGY_PROVIDER, AGY_MODEL, "caddis_spend run", lambda prompt: call_agy(launcher, prompt))
+        reviewer = AgyReviewer(launcher, agy_models)  # its own state per entry: per run
+        return (AGY_PROVIDER, reviewer.model, "caddis_spend run", reviewer)
 
     review_cwd = str(Path(args.cwd).resolve())
 
@@ -1039,6 +1144,15 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                              f"A provider failure falls back in the order {' -> '.join(REVIEW_ORDER)}")
     parser.add_argument("--base-url", dest="base_url", default=None, help="override REVIEW_BASE_URL / the preset")
     parser.add_argument("--model", default=None, help="override REVIEW_MODEL / the preset")
+    parser.add_argument("--agy-model", dest="agy_model", default=None, metavar="ID",
+                        help=f"the agy model that reviews first (default {AGY_DEFAULT_CHAIN[0]}); env "
+                             "REVIEW_AGY_MODEL or REVIEW_AGY_MODEL in the keys file. After a quota (429) failure "
+                             "the next model in REVIEW_AGY_FALLBACK (comma list; default none, "
+                             "so Carbon medium is the whole agy chain; an empty value means none) is tried, "
+                             "then the next provider. Any other agy "
+                             "failure moves to the next provider. A -high model stalls past agy's 5-min stream "
+                             "idle timeout on long reviews; agy has no flag to lengthen it, so there is no "
+                             "per-model idle limit")
     parser.add_argument("--max-diff-chars", type=int, default=None,
                         help=f"override REVIEW_MAX_DIFF_CHARS (default {DEFAULT_MAX_DIFF_CHARS})")
     parser.add_argument("--check-config", action="store_true",
@@ -1057,6 +1171,11 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                         help="review tier from `caddis_gate.py review-tier` (default 1). Tier 2 gives "
                              "agy-written code claude-opus instead of claude-sonnet")
     args = parser.parse_args(argv)
+    try:
+        resolve_agy_models(args, env)
+    except AgyModelError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return EXIT_ERROR
 
     # --check-config is deliberately NON-INTERACTIVE. This script runs headless — from CI, from a
     # runner, from a `claude -p` session — where a prompt on stdin does not ask a question,
@@ -1245,7 +1364,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                         down.add(name)
                     left = [n for n, *_ in chain[idx + 1:] if n not in down]
                     sys.stderr.write(
-                        f"review request failed{label} ({mdl} @ {where}): {exc}\n"
+                        f"review request failed{label} ({getattr(call, 'model', mdl)} @ {where}): {exc}\n"
                         + (f"  falling back to {left[0]}...\n" if left
                            else "  If the model id was renamed, set REVIEW_MODEL to the current id "
                                 "(env overrides the preset).\n" if kind == "other"
@@ -1254,6 +1373,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                     break
                 # Loud on purpose, every time: which vendor gave the verdict is a material fact about
                 # the review, and it belongs in the transcript the phase report quotes.
+                mdl = getattr(call, "model", mdl)  # an agy call may have fallen through to a later agy model
                 if idx:
                     print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}).")
                 else:

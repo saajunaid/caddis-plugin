@@ -8,8 +8,9 @@ each one here, only when the pushed branch holds its moved copy, so no edit is l
 
 PREPARE (`checkpoint --session-id <id> [--name <ws>] [--plan <path> --phase <id>]`) reads the relay hash
 BEFORE the model composes the new relay, and prints the exact FINISH command. FINISH (`--relay-file` given)
-writes the relay with `put --require-status --expected-hash`, so a peer's change made in between is never
-overwritten, runs the cheap checklist rows, and prints the resume block as its last output.
+checks `--kt` and `caddis_fleet.py capture-check` on the draft first, writes the relay with
+`put --require-status --expected-hash`, so a peer's change made in between is never overwritten, prints
+`capture: <summary>`, runs the cheap checklist rows, and prints the resume block as its last output.
 
 Every repo path (relay, session state, plan, sub-tool `--root`) is under the git top level of the cwd, resolved once
 (`git rev-parse --show-toplevel`; outside a git repo, the cwd), so a checkpoint run from a subfolder writes the relay
@@ -17,11 +18,12 @@ where the next session's inject_relay hook reads it. Every sibling runs with tha
 is relative to the root; a relative `--relay-file` is relative to the cwd.
 
 Refusals (exit 1): a headless session (`CADDIS_HEADLESS`), the coordinator's relay, a coordinator check that
-cannot run or cannot be read (the safe side is to refuse), FINISH without `--idle`, a failed relay write, and a
+cannot run or cannot be read (the safe side is to refuse), FINISH without `--idle`, a missing or invalid `--kt`,
+a relay draft without a valid capture decision (`## Learnings captured`), a failed relay write, and a
 relay over the 4,000-character budget. After the relay is written, a late error (no resume block, an exception)
 exits 1 with the last line `ERROR after relay write: ...`; FINISH still prints the resume block when it can. Any
 other internal error exits 1 with `CHECKPOINT: internal error: ...` on stderr. In a shared checkout the checkpoint changes
-no tracked file (the Tracker row is skipped; card state goes in the local relay). Siblings run as subprocesses
+no tracked file (the Tracker row and `kb-index` are skipped; card state goes in the local relay). Siblings run as subprocesses
 with `sys.executable`, found in this script's dir, then `<dir>/../claude-harness/scripts` (source tree).
 A missing sibling degrades open (`skipped: <script> not installed`), except the relay write, the coordinator
 check and the resume block.
@@ -42,7 +44,7 @@ BUDGET = 4000
 HEADLESS_VALUES = {"1", "true", "yes", "on"}
 ROWS = ("knowledge-transfer", "plan-tracker", "relay", "tasks-file", "kb-index", "violations-report",
         "usage-record", "tidy-apply", "state-prune", "prune-list", "handover-check", "own-cleanup")
-CHECKPOINT_TIER_ROWS = ("kb-index", "violations-report", "tidy-apply", "state-prune", "prune-list", "own-cleanup")
+CHECKPOINT_TIER_ROWS = ("violations-report", "tidy-apply", "state-prune", "prune-list", "own-cleanup")
 SHARED_SKIP = "skipped: shared checkout (card state is in the relay)"
 _HERE = Path(__file__).resolve().parent
 
@@ -259,8 +261,24 @@ def _kt_row(kt: str | None) -> str:
     if kt == "done":
         return "done"
     if kt and kt.startswith("skipped:"):
-        return kt if kt.startswith("skipped: ") else "skipped: " + kt[len("skipped:"):].strip()
+        reason = kt[len("skipped:"):].strip()
+        if reason:
+            return f"skipped: {reason}"
     return "failed: --kt must be done or skipped:<reason>"
+
+
+def _capture_check(root: Path, relay_file: str) -> tuple[bool, str]:
+    res = _run(root, "caddis_fleet.py", "capture-check", "--relay-file", os.path.abspath(relay_file))
+    if res is None:
+        return True, "capture: skipped: caddis_fleet.py not installed"
+    if res.returncode == 0:
+        return True, "capture: " + (res.stdout or "").strip().removeprefix("CAPTURE: ")
+    if res.returncode == 1:
+        print(_output(res))
+        return False, ("CHECKPOINT: no capture decision: fix ## Learnings captured in the relay file "
+                       "(handoff Step 1), then run the same finish again; the relay was not written")
+    why = _output(res)[:200] or f"exit {res.returncode}"
+    return False, f"CHECKPOINT: capture check failed: {why}; the relay was not written"
 
 
 def _checklist(rows: dict[str, str]) -> None:
@@ -286,7 +304,15 @@ def finish(args: argparse.Namespace) -> int:
     name, rows = args.name, {}
     try:
         rows["knowledge-transfer"] = _kt_row(args.kt)
-        rows["plan-tracker"] = _tracker_row(root, args.plan, args.phase, _shared(root, args.session_id))
+        if rows["knowledge-transfer"].startswith("failed"):
+            print("CHECKPOINT: --kt must be done or skipped:<reason>; the relay was not written")
+            return 1
+        ok, capture = _capture_check(root, args.relay_file)
+        if not ok:
+            print(capture)
+            return 1
+        shared = _shared(root, args.session_id)
+        rows["plan-tracker"] = _tracker_row(root, args.plan, args.phase, shared)
 
         # `put` accepts `none` (lower case) or a lower-case SHA-256 hex digest.
         expected = args.expected_hash.strip().lower()
@@ -301,13 +327,14 @@ def finish(args: argparse.Namespace) -> int:
         print("CHECKPOINT: row 3 relay failed: the relay was not written; nothing after it ran")
         return 1
     print(f"relay written: .caddis/relay/{name}.md")
+    print(capture)
     state = {"resume": False}
     try:
-        return _after_put(args, name, rows, state)
+        return _after_put(args, name, rows, state, shared)
     except Exception as exc:  # the relay is written: never exit 0 without the resume text
         if not state["resume"]:
             try:
-                _resume_block(root, name, args.session_id, state)
+                _resume_block(root, name, args.session_id, state, getattr(args, "new_name", False))
             except Exception:
                 pass
         _late_error(f"{type(exc).__name__}: {exc}")
@@ -318,10 +345,10 @@ def _late_error(reason: str) -> None:
     print(f"ERROR after relay write: {reason}; the relay IS written, resume with the printed relay path")
 
 
-def _resume_block(root: Path, name: str, session_id: str, state: dict) -> str | None:
+def _resume_block(root: Path, name: str, session_id: str, state: dict, new_name: bool = False) -> str | None:
     """Print the resume block; return None when printed, else the reason it could not be built."""
     block = _run(root, "caddis_fleet.py", "resume-block", "--name", name, "--session-id", session_id,
-                 "--root", str(root))
+                 "--root", str(root), *(["--new-name"] if new_name else []))
     if block is None:
         return "caddis_fleet.py not installed, no resume block"
     sys.stdout.write(block.stdout)
@@ -332,7 +359,23 @@ def _resume_block(root: Path, name: str, session_id: str, state: dict) -> str | 
     return None
 
 
-def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state: dict) -> int:
+def _kb_index_row(root: Path, shared: str) -> str:
+    if shared != "no":
+        return "skipped: shared checkout (reindex in the docs-PR worktree)"
+    dirty = _git(root, "status", "--porcelain", "--", ".caddis/kb")
+    if dirty is None:
+        return "skipped: git status failed"
+    if not dirty:
+        return "skipped: no KB note changed"
+    res = _run(root, "check_doc_coverage.py", "--reindex")
+    if res is None:
+        return "skipped: check_doc_coverage.py not installed"
+    if res.returncode != 0:
+        return "failed: " + (_output(res)[:200] or f"exit {res.returncode}")
+    return "done"
+
+
+def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state: dict, shared: str) -> int:
     root = args.root
     rows["relay"] = "done"
     index = _run(root, "caddis_workstreams.py", "render-index", "--session-id", args.session_id, "--root", str(root))
@@ -362,13 +405,14 @@ def _after_put(args: argparse.Namespace, name: str, rows: dict[str, str], state:
         rows["usage-record"] = "failed: " + (_output(usage)[:200] or f"exit {usage.returncode}")
     else:
         rows["usage-record"] = "done"
+    rows["kb-index"] = _kb_index_row(root, shared)
     for row in CHECKPOINT_TIER_ROWS:
         rows[row] = "skipped: checkpoint tier"
 
     if args.plan and _git(root, "status", "--porcelain", "--", str(_plan_path(root, args.plan))):
         print("plan file modified, not committed")
     _checklist(rows)
-    failed = _resume_block(root, name, args.session_id, state)
+    failed = _resume_block(root, name, args.session_id, state, getattr(args, "new_name", False))
     if failed is not None:
         _late_error(failed)
         return 1
@@ -603,6 +647,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--relay-file", help="FINISH: the new relay text, written by the Write tool")
     p.add_argument("--expected-hash", help="FINISH: the hash PREPARE printed")
     p.add_argument("--kt", help="FINISH: done | skipped:<reason>")
+    p.add_argument("--new-name", action="store_true",
+                   help="FINISH: the owner asked for a new session name; passed to resume-block")
     p.add_argument("--idle", action="store_true", help="FINISH: no agent or background command runs")
     t.add_argument("--movable", action="store_true",
                    help="print only what tidy would move now (no held plan, no collision): the set to carry")

@@ -109,6 +109,10 @@ a reason.
 **Change the default.** The first provider comes from `--provider`, then the process env `REVIEW_PROVIDER`, then
 `REVIEW_PROVIDER` in `~/.caddis/keys.env`, then agy Carbon. The others follow in `REVIEW_ORDER`. To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env.
 
+**Pick the agy model.** `--agy-model <id>` (or `REVIEW_AGY_MODEL`, in the env or in `~/.caddis/keys.env`) sets the first agy model. The flag wins over the env, and the env wins over the keys file. The default is `gemini-4-carbon-medium`. A bad id exits 4.
+`REVIEW_AGY_FALLBACK` is a comma list of agy models tried after the first one. The default is empty: Carbon medium is the whole agy chain, because Neon medium scored -0.063 against Carbon 1.533 in the 19 Nov 2026 benchmark and approved buggy code in 3 of 20 runs. An empty value (`REVIEW_AGY_FALLBACK=`) means none and beats the keys file. Set `REVIEW_AGY_FALLBACK=gemini-4-neon-medium` to choose Neon by hand. A model that hit quota is not called again in the same run. The tool moves to the next agy model only on a quota failure (`RESOURCE_EXHAUSTED`, `code 429`, `TPM quota`). It prints `agy <model> rate-limited (429); trying <next>`.
+Any other agy failure moves to the next provider. After the last agy model, the order goes on to DeepSeek and GLM. The "reviewed by" line names the agy model that gave the verdict. A `-high` model stalls past agy's 5-minute stream idle timeout, and the tool has no way to lengthen it.
+
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
 - **1 — REVIEW: BLOCKING** → read the printed findings, then **FIX each blocking item** (or explicitly

@@ -64,7 +64,7 @@ Step 8 prints all 12 in this order. Never drop a row from the report, even when 
 
 | # | Row | What it is | Shared checkout (Step 0) |
 |---|---|---|---|
-| 1 | `knowledge-transfer` | Step 1 | edits only in the Step 0 worktree |
+| 1 | `knowledge-transfer` | Step 1: the selective capture | edits only in the Step 0 worktree |
 | 2 | `plan-tracker` | the plan's Tracker row (Rules) | edit in the Step 0 worktree |
 | 3 | `relay` | Step 3: the relay, written from scratch with current state only | the relay is local; runs |
 | 4 | `tasks-file` | Step 3c | runs |
@@ -128,16 +128,23 @@ lists each wave member's phase, worktree, branch, last commit and next card.
   `plan file modified, not committed`, and a "no stray files" card check exempts the plan path. In a
   shared checkout (Step 0), make no Tracker edit: finish prints row 2 as
   `skipped: shared checkout (card state is in the relay)`, so the checkpoint changes no tracked file.
-- **The knowledge-transfer decision.** When a root cause, a workaround or a rejected approach is new since
-  the last handoff, dispatch the `knowledge-transfer` subagent (Step 1) first, then pass `--kt done`.
-  Else pass `--kt skipped:<reason>`.
+- **The capture decision.** Do the Step 1 capture and write it in the relay's `## Learnings captured`
+  section. Then pass `--kt done` when the `knowledge-transfer` agent ran, else `--kt skipped:<reason>`.
+  Finish runs `caddis_fleet.py capture-check` on the draft first.
 
 **What finish prints.** `=== CHECKPOINT CHECKLIST ===` with the same 12 rows as Step 8, in the same order.
-Rows 5, 6, 8, 9, 10 and 12 print `skipped: checkpoint tier`. Then it prints the RESUME block (Step 9) as its
-last output. Print that block as it is, with both labelled copy blocks and their labels unchanged and nothing
-after it, then ask the owner for `/clear`.
+Rows 6, 8, 9, 10 and 12 print `skipped: checkpoint tier`. Row 5, `kb-index`, prints `done` after
+`check_doc_coverage.py --reindex` when `git status` shows a changed `.caddis/kb/` file. Else it prints
+`skipped: no KB note changed`. In a shared checkout it prints
+`skipped: shared checkout (reindex in the docs-PR worktree)`. After `relay written:` finish prints
+`capture: <summary>`. Then it prints the RESUME block (Step 9) as its last output. Print that block as it is, with both labelled copy blocks and their labels unchanged and nothing
+after it, then ask the owner for `/clear`. Add `--new-name` to the finish only when the owner asks for a new
+session name.
 
 **When finish fails** (exit 1):
+- `CHECKPOINT: no capture decision` and `CHECKPOINT: --kt must be done or skipped:<reason>`: the relay is NOT
+  written and its hash did not change. Fix the draft (Step 1) or the `--kt` value, then run the same finish
+  command again.
 - `CHECKPOINT: row 3 relay failed`: the relay is NOT written. A peer changed the relay after prepare: the
   script prints the diff and writes nothing. Run prepare again for the new hash, merge by hand, and finish
   again. Never force it.
@@ -147,18 +154,38 @@ after it, then ask the owner for `/clear`.
   failed. Finish prints the RESUME block when it can. When there is none, resume from the relay path; do not
   write the block by hand.
 
-## Step 1 — capture learnings FIRST (knowledge-transfer)
-**Before** gathering git signals or writing relay.md, decide on `knowledge-transfer` — and the default
-is to run it.
+## Step 1 — selective capture FIRST (knowledge-transfer)
+**Before** any resume prompt (checkpoint or full handoff), and before you gather git signals or write
+relay.md, list what this session found that matters later: owner decisions, root causes, workarounds and
+owner rules. Capture only what matters. When nothing needs capture, say why.
+
+- **Route each item** with this table:
+
+| Store | What goes there | How |
+|---|---|---|
+| `memory` | An owner preference or rule that holds across repos | One Claude Code memory file and its `MEMORY.md` line. agy and Codex have no memory folder: they route it to `kb`. |
+| `kb` or `agents-md` | A root cause, workaround or repo rule the next agent in this repo needs | Dispatch the `knowledge-transfer` subagent. It writes `.caddis/kb/<note>.md` or the right AGENTS.md. |
+| `park` | A decision or follow-up that needs work later | `/caddis:park` |
 
 - **Trigger (default ON):** if this session's `git diff` touched any code or config, OR you debugged
   anything / proved a non-obvious behavior → you **MUST** dispatch the `knowledge-transfer` subagent first.
 - **Skip ONLY if** the session was purely read-only, design/planning, or discussion — nothing was built,
   fixed, or proven. When in doubt, dispatch. "I already wrote some docs by hand" is **not** a reason to
   skip — the subagent routes/consolidates across the right files and catches what you'd miss.
-- It writes durable findings (root causes, workarounds, constraints, rejected approaches) into the right
-  AGENTS.md (the canonical rules file) / instructions / runbooks. Docs only — never code.
-- **Record the outcome** in relay.md's `## Learnings captured` line (below). A skip must state its reason.
+- The subagent writes durable findings (root causes, workarounds, constraints, rejected approaches) into the
+  right AGENTS.md (the canonical rules file) / instructions / runbooks. Docs only — never code.
+- **The KB index must follow a changed KB note.** The full tier reindexes it in Step 6c. The checkpoint does
+  it in row 5. By hand, run `/caddis:kb`.
+- **Record the result** in relay.md's `## Learnings captured` section: the `knowledge-transfer:` line, then
+  ONE capture line. Write `capture: <n> routed`, followed by n lines
+  `- <kind>: <one line> -> <store>: <target>`. The kind is `decision`, `root-cause`, `workaround` or
+  `owner-rule`. Or write `capture: none -> <reason>`, where the reason has 3 or more words. Put no backticks
+  around targets.
+- **Every line in `## Learnings captured` that starts with `- ` must be a routed line in this exact format.**
+  Else the relay is refused (`bad routed line`). Put free-form bullets in another section.
+- **Shared checkout (Step 0):** write to `memory` at any time. Write `kb`, `agents-md` and `park` items only
+  in the Step 0 worktree.
+- `resume-block` (Step 9) and the checkpoint finish refuse a relay without a valid capture line.
 
 ## Step 2 — gather verified signals (don't guess)
 ```
@@ -299,6 +326,9 @@ next handoff is filed with `/caddis:park`: name its slug here, never copy its te
 
 ## Learnings captured
 knowledge-transfer: <✓ ran → files written | ✗ skipped → reason>
+capture: <n> routed | none -> <reason of 3 or more words>
+- <decision|root-cause|workaround|owner-rule>: <one line> -> <memory|kb|agents-md|park>: <file, path or slug>
+<Every "- " line in this section must be a routed line in this exact format. Put other bullets in another section.>
 
 ## Resume prompt
 \`\`\`
@@ -465,6 +495,8 @@ Checklist row 5, `kb-index` (in a shared checkout, run it in the Step 0 worktree
 ```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/check_doc_coverage.py" --reindex
 ```
+The checkpoint runs the same reindex only when a KB note changed (row 5).
+
 Checklist row 6, `violations-report` (all three only report; never fix files here):
 ```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --check
@@ -575,7 +607,8 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_fleet.py" resume-block --name <name
 ```
 `<name>` is the workstream name from Step 3. It reads the relay's `## Resume prompt` block verbatim, and
 the session name (`session-state/<session-id>.name` when `whoami` wrote it, else the first 8 characters of
-the id). It prints, and you print its output as it is, with nothing after it:
+the id). It prints, and you print its output as it is, with nothing after it. Add `--new-name` only when the
+owner asks for a new session name (see below). The default output is:
 ````
 Model for next session: <model>, effort <effort>
 === RESUME ===
@@ -584,28 +617,29 @@ Workstream: <name>
 Repo: <absolute repo root>
 After /clear in this window, paste this:
 ```text
-<the resume prompt on one line> <the announce sentence>
+<the resume prompt on one line>
 ```
 In a new terminal, paste this:
 ```bash
-cd "<absolute repo root>"; claude --model <model> --effort <effort> --name <role>-<MMDD>-<HH> '<the resume prompt on one line> <the announce sentence>'
+cd "<absolute repo root>"; claude --model <model> --effort <effort> --name <workstream> '<the resume prompt on one line>'
 ```
 ````
 Print BOTH fenced blocks, each under its label line, with the label text unchanged. Never merge them, reorder
 them, drop one, or add colour. The owner picks by what they do next:
-- **Same window, after `/clear`:** paste only the first block (the prompt). The window already has the folder, the
-  model and the name.
+- **Same window, after `/clear`:** paste only the first block (the prompt). The window keeps its name, folder
+  and model.
 - **New terminal:** paste the second block (the whole line). It changes to the repo, starts claude with the
-  model, effort and name, and passes the same prompt.
+  model, effort and the plain workstream name, and passes the same prompt.
 `<model>` and `<effort>` come from `caddis_routing.py session` (Rules, "Model for the next session").
 The `cd` makes the relay's repo-relative paths work from any terminal folder (`;`, not `&&`: Windows PowerShell 5.1 has no `&&`).
-- **The announce sentence.** In a normal handoff the one-line start line also ends with a sentence that tells
-  the new session to run `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send
-  each named live peer in the same repo (the checkout and its worktrees) one `SendMessage`:
-  `<name> started in <folder>: <next action>. No reply needed.` Both copy blocks end with this sentence, so a
-  session started from either one announces itself. The sentence names the stable launcher
-  (`~/.caddis/bin/caddis_run.py`), because a new session cannot expand `${CLAUDE_PLUGIN_ROOT}` and a versioned
-  plugin path is gone after the next update.
+- **`--new-name` (only when the owner asks for a new session name).** The new terminal is then named
+  `<role>-<MMDD>-<HH>`. Both copy blocks end with the announce sentence. It tells the new session to run
+  `caddis_fleet.py whoami` with its new name, then `caddis_fleet.py peers`, and to send each named live peer in
+  the same repo (the checkout and its worktrees) one `SendMessage`:
+  `<name> started in <folder>: <next action>. No reply needed.` A session started from either block announces
+  itself. The sentence names the stable launcher (`~/.caddis/bin/caddis_run.py`), because a new session cannot
+  expand `${CLAUDE_PLUGIN_ROOT}` and a versioned plugin path is gone after the next update. Without
+  `--new-name` the blocks have no announce sentence.
 - **Fleet close.** When this handoff runs because a peer sent `FLEET CLOSE from <coordinator>`, add
   `--fleet`. The block then holds the relay's prompt in one fenced block and ends with
   `Start line: from the restart sheet`, with no copy blocks: the restart sheet is the only
@@ -613,8 +647,12 @@ The `cd` makes the relay's repo-relative paths work from any terminal folder (`;
   sentence. The `FLEET-ACK` reply is a separate message and does not change.
 - **Exit 1** (no `## Resume prompt` block, or no relay) prints nothing on stdout. The handoff is not
   complete: fix the relay (Step 3, point 5) and run the command again. Never write the block by hand.
-- Workstream with no `whoami` record: the new name uses the workstream name as its role. Pass
-  `--role <role>` to set another.
+- **Exit 1 without a capture decision.** `resume-block` prints
+  `resume-block failed: relay has no ## Learnings captured section ...` (or another capture problem) on
+  stderr and nothing on stdout. Do the Step 1 capture, rewrite the relay (Step 3, point 5), and run it
+  again. The coordinator block does not check it.
+- Workstream with no `whoami` record: the role (from `whoami`, else the workstream name) picks the model.
+  Pass `--role <role>` to set another. With `--new-name` the role also names the new session.
 
 ## Rules
 - **Script commands in persisted text.** In text a later session reads (the relay, its `## Resume prompt`, the

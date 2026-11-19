@@ -46,7 +46,7 @@ NO_NEW_SESSION = ("keeps-running", "nothing", NO_ACK)
 TASKS_HEADER = "| Old # | Status | Subject |"
 
 _STAMP = re.compile(r"-\d{4}-\d{2}$")
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _ACK_LINE = re.compile(r"^\s*FLEET-ACK\s+(.*)$", re.MULTILINE)
 _PAIR = re.compile(r"([a-z][a-z-]*)=(.*?)(?=\s+[a-z][a-z-]*=|\s*$)")
 _SHARED_MARKER = re.compile(r"^Shared checkout:\s*yes\b", re.IGNORECASE | re.MULTILINE)
@@ -475,6 +475,91 @@ def resume_prompt(relay_text: str) -> str:
     return prompt
 
 
+CAPTURE_KINDS = ("decision", "root-cause", "workaround", "owner-rule")
+CAPTURE_STORES = ("memory", "kb", "agents-md", "park")
+_CAPTURE_LINE = re.compile(r"^capture:\s*(?:(\d+)\s+routed|none\s*->\s*(.*))$")
+_ROUTED_LINE = re.compile(r"^- (decision|root-cause|workaround|owner-rule): (\S.*?) -> (memory|kb|agents-md|park): (\S.*)$")
+_HEADING_1_2 = re.compile(r"^#{1,2} ")
+
+
+def learnings_section(relay_text: str) -> list[str] | None:
+    """The stripped lines after the first `## Learnings captured` heading outside a fence, up to the next `#`/`##` heading."""
+    section: list[str] | None = None
+    fence: str | None = None
+    for raw in relay_text.splitlines():
+        line = raw.strip()
+        if fence is not None:
+            if line.startswith(fence) and not line.strip(fence[0]):
+                fence = None
+            continue
+        opened = _FENCE_OPEN.match(line)
+        if opened:
+            fence = opened.group(1)
+            continue
+        if section is None:
+            if line == "## Learnings captured":
+                section = []
+            continue
+        if _HEADING_1_2.match(line):
+            break
+        section.append(line)
+    return section
+
+
+def _parse_capture(relay_text: str) -> tuple[str | None, str]:
+    section = learnings_section(relay_text)
+    if section is None:
+        return ("relay has no ## Learnings captured section (handoff Step 1: record the capture decision)", "")
+    routed: list[re.Match[str]] = []
+    for line in section:
+        if line.startswith("- "):
+            m = _ROUTED_LINE.match(line)
+            if not m:
+                return (
+                    f'bad routed line: {line} (want "- <kind>: <text> -> <store>: <target>"; '
+                    f'kinds: {", ".join(CAPTURE_KINDS)}; stores: {", ".join(CAPTURE_STORES)})',
+                    "",
+                )
+            routed.append(m)
+    captures = [m for line in section if (m := _CAPTURE_LINE.match(line))]
+    if not captures:
+        return ('## Learnings captured has no capture line: write "capture: <n> routed" or "capture: none -> <reason>"', "")
+    if len(captures) > 1:
+        return (f"## Learnings captured has {len(captures)} capture lines; keep one", "")
+    cap = captures[0]
+    m_count = len(routed)
+    if cap.group(1) is None:
+        reason = cap.group(2).strip()
+        if len(reason.split()) < 3:
+            return ("capture: none needs a reason of 3 or more words", "")
+        if m_count > 0:
+            return (f"capture: none, but {m_count} routed line(s) follow", "")
+        return (None, f"none -> {reason}")
+    n = int(cap.group(1))
+    if n == 0:
+        return ('capture: 0 routed: write "capture: none -> <reason>" instead', "")
+    if n != m_count:
+        return (f"capture: {n} routed, but {m_count} routed line(s) follow", "")
+    counts = {s: 0 for s in CAPTURE_STORES}
+    for item in routed:
+        counts[item.group(3)] += 1
+    parts = ", ".join(f"{s} {counts[s]}" for s in CAPTURE_STORES if counts[s])
+    return (None, f"{n} routed ({parts})")
+
+
+def capture_problem(relay_text: str) -> str | None:
+    """The first capture-decision problem in `relay_text`, or None when valid."""
+    return _parse_capture(relay_text)[0]
+
+
+def capture_summary(relay_text: str) -> str:
+    """One-line summary of a valid capture decision (`capture_problem(relay_text)` is None)."""
+    problem, summary = _parse_capture(relay_text)
+    if problem is not None:
+        raise ResumeError(problem)
+    return summary
+
+
 def one_line(text: str) -> str:
     """The text on one line, with no `'` and no `"`: a `'` would end a single-quoted word in bash and a `"` is dropped
     by Windows PowerShell 5.1, so both become typographic."""
@@ -511,14 +596,15 @@ RESUME_LINE_LABEL = "In a new terminal, paste this:"
 
 def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
                   fleet_mode: bool = False, announce: bool = False, folder: str = "",
-                  root: Path | None = None) -> str:
+                  root: Path | None = None, rename: bool = False) -> str:
     """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line, so the
     block keeps the relay's own prompt and says so.
 
     Otherwise it ends with two labelled copy blocks. The model re-types this output in a Markdown reply, so colour
     cannot reach the owner; a label and a fence can (owner, 5 Nov). Block 1 is the prompt on one line, to paste after
-    `/clear` in the same window. Block 2 is the full start line, to paste in a new terminal.
-    With `announce`, both end with the whoami + announce sentence: the new session receives it with its name.
+    `/clear` in the same window (the default block keeps the window's name). Block 2 is the full start line, to paste
+    in a new terminal, named with `workstream` by default. `rename` and `announce` restore the stamped
+    `<role>-<MMDD>-<HH>` name and the whoami + announce sentence in both blocks.
     With `root`, block 2 first changes to the repo, because the relay's paths are repo-relative. `;`, as in the
     restart sheet: Windows PowerShell 5.1 has no `&&`."""
     repo = f"Repo: {root.as_posix()}\n" if root is not None else ""
@@ -526,7 +612,7 @@ def render_resume(session: str, session_id: str, workstream: str, prompt: str, r
     head = f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n{repo}"
     if fleet_mode:
         return f"{head}{_fenced(prompt)}\nStart line: from the restart sheet\n"
-    name = new_name(role, stamp)
+    name = new_name(role, stamp) if rename else workstream
     if announce:
         prompt = f"{prompt}\n{announce_text(name, folder)}"
     full = f"{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
@@ -595,6 +681,10 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
         if digest is None:
             raise ResumeError(f"relay {args.name!r} not found")
         prompt = "" if args.coordinator else resume_prompt(text)
+        if not args.coordinator:
+            problem = capture_problem(text)
+            if problem:
+                raise ResumeError(problem)
     except (ValueError, OSError) as exc:  # ResumeError is a ValueError; a bad relay name is one too
         sys.stderr.write(f"resume-block failed: {exc}\n")
         return caddis_exit.BLOCKED
@@ -607,7 +697,7 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
         sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
         return caddis_exit.BLOCKED
     print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet,
-                        True, root.name, root), end="")
+                        args.new_name, root.name, root, rename=args.new_name), end="")
     return caddis_exit.CLEAN
 
 
@@ -650,9 +740,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fleet", action="store_true", help="fleet close: print no start line (the restart sheet has it)")
     p.add_argument("--coordinator", action="store_true",
                    help="this session holds the repo's coordinator lock: print the three restart lines, no prompt")
+    p.add_argument("--new-name", action="store_true",
+                   help="the owner asked for a new session name: name the new terminal <role>-<MMDD>-<HH> and add "
+                   "the whoami + announce sentence to both blocks (default: the plain workstream name, no announce)")
+    p = sub.add_parser("capture-check", help="check the relay's capture decision (## Learnings captured)")
+    p.add_argument("--relay-file", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.cmd == "resume-block" and args.coordinator and args.role:
         parser.error("resume-block: --role cannot go with --coordinator (the coordinator keeps its name)")
+    if args.cmd == "resume-block" and args.coordinator and args.new_name:
+        parser.error("resume-block: --new-name cannot go with --coordinator (the coordinator keeps its name)")
 
     if args.cmd == "role-of":
         print(role_of(args.name))
@@ -720,6 +817,18 @@ def main(argv: list[str] | None = None) -> int:
         return caddis_exit.CLEAN
     if args.cmd == "resume-block":
         return _resume_block_cli(args)
+    if args.cmd == "capture-check":
+        try:
+            text = args.relay_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            sys.stderr.write(f"cannot read {args.relay_file}: {exc}\n")
+            return caddis_exit.NOT_RUN
+        problem = capture_problem(text)
+        if problem:
+            print(f"CAPTURE: refused: {problem}")
+            return caddis_exit.BLOCKED
+        print(f"CAPTURE: {capture_summary(text)}")
+        return caddis_exit.CLEAN
     if args.cmd == "peers":
         for peer_name, sid, age in live_peers(args.session_id, args.root.resolve()):
             print(f"{peer_name}	{sid}	{age}")
