@@ -394,8 +394,9 @@ def measured_values(row: str) -> dict[str, str]:
     return {m.group(1).lower(): m.group(2).strip() for m in _MEASURED_VALUE.finditer(row)}
 
 
-def _tracker_rows(plan_text: str) -> dict[str, tuple[str, str]]:
-    """phase id -> (status cell, whole row line) from the `## Tracker` table."""
+def _tracker_rows(plan_text: str) -> dict[str, tuple[str, str]] | None:
+    """phase id -> (status cell, whole row line) from the `## Tracker` table. None when the table has no Status
+    column: no phase can then be read as done, and the caller must not treat that as "nothing is done"."""
     try:
         import caddis_rows
         import caddis_todo
@@ -405,7 +406,11 @@ def _tracker_rows(plan_text: str) -> dict[str, tuple[str, str]]:
         import caddis_todo
     table = caddis_todo.tracker_table(plan_text)
     if table is None:
-        return {}
+        # tracker_table is also None for a Tracker table it cannot read (no Status column, an odd Phase header).
+        # That plan has rows we cannot read, which is not the same as a plan with no Tracker table.
+        heading = re.search(r"^##\s+(?:\d+[.)]?\s+)?Tracker\b.*$", plan_text, re.M | re.I)
+        section = plan_text[heading.end():].split("\n## ", 1)[0] if heading else ""
+        return None if re.search(r"^\s*\|", section, re.M) else {}
     columns, lines = table
     at = columns.index("status")
     rows: dict[str, tuple[str, str]] = {}
@@ -434,6 +439,11 @@ def measured_violations(plan_text: str, plan: Path) -> list[str]:
     for pid in _phase_ids(plan_text):
         keys, bad = required_measurements(_phase_text(plan_text, plan, pid))
         problems += [f"phase {pid}: malformed Requires measured line: {b}" for b in bad]
+        if rows is None:
+            if keys:
+                problems.append(f"phase {pid}: the Tracker table has no readable Phase and Status columns, so measured "
+                                f"{', '.join(keys)} cannot be checked")
+            continue
         row = rows.get(pid.lower())
         if not keys or row is None or not caddis_status.is_done(row[0]):
             continue
@@ -644,7 +654,7 @@ def gate_db_plan(plan: Path) -> int:
 
 _DB_DIFF_LINE = re.compile(
     r"^(?:[-*]\s+)?DB-DIFF\s+(?P<reviewer>[a-z0-9][a-z0-9-]*)\s+(?P<verdict>approved|changes-suggested)\s+"
-    r"blocking=(?P<blocking>\d+)\s+files=(?P<files>\S+)\s*$", re.M)
+    r"blocking=(?P<blocking>\d+)\s+files=(?P<files>\S(?:.*?\S)?)[^\S\n]*$", re.M)  # to line end: a path may hold a space
 _DB_DESIGN_LINE = re.compile(
     r"^(?:[-*]\s+)?DB-DESIGN\s+p(?P<phase>\d+[a-z]?)\s+(?P<reviewer>[a-z0-9][a-z0-9-]*)\s+"
     r"(?P<verdict>approved|changes-suggested)\s+blocking=(?P<blocking>\d+)\s+phase=(?P<hash>[0-9a-f]{12})\s*$", re.M)
@@ -860,6 +870,16 @@ def _usage(msg: str) -> int:
     return EXIT_MALFORMED
 
 
+DB_PHASE_CODE_LABEL = "db-phase-code"  # a code file of a declared DB phase whose diff no hit rule matched
+
+
+def _phase_code_file(path: str) -> bool:
+    """A changed file the diff review of a DB phase must cover: code, not a test, not docs/.caddis, not the gate."""
+    norm = path.replace("\\", "/").lower()
+    return (norm.endswith(DB_CODE_EXTS) and not is_test_file(path) and not is_tier0_file(path)
+            and norm.removeprefix("./") not in DB_GATE_SELF_PATHS)
+
+
 def gate_db_review(
     repo_root: Path,
     rng: str | None = None,
@@ -935,15 +955,22 @@ def _db_review(repo_root, rng, plan, phase, stage, evidence, print_files, print_
     hits = db_triggers(changed_paths, changed)
     real = [h for h in hits if not h.is_test]
     extra: set[str] = set()
-    if plan is not None and not print_files:
+    if plan is not None:
         # A named plan and phase are validated even when the diff has no DB hits: the hit rules can miss DB code.
         section = _phase_text(Path(plan).read_text(encoding="utf-8"), Path(plan), phase)  # unreadable plan: raises
         if not section.strip():
             raise ValueError(f"no phase {phase} in {plan}")
         extra = set(db_reviewer_names(db_review_value(section) or "", known))
     risk = db_risk(hits, changed)  # None without a non-test hit
+    if not real and section is not None and is_db_phase(section)[0]:
+        # The phase says it is DB work but no hit rule fired (SQL built in a helper, `EXEC` by name): the rules
+        # missed it. Each changed non-test code file gets the diff review; the phase text sets the risk.
+        real = [DbHit(DB_PHASE_CODE_LABEL, p, False) for p in changed_paths if _phase_code_file(p)]
+        hits = hits + real
+        if real:
+            risk = "high" if _design_needed(section, None, known) else "low"
     if not real:
-        if section is not None and _design_needed(section, None, known):
+        if not print_files and section is not None and _design_needed(section, None, known):
             paths = evidence_files(repo_root, plan, changed_paths, evidence)
             lines, missing, current = _design_status(plan, phase, paths, reviewer, force=True, known=known)
             if lines:
