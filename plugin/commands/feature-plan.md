@@ -174,7 +174,7 @@ froze CI on the dev box.
 
 - **review lane (every phase that touches code)** — the reviewer is chosen by the author:
   `/caddis:cross-review --range main..HEAD --author <agy|claude> --tier <TIER>`. Agy-written code gets Claude
-  (Sonnet; Opus at tier 2). Claude-written code gets agy Carbon medium. A same-vendor review never runs.
+  (Sonnet; Opus at tier 2). Claude-written code gets agy Neon high (Carbon medium if it fails). A same-vendor review never runs.
 
 **The `Lane:` line is a routing directive read by `/caddis:implement`, not a note.** An interactive
 session that is handed a phase belonging to another lane spawns that lane rather than absorbing the

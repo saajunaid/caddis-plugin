@@ -512,7 +512,7 @@ Invent no new machinery. Everything needed already ships:
 | Per-phase model + lane assignment in a plan | `/caddis:feature-plan` — every phase already carries **Model**, **Lane**, and a cross-review provider |
 
 **Reviewer rule (standing):** the reviewer is chosen by the author, and is never the same vendor.
-Agy-written code gets Claude (Sonnet; Opus at tier 2). Claude-written code gets agy Carbon medium. Pass `--author` and `--tier` to `/caddis:cross-review`.
+Agy-written code gets Claude (Sonnet; Opus at tier 2). Claude-written code gets agy Neon high (Carbon medium if it fails). Pass `--author` and `--tier` to `/caddis:cross-review`.
 
 Full command/billing decision table: `docs/guide/multi-model-workflow.md`.
 

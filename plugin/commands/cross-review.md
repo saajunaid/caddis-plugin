@@ -75,11 +75,11 @@ writes. This line used to prefix the flag itself, which turned that into a doubl
 `--range --range main..HEAD` and made every plan-emitted call fail. Whatever the user typed is already a complete flag list:
 
 ```
-/caddis:cross-review                          -> the working tree, agy Carbon
+/caddis:cross-review                          -> the working tree, agy Neon high
 /caddis:cross-review --range main..HEAD       -> that range
 /caddis:cross-review --provider glm           -> GLM eyes
 /caddis:cross-review --author agy --tier 2    -> Claude Opus reviews agy-written code
-/caddis:cross-review --author claude          -> agy Carbon medium reviews Claude-written code
+/caddis:cross-review --author claude          -> agy Neon high reviews Claude-written code
 ```
 Optional: `--base-url <url>`, `--model <id>` (env always overrides the preset).
 
@@ -108,11 +108,11 @@ reply. A custom endpoint (`--base-url`/`--model`) never falls back. Name a provi
 a reason.
 
 **Change the default.** The first provider comes from `--provider`, then the process env `REVIEW_PROVIDER`, then
-`REVIEW_PROVIDER` in `~/.caddis/keys.env`, then agy Carbon. The others follow in `REVIEW_ORDER`. To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env.
+`REVIEW_PROVIDER` in `~/.caddis/keys.env`, then agy (`agy-carbon`). The others follow in `REVIEW_ORDER`. To make DeepSeek the default again, add `REVIEW_PROVIDER=deepseek` to ~/.caddis/keys.env.
 
-**Pick the agy model.** `--agy-model <id>` (or `REVIEW_AGY_MODEL`, in the env or in `~/.caddis/keys.env`) sets the first agy model. The flag wins over the env, and the env wins over the keys file. The default is `gemini-4-carbon-medium`. A bad id exits 4.
-`REVIEW_AGY_FALLBACK` is a comma list of agy models tried after the first one. The default is empty: Carbon medium is the whole agy chain, because Neon medium scored -0.063 against Carbon 1.533 in the 19 Nov 2026 benchmark and approved buggy code in 3 of 20 runs. An empty value (`REVIEW_AGY_FALLBACK=`) means none and beats the keys file. Set `REVIEW_AGY_FALLBACK=gemini-4-neon-medium` to choose Neon by hand. A model that hit quota is not called again in the same run. The tool moves to the next agy model only on a quota failure (`RESOURCE_EXHAUSTED`, `code 429`, `TPM quota`). It prints `agy <model> rate-limited (429); trying <next>`.
-Any other agy failure moves to the next provider. After the last agy model, the order goes on to DeepSeek and GLM. The "reviewed by" line names the agy model that gave the verdict. A `-high` model stalls past agy's 5-minute stream idle timeout, and the tool has no way to lengthen it.
+**Pick the agy model.** `--agy-model <id>` (or `REVIEW_AGY_MODEL`, in the env or in `~/.caddis/keys.env`) sets the first agy model. The flag wins over the env, and the env wins over the keys file. The default is `gemini-4-neon-high`. A bad id exits 4.
+`REVIEW_AGY_FALLBACK` is a comma list of agy models tried after the first one. The default is `gemini-4-carbon-medium` (owner decision, 20 Nov 2026). Neon high scored 1.5625 against Carbon medium 1.533, a tie. Neon high finished 20 of 20 runs; Carbon medium did not run in 4 of 20 and hit 429s. Neon high took 432 s against 782 s and costs USD 3/15 per 1M tokens against Carbon USD 4/20 from 1 Dec 2026. Report: `.caddis/reviews/2026-11-19-neon-high-benchmark.md`. An empty value (`REVIEW_AGY_FALLBACK=`) means none and beats the keys file. The tool moves to the next agy model on ANY failure of the current one: a quota error, an error status, a stall or a timeout. On a quota error (`RESOURCE_EXHAUSTED`, `code 429`, `TPM quota`) it prints `agy <model> rate-limited (429); trying <next>`. On any other failure it prints `agy <model> failed (<reason>); trying <next>`. A model that failed and has a next model is not called again in the same run. The last agy model is skipped for the rest of the run only after a quota error; after any other failure, the next batch tries it again.
+A caddis_spend refusal or a missing agy skips agy and moves to the next provider. After the last agy model, the order goes on to DeepSeek and GLM. The "reviewed by" line names the agy model that gave the verdict. agy has a 5-minute stream idle timeout, and the tool has no way to lengthen it. Carbon high stalled on it; Neon high did not in 20 runs.
 
 ## Interpret the exit code
 - **0 — REVIEW: CLEAN** → no blocking issues. Proceed.
