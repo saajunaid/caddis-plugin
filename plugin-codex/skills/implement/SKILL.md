@@ -11,7 +11,7 @@ Implement the plan at **$ARGUMENTS**.
 it is empty, find the active plan:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_todo.py" active-plan
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_todo.py" active-plan
 ```
 
 - **Exit 0** → stdout is the plan path. Say which plan you picked ("No plan given; using
@@ -81,19 +81,19 @@ and 95-154 turns per session were started by background events. Each turn re-rea
   the work it blocks in the relay, go on with work that does not need the answer, and never stop the whole run
   for it.
 - **Model.** Take the model and effort from the session table:
-  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_routing.py" session --role orchestrator` prints `<model> <effort>`
+  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_routing.py" session --role orchestrator` prints `<model> <effort>`
   (source checkout: `claude-harness/scripts/caddis_routing.py`). Opus stays for plans, designs and
   critical-code subagents (`plan-writer`, `critical-phase`).
 - **Escalation.** Escalate to Opus through a SMALL subagent (by-reference brief, reply ≤ 10 lines), never `/model opus` mid-session (the prompt cache is per model, so a switch at 200k re-writes the whole cache), when: a card fails again after its one fix card; a measurement fails a rule (isolate the cause first, then give the owner options); a plan amendment changes the design, not only facts; a risk-high phase reaches review. A fresh Opus session only to write a new plan or a redesign.
 - **One phase review.** Run `/caddis:cross-review --range <base>..HEAD --author <Implemented-By of the phase: agy or claude> --tier <TIER>`.
   The reviewer is chosen by the author: agy-written code gets Claude (Sonnet; Opus at tier 2), Claude-written code gets agy Neon high (Carbon medium if it fails). A same-vendor review never runs.
 - **Mechanical tasks** (literal tests, moves, deletes, renames) go to agy through
-  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <id> ...`
+  `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <id> ...`
   (`<id>` from `caddis_routing.py agy-model --effort <the phase effort>`; agy needs `--model` before `-p`).
 - **Fewer wake-ups.** Run one `ci-watch` per PR head. When it times out on a queued run, watch that run once
   with `ci-watch --run <id>`; do not start a new PR watch. Write no "still waiting" turns.
 - **Silent agents.** For a subagent in its own worktree, start the shell watcher in the background (a script, not a
-  model): `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_silence_watch.py" --worktree <path> --silent-min 20`. Exit 3
+  model): `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_silence_watch.py" --worktree <path> --silent-min 20`. Exit 3
   and a `SILENT:` line mean no commit, file change or output for 20 minutes. Then look at the agent, and stop or
   resume it. Add `--extra-file <the agent's output file>` so a long quiet build does not count as silence.
 
@@ -122,7 +122,7 @@ not hold the child's work. So these rules keep briefs and replies small:
 6. **Worktrees:** make each from the feature-branch head at `$CADDIS_WORKTREE_ROOT/<repo>/<plan>-p<N>`,
    else `<parent of the main checkout>/.worktrees/<repo>/<plan>-p<N>` (or use `caddis_lanes.py run`, which
    makes and records its own). Record it with
-   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_created.py" record --path <path> --kind worktree --purpose "wave <id> phase <N>"`,
+   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_created.py" record --path <path> --kind worktree --purpose "wave <id> phase <N>"`,
    and remove it after the merge. Every child shell command starts in its own worktree.
 7. **Merge:** one member at a time into the feature branch. Run the whole test folder after each merge, and
    the phase gates. A conflict stops that member only.
@@ -152,7 +152,7 @@ A headless session (`CADDIS_HEADLESS` set) never starts a wave: it is a wave mem
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -195,9 +195,9 @@ at the repo root and in each folder you will touch (the canonical rules; `CLAUDE
 **Run the machine gates first — they decide, not your reading of the prose below.**
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" db-plan-check --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" lane-check    --plan <plan> --phase <N>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" tracker-vs-git --plan <plan>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" db-plan-check --plan <plan>
 ```
 
 Use the shared scale in `caddis_exit.py`: 0 clean, 1 blocked, 2 advisory, 3 could not run,
@@ -253,7 +253,7 @@ lane the plan planned. A deviation then shows up as a diff between the phase blo
 row, visible to any later reader without anyone having to catch it live.
 
 **Multi-lane phases — `caddis_lanes.py`.** Use this procedure when the phase launch command is
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_lanes.py" run …`.
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_lanes.py" run …`.
 
 1. In an interactive session, run the phase's literal command. The script creates a temporary
    worktree. It runs the lane or its fallback chain inside a resource-capped job. It re-runs the
@@ -316,9 +316,9 @@ row, visible to any later reader without anyone having to catch it live.
 10. **When a dispatched Claude run is out of budget**, read the output from the subagent or
     `claude -p`. If it holds Claude usage-limit text (for example `You've hit your session limit`
     or `You're out of extra usage`; the full list is `BUDGET_PATTERNS["claude"]` in
-    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
+    `caddis_lanes.py`), run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_lanes.py" next-lane --role <the phase's role> --after <the model that ran>`.
     Re-dispatch the same phase prompt to the printed lane with its direct launch command:
-    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <id> ... -p "..."`,
+    `codex exec ...` or `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <id> ... -p "..."`,
     using the same form that `/feature-plan` writes. Never start agy without the `caddis_spend.py run`
     prefix: it logs the usage, sets the time limit and guards the headless depth (there is no spend cap).
     Its own exit codes are never agy's: **75** = headless depth at its limit or the usage log could not
@@ -357,9 +357,9 @@ report — do not redo completed work.
      trust your memory of the rules. Resume at the first task with no entry there (adapted from superpowers
      7.0.2 `subagent-driven-development`).
    - **DB DESIGN** — when the phase is a DB phase (it has a `**DB review:**` line that is not `none`), run
-     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" db-review --stage design --plan <plan> --phase <N>`
+     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" db-review --stage design --plan <plan> --phase <N>`
      before RED. On exit 1, get the hash with `--print-hash`. The reviewer prompt is the output of
-     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" db-review --stage design --print-brief` (the SQL Server load checklist)
+     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" db-review --stage design --print-brief` (the SQL Server load checklist)
      PLUS the phase text (Goal, Touches, DB checklist, Requires measured) and the touched files at HEAD. You assemble
      those two parts yourself: `--print-brief` does not hold them. End the prompt with this order: "Check each DB
      checklist answer against SQL Server behaviour for this phase. A missing or wrong answer is blocking." Dispatch
@@ -367,7 +367,7 @@ report — do not redo completed work.
      reviewer's full return block under `## <reviewer> p<N> design`, in `.caddis/reviews/<plan-stem>-db.md`
      (frontmatter `type: review`, `status: current`, `title: DB review evidence for <plan-stem>`).
      On a blocking finding, amend the phase text in the plan. The amendment changes the phase hash. Run
-     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" db-review --stage design --plan <plan> --phase <N> --print-hash` again and review the amended phase.
+     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" db-review --stage design --plan <plan> --phase <N> --print-hash` again and review the amended phase.
      Write the NEW hash in the `DB-DESIGN` line. Commit the amended plan and the evidence file together, by name.
      Do at most 3 rounds. After the 3rd round with a blocking finding, stop the phase and ask the owner.
      Run the gate again: it must exit 0 before RED. `db-plan-check` exit 1 at Step 1 means the plan needs a DB
@@ -384,9 +384,9 @@ report — do not redo completed work.
      them, and `git commit -m "…" -- <files>` with the phase's conventional-commit message
      (from the plan, or a faithful equivalent). Stay on the current branch.
    - **DB DIFF + MEASURED** — run
-     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" db-review --range <base>...HEAD --plan <plan> --phase <N>`.
+     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" db-review --range <base>...HEAD --plan <plan> --phase <N>`.
      On exit 1, get `--print-files`. Run
-     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output
+     `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output
      into each reviewer's prompt. Dispatch the reviewers on `git diff <base>...HEAD` with this order: "Read the
      tests of each file too. A missing statistics, index-option, lock or dependent-object step from the phase's DB
      checklist is blocking." Fix the blocking findings, run their tests and commit the fix. Then run `--print-files`
@@ -402,7 +402,7 @@ report — do not redo completed work.
      Never write `TBD` or any placeholder. Never write a dev-DB value for a PROD fact. A value you did not measure
      stays unwritten, so `measured-check` exits 1. Set the Status of this phase's row to `done` in the working tree
      only (do not commit).
-     Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_gate.py" measured-check --plan <plan>`. On exit 1, set the row
+     Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_gate.py" measured-check --plan <plan>`. On exit 1, set the row
      back to `blocked` with the note `BLOCKED: unmeasured <key>` and stop the phase. On exit 0, go on to UPDATE THE
      TRACKER, which commits the `done` row. Never commit `done` before both gates exit 0.
    - **UPDATE THE TRACKER** — edit the plan's `## Tracker` row for this phase: set Status to `done`, fill
@@ -411,7 +411,7 @@ report — do not redo completed work.
      future session (or the runner) see progress. Commit the Tracker update with the phase (or as a tiny
      follow-up commit) — it lives in the plan file, which is fine to commit on this branch.
    - **SYNC THE STORIES** — only when the plan frontmatter has both `jira_epic` and `confluence_parent`. After
-     the Tracker commit, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_stories.py" sync --plan <plan path>`.
+     the Tracker commit, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_stories.py" sync --plan <plan path>`.
      On exit 0, print nothing more. On any other exit, print one line
      `WARN: stories sync exit <n> - <first output line>` and go on. The sync never stops, fails or blocks a
      phase, and you do not retry it in that phase. Never print the Confluence token.
@@ -480,7 +480,7 @@ for a later session to clean up, and nothing is left uncommitted. Order matters:
    it into `done/`. `--only` keeps it off every other file, so another session's finished plan, a
    shipped prompt or a done parking-lot item is never swept into this PR:
    ```
-   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.210/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
+   python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.211/scripts/caddis_tidy.py" --repo-root . --apply --only .caddis/plans/<this plan>.md
    ```
    Read the output before you commit. It must say `moved: .caddis/plans/<this plan>.md` and name
    no other file. **Refuse** if it would touch anything else, or prints `ERROR` or `NOT MOVED`:

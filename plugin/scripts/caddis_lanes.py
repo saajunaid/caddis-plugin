@@ -955,29 +955,12 @@ LANE_AUTHOR = {"agy": "agy", "glm": "glm", "codex-sol": "codex", "codex-astra": 
 _REVIEW_TIERS = ("0", "1-small", "1", "2")
 
 
-def _untracked_files(worktree: Path) -> list[Path]:
-    """Untracked, not-ignored files in `worktree` (`git ls-files --others --exclude-standard`), relative paths.
-    Raises on a git failure: the caller counts that as tier 2."""
-    res = subprocess.run(["git", "-C", str(worktree), "ls-files", "-z", "--others", "--exclude-standard"],
-                         capture_output=True, timeout=60, check=True)
-    return [Path(p) for p in res.stdout.decode("utf-8", errors="replace").split("\0") if p]
-
-
-def _file_lines(path: Path, binary_lines: int) -> int:
-    """Changed lines a new file adds: its line count, or `binary_lines` for a binary file."""
-    data = path.read_bytes()
-    if b"\0" in data:
-        return binary_lines
-    return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
-
-
-def _review_tier(worktree: Path, base_sha: str, runner=subprocess.run, untracked=_untracked_files) -> str:
+def _review_tier(worktree: Path, base_sha: str, runner=subprocess.run) -> str:
     """The review tier for the lane's change, from `caddis_gate.py review-tier`. Any failure gives "2".
 
     The range is `base_sha` alone, not `base_sha..HEAD`: the lane review runs only while HEAD is still the base,
-    so `base_sha..HEAD` is always empty. `git diff <base_sha>` compares the worktree with the base.
-    `git diff` does not see untracked new files, so when one is not a tier-0 path the tier is computed again by
-    the gate's own `review_tier` over the tracked numstat plus (path, line count) of each untracked file."""
+    so `base_sha..HEAD` is always empty. The gate reads a single rev as the worktree against that rev, untracked
+    new files included, so the lane's uncommitted work is counted in full."""
     gate = Path(__file__).with_name("caddis_gate.py")
     argv = [sys.executable, str(gate), "review-tier", "--range", base_sha, "--repo-root", str(worktree)]
     try:
@@ -986,28 +969,11 @@ def _review_tier(worktree: Path, base_sha: str, runner=subprocess.run, untracked
         return "2"
     if proc.returncode != 0:
         return "2"
-    tier = "2"
     for line in _as_text(proc.stdout).splitlines():
         if line.startswith("TIER:"):
             tier = line.split(":", 1)[1].strip()
-            tier = tier if tier in _REVIEW_TIERS else "2"
-            break
-    if tier == "2":
-        return tier
-    try:
-        new_files = untracked(worktree)
-        if not new_files:
-            return tier
-        gate_mod = _load_file_module("_caddis_gate_for_lanes", gate)
-        posix = [p.as_posix() for p in new_files]
-        if all(gate_mod.is_tier0_file(p) for p in posix):
-            return tier
-        files = gate_mod._numstat(base_sha, worktree)
-        files += [(p, _file_lines(worktree / rel, gate_mod.BINARY_LINES)) for p, rel in zip(posix, new_files)]
-        combined = gate_mod.review_tier(files)
-    except Exception:  # noqa: BLE001 - a change we cannot measure is reviewed in full
-        return "2"
-    return combined if combined in _REVIEW_TIERS else "2"
+            return tier if tier in _REVIEW_TIERS else "2"
+    return "2"
 
 
 def run_review(worktree: Path, env: dict, timeout_s: int = LANE_REVIEW_TIMEOUT_S,
