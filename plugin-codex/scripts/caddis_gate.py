@@ -36,6 +36,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 try:
     import caddis_frontmatter
@@ -1251,22 +1252,10 @@ REVIEW_TRIGGERS = [
 
 
 def _changed(repo_root: Path, rev_range: str | None) -> tuple[list[str], int]:
-    """(paths, changed-line-count) for the working tree, or for an explicit range."""
-    args = ["git", "-C", str(repo_root), "diff", "--numstat"]
-    if rev_range:
-        args.append(rev_range)
-    out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
-    paths, lines = [], 0
-    for row in out.splitlines():
-        parts = row.split("	")
-        if len(parts) != 3:
-            continue
-        add, dele, path = parts
-        paths.append(path.strip())
-        for n in (add, dele):
-            if n.isdigit():
-                lines += int(n)
-    return paths, lines
+    """(paths, changed-line-count) for the diff review-tier reads: a range that ends at HEAD (or no range) includes
+    uncommitted and untracked work. A git failure raises RuntimeError."""
+    files = _numstat(_review_range(rev_range), repo_root)
+    return [p for p, _ in files], sum(n for _, n in files)
 
 
 def review_triggers(paths: list[str], changed_lines: int) -> list[tuple[str, str, list[str]]]:
@@ -1592,20 +1581,99 @@ DB_ETL_LABELS = frozenset({"bulk-insert", "executemany", "openjson"})
 _AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-def _diff_text(rng: str | None = None, repo_root: Path = Path(".")) -> str:
+class _WorkTreeDiff(NamedTuple):
+    """A diff from `base` (or from the merge base of `base` and HEAD) to the working tree, untracked files included.
+
+    review-tier runs before the phase commit, so a range that ends at HEAD must also count the uncommitted work."""
+    base: str
+    merge_base: bool = False
+
+    def args(self) -> list[str]:
+        return ["--merge-base", self.base, "--"] if self.merge_base else [self.base, "--"]
+
+
+def _review_range(rng: str | None) -> str | _WorkTreeDiff:
+    """The diff review-tier and review-trigger read for `rng`.
+
+    No range, a single rev, or a range that ends at HEAD (`A...HEAD`, `A...`, `A..HEAD`, `A..`) reads the working
+    tree. A range that ends at another ref names history only and stays as it is."""
+    if not rng:
+        return _WorkTreeDiff("HEAD")
+    for sep, merge_base in (("...", True), ("..", False)):
+        if sep in rng:
+            left, right = rng.split(sep, 1)
+            if left and right in ("", "HEAD"):
+                return _WorkTreeDiff(left, merge_base=merge_base)
+            return rng
+    return _WorkTreeDiff(rng)
+
+
+def _range_args(rng: str | _WorkTreeDiff | None, repo_root: Path) -> list[str]:
+    """`git diff` arguments for `rng`. Working tree against an unborn HEAD (a repo with no commit) diffs against the
+    empty tree, so every file reads as new instead of failing. A rev that starts with `-` raises RuntimeError: git
+    would read it as an option (`--output=x` gives an empty diff, tier 0)."""
+    rev = rng.base if isinstance(rng, _WorkTreeDiff) else rng
+    if rev and rev.startswith("-"):
+        raise RuntimeError(f"range {rev!r} starts with '-'; git would read it as an option")
+    if isinstance(rng, _WorkTreeDiff):
+        if rng.base == "HEAD":
+            head = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--verify", "-q", "HEAD"],
+                                  capture_output=True, timeout=30)
+            if head.returncode != 0:
+                empty = subprocess.run(["git", "-C", str(repo_root), "hash-object", "-t", "tree", "--stdin"],
+                                       input=b"", capture_output=True, timeout=30)
+                if empty.returncode == 0 and empty.stdout.strip():
+                    return [empty.stdout.decode("ascii", errors="replace").strip(), "--"]
+        return rng.args()
+    return [rng] if rng else []
+
+
+def _untracked(repo_root: Path) -> list[str]:
+    """Untracked, not-ignored files (posix, relative). A git failure raises RuntimeError: the caller fails closed."""
+    res = subprocess.run(["git", "-C", str(repo_root), "ls-files", "-z", "--others", "--exclude-standard"],
+                         capture_output=True, timeout=60)
+    if res.returncode != 0:
+        reason = res.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        raise RuntimeError(f"git ls-files exited {res.returncode}: {reason[0] if reason else 'no message'}")
+    return [p for p in res.stdout.decode("utf-8", errors="surrogateescape").split("\0") if p]
+
+
+def _new_file(repo_root: Path, rel: str) -> tuple[int, list[str]]:
+    """(changed lines, text lines) an untracked file adds. A binary counts `BINARY_LINES` with no text; a symlink or
+    a non-file counts 1 line with no text (never followed)."""
+    path = repo_root / rel
+    if path.is_symlink() or not path.is_file():
+        return 1, []
+    data = path.read_bytes()
+    if b"\0" in data:
+        return BINARY_LINES, []
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    return len(lines), lines
+
+
+def _diff_text(rng: str | _WorkTreeDiff | None = None, repo_root: Path = Path(".")) -> str:
     """`git diff -U0 --no-renames` text for an explicit range or the working tree.
 
     `--no-renames` lists a moved file as a delete plus an add, so DB code moved into tests/ still shows as removed
-    lines at its old path. A failed `git diff` raises RuntimeError: the caller must not read it as an empty diff."""
+    lines at its old path. A `_WorkTreeDiff` also adds each untracked file as a new-file hunk, so DB code in a file
+    not yet `git add`-ed is seen. A failed `git diff` raises RuntimeError: the caller must not read it as an empty
+    diff."""
     args = ["git", "-C", str(repo_root), "-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff",
-            "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "-U0"]
-    if rng:
-        args.append(rng)
+            "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "-U0", *_range_args(rng, repo_root)]
     res = subprocess.run(args, capture_output=True, timeout=30)
     if res.returncode != 0:
         reason = res.stderr.decode("utf-8", errors="replace").strip().splitlines()
         raise RuntimeError(f"git diff -U0 exited {res.returncode}: {reason[0] if reason else 'no message'}")
-    return res.stdout.decode("utf-8", errors="replace")
+    text = res.stdout.decode("utf-8", errors="replace")
+    if isinstance(rng, _WorkTreeDiff):
+        for rel in _untracked(repo_root):
+            count, lines = _new_file(repo_root, rel)
+            hunk = [f"diff --git a/{rel} b/{rel}", "--- /dev/null", f"+++ b/{rel}"]
+            if lines:
+                hunk.append(f"@@ -0,0 +1,{count} @@")
+                hunk.extend(f"+{line}" for line in lines)
+            text += ("" if not text or text.endswith("\n") else "\n") + "\n".join(hunk) + "\n"
+    return text
 
 
 def _load_repo_config(repo_root: Path, section: str) -> dict:
@@ -1703,7 +1771,12 @@ def gate_review_trigger(repo_root: Path, rev_range: str | None = None) -> int:
     make the review good, it makes it happen — and on the measured evidence that was the binding
     constraint, with a configured, capable tool idle through sixteen chances to use it.
     """
-    paths, changed = _changed(repo_root, rev_range)
+    try:
+        paths, changed = _changed(repo_root, rev_range)
+    except Exception as exc:  # noqa: BLE001 - a diff we cannot read is a reason to ask, never "nothing to review"
+        print(f"[gate] review-trigger: RUN CROSS-REVIEW — diff unreadable ({exc})")
+        print("    /caddis:cross-review   (or: python .github/tools/oss_review.py)")
+        return EXIT_NOTE
     if not paths:
         print("[gate] review-trigger: empty diff — nothing to review")
         return EXIT_OK
@@ -1796,20 +1869,21 @@ def _rename_paths(path: str) -> list[str]:
     return [old, new]
 
 
-def _numstat(rng: str | None = None, repo_root: Path = Path(".")) -> list[tuple[str, int]]:
+def _numstat(rng: str | _WorkTreeDiff | None = None, repo_root: Path = Path(".")) -> list[tuple[str, int]]:
     """(path, changed-lines) per file for an explicit range or the working tree.
 
     A rename lists BOTH the old and the new path, so moving code into `docs/` or `tests/` is not tier 0. A binary
-    change counts `BINARY_LINES`. A failed `git diff` raises RuntimeError: the caller must not read it as an empty
-    diff (tier 0)."""
-    args = ["git", "-C", str(repo_root), "diff", "--numstat"]
-    if rng:
-        args.append(rng)
+    change counts `BINARY_LINES`. A `_WorkTreeDiff` also counts each untracked file as added. A failed `git diff`
+    raises RuntimeError: the caller must not read it as an empty diff (tier 0)."""
+    args = ["git", "-C", str(repo_root), "diff", "--numstat", *_range_args(rng, repo_root)]
     res = subprocess.run(args, capture_output=True, text=True, timeout=30)
     if res.returncode != 0:
         reason = (res.stderr or "").strip().splitlines()
         raise RuntimeError(f"git diff --numstat exited {res.returncode}: {reason[0] if reason else 'no message'}")
-    return _parse_numstat(res.stdout)
+    files = _parse_numstat(res.stdout)
+    if isinstance(rng, _WorkTreeDiff):
+        files += [(rel, _new_file(repo_root, rel)[0]) for rel in _untracked(repo_root)]
+    return files
 
 
 def _parse_numstat(stdout: str) -> list[tuple[str, int]]:
@@ -1891,8 +1965,9 @@ def gate_review_tier(
         except Exception:
             # Fail closed: a plan risk we cannot read counts as high (tier 2).
             risk = "high"
+    rng = _review_range(rev_range)  # a range that ends at HEAD also counts uncommitted and untracked work
     try:
-        files = _numstat(rev_range, repo_root)
+        files = _numstat(rng, repo_root)
     except Exception as exc:  # noqa: BLE001 - a diff we cannot read is reviewed in full, never skipped
         sys.stderr.write(f"caddis-gate: review-tier could not read the diff ({exc}); counting it as tier 2\n")
         print("TIER: 2")
@@ -1903,8 +1978,7 @@ def gate_review_tier(
     tier = review_tier(files, plan_risk=risk)
     area = area_reviewers(files, ptype)
     try:
-        # No range: the working tree against HEAD (staged and unstaged), the same read as `db-review`.
-        changed = parse_diff_lines(_diff_text(rev_range or "HEAD", repo_root))
+        changed = parse_diff_lines(_diff_text(rng, repo_root))  # the same read as the numstat above
         hits = db_triggers([p for p, _ in files], changed)
     except Exception as exc:  # noqa: BLE001 - content we cannot read is reported, never read as "no DB code"
         sys.stderr.write(f"caddis-gate: review-tier could not read the diff content ({exc})\n")
