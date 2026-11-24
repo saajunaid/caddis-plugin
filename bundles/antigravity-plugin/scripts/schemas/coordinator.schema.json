@@ -41,7 +41,9 @@
           },
           "hotfix": {"type": "boolean"},
           "held": {"type": "boolean"},
-          "entered_ready_at": {"anyOf": [{"$ref": "#/$defs/utc"}, {"type": "null"}]}
+          "entered_ready_at": {"anyOf": [{"$ref": "#/$defs/utc"}, {"type": "null"}]},
+          "owner_name": {"type": ["string", "null"]},
+          "owner_sid": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{8}$"}, {"type": "null"}]}
         }
       }
     },

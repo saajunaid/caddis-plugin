@@ -17,6 +17,21 @@ test("the library bundle imports without page auto-start", async () => {
   assert.match(lib.SHELL_BODY_HTML, /id="viewport"/);
 });
 
+// A Windows checkout gives shell-body.html CRLF line ends. JSON.stringify turns each CR into the text
+// "\r", which normalise() cannot remove, so the committed library differed between Windows and Linux.
+test("the library shell body has no carriage return on any platform", async () => {
+  const { js } = await buildLibrary();
+  const lib = await import("data:text/javascript," + encodeURIComponent(js));
+  assert.equal(lib.SHELL_BODY_HTML.includes("\r"), false);
+});
+
+test("the committed library matches the sources", async () => {
+  const normalise = text => text.replace(/\r\n/g, "\n");
+  const { js } = await buildLibrary();
+  const committed = normalise(readFileSync(new URL("../../templates/flow-studio.lib.mjs", import.meta.url), "utf8"));
+  assert.equal(committed, js, "run: node --experimental-strip-types scripts/build-engine.mjs --lib");
+});
+
 test("page build includes the shared shell body once", async () => {
   const normalise = text => text.replace(/\r\n/g, "\n");
   const body = readFileSync(new URL("../../templates/shell-body.html", import.meta.url), "utf8");

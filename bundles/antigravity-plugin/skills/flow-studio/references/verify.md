@@ -26,7 +26,7 @@ node scripts/check.mjs out/lineage.html --skip-perf
 - `--out <dir>`: Directory where screenshots and failure captures are saved (default: `check-out`).
 - `--viewports <WxH,...>`: Comma-separated list of test viewports (default: `1600x900,1280x720,820x900`).
 - `--channel <name>`: Browser executable channel (e.g. `msedge`, `chrome`).
-- `--skip <groups>`: Comma-separated list of test groups to skip (`notes`, `playback`, `update`, `hostile`). A skipped group is not a pass: skip one only when the page intentionally omits that feature, and record every skip in your verification notes.
+- `--skip <groups>`: Comma-separated list of test groups to skip (`notes`, `playback`, `update`, `hostile`, `hover`). A skipped group is not a pass: skip one only when the page intentionally omits that feature, and record every skip in your verification notes.
 - `--hostile <file.html>`: Path to hostile test page to assert XSS and injection resistance.
 - `--json <file.json>`: Output machine-readable test results to a JSON report.
 - `--skip-perf`: Omit render and zoom frame timing performance assertions.
@@ -96,6 +96,12 @@ Validates live graph data updates:
 ### 9. `hostile`
 Validates adversarial resistance:
 - Ingests `examples/hostile.json` to prove the parser and inspector remain inert against script injection.
+
+### 10. `hover`
+Validates node hover and focus cards (`node.hover`):
+- Hovering a node with `hover` opens one `[role=tooltip]` card with its lines and sets matching `aria-describedby` on the node.
+- Moving the pointer away hides the card; focusing via Tab shows it at once; pressing `Escape` hides the card while keeping active selection unchanged.
+- Nodes without `hover` show no card, and hostile strings in `hover` render as inert text with zero `img` elements.
 
 ---
 

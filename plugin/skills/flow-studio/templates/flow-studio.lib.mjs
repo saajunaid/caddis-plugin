@@ -71,6 +71,8 @@ function validateModel(input) {
     if (metric !== void 0 && (!metric || !Number.isFinite(metric.value) || metric.max != null && !Number.isFinite(metric.max) || invalidSeries)) add("error", "metric-invalid", w, "Metrics need finite values and at most 60 finite series points.");
     const badBars = n.bars !== void 0 && (!Array.isArray(n.bars) || n.bars.length > 120 || n.bars.some((b) => !b || typeof b.key !== "string" || b.value !== null && (typeof b.value !== "number" || !Number.isFinite(b.value) || b.value < 0)));
     if (badBars) add("error", "bars-invalid", w, "Bars need a list of at most 120 items, each with a string key and a finite, non-negative value or null.");
+    const badHover = n.hover !== void 0 && (!Array.isArray(n.hover) || n.hover.length > 12 || [...n.hover].some((s) => typeof s !== "string" || s.length > 240));
+    if (badHover) add("error", "hover-invalid", w, "Hover needs a list of at most 12 strings, each at most 240 characters.");
     if (n.sla !== void 0 && (!Number.isFinite(n.sla) || n.sla <= 0)) add("error", "sla-invalid", w, "SLA must be a positive finite number of seconds.");
   }
   for (const n of nodes) {
@@ -1226,6 +1228,7 @@ function install3(ctx) {
     });
   }
   function setView(v, animate = false) {
+    ctx.fn.hideHover();
     const c = clampPan(v, ctx.geom.bounds, size());
     ctx.view = [c.x, c.y, c.k].every(Number.isFinite) ? c : { x: 0, y: 0, k: 1 };
     const glide = animate && !ctx.reduced;
@@ -1479,7 +1482,10 @@ function install3(ctx) {
       e.preventDefault();
       ctx.userMoved = true;
       setView({ k: ctx.view.k, x: ctx.view.x + (k === "ArrowLeft" ? step : k === "ArrowRight" ? -step : 0), y: ctx.view.y + (k === "ArrowUp" ? step : k === "ArrowDown" ? -step : 0) }, false);
-    } else if (k === "Escape") ctx.fn.escape();
+    } else if (k === "Escape") {
+      if (ctx.fn.hideHover()) return;
+      ctx.fn.escape();
+    }
   });
   on(ctx, document, "keyup", (e) => {
     if (e.key === " ") {
@@ -2287,6 +2293,188 @@ function diffModels(a, b) {
   };
 }
 
+// src/hover.ts
+var GAP = 8;
+var SHOW_MS = 150;
+var HIDE_MS = 120;
+var nextHoverId = 0;
+function placeHover(node, vp, card) {
+  const nx = node.x - vp.x;
+  const ny = node.y - vp.y;
+  const left = Math.max(GAP, Math.min(nx, vp.w - GAP - card.w));
+  const belowTop = ny + node.h + GAP;
+  if (belowTop + card.h > vp.h - GAP) {
+    return { left, top: Math.max(GAP, ny - GAP - card.h), side: "above" };
+  }
+  return { left, top: Math.max(GAP, belowTop), side: "below" };
+}
+function install8(ctx) {
+  const card = el("div", "fs-hovercard");
+  const cardId = `fs-hover-${++nextHoverId}`;
+  card.id = cardId;
+  card.setAttribute("role", "tooltip");
+  card.hidden = true;
+  ctx.els.vp.appendChild(card);
+  let showTimer = 0;
+  let hideTimer = 0;
+  let pendingNode = null;
+  let activeNode = null;
+  let pointerPress = false;
+  function clearShow() {
+    if (showTimer) {
+      window.clearTimeout(showTimer);
+      showTimer = 0;
+    }
+    pendingNode = null;
+  }
+  function clearHide() {
+    if (hideTimer) {
+      window.clearTimeout(hideTimer);
+      hideTimer = 0;
+    }
+  }
+  function hideCard() {
+    clearHide();
+    if (activeNode) {
+      if (activeNode.getAttribute("aria-describedby") === cardId) activeNode.removeAttribute("aria-describedby");
+      activeNode = null;
+    }
+    if (card.hidden) return false;
+    card.hidden = true;
+    return true;
+  }
+  function hideAll() {
+    clearShow();
+    return hideCard();
+  }
+  function hoverable(nodeEl) {
+    if (!nodeEl || !nodeEl.isConnected || nodeEl.classList.contains("off")) return null;
+    const id = nodeEl.id.startsWith("n_") ? nodeEl.id.slice(2) : "";
+    const def = ctx.nodes.get(id);
+    if (!def || !Array.isArray(def.hover) || def.hover.length === 0) return null;
+    return { nodeEl, def, lines: def.hover };
+  }
+  function show(nodeEl) {
+    clearShow();
+    clearHide();
+    const target = hoverable(nodeEl);
+    if (!target) {
+      hideCard();
+      return;
+    }
+    if (activeNode && activeNode !== target.nodeEl && activeNode.getAttribute("aria-describedby") === cardId) {
+      activeNode.removeAttribute("aria-describedby");
+    }
+    card.replaceChildren();
+    const title = el("b", "fs-hovercard-title");
+    title.textContent = target.def.title;
+    card.appendChild(title);
+    for (const line of target.lines) {
+      const row = el("div", "fs-hovercard-line");
+      row.textContent = line;
+      card.appendChild(row);
+    }
+    card.style.left = "0px";
+    card.style.top = "0px";
+    card.hidden = false;
+    const nr = target.nodeEl.getBoundingClientRect();
+    const vr = ctx.els.vp.getBoundingClientRect();
+    const pos = placeHover(
+      { x: nr.left, y: nr.top, w: nr.width, h: nr.height },
+      { x: vr.left, y: vr.top, w: vr.width, h: vr.height },
+      { w: card.offsetWidth, h: card.offsetHeight }
+    );
+    card.style.left = pos.left + "px";
+    card.style.top = pos.top + "px";
+    card.dataset.side = pos.side;
+    activeNode = target.nodeEl;
+    activeNode.setAttribute("aria-describedby", cardId);
+  }
+  on(ctx, ctx.els.world, "mouseenter", (e) => {
+    if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+    const nodeEl = e.target;
+    if (activeNode === nodeEl && !card.hidden) {
+      clearHide();
+      return;
+    }
+    if (!hoverable(nodeEl)) {
+      clearShow();
+      return;
+    }
+    clearShow();
+    pendingNode = nodeEl;
+    showTimer = window.setTimeout(() => {
+      showTimer = 0;
+      pendingNode = null;
+      show(nodeEl);
+    }, SHOW_MS);
+  }, { capture: true });
+  on(ctx, ctx.els.world, "mouseleave", (e) => {
+    if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+    const nodeEl = e.target;
+    if (pendingNode === nodeEl) clearShow();
+    if (activeNode === nodeEl && !card.hidden) {
+      clearHide();
+      hideTimer = window.setTimeout(() => {
+        hideTimer = 0;
+        hideCard();
+      }, HIDE_MS);
+    }
+  }, { capture: true });
+  on(ctx, card, "mouseenter", () => clearHide());
+  on(ctx, card, "mouseleave", (e) => {
+    if (e.relatedTarget instanceof Node && activeNode?.contains(e.relatedTarget)) return;
+    hideCard();
+  });
+  on(ctx, ctx.els.world, "focus", (e) => {
+    if (pointerPress) return;
+    if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+    if (!hoverable(e.target)) {
+      hideAll();
+      return;
+    }
+    show(e.target);
+  }, { capture: true });
+  on(ctx, ctx.els.world, "blur", (e) => {
+    if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+    if (activeNode === e.target || pendingNode === e.target) hideAll();
+  }, { capture: true });
+  on(ctx, ctx.els.world, "click", (e) => {
+    if (e.target?.closest?.(".node")) hideAll();
+  }, { capture: true });
+  on(ctx, ctx.els.vp, "pointerdown", () => {
+    pointerPress = true;
+    window.setTimeout(() => {
+      pointerPress = false;
+    }, 0);
+    hideAll();
+  }, { capture: true });
+  on(ctx, window, "pointerup", () => {
+    pointerPress = false;
+  });
+  on(ctx, window, "pointercancel", () => {
+    pointerPress = false;
+  });
+  on(ctx, ctx.els.vp, "wheel", () => {
+    hideAll();
+  }, { capture: true, passive: true });
+  const prevSelect = ctx.fn.select;
+  ctx.fn.select = (id) => {
+    hideAll();
+    prevSelect(id);
+  };
+  const prevPaint = ctx.fn.paint;
+  ctx.fn.paint = (fromSwitch) => {
+    hideAll();
+    prevPaint(fromSwitch);
+  };
+  ctx.fn.hideHover = hideAll;
+  ctx.disposers.push(() => {
+    hideAll();
+    card.remove();
+  });
+}
+
 // src/engine.ts
 var IDS = {
   vp: "viewport",
@@ -2400,6 +2588,7 @@ function mount(root, model, opts = {}) {
   install(ctx);
   install2(ctx);
   installBars(ctx);
+  install8(ctx);
   install3(ctx);
   install4(ctx);
   install5(ctx);
@@ -2500,7 +2689,7 @@ function mount(root, model, opts = {}) {
 }
 
 // src/lib.ts
-var SHELL_BODY_HTML = "<header class=\"top\">\r\n  <span class=\"brand\"><i></i>flow-studio</span>\r\n  <span class=\"spacer\"></span>\r\n  <button id=\"notesBtn\" type=\"button\" aria-pressed=\"false\">Implementation notes (N)</button>\r\n  <button id=\"theme\" type=\"button\" aria-label=\"Toggle light and dark\">☀ / ☾</button>\r\n</header>\r\n<main>\r\n  <div class=\"titlerow\"><h1 id=\"title\"></h1><span class=\"readline\" id=\"readat\"></span></div>\r\n  <p class=\"help\" id=\"help\"></p>\r\n  <div id=\"banner\" role=\"alert\" hidden></div>\r\n\r\n  <section class=\"summary\"><div class=\"layerstrip\" id=\"layerstrip\" aria-label=\"Completeness by column\"></div><div class=\"tiles\" id=\"kpis\" aria-label=\"Summary\"></div></section>\r\n\r\n  <div class=\"toolbar\">\r\n    <div class=\"seggrp\" role=\"tablist\" aria-label=\"View\" id=\"modeSwitch\"></div>\r\n    <input id=\"q\" type=\"search\" placeholder=\"Find a group or member…  ( / )\" aria-label=\"Find a group or member\">\r\n    <select id=\"hops\" aria-label=\"Search radius\"><option value=\"0\">This group</option><option value=\"1\">+1 hop</option><option value=\"2\">+2 hops</option><option value=\"3\">+3 hops</option></select>\r\n    <span id=\"matchinfo\" class=\"note\" style=\"margin:0\"></span>\r\n  </div>\r\n\r\n  <div class=\"workspace\" id=\"workspace\">\r\n    <section class=\"canvaswrap\">\r\n      <div id=\"viewport\" tabindex=\"0\" role=\"application\" aria-label=\"Flow canvas. Scroll to zoom, drag to pan. Keys: V select, H hand, plus and minus zoom, 0 fit, 1 actual size, F zoom to selection, arrows pan.\">\r\n        <div id=\"world\"><svg id=\"edges\" aria-hidden=\"true\"><defs><marker id=\"arr\" viewBox=\"0 0 8 8\" refX=\"7\" refY=\"4\" markerWidth=\"6\" markerHeight=\"6\" markerUnits=\"userSpaceOnUse\" orient=\"auto\"><path d=\"M0 0 L8 4 L0 8 z\" fill=\"context-stroke\"/></marker></defs><g id=\"edgeLayer\"></g></svg></div>\r\n        <div id=\"cols\" aria-hidden=\"true\"></div>\r\n        <div id=\"tools\" role=\"toolbar\" aria-label=\"Canvas controls\" aria-orientation=\"vertical\"></div>\r\n        <div id=\"zoomLabel\" aria-hidden=\"true\">100%</div>\r\n      </div>\r\n      <div id=\"playbar\" hidden aria-label=\"Scenario playback\">\r\n        <select id=\"pbScenario\" aria-label=\"Scenario\"></select>\r\n        <button id=\"pbPlay\" type=\"button\" aria-label=\"Play\">▶</button>\r\n        <button id=\"pbStep\" type=\"button\" aria-label=\"Step\">Step</button>\r\n        <button id=\"pbReset\" type=\"button\" aria-label=\"Reset\">Reset</button>\r\n        <select id=\"pbSpeed\" aria-label=\"Speed\"><option value=\"0.5\">0.5x</option><option value=\"1\" selected>1x</option><option value=\"2\">2x</option></select>\r\n        <input id=\"pbScrub\" type=\"range\" min=\"0\" max=\"1000\" value=\"0\" aria-label=\"Playback position\" aria-valuetext=\"Step 1 of 1\">\r\n        <span id=\"pbCaption\"></span><span id=\"pbCounter\"></span><span id=\"pbChoices\"></span>\r\n      </div>\r\n      <div class=\"keyline\" id=\"legend\" aria-label=\"Legend\"></div>\r\n      <aside class=\"insp\" id=\"inspector\" aria-label=\"Inspector\" aria-hidden=\"true\"></aside>\r\n    </section>\r\n  </div>\r\n  <div id=\"live\" class=\"sr\" role=\"status\" aria-live=\"polite\"></div>\r\n\r\n  <div class=\"ledger\" id=\"ledger\"></div>\r\n  <details class=\"tableview\"><summary>Table view</summary><table class=\"sources\" id=\"tbl\"></table></details>\r\n  <details class=\"spec\" id=\"spec\"><summary>Model reference (for the person or agent who builds this)</summary><div id=\"specbody\"></div></details>\r\n</main>\r\n<footer id=\"footer\"></footer>\r\n<aside id=\"drawer\" aria-label=\"Implementation notes\"><h2>Implementation notes</h2><p class=\"note\">Numbered markers on the page match these cards. Hover a card to find its place; click a marker to jump to its card.</p><div id=\"notelist\"></div></aside>\r\n\r\n";
+var SHELL_BODY_HTML = "<header class=\"top\">\n  <span class=\"brand\"><i></i>flow-studio</span>\n  <span class=\"spacer\"></span>\n  <button id=\"notesBtn\" type=\"button\" aria-pressed=\"false\">Implementation notes (N)</button>\n  <button id=\"theme\" type=\"button\" aria-label=\"Toggle light and dark\">☀ / ☾</button>\n</header>\n<main>\n  <div class=\"titlerow\"><h1 id=\"title\"></h1><span class=\"readline\" id=\"readat\"></span></div>\n  <p class=\"help\" id=\"help\"></p>\n  <div id=\"banner\" role=\"alert\" hidden></div>\n\n  <section class=\"summary\"><div class=\"layerstrip\" id=\"layerstrip\" aria-label=\"Completeness by column\"></div><div class=\"tiles\" id=\"kpis\" aria-label=\"Summary\"></div></section>\n\n  <div class=\"toolbar\">\n    <div class=\"seggrp\" role=\"tablist\" aria-label=\"View\" id=\"modeSwitch\"></div>\n    <input id=\"q\" type=\"search\" placeholder=\"Find a group or member…  ( / )\" aria-label=\"Find a group or member\">\n    <select id=\"hops\" aria-label=\"Search radius\"><option value=\"0\">This group</option><option value=\"1\">+1 hop</option><option value=\"2\">+2 hops</option><option value=\"3\">+3 hops</option></select>\n    <span id=\"matchinfo\" class=\"note\" style=\"margin:0\"></span>\n  </div>\n\n  <div class=\"workspace\" id=\"workspace\">\n    <section class=\"canvaswrap\">\n      <div id=\"viewport\" tabindex=\"0\" role=\"application\" aria-label=\"Flow canvas. Scroll to zoom, drag to pan. Keys: V select, H hand, plus and minus zoom, 0 fit, 1 actual size, F zoom to selection, arrows pan.\">\n        <div id=\"world\"><svg id=\"edges\" aria-hidden=\"true\"><defs><marker id=\"arr\" viewBox=\"0 0 8 8\" refX=\"7\" refY=\"4\" markerWidth=\"6\" markerHeight=\"6\" markerUnits=\"userSpaceOnUse\" orient=\"auto\"><path d=\"M0 0 L8 4 L0 8 z\" fill=\"context-stroke\"/></marker></defs><g id=\"edgeLayer\"></g></svg></div>\n        <div id=\"cols\" aria-hidden=\"true\"></div>\n        <div id=\"tools\" role=\"toolbar\" aria-label=\"Canvas controls\" aria-orientation=\"vertical\"></div>\n        <div id=\"zoomLabel\" aria-hidden=\"true\">100%</div>\n      </div>\n      <div id=\"playbar\" hidden aria-label=\"Scenario playback\">\n        <select id=\"pbScenario\" aria-label=\"Scenario\"></select>\n        <button id=\"pbPlay\" type=\"button\" aria-label=\"Play\">▶</button>\n        <button id=\"pbStep\" type=\"button\" aria-label=\"Step\">Step</button>\n        <button id=\"pbReset\" type=\"button\" aria-label=\"Reset\">Reset</button>\n        <select id=\"pbSpeed\" aria-label=\"Speed\"><option value=\"0.5\">0.5x</option><option value=\"1\" selected>1x</option><option value=\"2\">2x</option></select>\n        <input id=\"pbScrub\" type=\"range\" min=\"0\" max=\"1000\" value=\"0\" aria-label=\"Playback position\" aria-valuetext=\"Step 1 of 1\">\n        <span id=\"pbCaption\"></span><span id=\"pbCounter\"></span><span id=\"pbChoices\"></span>\n      </div>\n      <div class=\"keyline\" id=\"legend\" aria-label=\"Legend\"></div>\n      <aside class=\"insp\" id=\"inspector\" aria-label=\"Inspector\" aria-hidden=\"true\"></aside>\n    </section>\n  </div>\n  <div id=\"live\" class=\"sr\" role=\"status\" aria-live=\"polite\"></div>\n\n  <div class=\"ledger\" id=\"ledger\"></div>\n  <details class=\"tableview\"><summary>Table view</summary><table class=\"sources\" id=\"tbl\"></table></details>\n  <details class=\"spec\" id=\"spec\"><summary>Model reference (for the person or agent who builds this)</summary><div id=\"specbody\"></div></details>\n</main>\n<footer id=\"footer\"></footer>\n<aside id=\"drawer\" aria-label=\"Implementation notes\"><h2>Implementation notes</h2><p class=\"note\">Numbered markers on the page match these cards. Hover a card to find its place; click a marker to jump to its card.</p><div id=\"notelist\"></div></aside>\n\n";
 export {
   K_MAX,
   K_MIN,

@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const allowed = new Set(['notes', 'playback', 'update', 'hostile']);
+const allowed = new Set(['notes', 'playback', 'update', 'hostile', 'hover']);
 
 export function pageUrl(input) {
   // try/catch, not URL.canParse: canParse needs Node 18.17+ and this skill runs on older tooling too.

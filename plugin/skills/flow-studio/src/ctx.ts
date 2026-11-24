@@ -73,6 +73,7 @@ export interface Fns {
   toggleNotes(on?: boolean): void;
   placeMarkers(): void;
   escape(): void;
+  hideHover(): boolean;
   setMode(id: string): void;
   toggleGroup(id: string): void;
 }

@@ -1,8 +1,8 @@
 # UX and design rules
 
-The 12 rules ensure flow-studio pages remain readable, informative, accessible, and fast.
+The 13 rules ensure flow-studio pages remain readable, informative, accessible, and fast.
 
-## The 12 rules
+## The 13 rules
 
 ### 1. One screen
 - **Rule statement:** The full flow fits on one screen without requiring panning in the initial default view.
@@ -77,6 +77,12 @@ The 12 rules ensure flow-studio pages remain readable, informative, accessible, 
 - **Rationale:** Copying a shared node into every row hides that it is shared and makes the reader compare copies. In the app lineage page, a database repeated in every source row looked like several databases (2026-10-09).
 - **Pre-flight checklist question:** Does any node id appear as a chip inside the lane that already holds the real node?
 - **Common mistake & fix:** One row per source, each with its own copy of the host, database and job. *Fix:* Draw each distinct node once, place it at the mean position of its rows, move it down if it would touch its neighbour, and de-duplicate links by their two ends.
+
+### 13. Accessible hover cards
+- **Rule statement:** Every node hover card (`node.hover`) satisfies WCAG 1.4.13: dismissable with Escape, hoverable so the pointer can enter the card, and persistent until hover or focus leaves or the user dismisses it.
+- **Rationale:** Pointer-only tooltips that vanish when the cursor moves onto them or clear active selection on Escape fail keyboard and screen-magnifier users.
+- **Pre-flight checklist question:** Did you check that `node.hover` holds at most 12 plain-text lines (up to 240 characters each) of supplemental detail, can be hovered, and hides on the first Escape without clearing selection?
+- **Common mistake & fix:** Putting raw HTML or essential primary labels only inside `hover`. *Fix:* Keep primary identity in `title` and `subtitle`, pass plain text in `hover`, and rely on the engine's `role="tooltip"` card.
 
 ---
 

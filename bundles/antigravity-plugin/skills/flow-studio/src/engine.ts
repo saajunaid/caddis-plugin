@@ -18,6 +18,7 @@ import { install as installPlayback, type PlaybackController } from "./playbacku
 import { diffModels } from "./diff.ts";
 import { notifySelection } from "./selection.ts";
 import { installBars, markKey } from "./bars.ts";
+import { install as installHover } from "./hover.ts";
 import type { Issue } from "./model.ts";
 
 export interface FlowStudio {
@@ -107,6 +108,7 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
   installInteract(ctx);
   installRender(ctx);
   installBars(ctx);
+  installHover(ctx);
   installControls(ctx);
   installInspector(ctx);
   installChrome(ctx);

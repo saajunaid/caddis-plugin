@@ -44,6 +44,7 @@ export interface NodeDef {
   sla?: number;
   metrics?: NodeMetric;
   bars?: NodeBar[];
+  hover?: string[];
 }
 export interface NodeMetric {
   value: number;
@@ -164,6 +165,8 @@ export function validateModel(input: unknown): Issue[] {
     if (metric !== undefined && (!metric || !Number.isFinite(metric.value) || (metric.max != null && !Number.isFinite(metric.max)) || invalidSeries)) add("error", "metric-invalid", w, "Metrics need finite values and at most 60 finite series points.");
     const badBars = n.bars !== undefined && (!Array.isArray(n.bars) || n.bars.length > 120 || n.bars.some(b => !b || typeof b.key !== "string" || (b.value !== null && (typeof b.value !== "number" || !Number.isFinite(b.value) || b.value < 0))));
     if (badBars) add("error", "bars-invalid", w, "Bars need a list of at most 120 items, each with a string key and a finite, non-negative value or null.");
+    const badHover = n.hover !== undefined && (!Array.isArray(n.hover) || n.hover.length > 12 || [...n.hover].some((s: unknown) => typeof s !== "string" || s.length > 240));
+    if (badHover) add("error", "hover-invalid", w, "Hover needs a list of at most 12 strings, each at most 240 characters.");
     if (n.sla !== undefined && (!Number.isFinite(n.sla) || n.sla <= 0)) add("error", "sla-invalid", w, "SLA must be a positive finite number of seconds.");
   }
   for (const n of nodes) {

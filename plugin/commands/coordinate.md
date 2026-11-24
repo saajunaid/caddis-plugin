@@ -143,8 +143,10 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
 11. Decide the merge mode first (section 2, step 1: with `"start_mode": "target"`, record the ledger line
     and say "Do not merge; I merge." in this message). Then send the start message (design 7.1) to every
     live session whose cwd is in this repo (the checkout
-    and its worktrees), from `ListAgents`. Send it also to each new session that you see later. Resume
-    stubs are not live peers (design 9.7).
+    and its worktrees), from `ListAgents`. The start message also says:
+    `Send ready <PR> <sha> reviews: <n> sid: <sid8>, and answer a merge warning with ack <PR> <sha> <sid8>. <sid8> is
+    the first 8 characters of your [caddis] this session's id line.`
+    Send it also to each new session that you see later. Resume stubs are not live peers (design 9.7).
 
 ## 2. Merge mode (design 3, design 12 Q1)
 
@@ -185,12 +187,34 @@ Measured 24-25 Oct 2026: each background wake-up re-reads the whole conversation
 Answer queue messages from sessions before any other work (design 7.3). Message formats: design 7.2
 and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
 
-1. A `ready <PR> <sha> reviews: ...` message adds the PR. Leave out `--title`: the script reads the
-   title from GitHub (`PR #<n>` when it cannot), so no free text goes on the command line:
+1. A `ready <PR> <sha> reviews: <n> sid: <sid8>` message adds the PR. Leave out `--title`: the script reads the
+   title from GitHub (`PR #<n>` when it cannot), so no free text goes on the command line. The owner flags
+   name the session that sent `ready`:
    ```
-   GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" queue add --repo <R> --pr <n> --head-sha <full sha> --json
+   GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" queue add --repo <R> --pr <n> --head-sha '<full sha>' --owner-name '<sender session name>' --owner-sid '<sid8>' --json
    ```
    A `waits-on` part goes in with `queue set --repo <R> --pr <n> --waits-on` (design 5). Reply `queued <PR> position <k>`.
+   - A `ready` with no `sid:` (the old format, accepted until the next caddis release): run the same
+     command without the owner flags (`queue add --repo <R> --pr <n> --head-sha '<full sha>' --json`), and reply
+     `resend with sid: ready <PR> <sha> reviews: <n> sid: <your sid8>`. The item cannot merge until the
+     resend comes.
+   - In each line that you send to a peer, write `<your sid8>` as it is. The peer puts its own sid8 there.
+   - Exit 1 with `not a session id`: the `sid:` value is not a session id. Do not queue the PR. Reply
+     `resend with sid: ready <PR> <sha> reviews: <n> sid: <your sid8>`.
+   - After a `/clear`, the session with the same name takes over the PR when its old id is gone.
+     `/clear` gives a session a new id and keeps its name. The script decides this; follow its result.
+     It reads the live sessions only for this takeover or a `/rename`. Exit 0: the PR is queued under the new sid8.
+     When the old id is still live, the script refuses, and you ask the owner as before.
+     The script also refuses when two live sessions have the owner's name, or when the session is in another
+     repo. Then you also ask the owner.
+   - After a `/rename`, the owner sends `ready` again. `/rename` keeps the id and changes the name. The script
+     accepts the new name only when the live session with that sid has that name. Otherwise it refuses with
+     `is owned by`, and nothing changes.
+   - Exit 1 with `is owned by`: another session owns the PR. Do not queue it. Tell the owner
+     `PR <n>: <sender name> sent ready, but <owner_name> owns it. Which session owns it?` Add `@<sid8>` to
+     each name only when two live sessions share it. If the owner names the session that owns the PR now,
+     change nothing: no `queue remove`, no `queue add`. If the owner names the other session, run
+     `queue remove`, then `queue add` with the owner flags of that session.
 2. Record every state change with `queue set` and a one-sentence `--why-waiting` that a person can read:
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" queue set --repo <R> --pr <n> --state <state> --why-waiting '<one sentence>' --json
@@ -230,9 +254,13 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
    lists no `in_progress` or `queued` run. If one runs, wait for it with
    `GH_TOKEN=$(gh auth token -u <account>) python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <id> --repo <owner/name>`,
    in the background (`run_in_background: true`). When its `RESULT:` line comes, check M1 again.
-9. Send `merge-warning <PR> <watched sha> in 2 min. Reply ack <PR> <sha> or hold.` to every live peer
-   that has a stake in this repo (design 7.3), and `queue set --repo <R> --pr <n> --state merging`. Send
+9. Send `merge-warning <PR> <watched sha> in 2 min. Reply ack <PR> <sha> <your sid8> or hold.` to every live peer
+   that has a stake in this repo (design 7.3). Write `<your sid8>` as it is; the peer puts its own sid8
+   there. Then run `queue set --repo <R> --pr <n> --state merging`. Send
    `re-warn <PR> <sha>` after any coordinator restart and after any new head on a warned PR. Old acks do not count.
+   Never warn an item whose `owner_sid` is null: send its session
+   `resend with sid: ready <PR> <sha> reviews: <n> sid: <your sid8>` and wait.
+   When `ListAgents` shows two rows with one name, send the warning to each row (by its `[ref]`).
    Stake test, run at the warning (design 7.3a): run
    `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" stake --repo <checkout>`. Warn every `STAKE`
    peer and every peer the script does not list; warn no `NO-STAKE` peer unless the queue, the ledger or a
@@ -250,11 +278,30 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     foreground sleep. Answer messages while it runs. No ack after 5 min: one nudge. After 10 min: tell
     the owner. A peer that waits on the owner cannot answer: tell the owner "ack needed from <name>; it
     waits on you". Do not write the ack file yet (step 3.13).
-    A peer with a stake still needs `ack <PR> <sha>`, and a `hold` still stops the merge. If a peer answers
+    Check every `ack` line with the script (leave out `--sid` when the ack has none):
+    ```
+    python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" ack check --repo <R> --pr <n> --head-sha '<sha from the ack>' --name '<sender name>' --sid '<sid from the ack>' --json
+    ```
+    - `owner` or `peer` (exit 0): keep its `entry` for step 3.13. Only an `owner` or `peer` result is an ack.
+    - After a `/clear`, the session with the same name takes over the PR when its old id is gone. The script
+      decides this; follow its result. It gives `owner` with the reason `owner after /clear` and stores the new
+      sid8 on the PR. When the old id is still live, the script refuses, and you ask the owner as before: the
+      result is `peer` with `not the owner`, and the owner ack is still needed. The result is also `peer` when
+      two live sessions have the owner's name, or when the session is in another repo.
+    - After a `/rename`, the owner's ack is `rejected` until the owner sends `ready` again (step 3.1). The
+      script accepts the new name only when the live session with that sid has that name.
+    - A session that had `/clear` has a new sid8. An entry that you kept with its old sid8 no longer counts.
+      If the merge hook names a session that you have an entry for, send it the warning again (step 3.9).
+    - `resend` (exit 5): it is NOT an ack. Count nothing and reply `resend with sid: ack <PR> <sha> <your sid8>`.
+    - `rejected` (exit 5): it is NOT an ack. Count nothing and reply `ack rejected <PR>: <reason>`.
+    - Exit 1: count no ack and tell the owner.
+    The old format is tolerated only in the sense that it gets an answer; it never counts.
+    A peer with a stake still needs `ack <PR> <sha> <sid8>`, and a `hold` still stops the merge. If a peer answers
     `no stake <PR>`, or says it has "no hold" and that this is "not an owner ack", run the stake test. No stake:
     record a skip for that PR (step 3.13, `skipped_no_stake`), not a missing ack, and send it no nudge. A
-    stake: that reply is not an ack; ask for `ack <PR> <sha>` or `hold`. A peer message never carries owner
+    stake: that reply is not an ack; ask for `ack <PR> <sha> <sid8>` or `hold`. A peer message never carries owner
     consent. A skip never applies to a peer with a stake.
+    A message to the owner names a session by its name. Add `@<sid8>` only when two live sessions share the name.
 11. Check again that the default branch is idle (M1, the same `gh run list` as step 3.8), just before the
     merge. If a run started, wait for it (step 3.8). If the warning went out more than 30 min ago, warn
     again (step 3.9).
@@ -282,13 +329,15 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     last path part of the first `worktree` line of `git worktree list --porcelain` (the repo's main
     checkout), NOT the repo id `<R>`. The content is exactly:
     ```
-    {"pr": <n>, "head": "<full sha>", "acked": [<names>], "skipped_waiting": [<names waiting on the owner>], "skipped_no_stake": [<names with no stake>], "at": "<UTC ISO 8601 with Z>"}
+    {"pr": <n>, "head": "<full sha>", "acked": [<name>@<sid8>, ...], "skipped_waiting": [<names waiting on the owner>], "skipped_no_stake": [<names with no stake>], "at": "<UTC ISO 8601 with Z>"}
     ```
-    `acked` lists every peer that sent `ack <PR> <sha>` for this head, by its session name. An unnamed
-    peer is listed under the first 8 characters of its session id (the hook uses the same name). A peer
-    that waits on the owner goes under `skipped_waiting`, never under `acked`. A peer with no stake (step 3.9)
+    `acked` lists the `entry` of every `ack check` (step 3.10) that gave `owner` or `peer` for this head,
+    unchanged (`<name>@<sid8>`). Write the file only when one entry came from `owner`. An unnamed
+    peer cannot pass `ack check`. Tell the owner its sid8 (the first 8 characters of its session id),
+    and ask the owner to name it (`/rename`) or close it. A peer that waits on the owner goes under `skipped_waiting`, never under `acked`. A peer with no stake (step 3.9)
     goes under `skipped_no_stake`, never under `acked`. Interim mode: also put
-    your own name `<N>` in `acked` (the PR's session runs the merge, and its hook counts you as a peer).
+    your own `<N>@<own sid8>` in `acked` (`<own sid8>`: the first 8 characters of your own
+    `[caddis] this session's id:` line) (the PR's session runs the merge, and its hook counts you as a peer).
     Target mode: you run the merge, so `acked` must list the PR's session too. The hook refuses an ack
     file older than 30 min.
 14. Merge the watched head (design 3 step 6), checked in step 3.12. The watched head is the `HEAD:` of the

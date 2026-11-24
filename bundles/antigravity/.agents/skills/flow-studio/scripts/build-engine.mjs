@@ -62,7 +62,8 @@ export async function buildLibrary() {
   const bundled = out.outputFiles[0].text;
   if (bundled.split(marker).length !== 2) throw new Error("The library must contain one shell body slot.");
   const body = readFileSync(join(root, "templates/shell-body.html"), "utf8");
-  const js = bundled.replace(marker, () => JSON.stringify(body));
+  // normalise BEFORE stringify: a CR inside a JSON string becomes the text "\r", which normalise() cannot remove later.
+  const js = bundled.replace(marker, () => JSON.stringify(normalise(body)));
   const css = readFileSync(join(root, "src/styles.css"), "utf8");
   return { js: normalise(js), css };
 }

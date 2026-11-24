@@ -159,6 +159,12 @@
   @keyframes newring { 0% { box-shadow:0 0 0 0 var(--accent); } 100% { box-shadow:0 0 0 14px transparent; } }
   @keyframes flow { to { stroke-dashoffset:-28; } } @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } } @keyframes ring { to { box-shadow:0 0 0 14px transparent; } }
   @keyframes beat { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);} 70%,100%{box-shadow:0 0 0 9px transparent;} }
+  .fs-hovercard { position:absolute; z-index:35; max-width:320px; padding:7px 10px; background:var(--panel); border:1px solid var(--edge); border-radius:8px; box-shadow:var(--shadow); color:var(--fg); font-size:12px; line-height:1.4; white-space:normal; overflow-wrap:break-word; cursor:default; user-select:text; opacity:1; transition:opacity .12s ease-out; }
+  .fs-hovercard[hidden] { display:none; }
+  .fs-hovercard-title { display:block; font-weight:600; color:var(--fg); margin-bottom:2px; }
+  .fs-hovercard-line { color:var(--muted); }
+  @starting-style { .fs-hovercard { opacity:0; } }
+  @media print { .fs-hovercard { display:none !important; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } path.edge.hot { stroke-dasharray:none; } }
   @media (max-width: 1100px) { .summary { grid-template-columns:1fr; } .workspace { height:auto; } .workspace .canvaswrap { height:75vh; } .insp { width:min(340px, 92%); } #drawer { width:100%; } .layerstrip { grid-template-columns:repeat(3,1fr) !important; } }
   #banner:not([hidden]) { margin:0 14px 10px; padding:8px 12px; color:var(--crit); background:var(--crit-bg); border:1px solid var(--crit); font-size:12px; }

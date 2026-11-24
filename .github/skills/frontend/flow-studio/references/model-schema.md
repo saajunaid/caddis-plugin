@@ -113,6 +113,7 @@ Nodes represent processing units, cards, gateways, groups, and milestones.
 | `sla` | `number` | Optional | - | Target service level agreement threshold in seconds. |
 | `metrics` | `object` | Optional | - | Telemetry payload (see metrics table). |
 | `bars` | `array` | Optional | - | A small bar chart on the node, one bar per `key` (see bars table). |
+| `hover` | `array` | Optional | - | Plain-text lines (up to 12 strings, each at most 240 characters) shown in a hover and focus card on the node; `[]` shows no card. Ignored by the native React components (`react/native/`). |
 
 ---
 

@@ -394,6 +394,78 @@ for (const [w, h] of viewports) {
     await page.click(`#modeSwitch [data-mode="${R.view}"]`); await page.waitForTimeout(600);
   }
 
+  // hover card
+  const hoverNode = model.nodes.find(n => R.nv(n) && n.hover?.length);
+  const plainNode = model.nodes.find(n => R.nv(n) && !n.hover?.length);
+  const doHover = !skip.has("hover");
+  // A missing node is a failure, not a silent pass: the demo model must have both kinds.
+  if (doHover) check("hover", "the page has a visible node with hover and one without", !!hoverNode && !!plainNode,
+    `withHover=${hoverNode?.id ?? "none"} without=${plainNode?.id ?? "none"}`);
+  await page.evaluate(() => window.FlowStudio.fit(false));
+  await page.mouse.move(5, 5);
+  if (doHover && hoverNode) {
+    await page.hover(`[id="n_${hoverNode.id}"]`);
+    await page.waitForTimeout(220);
+    const hovered = await page.evaluate(id => {
+      const tips = [...document.querySelectorAll("[role=tooltip]")].filter(t => !t.hidden && getComputedStyle(t).display !== "none");
+      const node = document.getElementById("n_" + id);
+      const lines = [...(tips[0]?.querySelectorAll(".fs-hovercard-line") ?? [])].map(e => e.textContent);
+      return { count: tips.length, tipId: tips[0]?.id ?? "", describedBy: node?.getAttribute("aria-describedby") ?? "", firstLine: lines[0] ?? "" };
+    }, hoverNode.id);
+    check("hover", "hovering a node with hover shows one tooltip with its first line and matching aria-describedby",
+      hovered.count === 1 && hovered.tipId.length > 0 && hovered.describedBy === hovered.tipId && hovered.firstLine === hoverNode.hover[0],
+      `count=${hovered.count} id=${hovered.tipId} describedBy=${hovered.describedBy}`);
+
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(200);
+    const left = await page.evaluate(id => ({
+      visible: [...document.querySelectorAll("[role=tooltip]")].some(t => !t.hidden),
+      describedBy: document.getElementById("n_" + id)?.getAttribute("aria-describedby") ?? null,
+    }), hoverNode.id);
+    check("hover", "pointer away hides the hover card", !left.visible && left.describedBy === null);
+
+    const selTarget = R.canon((plainNode ?? hoverNode).id);
+    await page.evaluate(id => window.FlowStudio.select(id), selTarget);
+    await page.evaluate(id => {
+      const focusables = [...document.querySelectorAll("#world [tabindex='0']")];
+      const idx = focusables.findIndex(e => e.id === "n_" + id);
+      (idx > 0 ? focusables[idx - 1] : document.getElementById("viewport")).focus();
+    }, hoverNode.id);
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(id => {
+      const tips = [...document.querySelectorAll("[role=tooltip]")].filter(t => !t.hidden && getComputedStyle(t).display !== "none");
+      const node = document.getElementById("n_" + id);
+      return { active: document.activeElement === node, count: tips.length, match: !!tips[0]?.id && node?.getAttribute("aria-describedby") === tips[0].id };
+    }, hoverNode.id);
+    check("hover", "Tab focus shows the hover card at once", focused.active && focused.count === 1 && focused.match);
+
+    await page.keyboard.press("Escape");
+    const escaped = await page.evaluate(sel => ({
+      visible: [...document.querySelectorAll("[role=tooltip]")].some(t => !t.hidden),
+      selected: window.FlowStudio.selected(),
+      inspOpen: document.getElementById("inspector").classList.contains("open"),
+    }), selTarget);
+    check("hover", "Escape hides the hover card and leaves selection unchanged",
+      !escaped.visible && escaped.selected === selTarget && escaped.inspOpen);
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+  }
+  if (doHover && plainNode) {
+    await page.hover(`[id="n_${plainNode.id}"]`);
+    await page.waitForTimeout(220);
+    const plain = await page.evaluate(id => {
+      const node = document.getElementById("n_" + id);
+      node?.focus();
+      const visible = [...document.querySelectorAll("[role=tooltip]")].some(t => !t.hidden);
+      const describedBy = node?.getAttribute("aria-describedby") ?? null;
+      node?.blur();
+      return { visible, describedBy };
+    }, plainNode.id);
+    await page.mouse.move(5, 5);
+    check("hover", "a node without hover shows no card", !plain.visible && plain.describedBy === null);
+  }
+
   // notes
   if (!skip.has("notes")) {
     await page.keyboard.press("n"); await page.waitForTimeout(500);
@@ -633,6 +705,21 @@ if (hostilePath && !skip.has("hostile")) {
   check("safety", "hostile text executes nothing", probe.pwned === undefined && errors.length === 0, errors.join("|"));
   check("safety", "hostile text adds no script or image element", probe.scripts === 3 && probe.imgs === 0, `scripts=${probe.scripts} imgs=${probe.imgs}`);
   check("safety", "hostile text is shown as text", probe.title.includes("</script>") && probe.nodeText.length > 0);
+  const hostileHover = await page.evaluate(() => {
+    const n = window.FlowStudio.model.nodes.find(x => x.hover?.length && !document.getElementById("n_" + x.id)?.classList.contains("off"));
+    if (!n) return null;
+    const el = document.getElementById("n_" + n.id);
+    el?.focus();
+    const tip = document.querySelector(".fs-hovercard");
+    const res = { shown: !!tip && !tip.hidden, imgs: tip ? tip.querySelectorAll("img").length : -1, text: tip?.textContent ?? "", line: n.hover[0] };
+    el?.blur();
+    return res;
+  });
+  if (!skip.has("hover")) {
+    check("hover", "hostile hover line adds zero img elements in the card",
+      !!hostileHover && hostileHover.shown && hostileHover.imgs === 0 && hostileHover.text.includes(hostileHover.line),
+      hostileHover ? `imgs=${hostileHover.imgs}` : "no visible node with hover on the hostile page");
+  }
   await page.click(".node:not(.off)"); await page.waitForTimeout(300);
   check("safety", "hostile text stays inert in the inspector", await page.evaluate(() => window.__pwned === undefined && document.querySelectorAll("#inspector img").length === 0));
   await ctx.close();

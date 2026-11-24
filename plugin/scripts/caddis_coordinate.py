@@ -470,16 +470,112 @@ def _set_head(item: dict, head_sha: str) -> None:
         item["state"] = "ci"
 
 
-def queue_add(rid: str, pr: int, head_sha: str, title: str) -> None:
+_SID8 = re.compile(r"^([0-9a-f]{8})[0-9a-f-]*$")
+
+
+def sid8(value: str) -> str:
+    """The first 8 characters, lower case, of a session id (a full id or its sid8). Raises ValueError otherwise."""
+    match = _SID8.match(value.strip().lower())
+    if match is None:
+        raise ValueError(f"not a session id: {value!r}")
+    return match.group(1)
+
+
+def _live_rows(agents: list[dict]) -> list[dict]:
+    """The rows of `claude agents --json` that are live sessions: interactive or background, and not stopped."""
+    return [a for a in agents if isinstance(a, dict) and a.get("kind") in ("interactive", "background")
+            and a.get("state") != "stopped"]
+
+
+def _row_sid8(row: dict) -> str:
+    return str(row.get("sessionId") or "")[:8].lower()
+
+
+def _in_repo(row: dict, rid: str) -> bool:
+    """True when the row has no cwd, or its cwd maps to the repo id `rid`. A cwd that maps to no repo id is False."""
+    cwd = row.get("cwd")
+    if not cwd:
+        return True
+    try:
+        return repo_id_for(Path(str(cwd))) == rid
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def _takeover_ok(rid: str, rows: list[dict], owner_name: str, old_sid: str, new_sid: str) -> bool:
+    """True when `owner_name@new_sid` may take over a PR from `owner_name@old_sid` after a `/clear`.
+
+    `/clear` gives a session a new id and keeps its name. `rows` are the live rows (`_live_rows`). The old id
+    must be gone from every live row, exactly one live row must have the owner name, that row must have the new
+    sid8, and it must be in this repo. A stale same-named session that is still live never takes over."""
+    if any(_row_sid8(r) == old_sid for r in rows):
+        return False
+    named = [r for r in rows if r.get("name") == owner_name]
+    return len(named) == 1 and _row_sid8(named[0]) == new_sid and _in_repo(named[0], rid)
+
+
+def queue_add(rid: str, pr: int, head_sha: str, title: str, owner_name: str | None = None,
+              owner_sid: str | None = None, agents: Callable[[], list[dict]] | None = None) -> None:
     """Add a PR as `waiting`. Adding a PR already in the queue updates its title and head (a new head demotes a
-    `ready` or `merging` item to `ci`), nothing else."""
+    `ready` or `merging` item to `ci`), nothing else.
+
+    `owner_name` and `owner_sid` (the session that sent `ready`) go together; `owner_sid` is stored as its sid8.
+    An item with no owner gets them; the same sid8 with the same name changes nothing else; another sid8 raises
+    ValueError and nothing is written. Without owner args an existing item keeps its owner fields.
+
+    Rename after `/rename` (the id stays, the name changes): the same sid8 with a NEW name is accepted only when
+    exactly one live row has that sid8 and that row has the new name. Otherwise, and when `agents` is None or
+    fails, the add is refused with ValueError and nothing is written (fail closed). A copied sid8 never makes
+    another session the owner.
+
+    Takeover after `/clear`: with `agents` given, another sid8 with the SAME owner name takes over when
+    `_takeover_ok` holds. `agents()` is called only for a rename or a takeover. When it fails, the add is
+    refused (fail closed)."""
+    if (owner_name is None) != (owner_sid is None):
+        raise ValueError("--owner-name and --owner-sid go together")
+    if owner_name is not None and not owner_name.strip():
+        raise ValueError("--owner-name is empty")
+    sid = sid8(owner_sid) if owner_sid is not None else None
+    taken_from, renamed, note = None, False, ""
+    if sid is not None and agents is not None:
+        state = read_state(rid)
+        seen = _find(state["queue"], pr) if state is not None else None
+        old = seen.get("owner_sid") if seen is not None else None
+        is_rename = old == sid and seen.get("owner_name") != owner_name
+        is_takeover = old is not None and old != sid and seen.get("owner_name") == owner_name
+        if is_rename or is_takeover:
+            try:
+                rows = _live_rows(agents())
+                if is_rename:
+                    hits = [r for r in rows if _row_sid8(r) == sid]
+                    renamed = len(hits) == 1 and hits[0].get("name") == owner_name
+                elif _takeover_ok(rid, rows, owner_name, old, sid):
+                    taken_from = old
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                note = f" (cannot read live sessions: {' '.join(str(exc).split())})"
+
     def change(state: dict) -> None:
         queue = state["queue"]
         item = _find(queue, pr)
         if item is None:
             queue.append({"pr": pr, "head_sha": head_sha, "title": title, "state": "waiting", "why_waiting": "",
-                          "waits_on": [], "hotfix": False, "held": False, "entered_ready_at": None})
+                          "waits_on": [], "hotfix": False, "held": False, "entered_ready_at": None,
+                          "owner_name": owner_name, "owner_sid": sid})
             return
+        if sid is not None:
+            if item.get("owner_sid") is None:
+                item["owner_name"], item["owner_sid"] = owner_name, sid
+            elif item["owner_sid"] == sid:
+                if item.get("owner_name") != owner_name:  # a /rename: only the live session with this sid8
+                    if not renamed:
+                        raise ValueError(f"PR {pr} is owned by {item.get('owner_name')}@{sid}; the live session "
+                                         f"{sid} is not named {owner_name}; ask the owner before a change{note}")
+                    item["owner_name"] = owner_name
+            else:
+                if taken_from is None or item["owner_sid"] != taken_from:  # changed since the check: refuse
+                    raise ValueError(f"PR {pr} is owned by {item.get('owner_name')}@{item['owner_sid']}; "
+                                     f"ask the owner before a change{note}")
+                item["owner_sid"] = sid
         item["title"] = title
         _set_head(item, head_sha)
     _mutate_item(rid, pr, change)
@@ -527,6 +623,75 @@ def queue_remove(rid: str, pr: int) -> None:
     def change(state: dict) -> None:
         state["queue"] = [item for item in state["queue"] if item.get("pr") != pr]
     _mutate_item(rid, pr, change)
+
+
+def ack_check(rid: str, pr: int, head_sha: str, name: str, sid: str | None,
+              agents: Callable[[], list[dict]]) -> dict:
+    """Decide one `ack <pr> <sha> <sid8>` from the session `name`. Read-only, except an owner takeover.
+
+    Returns `{"result": "owner"|"peer"|"rejected"|"resend", "entry": "<name>@<sid8>" or None, "reason": str}`.
+    The rules run in a fixed order. The owner path never calls `agents()`. A sid that is not the owner's must
+    be one live session with that name; a stopped row is not live. A second session with the owner's name is a
+    peer, never the owner, while the owner's id is live. After a `/clear` (new id, same name) the old id is gone:
+    then the one live session with the owner's name in this repo takes over (`_takeover_ok`), and the new sid8 is
+    stored on the item. Raises ValueError when the PR is not in the queue; an OSError or ValueError from
+    `agents()` propagates (fail closed: no ack is accepted)."""
+    state = read_state(rid)
+    item = _find(state["queue"], pr) if state is not None else None
+    if item is None:
+        raise ValueError(f"PR {pr} is not in the queue")
+
+    def no(reason: str) -> dict:
+        return {"result": "rejected", "entry": None, "reason": reason}
+
+    if not sid:
+        return {"result": "resend", "entry": None, "reason": f"no sid: reply ack {pr} {head_sha} <your sid8>"}
+    queued = str(item.get("head_sha") or "")
+    if head_sha.lower() != queued.lower():
+        return no(f"ack is for head {head_sha[:8]}, the queue has {queued[:8]}")
+    try:
+        s = sid8(sid)
+    except ValueError:
+        return no(f"not a session id: {sid}")
+    owner_sid, owner_name = item.get("owner_sid"), item.get("owner_name")
+    if owner_sid is None:
+        return no(f"PR {pr} has no owner sid; get a ready line with sid first")
+    if s == owner_sid:
+        if name == owner_name:
+            return {"result": "owner", "entry": f"{name}@{s}", "reason": "owner"}
+        return no(f"sid {s} is the owner {owner_name}, not {name}; after a /rename, send ready again")
+    rows = _live_rows(agents())
+    hits = [a for a in rows if _row_sid8(a) == s]
+    if not hits:
+        return no(f"sid {s} is not a live session")
+    if len(hits) > 1:
+        return no(f"two live sessions start with sid {s}")
+    if hits[0].get("name") != name:
+        return no(f"sid {s} is session {hits[0].get('name')}, not {name}")
+    if name == owner_name and _takeover_ok(rid, rows, owner_name, owner_sid, s) and _take_over(rid, pr, owner_sid, s):
+        return {"result": "owner", "entry": f"{name}@{s}", "reason": f"owner after /clear: {owner_sid} is gone"}
+    reason = (f"second session named {name}; not the owner {name}@{owner_sid}; the owner ack is still needed"
+              if name == owner_name else "peer")
+    return {"result": "peer", "entry": f"{name}@{s}", "reason": reason}
+
+
+def _take_over(rid: str, pr: int, old_sid: str, new_sid: str) -> bool:
+    """Store `new_sid` as the owner sid of PR `pr` when it is still `old_sid` (or already `new_sid`).
+    Returns False, and writes nothing, when the item left the queue or got another owner meanwhile."""
+    done = False
+
+    def change(state: dict) -> bool:
+        nonlocal done
+        item = _find(state["queue"], pr)
+        if item is None or item.get("owner_sid") not in (old_sid, new_sid):
+            return False
+        done = True
+        if item["owner_sid"] == new_sid:
+            return False
+        item["owner_sid"] = new_sid
+        return True
+    _mutate_state(rid, change)
+    return done
 
 
 def queue_order(state: dict) -> list[dict]:
@@ -987,6 +1152,7 @@ def ask_remove(rid: str, ask_id: str) -> bool:
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_LOCK_REFUSED = 0, 1, 2, 3
 EXIT_UNKNOWN = 4  # `stake` could not tell: the caller warns every live peer (fail closed)
+EXIT_NOT_ACK = 5  # `ack check` did not accept the ack (`rejected` or `resend`)
 
 
 def _gh_head_of(rid: str) -> Callable[[int], str | None]:
@@ -1764,18 +1930,25 @@ def _repo_roots(repo: Path) -> list[str]:
     return [str(repo.resolve())] + roots
 
 
+def _load_agents(agents_json: str | None) -> list[dict]:
+    """The agents list from the `--agents-json` file (tests), else `claude agents --json`.
+    Raise OSError or ValueError when it cannot be read or is not a JSON list of objects."""
+    if agents_json:
+        try:
+            agents = json.loads(Path(agents_json).read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise ValueError("the agents file is not JSON") from exc
+    else:
+        agents = _claude_agents()
+    if not isinstance(agents, list) or not all(isinstance(a, dict) for a in agents):
+        raise ValueError("the agents list is not a JSON list of objects")
+    return agents
+
+
 def _stake(args: argparse.Namespace) -> int:
     """Print `STAKE`/`NO-STAKE` per peer and a summary; `STAKE-UNKNOWN: <reason>` and exit 4 when it cannot tell."""
     try:
-        if args.agents_json:
-            try:
-                agents = json.loads(Path(args.agents_json).read_text(encoding="utf-8"))
-            except ValueError as exc:
-                raise ValueError("the agents file is not JSON") from exc
-        else:
-            agents = _claude_agents()
-        if not isinstance(agents, list) or not all(isinstance(a, dict) for a in agents):
-            raise ValueError("the agents list is not a JSON list of objects")
+        agents = _load_agents(args.agents_json)
         report = stake_report(agents, _repo_roots(Path(args.repo)))
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         reason = " ".join(str(exc).split()) or type(exc).__name__
@@ -1864,6 +2037,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--pr", type=int, required=True)
     p.add_argument("--head-sha", required=True)
     p.add_argument("--title", help="the PR title (default: read from gh; `PR #<n>` when gh fails)")
+    p.add_argument("--owner-name", help="the name of the session that owns the PR (with --owner-sid)")
+    p.add_argument("--owner-sid", help="that session's id or its first 8 characters (with --owner-name)")
+    p.add_argument("--agents-json", help="read the agents list from this file, not `claude agents --json` (tests);"
+                   " read only for a takeover after /clear")
     p = command("set", queue)
     p.add_argument("--pr", type=int, required=True)
     p.add_argument("--state", choices=QUEUE_STATES)
@@ -1890,6 +2067,14 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--merge-sha", required=True, help="the full merge commit SHA")
     p.add_argument("--config-path", required=True, help="the repo root, or its .caddis/coordinator.md")
     p.add_argument("--docs-only", action="store_true", help="a docs-only merge: D1, D2 and D5 only")
+
+    ack = sub.add_parser("ack").add_subparsers(dest="ack_command", required=True, parser_class=_Parser)
+    p = command("check", ack)
+    p.add_argument("--pr", type=int, required=True)
+    p.add_argument("--head-sha", required=True, help="the head SHA named in the ack line")
+    p.add_argument("--name", required=True, help="the name of the session that sent the ack")
+    p.add_argument("--sid", help="the sid8 (or full id) in the ack line; none means an old-format ack (resend)")
+    p.add_argument("--agents-json", help="read the agents list from this file, not `claude agents --json` (tests)")
 
     ask = sub.add_parser("ask").add_subparsers(dest="ask_command", required=True, parser_class=_Parser)
     p = command("add", ask)
@@ -2003,6 +2188,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         marks = " ".join(f"{name}={mark}" for name, mark in out["checks"].items())
         _emit(args, out, f"{out['health']}: {marks} ({out['reason']})")
         return EXIT_OK if out["health"] == "ok" else EXIT_ERROR
+    if args.command == "ack":
+        got = ack_check(rid, args.pr, args.head_sha, args.name, args.sid, lambda: _load_agents(args.agents_json))
+        _emit(args, got, f"{got['result']}: {got['entry'] or got['reason']}")
+        return EXIT_OK if got["result"] in ("owner", "peer") else EXIT_NOT_ACK
     if args.command == "ask":
         if args.ask_command == "add":
             got = ask_add(rid, what=args.what, recommendation=args.recommendation, reason=args.reason,
@@ -2019,7 +2208,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         ledger_record(rid, what=args.what, decision=args.decision, by=args.by, reason=args.reason,
                       window=args.window, request_id=args.request_id)
     elif args.queue_command == "add":
-        queue_add(rid, args.pr, args.head_sha, args.title if args.title is not None else _gh_title(rid, args.pr))
+        queue_add(rid, args.pr, args.head_sha, args.title if args.title is not None else _gh_title(rid, args.pr),
+                  owner_name=args.owner_name, owner_sid=args.owner_sid,
+                  agents=lambda: _load_agents(args.agents_json))  # called only for a /rename or a takeover
     elif args.queue_command == "set":
         queue_set(rid, args.pr, state=args.state, head_sha=args.head_sha, why_waiting=args.why_waiting,
                   waits_on=args.waits_on)
@@ -2037,7 +2228,7 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Run one subcommand. Exit 0 on success, 1 on an error (one line on stderr), 2 on a usage error, 3 when the
-    lock is refused, 4 when `stake` cannot tell (`STAKE-UNKNOWN`)."""
+    lock is refused, 4 when `stake` cannot tell (`STAKE-UNKNOWN`), 5 when `ack check` does not accept the ack."""
     try:
         parser = _parser()
         args = parser.parse_args(argv)

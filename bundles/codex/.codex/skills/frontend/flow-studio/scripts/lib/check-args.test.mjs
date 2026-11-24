@@ -10,6 +10,6 @@ test('pageUrl accepts served pages and local files', () => {
 });
 
 test('skip parser accepts only known groups', () => {
-  assert.deepEqual([...skippedGroups('notes,playback,update,hostile')], ['notes', 'playback', 'update', 'hostile']);
+  assert.deepEqual([...skippedGroups('notes,playback,update,hostile,hover')], ['notes', 'playback', 'update', 'hostile', 'hover']);
   assert.throws(() => skippedGroups('safety'), /unknown skip group/);
 });

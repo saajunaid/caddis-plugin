@@ -220,6 +220,10 @@
       "members": [
         "STOREDB",
         "WAREHOUSE"
+      ],
+      "hover": [
+        "2 databases: STOREDB, WAREHOUSE",
+        "Probed every 5 min"
       ]
     },
     {

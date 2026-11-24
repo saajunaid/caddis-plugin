@@ -173,6 +173,12 @@
   @keyframes newring { 0% { box-shadow:0 0 0 0 var(--accent); } 100% { box-shadow:0 0 0 14px transparent; } }
   @keyframes flow { to { stroke-dashoffset:-28; } } @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } } @keyframes ring { to { box-shadow:0 0 0 14px transparent; } }
   @keyframes beat { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);} 70%,100%{box-shadow:0 0 0 9px transparent;} }
+  .fs-hovercard { position:absolute; z-index:35; max-width:320px; padding:7px 10px; background:var(--panel); border:1px solid var(--edge); border-radius:8px; box-shadow:var(--shadow); color:var(--fg); font-size:12px; line-height:1.4; white-space:normal; overflow-wrap:break-word; cursor:default; user-select:text; opacity:1; transition:opacity .12s ease-out; }
+  .fs-hovercard[hidden] { display:none; }
+  .fs-hovercard-title { display:block; font-weight:600; color:var(--fg); margin-bottom:2px; }
+  .fs-hovercard-line { color:var(--muted); }
+  @starting-style { .fs-hovercard { opacity:0; } }
+  @media print { .fs-hovercard { display:none !important; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } path.edge.hot { stroke-dasharray:none; } }
   @media (max-width: 1100px) { .summary { grid-template-columns:1fr; } .workspace { height:auto; } .workspace .canvaswrap { height:75vh; } .insp { width:min(340px, 92%); } #drawer { width:100%; } .layerstrip { grid-template-columns:repeat(3,1fr) !important; } }
   #banner:not([hidden]) { margin:0 14px 10px; padding:8px 12px; color:var(--crit); background:var(--crit-bg); border:1px solid var(--crit); font-size:12px; }
@@ -333,6 +339,8 @@
       if (metric !== void 0 && (!metric || !Number.isFinite(metric.value) || metric.max != null && !Number.isFinite(metric.max) || invalidSeries)) add("error", "metric-invalid", w, "Metrics need finite values and at most 60 finite series points.");
       const badBars = n.bars !== void 0 && (!Array.isArray(n.bars) || n.bars.length > 120 || n.bars.some((b) => !b || typeof b.key !== "string" || b.value !== null && (typeof b.value !== "number" || !Number.isFinite(b.value) || b.value < 0)));
       if (badBars) add("error", "bars-invalid", w, "Bars need a list of at most 120 items, each with a string key and a finite, non-negative value or null.");
+      const badHover = n.hover !== void 0 && (!Array.isArray(n.hover) || n.hover.length > 12 || [...n.hover].some((s) => typeof s !== "string" || s.length > 240));
+      if (badHover) add("error", "hover-invalid", w, "Hover needs a list of at most 12 strings, each at most 240 characters.");
       if (n.sla !== void 0 && (!Number.isFinite(n.sla) || n.sla <= 0)) add("error", "sla-invalid", w, "SLA must be a positive finite number of seconds.");
     }
     for (const n of nodes) {
@@ -1442,6 +1450,7 @@
       });
     }
     function setView(v, animate = false) {
+      ctx.fn.hideHover();
       const c = clampPan(v, ctx.geom.bounds, size());
       ctx.view = [c.x, c.y, c.k].every(Number.isFinite) ? c : { x: 0, y: 0, k: 1 };
       const glide = animate && !ctx.reduced;
@@ -1695,7 +1704,10 @@
         e.preventDefault();
         ctx.userMoved = true;
         setView({ k: ctx.view.k, x: ctx.view.x + (k === "ArrowLeft" ? step : k === "ArrowRight" ? -step : 0), y: ctx.view.y + (k === "ArrowUp" ? step : k === "ArrowDown" ? -step : 0) }, false);
-      } else if (k === "Escape") ctx.fn.escape();
+      } else if (k === "Escape") {
+        if (ctx.fn.hideHover()) return;
+        ctx.fn.escape();
+      }
     });
     on(ctx, document, "keyup", (e) => {
       if (e.key === " ") {
@@ -2488,6 +2500,188 @@
     };
   }
 
+  // src/hover.ts
+  var GAP = 8;
+  var SHOW_MS = 150;
+  var HIDE_MS = 120;
+  var nextHoverId = 0;
+  function placeHover(node, vp, card) {
+    const nx = node.x - vp.x;
+    const ny = node.y - vp.y;
+    const left = Math.max(GAP, Math.min(nx, vp.w - GAP - card.w));
+    const belowTop = ny + node.h + GAP;
+    if (belowTop + card.h > vp.h - GAP) {
+      return { left, top: Math.max(GAP, ny - GAP - card.h), side: "above" };
+    }
+    return { left, top: Math.max(GAP, belowTop), side: "below" };
+  }
+  function install8(ctx) {
+    const card = el("div", "fs-hovercard");
+    const cardId = `fs-hover-${++nextHoverId}`;
+    card.id = cardId;
+    card.setAttribute("role", "tooltip");
+    card.hidden = true;
+    ctx.els.vp.appendChild(card);
+    let showTimer = 0;
+    let hideTimer = 0;
+    let pendingNode = null;
+    let activeNode = null;
+    let pointerPress = false;
+    function clearShow() {
+      if (showTimer) {
+        window.clearTimeout(showTimer);
+        showTimer = 0;
+      }
+      pendingNode = null;
+    }
+    function clearHide() {
+      if (hideTimer) {
+        window.clearTimeout(hideTimer);
+        hideTimer = 0;
+      }
+    }
+    function hideCard() {
+      clearHide();
+      if (activeNode) {
+        if (activeNode.getAttribute("aria-describedby") === cardId) activeNode.removeAttribute("aria-describedby");
+        activeNode = null;
+      }
+      if (card.hidden) return false;
+      card.hidden = true;
+      return true;
+    }
+    function hideAll() {
+      clearShow();
+      return hideCard();
+    }
+    function hoverable(nodeEl) {
+      if (!nodeEl || !nodeEl.isConnected || nodeEl.classList.contains("off")) return null;
+      const id = nodeEl.id.startsWith("n_") ? nodeEl.id.slice(2) : "";
+      const def = ctx.nodes.get(id);
+      if (!def || !Array.isArray(def.hover) || def.hover.length === 0) return null;
+      return { nodeEl, def, lines: def.hover };
+    }
+    function show(nodeEl) {
+      clearShow();
+      clearHide();
+      const target = hoverable(nodeEl);
+      if (!target) {
+        hideCard();
+        return;
+      }
+      if (activeNode && activeNode !== target.nodeEl && activeNode.getAttribute("aria-describedby") === cardId) {
+        activeNode.removeAttribute("aria-describedby");
+      }
+      card.replaceChildren();
+      const title = el("b", "fs-hovercard-title");
+      title.textContent = target.def.title;
+      card.appendChild(title);
+      for (const line of target.lines) {
+        const row = el("div", "fs-hovercard-line");
+        row.textContent = line;
+        card.appendChild(row);
+      }
+      card.style.left = "0px";
+      card.style.top = "0px";
+      card.hidden = false;
+      const nr = target.nodeEl.getBoundingClientRect();
+      const vr = ctx.els.vp.getBoundingClientRect();
+      const pos = placeHover(
+        { x: nr.left, y: nr.top, w: nr.width, h: nr.height },
+        { x: vr.left, y: vr.top, w: vr.width, h: vr.height },
+        { w: card.offsetWidth, h: card.offsetHeight }
+      );
+      card.style.left = pos.left + "px";
+      card.style.top = pos.top + "px";
+      card.dataset.side = pos.side;
+      activeNode = target.nodeEl;
+      activeNode.setAttribute("aria-describedby", cardId);
+    }
+    on(ctx, ctx.els.world, "mouseenter", (e) => {
+      if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+      const nodeEl = e.target;
+      if (activeNode === nodeEl && !card.hidden) {
+        clearHide();
+        return;
+      }
+      if (!hoverable(nodeEl)) {
+        clearShow();
+        return;
+      }
+      clearShow();
+      pendingNode = nodeEl;
+      showTimer = window.setTimeout(() => {
+        showTimer = 0;
+        pendingNode = null;
+        show(nodeEl);
+      }, SHOW_MS);
+    }, { capture: true });
+    on(ctx, ctx.els.world, "mouseleave", (e) => {
+      if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+      const nodeEl = e.target;
+      if (pendingNode === nodeEl) clearShow();
+      if (activeNode === nodeEl && !card.hidden) {
+        clearHide();
+        hideTimer = window.setTimeout(() => {
+          hideTimer = 0;
+          hideCard();
+        }, HIDE_MS);
+      }
+    }, { capture: true });
+    on(ctx, card, "mouseenter", () => clearHide());
+    on(ctx, card, "mouseleave", (e) => {
+      if (e.relatedTarget instanceof Node && activeNode?.contains(e.relatedTarget)) return;
+      hideCard();
+    });
+    on(ctx, ctx.els.world, "focus", (e) => {
+      if (pointerPress) return;
+      if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+      if (!hoverable(e.target)) {
+        hideAll();
+        return;
+      }
+      show(e.target);
+    }, { capture: true });
+    on(ctx, ctx.els.world, "blur", (e) => {
+      if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("node")) return;
+      if (activeNode === e.target || pendingNode === e.target) hideAll();
+    }, { capture: true });
+    on(ctx, ctx.els.world, "click", (e) => {
+      if (e.target?.closest?.(".node")) hideAll();
+    }, { capture: true });
+    on(ctx, ctx.els.vp, "pointerdown", () => {
+      pointerPress = true;
+      window.setTimeout(() => {
+        pointerPress = false;
+      }, 0);
+      hideAll();
+    }, { capture: true });
+    on(ctx, window, "pointerup", () => {
+      pointerPress = false;
+    });
+    on(ctx, window, "pointercancel", () => {
+      pointerPress = false;
+    });
+    on(ctx, ctx.els.vp, "wheel", () => {
+      hideAll();
+    }, { capture: true, passive: true });
+    const prevSelect = ctx.fn.select;
+    ctx.fn.select = (id) => {
+      hideAll();
+      prevSelect(id);
+    };
+    const prevPaint = ctx.fn.paint;
+    ctx.fn.paint = (fromSwitch) => {
+      hideAll();
+      prevPaint(fromSwitch);
+    };
+    ctx.fn.hideHover = hideAll;
+    ctx.disposers.push(() => {
+      hideAll();
+      card.remove();
+    });
+  }
+
   // src/engine.ts
   var IDS = {
     vp: "viewport",
@@ -2601,6 +2795,7 @@
     install(ctx);
     install2(ctx);
     installBars(ctx);
+    install8(ctx);
     install3(ctx);
     install4(ctx);
     install5(ctx);

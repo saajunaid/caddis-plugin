@@ -43,6 +43,7 @@ export function install(ctx: Ctx): void {
   }
 
   function setView(v: View, animate = false): void {
+    ctx.fn.hideHover(); // the card is placed for the old view; any pan or zoom would leave it pointing at nothing
     const c = clampPan(v, ctx.geom.bounds, size());
     ctx.view = [c.x, c.y, c.k].every(Number.isFinite) ? c : { x: 0, y: 0, k: 1 };
     const glide = animate && !ctx.reduced;
@@ -226,7 +227,7 @@ export function install(ctx: Ctx): void {
       e.preventDefault();
       ctx.userMoved = true;
       setView({ k: ctx.view.k, x: ctx.view.x + (k === "ArrowLeft" ? step : k === "ArrowRight" ? -step : 0), y: ctx.view.y + (k === "ArrowUp" ? step : k === "ArrowDown" ? -step : 0) }, false);
-    } else if (k === "Escape") ctx.fn.escape();
+    } else if (k === "Escape") { if (ctx.fn.hideHover()) return; ctx.fn.escape(); }
   });
   on(ctx, document, "keyup", (e: KeyboardEvent) => { if (e.key === " ") { ctx.spaceDown = false; if (ctx.tool !== "hand") vp.classList.remove("hand"); } });
 

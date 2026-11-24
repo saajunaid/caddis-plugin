@@ -27,7 +27,7 @@ What the keys mean:
 | `reviews.count` | How many reviews a PR needs before it is ready. |
 | `reviews.stop_on` | Which review findings stop a merge. `blocking`: only blocking findings. |
 | `peer_ack.warning_min` | Minutes between the merge warning and the merge. |
-| `peer_ack.ack_file` | Where each peer writes its ack: `{head, acked[], at}`. An ack older than 30 minutes does not count. Only a peer with a stake in the repo must ack: its folder is in the repo or a worktree of it, or the coordinator lists one of its PRs, branches or plan phases, or it sent `ready` or `phase`. A peer with no stake is not warned and is not in `acked[]`. |
+| `peer_ack.ack_file` | Where each peer writes its ack: `{head, acked[], at}`; each acked[] entry is `<name>@<sid8>`. An ack older than 30 minutes does not count. Only a peer with a stake in the repo must ack: its folder is in the repo or a worktree of it, or the coordinator lists one of its PRs, branches or plan phases, or it sent `ready` or `phase`. A peer with no stake is not warned and is not in `acked[]`. |
 | `deploy.event` | The event that starts the deploy run (for example `push`). |
 | `deploy.jobs` | The number of jobs in the deploy run. |
 | `deploy.skippable_jobs` | Optional. Jobs that may end `skipped` and still count toward `deploy.jobs`, by name after the last `/` (`ci / deploy_uat` is `deploy_uat`). Default `["deploy_uat"]`: app-ci skips it on every run that does not deploy to UAT. Any other skipped job fails D2. |
