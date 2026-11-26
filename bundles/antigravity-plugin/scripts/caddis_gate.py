@@ -2031,6 +2031,410 @@ def gate_docs_check(root: Path) -> int:
     return EXIT_BLOCKED if failures else EXIT_OK
 
 
+# ── AI Software Factory governance gates (opt-in) ───────────────────────────
+#
+# gate1: the plan's Jira Epic exists and its Q&A gate is clean. gate2: every plan phase has its Jira Story, and the
+# LLD in Git is published, unchanged, on its Confluence page. Both are opt-in: a plan without `jira_epic:` (absent,
+# blank or `none`) prints `SKIPPED: no jira_epic` and exits 0, with no config and no request.
+#
+# These two gates do NOT degrade open like the gates above: a merge gate that passes when it cannot read Jira would
+# pass every PR. Their exit codes follow caddis_jira.py and caddis_confluence.py:
+#   0 pass or skipped, 1 a positive failure (the reason is on the GATE line), 3 not run (Jira or Confluence not
+#   configured, or a network failure: pass --offline for the local checks only), 4 bad input (the plan, a ledger).
+# Every request is a GET. No code in this section arms a Jira write or calls a Confluence write.
+
+GATE_NOT_RUN, GATE_BAD_INPUT = 3, 4
+LLD_SLUG = "lld"
+_LLD_DRAFT = (
+    re.compile(r"^\s*(?:[-*+]\s+)?\**status\**\s*:[\s*]*draft\b", re.I | re.M),   # Status: Draft (...)
+    re.compile(r"^\s*\|[\s*]*status\**\s*\|[\s*]*draft\b", re.I | re.M),          # | Status | Draft |
+    re.compile(r"[\u2022\u00b7][\s*]*status\**\s*:[\s*]*draft\b", re.I),               # ...  •  **Status:** Draft
+)
+_PAGE_ID_KEYS = ("lld_page_id", "confluence_page_id")
+
+
+def _factory_jira():
+    _scripts_on_path()
+    import caddis_jira
+    return caddis_jira
+
+
+def _factory_confluence():
+    _scripts_on_path()
+    import caddis_confluence
+    return caddis_confluence
+
+
+def _meta_value(meta: dict, *keys: str) -> str:
+    for key in keys:
+        value = str(meta.get(key) or "").strip().strip('"').strip("'")
+        if value and value.lower() not in ("none", "null", "~", "-"):
+            return value
+    return ""
+
+
+def _shown(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+class _GatePlan(NamedTuple):
+    text: str
+    meta: dict
+    epic: str
+
+
+def _gate_plan(name: str, plan: Path, jira) -> "_GatePlan | int":
+    """The plan and its Epic, or the exit code: 0 skipped (no jira_epic), 1 invalid key, 4 unreadable plan."""
+    try:
+        text = Path(plan).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"{name}: ERROR (cannot read the plan {Path(plan).name}: {type(exc).__name__})")
+        return GATE_BAD_INPUT
+    meta, _ = caddis_frontmatter.split_document(text)
+    try:
+        epic = jira.resolve_plan_epic(meta)
+    except ValueError:
+        raw = str(meta.get("jira_epic") or "").strip().strip('"').strip("'")
+        print(f"{name}: FAIL (invalid jira_epic '{raw}')")
+        return EXIT_BLOCKED
+    if epic is None:
+        print("SKIPPED: no jira_epic")
+        return EXIT_OK
+    return _GatePlan(text, meta, epic)
+
+
+def _unavailable(err) -> bool:
+    """A network failure, a rate limit or a server error: the service could not answer, so the gate did not run."""
+    return err.status is None or err.status == 429 or err.status >= 500
+
+
+def _repo_root_for(plan: Path) -> Path:
+    """The repo that holds the plan: the nearest parent with a `.caddis` folder and a `.git` entry (a folder, or a
+    file in a worktree), else the working folder. The home folder never counts: `~/.caddis` is the machine's caddis
+    folder, not a repo."""
+    home = Path.home().resolve()
+    for parent in Path(plan).resolve().parents:
+        if parent != home and (parent / ".caddis").is_dir() and (parent / ".git").exists():
+            return parent
+    return Path(".")
+
+
+def _not_configured(name: str, what: str, exc: Exception) -> int:
+    print(f"NOT CONFIGURED: {exc}")
+    print(f"{name}: NOT RUN ({what} is not configured; pass --offline for the local checks only)")
+    return GATE_NOT_RUN
+
+
+def _gate_fail(name: str, reasons: list[str]) -> int:
+    print(f"{name}: FAIL ({'; '.join(reasons)})")
+    return EXIT_BLOCKED
+
+
+def gate1(plan: Path, repo_root: Path, offline: bool = False, env=None, jira_factory=None) -> int:
+    """Epic exists (online: one GET of the issue) and the Q&A gate is clean (the local ledger).
+
+    The ledger sits under the Epic key Jira returns (a moved issue answers with its new key) or the key the plan
+    declares. No ledger yet means no question was asked: a pass, as `caddis_jira.py qa-status --gate` does. A blocking
+    OPEN question (`blocking` defaults to true) or a reply flagged `needs_confirmation` fails the gate."""
+    name = "GATE1"
+    jira = _factory_jira()
+    got = _gate_plan(name, plan, jira)
+    if isinstance(got, int):
+        return got
+    epic, root = got.epic, Path(repo_root)
+    resolved = epic
+    if offline:
+        print("OFFLINE: Jira was not read: the Epic is not checked and a moved key is not followed")
+    else:
+        env = os.environ if env is None else env
+        try:
+            adapter = (jira_factory or jira.make_adapter)(jira.load_config(env))
+        except jira.ConfigError as exc:
+            return _not_configured(name, "Jira", exc)
+        try:
+            issue = adapter.get_issue(epic)
+        except jira.JiraError as err:
+            if _unavailable(err):
+                print(f"{name}: NOT RUN ({err})")
+                return GATE_NOT_RUN
+            if err.status == 404:
+                return _gate_fail(name, [f"Epic {epic} not found or not visible to this token"])
+            return _gate_fail(name, [f"Jira refused the read of {epic}: {err}"])
+        resolved = str(issue.get("key") or epic)
+        kind = str(issue.get("type") or "?")
+        moved = f" (moved to {resolved})" if resolved != epic else ""
+        print(f"EPIC: {epic}{moved} ({kind}, {issue.get('status') or '?'})")
+        if kind.lower() != "epic":
+            return _gate_fail(name, [f"{epic} is a {kind}, not an Epic"])
+    keys = list(dict.fromkeys([resolved, epic]))
+    path = next((p for p in (jira.ledger_path(root, k) for k in keys) if p.is_file()), None)
+    if path is None:
+        looked = ", ".join(_shown(jira.ledger_path(root, k), root) for k in keys)
+        print(f"QA: no Q&A ledger yet ({looked}): no question was asked")
+        summary = "no Q&A ledger yet"
+    else:
+        try:
+            ledger = jira.load_ledger(path, path.stem)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            print(f"{name}: ERROR ({_shown(path, root)}: {exc})")
+            return GATE_BAD_INPUT
+        counts = jira.qa_counts(ledger)
+        blocking = jira.blocking_open(ledger)
+        pending = len(ledger.get("needs_confirmation") or [])
+        print(f"QA: {_shown(path, root)}: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+        reasons = []
+        if blocking:
+            reasons.append(f"{len(blocking)} blocking question(s) OPEN: {', '.join(blocking)}; answer them on the "
+                           "Epic, then run caddis_jira.py qa-pull")
+        if pending:
+            reasons.append(f"{pending} reply(ies) needs confirmation: a person must tag each with its Q<n>")
+        if reasons:
+            return _gate_fail(name, reasons)
+        summary = "Q&A: 0 blocking open, 0 needs confirmation"
+    label = epic if resolved == epic else f"{epic} -> {resolved}"
+    print(f"{name}: PASS ({label}, {'offline' if offline else 'Epic found'}, {summary})")
+    return EXIT_OK
+
+
+def _find_lld(root: Path, meta: dict, override: str | None) -> tuple[Path | None, str | None]:
+    """(LLD path, None) or (None, the reason). --lld, then lld: / lld_doc: in the plan, then
+    docs/<app>/<app>-lld.md for app:, then the one docs/**/*-lld.md file under the repo root."""
+    if override:  # a person's explicit --lld may point anywhere
+        path = Path(override)
+        path = path if path.is_absolute() else root / path
+        return (path, None) if path.is_file() else (None, f"no LLD file at {_shown(path, root)}")
+    pointed = _meta_value(meta, "lld", "lld_doc")
+    app = _meta_value(meta, "app")
+    if not pointed and app:
+        pointed = f"docs/{app}/{app}-lld.md"
+    if pointed:  # from the plan: the LLD must be a file in the repo, never outside it
+        path = (root / pointed).resolve()
+        if Path(pointed).is_absolute() or not path.is_relative_to(root.resolve()):
+            return None, f"the plan's LLD path {pointed!r} is outside the repo root"
+        return (path, None) if path.is_file() else (None, f"no LLD file at {_shown(path, root)}")
+    docs = root / "docs"
+    found = sorted(p for p in docs.glob("**/*-lld.md") if p.is_file()) if docs.is_dir() else []
+    if len(found) == 1:
+        return found[0], None
+    if found:
+        names = ", ".join(_shown(p, root) for p in found)
+        return None, f"more than one LLD file ({names}): set lld: in the plan frontmatter"
+    return None, "no LLD file (looked for docs/<app>/<app>-lld.md; set lld: in the plan frontmatter)"
+
+
+_LLD_FENCED_BLOCK = re.compile(r"^\s*(`{3,}|~{3,}).*?^\s*\1\s*$", re.M | re.S)
+_LLD_H2 = re.compile(r"^##\s+(.+?)\s*$", re.M)
+
+
+def _lld_is_draft(lld_meta: dict, body: str) -> bool:
+    """The document's own status is Draft: `status:` in its frontmatter, or a Status line or table row in the
+    document head (before the first `## ` section that is not "Document information"). Code blocks and the body
+    sections never count: a table there may describe a record whose status is Draft."""
+    if _meta_value(lld_meta, "status").lower().startswith("draft"):
+        return True
+    text = _LLD_FENCED_BLOCK.sub("", body)
+    for m in _LLD_H2.finditer(text):
+        if "document information" not in m.group(1).lower():
+            text = text[:m.start()]
+            break
+    return any(rx.search(text) for rx in _LLD_DRAFT)
+
+
+def _lld_page_id(meta: dict, lld_meta: dict, override: str | None, conf) -> tuple[str | None, str]:
+    """(page id, where it came from) or (None, the reason)."""
+    for value, source in ((str(override or "").strip(), "--page-id"),
+                          (_meta_value(meta, *_PAGE_ID_KEYS), "plan frontmatter"),
+                          (_meta_value(lld_meta, *_PAGE_ID_KEYS), "LLD frontmatter")):
+        if value:
+            if not conf.PAGE_ID.fullmatch(value):
+                return None, f"the Confluence page id {value!r} ({source}) is not digits only"
+            return value, source
+    return None, "no Confluence page id (pass --page-id, or set lld_page_id: in the plan or the LLD frontmatter)"
+
+
+def _story_reason(rows: list[dict]) -> str | None:
+    bad = []
+    for r in rows:
+        if r["action"] == "CREATE":
+            bad.append(f"P{r['phase']} needs CREATE")
+        elif r["action"] == "UPDATE":
+            bad.append(f"P{r['phase']} needs UPDATE {r['key']} ({', '.join(r['changes'])})")
+        elif r["action"] == "BLOCKED":
+            bad.append(f"P{r['phase']} BLOCKED by the leak lint")
+        elif r["action"] == "CONFLICT":
+            bad.append(f"P{r['phase']} CONFLICT ({r['key']})")
+        elif r["action"] != "UNCHANGED":  # fail closed on an action this gate does not know
+            bad.append(f"P{r['phase']} {r['action']}")
+    if not bad:
+        return None
+    done = sum(r["action"] == "UNCHANGED" for r in rows)
+    return f"stories={done}/{len(rows)}: {', '.join(bad)}; run caddis_jira.py sync-stories --plan <plan>"
+
+
+def _gate2_stories(name: str, plan: Path, got: _GatePlan, offline: bool, env, jira_factory, jira,
+                   reasons: list[str]) -> "str | int":
+    """The `stories=<n>/<total>` count ('' when the phases cannot be read), or an exit code (3 or 4) to stop."""
+    try:
+        phases = jira.parse_plan_phases(got.text)
+    except ValueError as exc:
+        reasons.append(f"plan phases: {exc}")
+        return ""
+    if not phases:
+        reasons.append("the plan has no '### Phase <id> - <title>' sections")
+        return ""
+    if offline:
+        missing = [f"P{p.pid}" for p in phases if not p.jira_story]
+        for p in phases:
+            print(f"STORY: P{p.pid} {p.jira_story or '-'}")
+        count = f"{len(phases) - len(missing)}/{len(phases)}"
+        if missing:
+            reasons.append(f"stories={count}: no **Jira Story:** key in {', '.join(missing)}; run "
+                           "caddis_jira.py sync-stories --plan <plan>")
+        return count
+    try:
+        adapter = (jira_factory or jira.make_adapter)(jira.load_config(env))
+    except jira.ConfigError as exc:
+        return _not_configured(name, "Jira", exc)
+    try:
+        issue_type, _ = jira.resolve_issue_type(None, got.meta, env)
+    except ValueError as exc:
+        print(f"{name}: ERROR ({exc})")
+        return GATE_BAD_INPUT
+    try:
+        sync = jira.plan_sync(adapter, jira.plan_slug(plan), phases, got.epic, issue_type)
+    except jira.SyncError as err:
+        if err.code == GATE_NOT_RUN:
+            print(f"{name}: NOT RUN ({err.message})")
+            return GATE_NOT_RUN
+        if err.code == GATE_BAD_INPUT:
+            print(f"{name}: ERROR ({err.message.removeprefix('ERROR: ')})")
+            return GATE_BAD_INPUT
+        reasons.append(err.message.removeprefix("ERROR: "))
+        return ""
+    except jira.JiraError as err:
+        if _unavailable(err):
+            print(f"{name}: NOT RUN ({err})")
+            return GATE_NOT_RUN
+        reasons.append(f"Jira: {err}")
+        return ""
+    moved = f" (moved to {sync.resolved})" if sync.resolved != got.epic else ""
+    print(f"EPIC: {got.epic}{moved}, project {sync.project}, {len(sync.children)} children via {sync.jql}")
+    for r in sync.rows:
+        print(f"STORY: P{r['phase']} {r['action']} {r['key'] or '-'}")
+    if reason := _story_reason(sync.rows):
+        reasons.append(reason)
+    if sync.fetched_by_key:  # a stamped key that is not a child of the Epic (unlinked, or under another Epic)
+        reasons.append(f"not a child of {sync.resolved}: {', '.join(sync.fetched_by_key)}; link each Story to the "
+                       "Epic in Jira")
+    return f"{sum(r['action'] == 'UNCHANGED' for r in sync.rows)}/{len(sync.rows)}"
+
+
+def _gate2_lld(name: str, root: Path, meta: dict, offline: bool, env, confluence_factory, conf,
+               lld: str | None, page_id: str | None, reasons: list[str]) -> "str | int":
+    """The LLD path as shown ('-' when not found), or an exit code (3 or 4) to stop."""
+    lld_path, why = _find_lld(root, meta, lld)
+    if why:
+        reasons.append(why)
+        return "-"
+    shown = _shown(lld_path, root)
+    try:
+        text = lld_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"{name}: ERROR (cannot read {shown}: {type(exc).__name__})")
+        return GATE_BAD_INPUT
+    lld_meta, body = caddis_frontmatter.split_document(text)
+    print(f"LLD: {shown}")
+    page, source = _lld_page_id(meta, lld_meta, page_id, conf)
+    if not body.strip():
+        reasons.append(f"{shown} is empty")
+    elif _lld_is_draft(lld_meta, body):
+        reasons.append(f"{shown} is Status: Draft; confirm the classification and publish it with /lld")
+    if page is None:
+        reasons.append(source)
+        return shown
+    print(f"PAGE: {page} ({source})")
+    if offline or not body.strip():
+        return shown
+    try:
+        client = (confluence_factory or conf.make_client)(conf.load_config(env))
+    except conf.ConfigError as exc:
+        return _not_configured(name, "Confluence", exc)
+    raw = lld_path.suffix.lower() in (".xhtml", ".html", ".xml")  # as `publish --input` reads it
+    inner = conf.expected_inner(text if raw else conf.md_to_storage(text), LLD_SLUG)
+    try:
+        state = conf.section_state(client, page, LLD_SLUG, inner)
+    except conf.MarkerError as exc:
+        reasons.append(f"the {LLD_SLUG} markers on page {page} are broken: {exc}")
+        return shown
+    except conf.ConfluenceError as err:
+        if _unavailable(err):
+            print(f"{name}: NOT RUN ({err})")
+            return GATE_NOT_RUN
+        reasons.append(f"Confluence: {err}")
+        return shown
+    if state == "current":
+        print(f"LLD: published, unchanged (page {page})")
+    elif state == "missing":
+        reasons.append(f"the {LLD_SLUG} section is not published on page {page}; publish it with /lld")
+    elif state == "edited":
+        reasons.append(f"the {LLD_SLUG} section on page {page} was edited in Confluence; a person must copy the "
+                       "edit into Git, then publish with /lld")
+    else:
+        reasons.append(f"{shown} differs from the published section on page {page}; publish it with /lld")
+    return shown
+
+
+def gate2(plan: Path, repo_root: Path, offline: bool = False, env=None, jira_factory=None,
+          confluence_factory=None, lld: str | None = None, page_id: str | None = None) -> int:
+    """Stories synced and LLD published. Every failed check is named on the one GATE2 line.
+
+    Stories, online: the read half of `caddis_jira.py sync-stories` (GET only) must plan UNCHANGED for every phase.
+    Offline: every phase carries a `**Jira Story:** <KEY>` line. LLD: the file exists, is not empty and is not a
+    Draft; a Confluence page id is recorded; online, the page's `lld` section must be what `caddis_confluence.py
+    publish` would write now (its `ACTION: unchanged`), found by one GET and no renderer."""
+    name = "GATE2"
+    jira = _factory_jira()
+    conf = _factory_confluence()
+    got = _gate_plan(name, plan, jira)
+    if isinstance(got, int):
+        return got
+    env = os.environ if env is None else env
+    reasons: list[str] = []
+    if offline:
+        print("OFFLINE: Jira and Confluence were not read")
+    stories = _gate2_stories(name, plan, got, offline, env, jira_factory, jira, reasons)
+    if isinstance(stories, int):
+        return _stopped(stories, reasons)
+    shown = _gate2_lld(name, Path(repo_root), got.meta, offline, env, confluence_factory, conf, lld, page_id,
+                       reasons)
+    if isinstance(shown, int):
+        return _stopped(shown, reasons)
+    if reasons:
+        return _gate_fail(name, reasons)
+    print(f"{name}: PASS ({got.epic}, stories={stories}, lld={shown})")
+    return EXIT_OK
+
+
+def _stopped(code: int, reasons: list[str]) -> int:
+    """The gate stopped before its end (3 or 4): still name the failures it found before it stopped."""
+    if reasons:
+        print(f"ALSO FOUND: {'; '.join(reasons)}")
+    return code
+
+
+def _run_factory_gate(a, gate) -> int:
+    kwargs = {"lld": a.lld, "page_id": a.page_id} if a.cmd == "gate2" else {}
+    try:
+        root = Path(a.repo_root) if a.repo_root else _repo_root_for(Path(a.plan))
+        return gate(Path(a.plan), root, offline=a.offline, **kwargs)
+    except Exception as exc:  # a merge gate never passes on a crash
+        print(f"{a.cmd.upper()}: ERROR ({type(exc).__name__}: {exc})")
+        return GATE_BAD_INPUT
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="caddis machine gates")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2076,9 +2480,23 @@ def main(argv: list[str] | None = None) -> int:
                     help="block a doc longer than this (relays: 4000); default: no cap")
     dc = sub.add_parser("docs-check")
     dc.add_argument("--root", default=".")
+    for name, help_text in (("gate1", "opt-in: the plan's Jira Epic exists and its Q&A gate is clean"),
+                            ("gate2", "opt-in: every phase has its Jira Story and the LLD is published")):
+        g = sub.add_parser(name, help=help_text)
+        g.add_argument("--plan", required=True)
+        g.add_argument("--repo-root", default=None,
+                       help="the repo that holds .caddis/ and docs/ (default: the nearest parent of the plan with .caddis/)")
+        g.add_argument("--offline", action="store_true", help="local checks only: no Jira or Confluence request")
+        if name == "gate2":
+            g.add_argument("--lld", default=None, help="the LLD Markdown (default: lld: in the plan, then docs/)")
+            g.add_argument("--page-id", default=None, help="the Confluence page id (default: lld_page_id:)")
     a = ap.parse_args(argv)
 
     plan = Path(getattr(a, "plan", "") or ".")
+    if a.cmd == "gate1":
+        return _run_factory_gate(a, gate1)
+    if a.cmd == "gate2":
+        return _run_factory_gate(a, gate2)
     if a.cmd == "docs-check":
         try:
             return gate_docs_check(Path(a.root).resolve())

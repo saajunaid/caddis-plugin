@@ -44,8 +44,8 @@ Resolve the tool path deterministically — check only these two exact locations
 ```bash
 # THE PLUGIN COPY WINS. It is the one `caddis update` refreshes; a vendored copy is a snapshot
 # of whatever caddis shipped the day someone copied it, and it never updates again.
-if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/oss_review.py" ]; then
-  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/oss_review.py"
+if [ -f "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/oss_review.py" ]; then
+  TOOL="${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/oss_review.py"
   # A vendored copy that DIFFERS is a live hazard, not a curiosity — say so, do not stay silent.
   if [ -f ".github/tools/oss_review.py" ]      && ! diff -q ".github/tools/oss_review.py" "$TOOL" >/dev/null 2>&1; then
     echo "[cross-review] WARNING: .github/tools/oss_review.py differs from the caddis copy and is"
@@ -125,7 +125,7 @@ A caddis_spend refusal or a missing agy skips agy and moves to the next provider
 ## Three rules: one attempt, one review
 1. **Think before you send.** Before a task goes to any coder, write its edge cases and check the facts it depends on (one query or one file read).
 2. **Run it before review.** The coder runs only the tests of the files it touched, in the foreground, each command under 10 minutes (split into parts if needed). Name the exact commands in the task. Never start the full suite in the background and never wait on a monitor for it: CI runs the full suite on every PR. Then run the change once on real data.
-3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
+3. **Review by tier.** Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_gate.py" review-tier --range <base>...HEAD` (add `--plan <plan> --phase <N>` inside a plan; no `TIER:` line means tier 2).
    Tier 0: gates only. Tier 1-small: your self-check only. Tier 1: one review by another vendor; stop at
    the first CLEAN. Tier 2: one review by another vendor (two only when the owner asks). Fix blocking findings only;
    park the rest. Re-review only the fix diff, and only when the fix changed logic. After 3 rounds, ask the owner.
@@ -133,7 +133,7 @@ A caddis_spend refusal or a missing agy skips agy and moves to the next provider
 **Area reviewers.** `review-tier` also prints an `AREA:` line. For each name on it, dispatch that subagent once, at the end of the phase, after the tier review.
 - `security-analyst`: review `git diff <base>...HEAD`.
 - `sql-expert` (or the reviewer set in `[db_review] reviewer`): it comes from the `DB:` line and runs in the DB DIFF step; its `blocking` findings are blocking. An ETL reviewer (`data-engineer`) runs only when the repo sets `[db_review] etl_reviewer`.
-  For the DB reviewer, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output into the reviewer's prompt: it holds the SQL Server load checklist.
+  For the DB reviewer, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output into the reviewer's prompt: it holds the SQL Server load checklist.
 - `ui-design-reviewer`: give it the app URL from the phase exit gate, or the run command in `.caddis/PROJECT-FACTS.md`. If no app is running, write `UI review skipped: no running app` in the review file.
 - Security findings of `critical` or `high` severity are blocking. UI findings that break use or WCAG AA are blocking. Fix them under the same 3-round limit. Park all other findings in the parking lot.
 - `AREA: none`: run nothing extra.

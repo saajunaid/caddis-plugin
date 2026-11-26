@@ -30,6 +30,23 @@ except ImportError:
 
 _VALID_STATUSES = list(_tasks.VALID_STATUSES) if _tasks is not None else ["pending", "in_progress", "completed", "blocked"]
 
+# The folder the server started in. Task tools use it as the default repo after main() leaves it.
+_DEFAULT_REPO: str | None = None
+
+
+def _release_start_folder() -> None:
+    """Remember the start folder, then leave it.
+
+    agy starts this server with its cwd in the plugin folder. On Windows a process cwd blocks a
+    rename of that folder, so `caddis update` could not swap the plugin while agy ran.
+    """
+    global _DEFAULT_REPO
+    _DEFAULT_REPO = os.getcwd()
+    try:
+        os.chdir(Path.home())
+    except (OSError, RuntimeError):  # no home folder: stay put
+        pass
+
 
 TOOLS = [
     {
@@ -146,7 +163,7 @@ def _handle_tool(mid: object, name: str, args: dict) -> None:
         _send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "arguments must be an object"}})
         return
     try:
-        repo = _opt_str(args, "repo") or os.getcwd()
+        repo = _opt_str(args, "repo") or _DEFAULT_REPO or os.getcwd()
         ws = _opt_str(args, "workstream") or "default"
         if name == "caddis_task_create":
             task = _tasks.create_task(
@@ -207,6 +224,7 @@ def _handle_tool(mid: object, name: str, args: dict) -> None:
 
 
 def main() -> None:
+    _release_start_folder()
     for stream in (sys.stdin, sys.stdout):
         reconf = getattr(stream, "reconfigure", None)
         if reconf:

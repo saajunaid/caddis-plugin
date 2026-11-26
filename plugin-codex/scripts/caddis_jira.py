@@ -1322,6 +1322,11 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
 
 
+def plan_slug(plan_path) -> str:
+    """The plan's slug: its file name without `.md`, folded. Labels, markers and summaries carry it."""
+    return _slug(Path(plan_path).stem)
+
+
 def story_label(slug: str, pid: str) -> str:
     return f"caddis-{_slug(slug)}-p{_slug(pid)}"
 
@@ -1430,6 +1435,78 @@ def plan_story_rows(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], ch
             row["fields"] = fields
         rows.append(row)
     return rows
+
+
+class SyncError(Exception):
+    """sync-stories cannot plan the sync: `message` is the full line to print, `code` the exit code."""
+
+    def __init__(self, message: str, code: int):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+@dataclass
+class SyncPlan:
+    resolved: str
+    project: str
+    issue_type: str
+    epic_field: str | None
+    points_field: str | None
+    ac_field: str | None
+    jql: str | None
+    children: list[dict]
+    notes: list[str]
+    rows: list[dict]
+    fetched_by_key: list[str] = field(default_factory=list)  # stamped Story keys the Epic child query did not list
+
+
+def plan_sync(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], epic: str, issue_type: str) -> SyncPlan:
+    """The read half of sync-stories (GET only, no write is ever armed here): read the Epic (a moved Epic is read by
+    the key Jira returns), the project's issue types, the field schema and the Epic's children, then plan one row per
+    phase (CREATE, UPDATE, UNCHANGED, BLOCKED or CONFLICT). `caddis_gate.py gate2` calls it as well.
+    Raises SyncError (with the exit code) when the sync cannot be planned, and JiraError on a failed request."""
+    notes: list[str] = []
+    epic_issue = adapter.get_issue(epic)
+    resolved, project = epic_issue["key"] or epic, epic_issue["project"]
+    if not project:
+        raise SyncError(f"ERROR: Jira did not return the project of {epic}", caddis_exit.BLOCKED)
+    types = [t for t in adapter.issue_types(project) if not t["subtask"]]
+    match = [t for t in types if str(t["name"]).lower() == issue_type.lower()]
+    if not match:
+        raise SyncError(f"ERROR: issue type {issue_type!r} is not in project {project} (allowed: "
+                        f"{', '.join(str(t['name']) for t in types)})", caddis_exit.ERROR)
+    issue_type = str(match[0]["name"])
+    fields = discover_fields(adapter.field_list(), getattr(adapter, "field_overrides", None) or {})
+    screen = adapter.create_screen_fields(project, match[0]["id"])
+    epic_field = fields["epic_link"] if adapter.mode == "dc" else "parent"
+    if adapter.mode == "dc" and not epic_field:
+        raise SyncError("NOT CONFIGURED: no Epic Link field found; set JIRA_EPIC_LINK_FIELD", caddis_exit.NOT_RUN)
+    if screen is not None and epic_field not in screen:
+        notes.append(f"WARN: {epic_field} is not on the {issue_type} create screen; Jira may refuse the create")
+    points_field = fields["story_points"] if (screen and fields["story_points"] in screen) else None
+    if fields["story_points"] and not points_field:
+        notes.append(f"STORY POINTS: {fields['story_points']} is not on the create screen of {issue_type}: omitted")
+    ac_field = fields["acceptance_criteria"] if (screen and fields["acceptance_criteria"] in screen) else None
+    wanted = ["summary", "description", "labels", "issuetype", "status"] + ([ac_field] if ac_field else [])
+    jql, found, error = find_children(adapter, resolved, wanted, SYNC_CHILDREN_MAX)
+    if found is None:
+        raise SyncError(f"ERROR: cannot list the children of {resolved}: {error}", caddis_exit.BLOCKED)
+    children = list(found["issues"])
+    if found.get("more"):
+        notes.append(f"WARN: {resolved} has more than {SYNC_CHILDREN_MAX} children; matching may miss some")
+    fetched: list[str] = []
+    for p in phases:
+        if p.jira_story and all(c.get("key") != p.jira_story for c in children):
+            raw = adapter._get(f"/issue/{quote(p.jira_story)}", {"fields": ",".join(wanted)})
+            p.jira_story = str(raw.get("key") or p.jira_story)
+            if all(c.get("key") != p.jira_story for c in children):
+                children.append(raw)
+                fetched.append(p.jira_story)
+    rows = plan_story_rows(adapter, slug, phases, children, project=project, epic=resolved, issue_type=issue_type,
+                           epic_link_field=epic_field, points_field=points_field, ac_field=ac_field)
+    return SyncPlan(resolved, project, issue_type, epic_field, points_field, ac_field, jql, children, notes, rows,
+                    fetched)
 
 
 # ---------------------------------------------------------------- command line
@@ -1767,7 +1844,7 @@ def cmd_sync_stories(args, env, factory) -> int:
     if epic is None:
         print(json.dumps({"skipped": True, "reason": "no jira_epic"}) if args.json else "SKIPPED: no jira_epic")
         return caddis_exit.CLEAN
-    slug = _slug(plan_path.stem)
+    slug = plan_slug(plan_path)
     phases = parse_plan_phases(text)
     if not phases:
         raise ValueError("the plan has no '### Phase <id> - <title>' sections")
@@ -1780,46 +1857,15 @@ def cmd_sync_stories(args, env, factory) -> int:
         print("OFFLINE: Jira was not read and nothing was sent")
         return caddis_exit.CLEAN
     adapter = _adapter(env, factory)
-    notes: list[str] = []
     try:
-        epic_issue = adapter.get_issue(epic)
-        resolved, project = epic_issue["key"] or epic, epic_issue["project"]
-        if not project:
-            return _err(f"ERROR: Jira did not return the project of {epic}", caddis_exit.BLOCKED)
-        types = [t for t in adapter.issue_types(project) if not t["subtask"]]
-        match = [t for t in types if str(t["name"]).lower() == issue_type.lower()]
-        if not match:
-            return _err(f"ERROR: issue type {issue_type!r} is not in project {project} (allowed: "
-                        f"{', '.join(str(t['name']) for t in types)})", caddis_exit.ERROR)
-        issue_type = str(match[0]["name"])
-        fields = discover_fields(adapter.field_list(), getattr(adapter, "field_overrides", None) or {})
-        screen = adapter.create_screen_fields(project, match[0]["id"])
-        epic_field = fields["epic_link"] if adapter.mode == "dc" else "parent"
-        if adapter.mode == "dc" and not epic_field:
-            return _err("NOT CONFIGURED: no Epic Link field found; set JIRA_EPIC_LINK_FIELD", caddis_exit.NOT_RUN)
-        if screen is not None and epic_field not in screen:
-            notes.append(f"WARN: {epic_field} is not on the {issue_type} create screen; Jira may refuse the create")
-        points_field = fields["story_points"] if (screen and fields["story_points"] in screen) else None
-        if fields["story_points"] and not points_field:
-            notes.append(f"STORY POINTS: {fields['story_points']} is not on the create screen of {issue_type}: omitted")
-        ac_field = fields["acceptance_criteria"] if (screen and fields["acceptance_criteria"] in screen) else None
-        wanted = ["summary", "description", "labels", "issuetype", "status"] + ([ac_field] if ac_field else [])
-        jql, found, error = find_children(adapter, resolved, wanted, SYNC_CHILDREN_MAX)
-        if found is None:
-            return _err(f"ERROR: cannot list the children of {resolved}: {error}", caddis_exit.BLOCKED)
-        children = list(found["issues"])
-        if found.get("more"):
-            notes.append(f"WARN: {resolved} has more than {SYNC_CHILDREN_MAX} children; matching may miss some")
-        for p in phases:
-            if p.jira_story and all(c.get("key") != p.jira_story for c in children):
-                raw = adapter._get(f"/issue/{quote(p.jira_story)}", {"fields": ",".join(wanted)})
-                p.jira_story = str(raw.get("key") or p.jira_story)
-                if all(c.get("key") != p.jira_story for c in children):
-                    children.append(raw)
+        sync = plan_sync(adapter, slug, phases, epic, issue_type)
+    except SyncError as err:
+        return _err(err.message, err.code)
     except JiraError as err:
         return _failed(err)
-    rows = plan_story_rows(adapter, slug, phases, children, project=project, epic=resolved, issue_type=issue_type,
-                           epic_link_field=epic_field, points_field=points_field, ac_field=ac_field)
+    rows, notes, children = sync.rows, sync.notes, sync.children
+    resolved, project, issue_type, jql = sync.resolved, sync.project, sync.issue_type, sync.jql
+    epic_field, points_field, ac_field = sync.epic_field, sync.points_field, sync.ac_field
     created: dict[str, str] = {}
     failed = False
     if not args.dry_run:

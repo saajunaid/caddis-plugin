@@ -790,13 +790,35 @@ def render_figures(storage: str, slug: str, renderer, out_dir: Path) -> tuple[st
     if bad:
         raise DiagramError("diagram check failed, nothing published: " + " | ".join(bad))
     by_index = {f.index: f for f in figures}
+    return _with_images(storage, lambda block: by_index[block.index].name), figures
+
+
+def _with_images(storage: str, name_of: Callable[[MermaidBlock], str]) -> str:
+    """`storage` with each Mermaid macro replaced by an <ac:image> of the attachment `name_of(block)`."""
     pieces, last = [], 0
     for block in extract_mermaid(storage):
         pieces.append(storage[last:block.start])
-        pieces.append(image_macro(by_index[block.index].name, f"Figure {block.index}"))
+        pieces.append(image_macro(name_of(block), f"Figure {block.index}"))
         last = block.end
     pieces.append(storage[last:])
-    return "".join(pieces), figures
+    return "".join(pieces)
+
+
+def expected_inner(storage: str, slug: str) -> str:
+    """The section body that `publish` writes for `storage`, with no renderer: a figure's attachment name is the
+    sha256 of its Mermaid source (after the palette), so a changed diagram changes the body too."""
+    return _with_images(storage, lambda block: figure_name(slug, block.index, apply_palette(block.source)))
+
+
+def section_state(client: "Client", page_id: str, slug: str, inner: str) -> str:
+    """Where the page's `slug` section stands against `inner`, by one GET (no write, no renderer):
+    missing (no markers), edited (a person changed it in Confluence), stale (a publish would update it) or current
+    (a publish would print `ACTION: unchanged`). Broken markers raise MarkerError."""
+    try:
+        _, action = plan_update(_body(client.get_page(page_id)), slug, inner)
+    except DriftError:
+        return "edited"
+    return {"add": "missing", "update": "stale", "unchanged": "current"}[action]
 
 
 # ---------------------------------------------------------------- publish

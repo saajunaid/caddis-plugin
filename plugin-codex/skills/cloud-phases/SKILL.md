@@ -20,7 +20,7 @@ Two modes:
 - `/caddis:cloud-phases [plan] [phases]` — **dispatch**: Steps 1–6.
 - `/caddis:cloud-phases intake` — **intake**: Step 7, after the owner has run the sessions.
 
-With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_todo.py" active-plan`,
+With no plan argument, use the active plan (`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_todo.py" active-plan`,
 or the one `status: current` plan in `.caddis/plans/`). If there is none, or more than one, ask.
 
 ## Step 0 — Is this checkout safe to move?
@@ -189,7 +189,7 @@ For each PR from a `<prefix>/phase-<NN>` branch, one at a time:
 1. Read the whole diff (`gh pr diff <N>`). Check it against the phase's Design and Touches. A file
    outside Touches is a finding.
 2. Wait for CI outside the session:
-   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_lanes.py" ci-watch --pr <N>`. Only `RESULT: pass`
+   `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_lanes.py" ci-watch --pr <N>`. Only `RESULT: pass`
    counts; `HEAD:` names the watched head. A `gh pr checks` table is not proof: it can show an older
    head's checks.
 3. Review under the three rules (rule 3, review by tier): stop at the first CLEAN; after 3 rounds,
