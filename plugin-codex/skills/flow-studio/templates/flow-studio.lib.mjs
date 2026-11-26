@@ -304,7 +304,7 @@ var cssId = (id) => id.replace(/[^A-Za-z0-9_-]/g, "_");
 var TONES2 = { ok: "var(--ok)", warn: "var(--warn)", crit: "var(--crit)", info: "var(--up)", muted: "var(--muted)", accent: "var(--accent)" };
 var toneVar = (t) => Object.hasOwn(TONES2, t) ? TONES2[t] : TONES2.muted;
 var DASH = { flow: "5 9", dash: "7 6", "dash-short": "3 6", dot: "2 6" };
-var KEYFRAMES = { flow: "flow", dash: "flowd", "dash-short": "flowc", dot: "" };
+var KEYFRAMES = { flow: "fs-flow", dash: "fs-flowd", "dash-short": "fs-flowc", dot: "" };
 function stateCss(states) {
   const out = [];
   const reduced = [];
@@ -320,7 +320,7 @@ function stateCss(states) {
     }
     out.push(`.node.st-${c}.gateway polygon { stroke:${T}; fill:color-mix(in srgb, ${T} 10%, var(--panel)); }`);
     out.push(`.ev.st-${c} { color:${T}; }`);
-    if (s.motion === "breathe") out.push(`.node.st-${c}:not(.dim) { animation:breathe 3.2s ease-in-out infinite; }`);
+    if (s.motion === "breathe") out.push(`.node.st-${c}:not(.dim) { animation:fs-breathe 3.2s ease-in-out infinite; }`);
     const edge = Object.hasOwn(DASH, s.edge) ? s.edge : "dash";
     const flows = edge !== "dot" && (s.motion === "flow" || s.motion === "flow-slow");
     let rule = `stroke:${T}; stroke-dasharray:${DASH[edge]}; opacity:${s.motion === "flow" ? ".85" : ".9"};`;
@@ -640,7 +640,7 @@ function install(ctx) {
     ctx.simTimers.forEach((t) => clearTimeout(t));
     ctx.simTimers = [];
     dropOverlays("ripple");
-    document.querySelectorAll(".node.fail").forEach((d) => {
+    els.world.querySelectorAll(".node.fail").forEach((d) => {
       d.classList.remove("fail");
       const sub = d.querySelector(".s");
       if (sub && d.dataset.s !== void 0) {
@@ -697,7 +697,7 @@ function install(ctx) {
   }
   function setMode(id) {
     if (ctx.mode === id) return;
-    document.body.classList.remove("intro");
+    els.host.classList.remove("intro");
     clearSim();
     ctx.mode = id;
     const sel = ctx.selected && ctx.nodes.get(ctx.selected);
@@ -1069,7 +1069,7 @@ function paint(ctx, fromSwitch = false) {
   } });
   ctx.els.world.style.height = ctx.geom.world.h + "px";
   ctx.els.svg.setAttribute("height", String(ctx.geom.world.h));
-  document.body.classList.toggle("alt", !!model.views && mode !== baselineView(model));
+  ctx.els.host.classList.toggle("alt", !!model.views && mode !== baselineView(model));
   for (const n of model.nodes) {
     const d = ctx.nodeEls.get(n.id);
     if (!d) continue;
@@ -1224,7 +1224,7 @@ function install3(ctx) {
     ctx.fn.placeHeaders();
     if (!raf) raf = requestAnimationFrame(() => {
       raf = 0;
-      if (document.body.classList.contains("notes")) ctx.fn.placeMarkers();
+      if (els.host.classList.contains("notes")) ctx.fn.placeMarkers();
     });
   }
   function setView(v, animate = false) {
@@ -1383,7 +1383,11 @@ function install3(ctx) {
   ro.observe(vp);
   on(ctx, vp, "pointerenter", refreshRect);
   on(ctx, window, "scroll", refreshRect, { passive: true });
-  ctx.disposers.push(() => ro.disconnect());
+  ctx.disposers.push(() => {
+    ro.disconnect();
+    if (raf) cancelAnimationFrame(raf);
+    clearTimeout(animTimer);
+  });
   function setTool(id) {
     ctx.tool = id;
     vp.classList.toggle("hand", id === "hand");
@@ -1810,17 +1814,21 @@ function install6(ctx) {
   const card = (id) => els.notelist.querySelector(`[data-n="${id}"]`);
   const anchorOf = (sel) => {
     try {
-      return document.querySelector(sel);
+      return els.host.matches(sel) ? els.host : els.host.querySelector(sel);
     } catch {
       return null;
     }
   };
   function clearMarkers() {
-    document.querySelectorAll(".marker").forEach((m) => m.remove());
-    document.querySelectorAll(".anchored").forEach((a) => a.classList.remove("anchored"));
+    els.host.querySelectorAll(".marker").forEach((m) => m.remove());
+    els.host.querySelectorAll(".anchored").forEach((a) => a.classList.remove("anchored"));
   }
   function placeMarkers() {
     clearMarkers();
+    const hr = els.host.getBoundingClientRect();
+    const isBody = els.host.tagName === "BODY";
+    const originX = hr.left + (els.host.clientLeft || 0) - (isBody ? 0 : els.host.scrollLeft);
+    const originY = hr.top + (els.host.clientTop || 0) - (isBody ? 0 : els.host.scrollTop);
     for (const n of notes) {
       const a = anchorOf(n.anchor);
       if (!a) continue;
@@ -1842,8 +1850,8 @@ function install6(ctx) {
       m.dataset.n = String(n.id);
       m.title = n.title;
       m.setAttribute("aria-label", `Note ${n.id}: ${n.title}`);
-      m.style.left = r.left + scrollX - 10 + "px";
-      m.style.top = r.top + scrollY - 10 + "px";
+      m.style.left = r.left - originX - 10 + "px";
+      m.style.top = r.top - originY - 10 + "px";
       m.addEventListener("mouseenter", () => {
         a.classList.add("anchored");
         card(n.id)?.classList.add("on");
@@ -1853,14 +1861,16 @@ function install6(ctx) {
         card(n.id)?.classList.remove("on");
       });
       m.addEventListener("click", () => card(n.id)?.scrollIntoView({ block: "center", behavior: ctx.reduced ? "auto" : "smooth" }));
-      document.body.appendChild(m);
+      els.host.appendChild(m);
     }
   }
+  let markerTimer = 0;
   function toggleNotes(next) {
-    const on_ = next === void 0 ? !document.body.classList.contains("notes") : next;
-    document.body.classList.toggle("notes", on_);
+    const on_ = next === void 0 ? !els.host.classList.contains("notes") : next;
+    els.host.classList.toggle("notes", on_);
     els.notesBtn.setAttribute("aria-pressed", String(on_));
-    if (on_) window.setTimeout(placeMarkers, ctx.reduced ? 30 : 340);
+    window.clearTimeout(markerTimer);
+    if (on_) markerTimer = window.setTimeout(placeMarkers, ctx.reduced ? 30 : 340);
     else clearMarkers();
   }
   els.notelist.innerHTML = notes.map((n) => `<div class="ncard" data-n="${n.id}"><b><span>${n.id}</span>${esc(n.title)}</b>${esc(n.text)}</div>`).join("") || '<p class="note">This page has no implementation notes.</p>';
@@ -1870,12 +1880,17 @@ function install6(ctx) {
       const a = n && anchorOf(n.anchor);
       if (a) a.classList.add("anchored");
     });
-    c.addEventListener("mouseleave", () => document.querySelectorAll(".anchored").forEach((a) => a.classList.remove("anchored")));
+    c.addEventListener("mouseleave", () => els.host.querySelectorAll(".anchored").forEach((a) => a.classList.remove("anchored")));
   });
   on(ctx, els.notesBtn, "click", () => toggleNotes());
   on(ctx, window, "scroll", () => {
-    if (document.body.classList.contains("notes")) placeMarkers();
+    if (els.host.classList.contains("notes")) placeMarkers();
   }, { passive: true });
+  ctx.disposers.push(() => {
+    window.clearTimeout(markerTimer);
+    clearMarkers();
+    els.host.classList.remove("notes");
+  });
   const markdown = () => {
     const out = [`# ${model.meta.title}`, "", model.meta.help, "", `As of ${model.meta.asOf}. Source: ${model.meta.source}`, "", "## States"];
     for (const [id, s] of Object.entries(model.states)) out.push(`- **${s.word}** (${id}): tone ${s.tone}, border ${s.border}, link ${s.edge}, motion ${s.motion}, bucket ${s.bucket}`);
@@ -1892,7 +1907,7 @@ function install6(ctx) {
     <h3>Lanes</h3>${rows(model.lanes.map((l) => `${esc(l.title)}${l.badge ? ` [${esc(l.badge)}]` : ""}${l.note ? `: ${esc(l.note)}` : ""}`))}
     <h3>Size</h3><p>${model.nodes.length} nodes, ${model.links.length} links.</p>`;
   const msg = (t) => {
-    const m = document.getElementById("cpMsg");
+    const m = els.specbody.querySelector("#cpMsg");
     if (m) m.textContent = t;
   };
   const copy = async (text, what) => {
@@ -1902,7 +1917,7 @@ function install6(ctx) {
     } catch {
       const ta = document.createElement("textarea");
       ta.value = text;
-      document.body.appendChild(ta);
+      els.host.appendChild(ta);
       ta.select();
       try {
         document.execCommand("copy");
@@ -1913,8 +1928,8 @@ function install6(ctx) {
       ta.remove();
     }
   };
-  document.getElementById("cpMd")?.addEventListener("click", () => void copy(markdown(), "Markdown"));
-  document.getElementById("cpJson")?.addEventListener("click", () => void copy(JSON.stringify(model, null, 2), "JSON"));
+  els.specbody.querySelector("#cpMd")?.addEventListener("click", () => void copy(markdown(), "Markdown"));
+  els.specbody.querySelector("#cpJson")?.addEventListener("click", () => void copy(JSON.stringify(model, null, 2), "JSON"));
   ctx.fn.toggleNotes = toggleNotes;
   ctx.fn.placeMarkers = placeMarkers;
 }
@@ -2048,7 +2063,7 @@ function install7(ctx) {
     playing = false;
     cancelAnimationFrame(frame);
     clearTimeout(timer);
-    document.body.classList.remove("playing");
+    e.host.classList.remove("playing");
     e.pbPlay.setAttribute("aria-label", "Play");
     e.pbPlay.textContent = "\u25B6";
   }
@@ -2203,7 +2218,7 @@ function install7(ctx) {
       idx = -1;
     }
     playing = true;
-    document.body.classList.add("playing");
+    e.host.classList.add("playing");
     e.pbPlay.setAttribute("aria-label", "Pause");
     e.pbPlay.textContent = "\u275A\u275A";
     e.pbChoices.replaceChildren();
@@ -2519,7 +2534,8 @@ var IDS = {
   banner: "banner"
 };
 function findEls(root) {
-  const out = {};
+  const host = root instanceof Document ? root.body : root;
+  const out = { host };
   for (const [key, id] of Object.entries(IDS)) {
     const e = root.querySelector("#" + id);
     if (!e) throw new Error(`flow-studio: the page has no element #${id}`);
@@ -2578,6 +2594,8 @@ function mount(root, model, opts = {}) {
   };
   rm.addEventListener("change", onRm);
   ctx.disposers.push(() => rm.removeEventListener("change", onRm));
+  els.host.classList.add("fs-root");
+  ctx.disposers.push(() => els.host.classList.remove("fs-root", "intro", "notes", "playing", "alt"));
   let style = document.getElementById("state-css");
   if (!style) {
     style = document.createElement("style");
@@ -2613,11 +2631,11 @@ function mount(root, model, opts = {}) {
       els.inspector.setAttribute("aria-hidden", "true");
     }
   } else {
-    document.body.classList.add("intro");
-    const introTimer = window.setTimeout(() => document.body.classList.remove("intro"), 2100);
+    els.host.classList.add("intro");
+    const introTimer = window.setTimeout(() => els.host.classList.remove("intro"), 2100);
     ctx.disposers.push(() => {
       window.clearTimeout(introTimer);
-      document.body.classList.remove("intro");
+      els.host.classList.remove("intro");
     });
     ctx.fn.fitWidth(false);
     const fitTimer = window.setTimeout(() => {

@@ -48,7 +48,7 @@ declare global {
   interface Window { FlowStudio?: FlowStudio; flowStudioMount?: typeof mount }
 }
 
-const IDS: Record<keyof Els, string> = {
+const IDS: Record<Exclude<keyof Els, "host">, string> = {
   vp: "viewport", world: "world", svg: "edges", layer: "edgeLayer", cols: "cols", tools: "tools", zoom: "zoomLabel",
   inspector: "inspector", workspace: "workspace", live: "live", strip: "layerstrip", tiles: "kpis", legend: "legend",
   ledger: "ledger", table: "tbl", q: "q", hops: "hops", matchinfo: "matchinfo", modeSwitch: "modeSwitch", drawer: "drawer",
@@ -59,7 +59,8 @@ const IDS: Record<keyof Els, string> = {
 };
 
 function findEls(root: ParentNode): Els {
-  const out = {} as Record<string, Element>;
+  const host = root instanceof Document ? root.body : (root as HTMLElement);
+  const out: Record<string, Element> = { host };
   for (const [key, id] of Object.entries(IDS)) {
     const e = root.querySelector("#" + id);
     if (!e) throw new Error(`flow-studio: the page has no element #${id}`);
@@ -100,6 +101,8 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
   const onRm = (e: MediaQueryListEvent) => { ctx.reduced = e.matches; };
   rm.addEventListener("change", onRm);
   ctx.disposers.push(() => rm.removeEventListener("change", onRm));
+  els.host.classList.add("fs-root");
+  ctx.disposers.push(() => els.host.classList.remove("fs-root", "intro", "notes", "playing", "alt"));
 
   let style = document.getElementById("state-css") as HTMLStyleElement | null;
   if (!style) { style = document.createElement("style"); style.id = "state-css"; document.head.prepend(style); }
@@ -135,10 +138,10 @@ export function mount(root: ParentNode, model: Model, opts: { notes?: NoteDef[];
     }
   } else {
     // The entrance animation is for the first mount only; a live update restores and must not replay it.
-    document.body.classList.add("intro");
-    const introTimer = window.setTimeout(() => document.body.classList.remove("intro"), 2100);
+    els.host.classList.add("intro");
+    const introTimer = window.setTimeout(() => els.host.classList.remove("intro"), 2100);
     // destroy() clears these timers, so an update inside the window cannot fire the old instance's callbacks.
-    ctx.disposers.push(() => { window.clearTimeout(introTimer); document.body.classList.remove("intro"); });
+    ctx.disposers.push(() => { window.clearTimeout(introTimer); els.host.classList.remove("intro"); });
     ctx.fn.fitWidth(false);
     const fitTimer = window.setTimeout(() => { if (!ctx.userMoved) ctx.fn.fitWidth(false); }, 120);
     ctx.disposers.push(() => window.clearTimeout(fitTimer));

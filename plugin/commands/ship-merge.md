@@ -36,7 +36,7 @@ job names and default branch — never assume.
 Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
 `stash`, `reset --hard`). Before the first of them, run:
 ```
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_checkout_guard.py" shared --root .
+python "<home>/.caddis/bin/caddis_run.py" caddis_checkout_guard.py shared --root .
 ```
 It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
 `Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
@@ -44,11 +44,11 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
 
 - **On `SHARED: no`,** do the steps as written, in this checkout.
 - **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
-  - **Rebase:** `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" rebase-<name> --record --purpose "rebase <name>")" <branch>`, then
+  - **Rebase:** `git worktree add --detach "$(python "<home>/.caddis/bin/caddis_run.py" caddis_worktree_root.py rebase-<name> --record --purpose "rebase <name>")" <branch>`, then
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
-    `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
-    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" --bootstrap` (run in the worktree); never link `node_modules` or a venv.
+    `git worktree add --detach "$(python "<home>/.caddis/bin/caddis_run.py" caddis_worktree_root.py test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "<home>/.caddis/bin/caddis_run.py" caddis_worktree_root.py --bootstrap` (run in the worktree); never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
     checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no
@@ -86,7 +86,7 @@ future run — ask every time, even for the same PR five minutes later.
 
 Small work that does not meet a trigger skips its block.
 
-**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_merge_chain.py"` does this check.
+**Trigger: Always, when the repo deploys on push.** No merge while a push run on the default branch is in progress. Check `gh run list --branch <default> --event push --status in_progress`; if a run is listed, wait for it. `python "<home>/.caddis/bin/caddis_run.py" caddis_merge_chain.py` does this check.
 
 ## Step 3 — Merge
 
@@ -118,7 +118,7 @@ The merge lands on the default branch and triggers the pipeline. Watch it via th
   → `notify` (`deploy-local` skill §monitoring; classify + minimum-fix on failure).
 - GitHub: wait for the deploy run on the default branch outside the Claude session via `ci-watch`:
   ```bash
-  python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <run-id>
+  python "<home>/.caddis/bin/caddis_run.py" caddis_lanes.py ci-watch --run <run-id>
   ```
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix; **3** could not tell → stop, report, and **skip cleanup** (Step 6). This step already watches the run with `--run`, so do not watch it again; write no "still waiting" turns.
   Fallback when `caddis_lanes.py` is not available: watch in-session with `gh run watch <run-id> --exit-status` on the default branch (`gh-cli` skill). If the workflow has a deploy job, watch it through; if CI-only, note that no deploy occurs.
@@ -130,6 +130,14 @@ The merge lands on the default branch and triggers the pipeline. Watch it via th
 - Version endpoint shows the expected SHA/CalVer, when exposed.
 (Same checklist as `/ship` Step 5 — reuse it.) If validation is red, report immediately; do not
 attempt a silent re-deploy — and **skip cleanup** (Step 6).
+
+## Step 5b — Tracker page sync
+
+Run it only when the merge is done and Step 5 is green (or the repo has no deploy). Skip it when deploy validation failed.
+```
+python "<home>/.caddis/bin/caddis_run.py" caddis_tracker.py sync-all --root <repo root>
+```
+It syncs only the opted-in roadmaps and plans whose files changed since their last sync, so most merges make no Confluence call. Exit 0: put its `TRACKER` lines in the report. Any other exit: put one line `WARN: tracker sync exit <n> - <first output line>` in the report and go on. The tracker sync never blocks the merge or the cleanup.
 
 ## Step 6 — Branch cleanup — only after a confirmed-green deploy
 
@@ -145,6 +153,10 @@ attempt a silent re-deploy — and **skip cleanup** (Step 6).
 - Delete the **remote** feature branch; delete the **local** feature branch (for a squash merge, compare
   the branch tree with the merged tree first, not ancestry).
 - Drop the `backup/<branch>-preship` ref `/ship-pr` created.
+- If `.caddis/roadmaps/` exists, iterate every `<slug>` directory under `.caddis/roadmaps/` and run the 1-line reconcile step (Confluence `--stories` sync is owner-authorised; Jira stays off unless explicitly instructed):
+  ```bash
+  python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py reconcile --roadmap <slug> --apply --stories
+  ```
 
 If deploy validation failed: **skip cleanup** entirely and say so — never delete a branch whose
 work may need re-work.
@@ -156,6 +168,7 @@ PR:            #<n> <title> — merged (<strategy>) as <merge-sha>
 Deploy:        <job ✓ / ✗ per job>
 Prod SHA:      matches merge ✓ | MISMATCH
 Health:        green ✓ | red — reported, cleanup skipped
+Tracker:       <TRACKER lines> | WARN: tracker sync exit <n> - <line>
 Cleanup:       remote branch ✗ deleted / local ✗ deleted / backup ref dropped | SKIPPED (<why>)
 ```
 
@@ -165,7 +178,7 @@ Only when cleanup ran (it was not skipped), this session works in a linked workt
 after the report is printed: Orca stops this session when it removes the worktree. Run it from the main checkout,
 in one command:
 ```
-(cd "<main checkout>" && python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_tidy.py" --hygiene --apply --orca-only \
+(cd "<main checkout>" && python "<home>/.caddis/bin/caddis_run.py" caddis_tidy.py --hygiene --apply --orca-only \
   --repo-root "<main checkout>" --worktree "<this worktree>" --session-cwd "<this worktree>" \
   --own-terminal "$ORCA_TERMINAL_HANDLE")
 ```

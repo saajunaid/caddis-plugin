@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.211",
- "generated": "2026-11-24 13:59 UTC",
+ "version": "1.3.212",
+ "generated": "2026-11-26 10:49 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -96,10 +96,8 @@
     ]
    ],
    "scripts": [
-    "caddis_checkout_guard.py",
     "caddis_lanes.py",
-    "caddis_todo.py",
-    "caddis_worktree_root.py"
+    "caddis_todo.py"
    ],
    "noArgs": false,
    "stage": "build",
@@ -188,12 +186,10 @@
   },
   {
    "name": "data-lineage",
-   "description": "Generate End-to-End Data Lineage and Telemetry Specification Markdown and Confluence XHTML for fleet observability.",
-   "hint": "(no arguments — documents the app in this repo)",
+   "description": "Deprecated: use /lld. Redirects to /lld, which publishes through caddis_confluence.py",
+   "hint": "(no arguments, deprecated, use /lld)",
    "steps": [],
-   "scripts": [
-    "convert_doc_to_confluence.py"
-   ],
+   "scripts": [],
    "noArgs": true,
    "stage": "plan",
    "daily": false
@@ -574,13 +570,58 @@
    "daily": true
   },
   {
-   "name": "hld",
-   "description": "Generate High-Level Design (HLD) Markdown documentation and Confluence XHTML with native PlantUML diagrams.",
-   "hint": "(no arguments — documents the app in this repo)",
-   "steps": [],
-   "scripts": [
-    "convert_doc_to_confluence.py"
+   "name": "hla",
+   "description": "Write the High-Level Architecture (HLA) for Gate 2 sign-off as Markdown in Git, and publish it to Confluence with 2x Mermaid figures",
+   "hint": "[app] [--page-id ID]",
+   "steps": [
+    [
+     "",
+     "Input"
+    ],
+    [
+     "",
+     "Steps"
+    ],
+    [
+     "",
+     "Exit codes"
+    ],
+    [
+     "",
+     "Diagram rules"
+    ],
+    [
+     "",
+     "Writing rules"
+    ],
+    [
+     "",
+     "Template"
+    ],
+    [
+     "",
+     "Document information"
+    ],
+    [
+     "1",
+     ". Executive summary"
+    ],
+    [
+     "2",
+     ". Context and scope"
+    ]
    ],
+   "scripts": [],
+   "noArgs": false,
+   "stage": "plan",
+   "daily": false
+  },
+  {
+   "name": "hld",
+   "description": "Deprecated: use /hla. Redirects to /hla, which publishes through caddis_confluence.py",
+   "hint": "(no arguments, deprecated, use /hla)",
+   "steps": [],
+   "scripts": [],
    "noArgs": true,
    "stage": "plan",
    "daily": false
@@ -673,6 +714,25 @@
    "daily": false
   },
   {
+   "name": "jira",
+   "description": "Jira for a plan — read the Epic, run the human-gated Q&A loop, sync one Story per phase, move issues through the workflow",
+   "hint": "<check | read KEY | qa-draft | qa-post | qa-pull | qa-status | sync-stories | transition> [args]",
+   "steps": [
+    [
+     "",
+     "Steps"
+    ],
+    [
+     "",
+     "Exit codes"
+    ]
+   ],
+   "scripts": [],
+   "noArgs": false,
+   "stage": "plan",
+   "daily": false
+  },
+  {
    "name": "kb",
    "description": "Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links",
    "hint": "(no arguments — rebuilds .caddis/kb/DOC-MAP.md from the notes on disk)",
@@ -711,13 +771,48 @@
   },
   {
    "name": "lld",
-   "description": "Generate Lower-Level Design (LLD) Markdown documentation and Confluence XHTML with native PlantUML diagrams.",
-   "hint": "(no arguments — documents the app in this repo)",
-   "steps": [],
-   "scripts": [
-    "convert_doc_to_confluence.py"
+   "description": "Write the living Low-Level Design (LLD) as Markdown in Git, publish it to Confluence with 2x Mermaid figures, and keep its generated db-catalog and data-lineage sections current",
+   "hint": "[app] [--page-id ID]",
+   "steps": [
+    [
+     "",
+     "Input"
+    ],
+    [
+     "",
+     "Steps"
+    ],
+    [
+     "",
+     "Generated sections"
+    ],
+    [
+     "",
+     "Exit codes"
+    ],
+    [
+     "",
+     "Diagram rules"
+    ],
+    [
+     "",
+     "Writing rules"
+    ],
+    [
+     "",
+     "Template"
+    ],
+    [
+     "",
+     "Document information"
+    ],
+    [
+     "1",
+     ". Components and service topology"
+    ]
    ],
-   "noArgs": true,
+   "scripts": [],
+   "noArgs": false,
    "stage": "plan",
    "daily": false
   },
@@ -890,14 +985,7 @@
      "Monitor PR CI checks"
     ]
    ],
-   "scripts": [
-    "caddis_checkout_guard.py",
-    "caddis_gate.py",
-    "caddis_lanes.py",
-    "caddis_merge_chain.py",
-    "caddis_tidy.py",
-    "caddis_worktree_root.py"
-   ],
+   "scripts": [],
    "noArgs": false,
    "stage": "ship",
    "daily": true
@@ -1115,17 +1203,11 @@
      "Post-deploy validation"
     ],
     [
-     "6",
-     "Branch cleanup — only after a confirmed-green deploy"
+     "5b",
+     "Tracker page sync"
     ]
    ],
-   "scripts": [
-    "caddis_checkout_guard.py",
-    "caddis_lanes.py",
-    "caddis_merge_chain.py",
-    "caddis_tidy.py",
-    "caddis_worktree_root.py"
-   ],
+   "scripts": [],
    "noArgs": false,
    "stage": "ship",
    "daily": true
@@ -1173,11 +1255,9 @@
     ]
    ],
    "scripts": [
-    "caddis_checkout_guard.py",
     "caddis_gate.py",
     "caddis_lanes.py",
-    "caddis_tidy.py",
-    "caddis_worktree_root.py"
+    "caddis_tidy.py"
    ],
    "noArgs": false,
    "stage": "ship",
@@ -1214,7 +1294,6 @@
     ]
    ],
    "scripts": [
-    "caddis_gate.py",
     "caddis_lanes.py",
     "caddis_merge_chain.py",
     "caddis_prod_check.py"
@@ -1292,8 +1371,7 @@
     ]
    ],
    "scripts": [
-    "caddis_stories.py",
-    "caddis_todo.py"
+    "caddis_stories.py"
    ],
    "noArgs": false,
    "stage": "knowledge",
@@ -1906,7 +1984,7 @@
   {
    "name": "confluence-hla",
    "category": "docs",
-   "description": "High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture.",
+   "description": "Deprecated: use /hla. Redirects to the /hla skill, which publishes through caddis_confluence.py",
    "core": true
   },
   {
@@ -1926,18 +2004,6 @@
    "category": "docs",
    "description": "Write a self-contained hand-off spec for an external team or vendor. Use when the user says \"write a spec for the X team\", \"explainer doc\", \"spec for a vendor\", or \"hand this off to Y\".",
    "core": true
-  },
-  {
-   "name": "hld",
-   "category": "docs",
-   "description": "Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends.",
-   "core": false
-  },
-  {
-   "name": "lld",
-   "category": "docs",
-   "description": "Generate Lower-Level Design (LLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends.",
-   "core": false
   },
   {
    "name": "naming-analyzer",
@@ -2498,9 +2564,9 @@
   ]
  },
  "counts": {
-  "commands": 42,
+  "commands": 44,
   "agents": 12,
-  "skills": 134,
+  "skills": 132,
   "core": 51,
   "hooks": 18
  }

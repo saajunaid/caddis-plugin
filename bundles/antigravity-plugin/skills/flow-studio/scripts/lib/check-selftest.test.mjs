@@ -71,7 +71,7 @@ test("faint text fails the contrast check", { skip }, () => {
 });
 
 test("a looping animation under reduced motion fails the reduced-motion check", { skip }, () => {
-  expectFail(run(page("motion", { inject: `<style>@media (prefers-reduced-motion: reduce) { .node { animation: rise 1s infinite !important; } }</style>` })), "reduced motion");
+  expectFail(run(page("motion", { inject: `<style>@media (prefers-reduced-motion: reduce) { .node { animation: fs-rise 1s infinite !important; } }</style>` })), "reduced motion");
 });
 
 test("a canvas too wide to read fails the first-view check", { skip }, () => {

@@ -42,13 +42,13 @@ The files are copyable source, not a published npm package. Both routes need a c
 
 ### A. React
 
-Copy `templates/flow-studio.lib.mjs`, `templates/flow-studio.lib.d.mts`, `templates/flow-studio.css`, `react/`, and `src/` into the app, keeping the relative layout.
+Vendor (and re-vendor) with `node --experimental-strip-types <skill>/scripts/vendor-copy.mjs <app-vendor-dir> [--sha <commit>]` (`scripts/vendor-copy.mjs`). It copies `templates/flow-studio.lib.mjs`, `templates/flow-studio.lib.d.mts`, `templates/flow-studio.css`, `templates/flow-studio.scoped.css`, `react/`, and `src/` (never `*.test.*`) in the same relative layout and writes `vendor.manifest.json`. Inside an app, import `templates/flow-studio.scoped.css`; `templates/flow-studio.css` styles `:root`, `body`, and bare element tags globally and is for a standalone page only. After vendoring or re-vendoring, verify by reading a screenshot of the rendered page.
 
 ```tsx
 import React, { useEffect, useRef } from "react";
 import { FlowStudioView, FlowLoading, FlowError } from "./react/index";
 import type { Model } from "./src/model";
-import "./templates/flow-studio.css";
+import "./templates/flow-studio.scoped.css";
 
 export function FlowContainer({ model, status, error, onRetry }: { model?: Model; status: string; error?: string; onRetry: () => void }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -70,13 +70,13 @@ export function FlowContainer({ model, status, error, onRetry }: { model?: Model
 
 ### B. Vue (Vue 3 / Vite)
 
-Copy `templates/flow-studio.lib.mjs`, `templates/flow-studio.lib.d.mts`, and `templates/flow-studio.css` to your application assets directory.
+Copy `templates/flow-studio.lib.mjs`, `templates/flow-studio.lib.d.mts`, and `templates/flow-studio.scoped.css` to your application assets directory (or vendor with `<skill>/scripts/vendor-copy.mjs` and verify by reading a screenshot; `templates/flow-studio.css` is for a standalone page only).
 
 ```vue
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { mount } from "../assets/flow-studio.lib.mjs";
-import "../assets/flow-studio.css";
+import "../assets/flow-studio.scoped.css";
 
 const props = defineProps<{ model: any }>();
 const emit = defineEmits(["select"]);
@@ -116,13 +116,13 @@ onBeforeUnmount(() => {
 
 ### C. Svelte (Svelte 4 / 5)
 
-Copy the same library files as for Vue. The import is aliased because Svelte 5 exports its own `mount`.
+Copy the same library files as for Vue (`templates/flow-studio.scoped.css` inside an app; `templates/flow-studio.css` is for a standalone page only). The import is aliased because Svelte 5 exports its own `mount`.
 
 ```svelte
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { mount as mountFlow } from "./flow-studio.lib.mjs";
-  import "./flow-studio.css";
+  import "./flow-studio.scoped.css";
 
   export let model: any;
   export let onSelect: (id: string | null) => void = () => {};
@@ -152,12 +152,14 @@ Copy the same library files as for Vue. The import is aliased because Svelte 5 e
 
 ### D. Vanilla HTML & JavaScript
 
+Import `templates/flow-studio.scoped.css` when mounting into an element inside an app page (`templates/flow-studio.css` is for a standalone page only):
+
 ```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <link rel="stylesheet" href="./templates/flow-studio.css">
+  <link rel="stylesheet" href="./templates/flow-studio.scoped.css">
   <style>
     #flowHost { width: 100vw; height: 100vh; }
   </style>

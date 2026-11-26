@@ -394,7 +394,13 @@ and 7.3. While the queue is frozen (section 5 step 1), do steps 3.1 to 3.3 only.
     python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_coordinate.py" deploy-check set --repo <R> --pr <n> --health <ok|failed> --json
     ```
     A failed D6 or D7: section 5 step 1.
-19. Tell the PR's session and every live peer: `merged <PR> <merge sha>`, then `deployed <PR> ok`. Tell a
+19. When the deploy check passed (step 3.17 `health: ok`, and D6 and D7 when they apply), sync the Confluence tracker pages:
+    ```
+    python "<home>/.caddis/bin/caddis_run.py" caddis_tracker.py sync-all --root <repo root>
+    ```
+    It syncs only the opted-in roadmaps and plans whose files changed since their last sync, so most merges make no Confluence call. Exit 0: put its `TRACKER` lines in the report. Any other exit: put one line `WARN: tracker sync exit <n> - <first output line>` in the report and go on. The tracker sync never blocks the merge queue.
+
+    Tell the PR's session and every live peer: `merged <PR> <merge sha>`, then `deployed <PR> ok`. Tell a
     stacked PR's session to retarget to the default branch (design 3). Go back to step 3.4.
 
 Stalls (design 7.4): one nudge for a busy, silent session that holds a queue item, and for a green,

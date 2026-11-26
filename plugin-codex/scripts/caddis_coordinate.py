@@ -1930,16 +1930,71 @@ def _repo_roots(repo: Path) -> list[str]:
     return [str(repo.resolve())] + roots
 
 
+def _heartbeat_agents(sessions_dir: Path | None = None, max_age_s: int = 1800) -> list[dict]:
+    """Read fresh agy/Codex/Claude session heartbeat files from `~/.caddis/sessions/*.json`."""
+    base = sessions_dir
+    if base is None:
+        override = (os.environ.get("CADDIS_SESSIONS_DIR") or "").strip()
+        base = Path(override) if override else (Path.home() / ".caddis" / "sessions")
+    if not base.is_dir():
+        return []
+    cutoff = time.time() - max_age_s
+    peers: list[dict] = []
+    for path in base.glob("*.json"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                continue
+            data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if str(data.get("state") or "").lower() == "stopped":
+            continue
+        sid = str(data.get("sessionId") or data.get("conversationId") or path.stem).strip()
+        raw_cwd = data.get("cwd")
+        if not isinstance(raw_cwd, str) or not raw_cwd.strip():
+            ws = data.get("workspace")
+            if isinstance(ws, str):
+                raw_cwd = ws
+            elif isinstance(ws, list) and ws and isinstance(ws[0], str):
+                raw_cwd = ws[0]
+            else:
+                raw_cwd = ""
+        cwd = raw_cwd.strip()
+        name = str(data.get("name") or data.get("tool") or sid[:8]).strip()
+        peers.append({
+            "sessionId": sid,
+            "name": name,
+            "cwd": cwd,
+            "kind": "interactive",
+            "state": data.get("state") or "working",
+            "tool": data.get("tool") or "agy",
+        })
+    return peers
+
+
 def _load_agents(agents_json: str | None) -> list[dict]:
-    """The agents list from the `--agents-json` file (tests), else `claude agents --json`.
-    Raise OSError or ValueError when it cannot be read or is not a JSON list of objects."""
+    """The agents list from the `--agents-json` file (tests), else `claude agents --json` merged with fresh
+    `~/.caddis/sessions/*.json` heartbeats (agy/Codex peers). Set `CADDIS_STAKE_HEARTBEATS_ONLY=1` on non-Claude
+    hosts/bots to check heartbeats directly without invoking the `claude` CLI."""
     if agents_json:
         try:
             agents = json.loads(Path(agents_json).read_text(encoding="utf-8"))
         except ValueError as exc:
             raise ValueError("the agents file is not JSON") from exc
     else:
-        agents = _claude_agents()
+        heartbeats = _heartbeat_agents()
+        heartbeats_only = str(os.environ.get("CADDIS_STAKE_HEARTBEATS_ONLY", "")).strip().lower() in ("1", "true", "yes")
+        if heartbeats_only:
+            agents = list(heartbeats)
+        else:
+            agents = _claude_agents()
+            seen_ids = {str(a.get("sessionId") or "") for a in agents if isinstance(a, dict) and a.get("sessionId")}
+            for hb in heartbeats:
+                if hb["sessionId"] not in seen_ids:
+                    agents.append(hb)
+                    seen_ids.add(hb["sessionId"])
     if not isinstance(agents, list) or not all(isinstance(a, dict) for a in agents):
         raise ValueError("the agents list is not a JSON list of objects")
     return agents

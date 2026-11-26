@@ -36,14 +36,14 @@ test("a dotted state is a tinted card with a dotted border", () => {
 test("a solid state has a solid left border", () => assert.match(stateCss(states), /\.node\.st-live\s*\{[^}]*border-left:4px solid/));
 test("breathe adds the breathing animation only to the node", () => {
   const css = stateCss(states);
-  assert.match(css, /\.node\.st-gap:not\(\.dim\)\s*\{[^}]*animation:breathe/);
+  assert.match(css, /\.node\.st-gap:not\(\.dim\)\s*\{[^}]*animation:fs-breathe/);
   assert.doesNotMatch(css, /path\.edge\.st-gap\s*\{[^}]*animation/);
 });
 test("flow speed follows the motion: fast for flow, slow for flow-slow", () => {
   const css = stateCss(states);
-  assert.match(css, /path\.edge\.st-live\s*\{[^}]*flow 3s/);
-  assert.match(css, /path\.edge\.st-doc\s*\{[^}]*flowd 7s/);
-  assert.match(css, /path\.edge\.st-code\s*\{[^}]*flowc 7s/);
+  assert.match(css, /path\.edge\.st-live\s*\{[^}]*fs-flow 3s/);
+  assert.match(css, /path\.edge\.st-doc\s*\{[^}]*fs-flowd 7s/);
+  assert.match(css, /path\.edge\.st-code\s*\{[^}]*fs-flowc 7s/);
 });
 test("the dash pattern follows the edge style", () => {
   const css = stateCss(states);

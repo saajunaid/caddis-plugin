@@ -85,12 +85,11 @@
 |-------|------|-------------|
 | Architecture Document | `docs/architecture-document/` | Generate enterprise HLD and LLD documents from the living Architecture.md, as DOCX (editable) or PPTX (executive summary). |
 | Code Documentation | `docs/code-documentation/` | Write code documentation: API docs, README files, inline comments and developer guides. |
-| Confluence Hla | `docs/confluence-hla/` | High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture. |
+| Confluence Hla | `docs/confluence-hla/` | Deprecated: use /hla. Redirects to the /hla skill, which publishes through caddis_confluence.py |
 | Doc Coauthoring | `docs/doc-coauthoring/` | Structured workflow for co-authoring documentation: transfer context, refine by iteration, test it on readers. Use when the user is writing docs, proposals, technical specs or decision docs. |
 | Documentation Analyzer | `docs/documentation-analyzer/` | Analyze a codebase, explain what the code does, and generate documentation such as README files. |
 | Explainer Doc | `docs/explainer-doc/` | Write a self-contained hand-off spec for an external team or vendor. Use when the user says "write a spec for the X team", "explainer doc", "spec for a vendor", or "hand this off to Y". |
-| HLD | `docs/hld/` | Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
-| LLD | `docs/lld/` | Generate Lower-Level Design (LLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
+| HLD | `docs/hld/` | Deprecated: use /hla. Redirects to the /hla skill, which publishes through caddis_confluence.py |
 | Naming Analyzer | `docs/naming-analyzer/` | Suggest better variable, function, and class names based on context and conventions. |
 | Office Documents Official | `docs/office-documents-official/` | Hint for Office and PDF file work. Use when the user asks to create, edit, read or convert a Word .docx, PDF, PowerPoint .pptx or Excel .xlsx file. caddis does not ship these skills; points to Anthropic's official document-skills plugin. |
 | PRD To Code | `docs/prd-to-code/` | Turn a PRD into working application code with a 6-phase method. Use when starting a project from requirements or specs. |

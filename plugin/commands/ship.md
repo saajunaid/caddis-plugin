@@ -69,7 +69,7 @@ Use conventional commits: `fix:`, `feat:`, `chore:`, `refactor:`, `docs:`. Scope
 **2b. CROSS-REVIEW TRIGGER** — `ship` has no review pause at all, which is how sixteen fixes reached production unreviewed in one day.
 
 <!-- shared:cross-review-trigger — keep byte-identical across commands; a test pins it -->
-Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-tier --range <base>...HEAD` and review by its tier (rule 3).
+Run `python "<home>/.caddis/bin/caddis_run.py" caddis_gate.py review-tier --range <base>...HEAD` and review by its tier (rule 3).
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: one `/caddis:cross-review` by one other vendor (two only when the owner asks). No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 

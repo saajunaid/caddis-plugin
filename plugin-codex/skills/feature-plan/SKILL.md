@@ -41,7 +41,7 @@ Absolute rules in this mode (they override everything below):
   a bullet under `## Constraints & decisions` — never a question to the user.
 - **Honor the caller's output path and slug** (falling back to `.caddis/plans/<feature-slug>.md`);
   set `feature: <slug>` in the frontmatter to that slug.
-- **Do not write `jira_epic` or `confluence_parent`** (Step 1b is interactive only). Add the assumption: no Jira
+- **Do not write `jira_epic`, `confluence_parent`, `confluence_tracker` or `confluence_tracker_parent`** (Step 1b is interactive only). Add the assumption: no Jira
   Epic or Confluence page was given (headless). Add both fields to publish the stories with `/caddis:stories`.
 - **Always write the plan file, then end with exactly one fenced `json` highlights block** — nothing
   after it:
@@ -100,9 +100,13 @@ Skip this step in headless mode. Ask the user one self-contained AskUserQuestion
 - "Is there a Confluence HLA or HLSA page for this project? Give its URL."
 - "Is there a Jira Epic for this work? Give its key, for example ABC-123."
 
+Only when the user gives a Jira Epic, add a third question to the same AskUserQuestion: "Should this work get a Confluence tracker page for managers (swimlanes, status, target dates as estimates, open decisions)? Give the URL of the tracker page, or write 'under <URL>' to create it under that page."
+
 Write `confluence_parent: <URL>` and `jira_epic: <KEY>` into the plan frontmatter only for the answers the user
 gives. With both fields, `/caddis:stories` publishes each phase as a development story to the Confluence page
 titled with the Epic key, and `/caddis:implement` syncs it after each Tracker update.
+
+Write `confluence_tracker: <URL>` for a page URL, or `confluence_tracker_parent: <URL>` for 'under <URL>'. No answer: write neither. The first merge after the plan lands creates or updates the page (`caddis_tracker.py sync-all`).
 
 ## Step 2 — Design phases
 Break the work into **independently completable** phases (~30–60 min each, clear exit gate). Each phase
@@ -122,7 +126,7 @@ names the model AND the effort, in this form:
 `**Model:** <model>, effort <low|medium|high> — <one-line reason tied to this phase's difficulty>`.
 Take the default from the session table. It prints `<model> <effort>`:
 ```
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts/caddis_routing.py" session --role <role>
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_routing.py" session --role <role>
 ```
 (Source checkout: `claude-harness/scripts/caddis_routing.py`.) Pick the role by the phase:
 - `mechanical-phase` — mechanical, fully specified phases that repeat an existing pattern.
@@ -159,7 +163,7 @@ A tier can be served by an OSS provider instead of Anthropic (cheat sheet:
   - `ui`: `claude`, `codex-astra`
   - `tests`: `codex-sol`, `glm`, `claude`
   - `docs`: `agy`, `glm`, `claude`
-  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
+  Use `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_lanes.py" run --plan <plan-path> --phase N
   --type <type>` as the launch command. The chains are defaults, not limits on Claude: while Claude
   has budget, give any phase the `claude` lane. Override chains and model pins per project in
   `.caddis/config.toml` `[lanes.chains]` and `[lanes.models]`.
@@ -180,7 +184,7 @@ work; a headless one records the deviation in the Tracker. Write the launch comm
 phase — it is executed verbatim.
 
 **Choose each phase's Lane from the routing table.** Run
-`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts/caddis_routing.py" show --json`. A phase the orchestrator
+`python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_routing.py" show --json`. A phase the orchestrator
 does itself (verification, measurement, release judgement) uses the `critical` role. A phase whose
 Implementer line says "light" uses `light`. Every other phase uses `coding`. Take the first model
 of that role and write its Lane line as follows:
@@ -189,10 +193,10 @@ of that role and write its Lane line as follows:
 - `sonnet`: `claude — /model sonnet`
 - `claude`: `claude — this session`
 - `codex`: codex — `codex exec --ephemeral --sandbox workspace-write "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
-- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <agy-model-id> --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 40m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
+- `agy`: agy — `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_spend.py" run --caller lane-pN -- agy --model <agy-model-id> --mode accept-edits --dangerously-skip-permissions --add-dir . --print-timeout 40m --output-format json -p "HEADLESS RUN RULES. Read <plan path> and its Constraints. Implement Phase N only in the current checkout. Do not switch or create branches, commit, push, or edit files outside this phase. Run its exit gate and report the literal result."`
 
 Replace `<plan path>` and `N` (also in `lane-pN`) with this plan's path and phase number. Replace
-`<agy-model-id>` with the id that `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts/caddis_routing.py" agy-model --effort <the effort
+`<agy-model-id>` with the id that `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_routing.py" agy-model --effort <the effort
 on this phase's Model line>` prints (it reads `AGY_MODEL_BY_EFFORT`; no effort gives `gemini-4-carbon-high`). Never type
 a model id from memory: it rots. Keep `--model <id>` BEFORE `-p` (agy reads `--model` only before `--print`). Without it
 agy runs its own default model, not the routed one (a downstream run, 2026-11-18: 7 of 7 lane runs had no `--model`, ran the
@@ -320,6 +324,7 @@ status: draft
 feature: <feature-slug>
 jira_epic: <KEY>
 confluence_parent: <URL of the HLA or HLSA page>
+confluence_tracker: <URL of the tracker page, or confluence_tracker_parent: <URL>>
 creation-agent: caddis
 Original Author: Claude Code
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
@@ -488,7 +493,7 @@ Three rules: one attempt, one review.
 Notes holds "measured <key>=<value>" for each Requires measured key of the phase.
 ```
 
-`jira_epic` and `confluence_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
+`jira_epic`, `confluence_parent`, `confluence_tracker` and `confluence_tracker_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
 
 Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
 `in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell
@@ -563,7 +568,7 @@ Small work that does not meet a trigger skips its block.
 
 ## Step 3b — Offer to publish the stories (interactive only)
 Skip this step in headless mode, and skip it when the plan frontmatter lacks either `jira_epic` or `confluence_parent`.
-Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts/caddis_stories.py" sync --plan "<plan path>" --dry-run`.
+Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.213/scripts/caddis_stories.py" sync --plan "<plan path>" --dry-run`.
 - Exit 0: show the `ACTION:` and `PAGE:` lines, then ask one AskUserQuestion: "Publish the stories to the Epic page now?
   The page shows the plan status, for example draft. `/caddis:implement` re-syncs them after each phase." On yes, run
   the same command without `--dry-run`. On no, print `Stories: not published - run /caddis:stories <plan path> later`.

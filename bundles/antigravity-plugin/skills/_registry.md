@@ -51,11 +51,10 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Code Documentation | `code-documentation/` | Write code documentation: API docs, README files, inline comments and developer guides. |
-| Confluence Hla | `confluence-hla/` | High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture. |
-| Data Lineage | `data-lineage/` | Generate End-to-End Data Lineage and Telemetry Specification Markdown and Confluence XHTML for fleet observability. |
+| Confluence Hla | `confluence-hla/` | Deprecated: use /hla. Redirects to the /hla skill, which publishes through caddis_confluence.py |
+| Data Lineage | `data-lineage/` | Deprecated: use /lld. Redirects to /lld, which publishes through caddis_confluence.py |
 | Explainer Doc | `explainer-doc/` | Write a self-contained hand-off spec for an external team or vendor. Use when the user says "write a spec for the X team", "explainer doc", "spec for a vendor", or "hand this off to Y". |
-| Hld | `hld/` | Generate High-Level Design (HLD) Markdown documentation and Confluence XHTML with native PlantUML diagrams. |
-| Lld | `lld/` | Generate Lower-Level Design (LLD) Markdown documentation and Confluence XHTML with native PlantUML diagrams. |
+| Hld | `hld/` | Deprecated: use /hla. Redirects to /hla, which publishes through caddis_confluence.py |
 | Office Documents Official | `office-documents-official/` | Hint for Office and PDF file work. Use when the user asks to create, edit, read or convert a Word .docx, PDF, PowerPoint .pptx or Excel .xlsx file. caddis does not ship these skills; points to Anthropic's official document-skills plugin. |
 | Tech Explainer | `tech-explainer/` | >- |
 | Technical Writing | `technical-writing/` | Documentation best practices for READMEs, API docs, architecture docs, runbooks and developer guides. Use when writing or reviewing docs or setting documentation standards. |
@@ -93,9 +92,12 @@
 | Glossary | `glossary/` | Define the words this project invented, in one place — .caddis/kb/GLOSSARY.md |
 | Graph Email | `graph-email/` | Send a Markdown file as an email through Microsoft Graph or SMTP, as set in ~/.caddis/email.toml. Default recipient is the owner. |
 | Handoff | `handoff/` | End-of-session handoff — capture exact state so the next session resumes with zero re-discovery |
+| Hla | `hla/` | Write the High-Level Architecture (HLA) for Gate 2 sign-off as Markdown in Git, and publish it to Confluence with 2x Mermaid figures |
 | Implement | `implement/` | Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase |
 | Install Statusline | `install-statusline/` | Install the caddis status line into Claude Code and agy — one renderer, once per machine |
+| Jira | `jira/` | Jira for a plan — read the Epic, run the human-gated Q&A loop, sync one Story per phase, move issues through the workflow |
 | Kb | `kb/` | Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links |
+| Lld | `lld/` | Write the living Low-Level Design (LLD) as Markdown in Git, publish it to Confluence with 2x Mermaid figures, and keep its generated db-catalog and data-lineage sections current |
 | Mermaid Db | `mermaid-db/` | Turn a SQL artifact (proc, view, query, .sql file, or table name) into a Mermaid diagram that explains it — git-diffable, saved as .md |
 | Migrate Dir | `migrate-dir/` | Rename this repo's legacy `.claudster/` artifact dir to `.caddis/` — dry-run first, `git mv` to keep history, merges a straggler dir, rewrites live refs. Opt-in, never automatic. |
 | Mmr | `mmr/` | Multi-Model Review & Runner (MMR) — run an ad-hoc task in an isolated multi-lane sandbox with rate-limit failover, test gates, and second-vendor review, or run a fast cross-model review on a diff |

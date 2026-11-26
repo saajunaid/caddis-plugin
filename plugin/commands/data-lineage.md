@@ -1,33 +1,9 @@
 ---
-description: Generate End-to-End Data Lineage and Telemetry Specification Markdown and Confluence XHTML for fleet observability.
-argument-hint: (no arguments — documents the app in this repo)
+description: "Deprecated: use /lld. Redirects to /lld, which publishes through caddis_confluence.py"
+argument-hint: (no arguments, deprecated, use /lld)
 stage: plan
 ---
 
-# /data-lineage Command
+# /data-lineage (deprecated): use /lld
 
-Run the End-to-End Data Lineage generation procedure:
-
-1. **Target Architecture & Telemetry Discovery:**
-   - Scan target application routes, pages, and controllers.
-   - Trace API handlers down to physical tables, views, and columns.
-   - Identify database server stored procedures, batch scripts, and scheduled SQL Agent jobs that populate each dataset.
-   - Cross-reference estate configuration catalogs to identify hostnames, IPs, ports, and synthetic health probe endpoints.
-
-2. **Author Canonical Markdown Document:**
-   - Create document at `docs/<app>/<app>-data-lineage.md`.
-   - Adhere strictly to the standard 5-section lineage structure:
-     1. Physical Estate & Host Infrastructure (servers, IPs, ports, database instances, access methods).
-     2. End-to-End Dependency & Impact Flowchart (vibrant Mermaid flowchart from feeds down to UI surfaces).
-     3. Comprehensive 7-Column Lineage Matrix (`App`, `UI Page`, `API Route`, `Dataset`, `Producer`, `Database`, `Physical Host`).
-     4. Stored Procedures & Producer Execution Catalog (schedules, triggers, parameters, source and target tables).
-     5. Telemetry Ingestion Contract (machine-readable JSON target graph).
-   - Use ASD-STE100 Simplified Technical English: active voice, short sentences, zero em-dashes.
-
-3. **Convert to Confluence Storage Format XHTML:**
-   - Run the PlantUML-enabled converter:
-     ```powershell
-     python "${CLAUDE_PLUGIN_ROOT}/scripts/convert_doc_to_confluence.py" docs/<app>/<app>-data-lineage.md --output docs/<app>/<app>-data-lineage.html --diagram-type plantuml
-     ```
-   - Verify that all diagrams convert to native `<ac:structured-macro ac:name="plantuml">` blocks with scale 1.2, natural splines, auto-wrapped edge labels, crimson red borders on impacted components, and embedded Creole legends.
-   - Verify that output validates as 100% well-formed XML.
+This command is deprecated and will be removed in the next release. Use `/lld` instead. `/lld` step 7 writes the data lineage matrix (domain -> source -> staging -> SP -> mart -> API -> UI) as Markdown in Git (`docs/<app>/<app>-data-lineage.md`) and publishes it as the `data-lineage` section of the LLD page with `python "<home>/.caddis/bin/caddis_run.py" caddis_confluence.py publish --page-id <ID> --slug data-lineage --input docs/<app>/<app>-data-lineage.md`. On agy and Codex, `/lld` is the `lld` skill. Run `/lld` now with the same request.

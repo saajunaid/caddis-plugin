@@ -52,6 +52,34 @@ def last_context(path: Path | str, tail_bytes: int = 262_144) -> int | None:
     return None
 
 
+def last_agy_context(path: Path | str, tail_bytes: int = 262_144) -> int | None:
+    """Read the last tail_bytes of an agy transcript.jsonl and return latest input_tokens + cache_read_tokens."""
+    p = Path(path)
+    try:
+        size = p.stat().st_size
+        with p.open("rb") as fh:
+            fh.seek(max(0, size - tail_bytes))
+            lines = fh.read().decode("utf-8", errors="ignore").split("\n")
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"input_tokens"' not in line and '"cache_read_tokens"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        try:
+            total = int(rec.get("input_tokens") or 0) + int(rec.get("cache_read_tokens") or 0)
+        except (TypeError, ValueError):
+            continue
+        if total > 0:
+            return total
+    return None
+
+
 def _has_true_sidechain(line: str) -> bool:
     return '"isSidechain":true' in line or '"isSidechain": true' in line
 

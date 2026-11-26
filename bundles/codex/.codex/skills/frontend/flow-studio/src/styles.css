@@ -22,10 +22,11 @@
   * { box-sizing:border-box; }
   body { margin:0; color:var(--fg); font:14px/1.45 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
     background:radial-gradient(900px 380px at 8% -10%, var(--glow), transparent 60%), var(--bg); }
+  .fs-root { position:relative; }
   .mono { font-family:var(--mono); }
   header.top { display:flex; align-items:center; gap:16px; padding:10px 20px; border-bottom:1px solid var(--edge); background:color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter:blur(10px); position:sticky; top:0; z-index:70; }
   .brand { font-weight:700; display:flex; align-items:center; gap:8px; }
-  .brand i { width:10px; height:10px; border-radius:50%; background:var(--ok); animation:beat 2.6s infinite; }
+  .brand i { width:10px; height:10px; border-radius:50%; background:var(--ok); animation:fs-beat 2.6s infinite; }
   .crumb { color:var(--muted); } .spacer { flex:1; }
   button, select, input { font:inherit; color:var(--fg); background:var(--panel); border:1px solid var(--edge); border-radius:6px; padding:4px 11px; }
   button { cursor:pointer; transition:border-color .15s, box-shadow .15s, background .15s; }
@@ -86,14 +87,14 @@
   .node.ref { padding:4px 9px; border-style:dashed; box-shadow:none; background:color-mix(in srgb, var(--panel) 70%, transparent); } .node.ref .t { font-size:12px; } .node.ref .t .name { display:block; min-width:0; white-space:nowrap; text-overflow:ellipsis; } .node.ref .s { font-size:11px; }
   .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.28; } .node.off { opacity:0; visibility:hidden; transform:translateY(8px); pointer-events:none; }
   .node .bar { position:absolute; left:0; right:0; bottom:0; display:flex; height:4px; overflow:hidden; border-radius:0 0 7px 7px; background:var(--panel2); } .node .bar i { display:block; height:100%; } .bar .good { background:var(--ok); } .bar .neutral { background:var(--muted); } .bar .gap { background:var(--warn); }
-  .newdot { display:none; width:7px; height:7px; border-radius:50%; background:var(--accent); margin:5px 4px 0 0; flex:none; } body.alt .node.isnew .newdot { display:inline-block; }
-  body.alt .node.isnew.pulse { animation:newring 1.8s ease-out 1; }
+  .newdot { display:none; width:7px; height:7px; border-radius:50%; background:var(--accent); margin:5px 4px 0 0; flex:none; } .fs-root.alt .node.isnew .newdot { display:inline-block; }
+  .fs-root.alt .node.isnew.pulse { animation:fs-newring 1.8s ease-out 1; }
   .cor { position:absolute; top:5px; width:17px; height:17px; border-radius:50%; font-size:10px; display:flex; align-items:center; justify-content:center; font-weight:700; }
   .cor.up { right:6px; background:var(--info-bg); color:var(--accent); } .cor.meas { right:6px; background:var(--ok-bg); color:var(--ok); } .cor.up + .cor.meas { right:27px; }
   .node.hascor .t { padding-right:24px; } .node.hascor2 .t { padding-right:44px; }
   #viewport.lod1 .node .s, #viewport.lod1 .bandlabel .bn { display:none; } #viewport.lod2 .node .cor, #viewport.lod2 .node.ref .s { display:none; }
   path.edge { fill:none; stroke-width:var(--edge-w); transition:opacity .35s; vector-effect:non-scaling-stroke; }
-  path.edge.hot { stroke:var(--accent); stroke-width:var(--edge-w-hot); opacity:1; stroke-dasharray:6 8; animation:flowhot .9s linear infinite; filter:drop-shadow(0 0 3px var(--accent)); }
+  path.edge.hot { stroke:var(--accent); stroke-width:var(--edge-w-hot); opacity:1; stroke-dasharray:6 8; animation:fs-flowhot .9s linear infinite; filter:drop-shadow(0 0 3px var(--accent)); }
   path.edge.dim { opacity:.07; filter:none; } path.edge.off { opacity:0; }
   .elabel { position:absolute; font-size:11px; padding:0 6px; border-radius:9px; background:var(--panel); border:1px solid var(--edge); color:var(--muted); white-space:nowrap; transform:translate(-50%,-50%); opacity:0; transition:opacity .35s; z-index:4; } .elabel.show { opacity:1; } .elabel.off { display:none; }
   #cols { position:absolute; left:0; right:0; top:0; height:44px; pointer-events:none; z-index:20; background:linear-gradient(var(--bg) 62%, transparent); }
@@ -129,7 +130,7 @@
   .ledger { margin:12px 0 0; border-top:1px solid var(--rule); padding-top:10px; } .ledger h4 { margin:0 0 6px; font-size:10.5px; color:var(--muted); font-weight:400; } .ledger p { margin:0 0 4px; font-size:12px; color:var(--muted); line-height:1.55; } .ledger p b { color:var(--fg); }
   .marker { position:absolute; z-index:90; width:24px; height:24px; border-radius:50%; background:#8250df; color:#fff; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 3px rgba(130,80,223,.3), var(--shadow); cursor:pointer; border:0; padding:0; } .marker:hover, .marker.on { box-shadow:0 0 0 5px rgba(130,80,223,.45); transform:scale(1.1); }
   .anchored { outline:2px dashed #8250df; outline-offset:3px; }
-  #drawer { position:fixed; top:56px; left:0; bottom:0; width:380px; background:var(--panel); border-right:1px solid var(--edge); box-shadow:var(--shadow); z-index:80; transform:translateX(-100%); transition:transform .3s cubic-bezier(.2,.8,.2,1); overflow:auto; padding:14px 16px; } body.notes #drawer { transform:none; } main { transition:margin-left .3s cubic-bezier(.2,.8,.2,1); } body.notes main { margin-left:380px; } @media (max-width:1100px) { body.notes main { margin-left:0; } }
+  #drawer { position:fixed; top:56px; left:0; bottom:0; width:380px; background:var(--panel); border-right:1px solid var(--edge); box-shadow:var(--shadow); z-index:80; transform:translateX(-100%); transition:transform .3s cubic-bezier(.2,.8,.2,1); overflow:auto; padding:14px 16px; } .fs-root.notes #drawer { transform:none; } main { transition:margin-left .3s cubic-bezier(.2,.8,.2,1); } .fs-root.notes main { margin-left:380px; } @media (max-width:1100px) { .fs-root.notes main { margin-left:0; } }
   #drawer h2 { margin:0 0 8px; font-size:15px; } #drawer .ncard { border:1px solid var(--edge); padding:8px 10px; margin:8px 0; font-size:12.5px; } #drawer .ncard.on { border-color:#8250df; box-shadow:0 0 0 3px rgba(130,80,223,.25); }
   #drawer .ncard b { display:flex; gap:8px; align-items:center; margin-bottom:2px; font-size:13px; } #drawer .ncard b span { background:#8250df; color:#fff; width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; flex:none; }
   details.tableview, details.spec { margin:12px 0; background:var(--panel); border:1px solid var(--edge); padding:8px 14px; } details summary { cursor:pointer; color:var(--accent); font-weight:600; }
@@ -144,21 +145,21 @@
   .bandlabel:hover b { color:var(--accent); }
   .node:hover { transform:translateY(-2px); }
   .node.lit { border-color:var(--accent); box-shadow:0 0 0 2px var(--glow), 0 0 18px var(--glow), var(--shadow); }
-  .node.sel { animation:selpulse 2.4s ease-out infinite; }
-  .node.fail { border-color:var(--crit); background:var(--crit-bg); box-shadow:0 0 0 2px var(--crit-bg), 0 0 20px color-mix(in srgb, var(--crit) 45%, transparent); animation:failflash .9s ease-out 1; } .node.fail .s { color:var(--crit); font-weight:600; }
+  .node.sel { animation:fs-selpulse 2.4s ease-out infinite; }
+  .node.fail { border-color:var(--crit); background:var(--crit-bg); box-shadow:0 0 0 2px var(--crit-bg), 0 0 20px color-mix(in srgb, var(--crit) 45%, transparent); animation:fs-failflash .9s ease-out 1; } .node.fail .s { color:var(--crit); font-weight:600; }
   path.trail { fill:none; stroke:var(--accent); vector-effect:none; stroke-width:calc(var(--trail-w) / var(--k, 1)); stroke-linecap:round; filter:drop-shadow(0 0 4px var(--accent)); opacity:.95; }
   path.ripple { fill:none; stroke:var(--crit); vector-effect:none; stroke-width:calc(var(--ripple-w) / var(--k, 1)); stroke-linecap:round; filter:drop-shadow(0 0 4px var(--crit)); }
-  .intro .band { animation:fadein .6s both; } .intro .node { animation:rise .55s both; animation-delay:calc(var(--c, 0) * 60ms + 150ms); } .intro #edges { animation:fadein 1s .5s both; }
-  .intro .lcell, .intro .tile { animation:rise .5s both; animation-delay:calc(var(--i, 0) * 55ms); }
+  .intro .band { animation:fs-fadein .6s both; } .intro .node { animation:fs-rise .55s both; animation-delay:calc(var(--c, 0) * 60ms + 150ms); } .intro #edges { animation:fs-fadein 1s .5s both; }
+  .intro .lcell, .intro .tile { animation:fs-rise .5s both; animation-delay:calc(var(--i, 0) * 55ms); }
   #viewport:focus-visible { outline-offset:-2px; }
-  @keyframes fadein { from { opacity:0; } to { opacity:1; } }
-  @keyframes flowd { to { stroke-dashoffset:-26; } } @keyframes flowc { to { stroke-dashoffset:-27; } } @keyframes flowhot { to { stroke-dashoffset:-28; } }
-  @keyframes selpulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px var(--glow); } 80%, 100% { box-shadow:0 0 0 14px transparent, 0 0 18px var(--glow); } }
-  @keyframes breathe { 0%, 100% { box-shadow:0 0 0 0 transparent, var(--shadow); } 50% { box-shadow:0 0 16px 1px color-mix(in srgb, var(--breath, var(--warn)) 40%, transparent), var(--shadow); } }
-  @keyframes failflash { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--crit) 60%, transparent); } 100% { box-shadow:0 0 0 16px transparent; } }
-  @keyframes newring { 0% { box-shadow:0 0 0 0 var(--accent); } 100% { box-shadow:0 0 0 14px transparent; } }
-  @keyframes flow { to { stroke-dashoffset:-28; } } @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } } @keyframes ring { to { box-shadow:0 0 0 14px transparent; } }
-  @keyframes beat { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);} 70%,100%{box-shadow:0 0 0 9px transparent;} }
+  @keyframes fs-fadein { from { opacity:0; } to { opacity:1; } }
+  @keyframes fs-flowd { to { stroke-dashoffset:-26; } } @keyframes fs-flowc { to { stroke-dashoffset:-27; } } @keyframes fs-flowhot { to { stroke-dashoffset:-28; } }
+  @keyframes fs-selpulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px var(--glow); } 80%, 100% { box-shadow:0 0 0 14px transparent, 0 0 18px var(--glow); } }
+  @keyframes fs-breathe { 0%, 100% { box-shadow:0 0 0 0 transparent, var(--shadow); } 50% { box-shadow:0 0 16px 1px color-mix(in srgb, var(--breath, var(--warn)) 40%, transparent), var(--shadow); } }
+  @keyframes fs-failflash { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--crit) 60%, transparent); } 100% { box-shadow:0 0 0 16px transparent; } }
+  @keyframes fs-newring { 0% { box-shadow:0 0 0 0 var(--accent); } 100% { box-shadow:0 0 0 14px transparent; } }
+  @keyframes fs-flow { to { stroke-dashoffset:-28; } } @keyframes fs-rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } } @keyframes fs-ring { to { box-shadow:0 0 0 14px transparent; } }
+  @keyframes fs-beat { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);} 70%,100%{box-shadow:0 0 0 9px transparent;} }
   .fs-hovercard { position:absolute; z-index:35; max-width:320px; padding:7px 10px; background:var(--panel); border:1px solid var(--edge); border-radius:8px; box-shadow:var(--shadow); color:var(--fg); font-size:12px; line-height:1.4; white-space:normal; overflow-wrap:break-word; cursor:default; user-select:text; opacity:1; transition:opacity .12s ease-out; }
   .fs-hovercard[hidden] { display:none; }
   .fs-hovercard-title { display:block; font-weight:600; color:var(--fg); margin-bottom:2px; }
@@ -181,10 +182,10 @@
   path.edge.visited { stroke:var(--accent); opacity:.7; }
   .node.playing { outline:2px solid var(--accent); outline-offset:2px; }
   /* The pulse runs only while the player really plays; a paused step keeps the plain outline. */
-  body.playing .node.playing { animation:selpulse 1.8s ease-out infinite; }
+  .fs-root.playing .node.playing { animation:fs-selpulse 1.8s ease-out infinite; }
   .node.visited::after { content:"✓"; position:absolute; right:3px; bottom:1px; color:var(--accent); font-size:11px; }
-  .node.updated { animation:newring 1.2s ease-out 1; }
-  .node.added { animation:rise 1.2s ease-out 1; }
+  .node.updated { animation:fs-newring 1.2s ease-out 1; }
+  .node.added { animation:fs-rise 1.2s ease-out 1; }
   .node .t .name { min-width:0; flex:1 1 auto; }
   .node .metric-badge { flex:none; max-width:72px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative; padding-bottom:3px; text-align:right; font:11px var(--mono); color:var(--accent); }
   .node .metric-badge i { display:block; height:2px; position:absolute; bottom:0; left:0; background:var(--accent); }

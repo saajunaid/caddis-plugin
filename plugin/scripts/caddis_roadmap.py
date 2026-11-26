@@ -61,6 +61,7 @@ Usage: caddis_roadmap.py list [--root DIR] [--json]
                          [--by-owner] [--dry-run]
        caddis_roadmap.py rollup --roadmap SLUG [--root DIR] --id ID [--dry-run]
        caddis_roadmap.py recheck --roadmap SLUG [--root DIR] [--dry-run]
+       caddis_roadmap.py reconcile --roadmap SLUG [--root DIR] [--apply] [--stories] [--tracker] [--strict] [--dry-run] [--json]
 """
 
 from __future__ import annotations
@@ -181,6 +182,7 @@ OUTPUT_TAIL_BYTES = 64 * 1024
 OUTPUT_FILE_CAP = 1024 * 1024  # a check's on-disk output never grows past this
 GIT_NET_TIMEOUT = 120
 GH_TIMEOUT = 60
+STORIES_SYNC_TIMEOUT = 120
 MERGE_CHAIN_TIMEOUT = 1800
 GIT_NETWORK_CMDS = ("fetch", "ls-remote", "push")
 NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
@@ -1258,22 +1260,24 @@ class BoundedTimeout(RoadmapError):
     """run_bounded timed out (exit 3)."""
 
 
-def run_bounded(argv: list[str], timeout: float, what: str, capture: bool = True) -> subprocess.CompletedProcess:
+def run_bounded(argv: list[str], timeout: float, what: str, capture: bool = True,
+                cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run one network command (git fetch/ls-remote/push, gh, the merge chain) with no credential prompt.
 
     Output goes to temp files, not pipes, so a child that keeps a pipe open cannot hang the read. A timeout kills
     the tree and raises BoundedTimeout (exit 3); Ctrl+C kills the tree and re-raises.
     """
     env = _quiet_env()
+    extra = {"cwd": str(cwd)} if cwd is not None else {}
     if not capture:
-        proc, job = _start(argv, env=env)
+        proc, job = _start(argv, env=env, **extra)
         with _owned(proc, job):
             rc = _wait(proc, job, timeout, kill_always=False)
         if rc is None:
             raise BoundedTimeout(f"{what} timed out after {timeout:.0f} s", caddis_exit.NOT_RUN)
         return subprocess.CompletedProcess(argv, rc, "", "")
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        proc, job = _start(argv, env=env, stdout=out, stderr=err)
+        proc, job = _start(argv, env=env, stdout=out, stderr=err, **extra)
         with _owned(proc, job):
             rc = _wait(proc, job, timeout, kill_always=False)
         if rc is None:
@@ -2164,6 +2168,464 @@ def recheck(root: Path, slug: str, dry_run: bool = False, out=print, today: date
     return caddis_exit.CLEAN if n > 0 else caddis_exit.BLOCKED
 
 
+# -- reconcile ---------------------------------------------------------------------------------------------------
+
+
+def _ready_rollups(snap: Snapshot) -> list[Milestone]:
+    """Phase-backed milestones eligible for `rollup`, reusing `_rollup_gate` directly.
+
+    Phaseless milestones (`Phases = -`, e.g. owner/business sign-off gates) are excluded so
+    `all([])` does not vacuously mark them ready; they roll up explicitly via `rollup --id`.
+    """
+    ready: list[Milestone] = []
+    for ms in snap.roadmap.milestones:
+        if not ms.phases:
+            continue
+        try:
+            if _rollup_gate(snap, ms.id) is not None:
+                ready.append(ms)
+        except RoadmapError:
+            continue
+    return ready
+
+
+def _in_progress_drift(snap: Snapshot, exclude_ids: set[str]) -> list[Milestone]:
+    """Milestones still `todo` on origin/<default> that already have at least one merged (`done`) phase."""
+    drift: list[Milestone] = []
+    for ms in snap.roadmap.milestones:
+        if ms.status != "todo" or ms.id in exclude_ids:
+            continue
+        if any(snap.phases.state(ref) == "done" for ref in ms.phases):
+            drift.append(ms)
+    return drift
+
+
+def query_hub_workflow(root: Path, branch: str | None = None) -> dict:
+    """Query the latest run of `roadmap-pages.yml` on `branch` via `gh run list`; best-effort, returns `unknown` on error."""
+    argv = ["gh", "run", "list", "--workflow", "roadmap-pages.yml", "--limit", "1",
+            "--json", "status,conclusion,url,databaseId"]
+    if branch:
+        argv.extend(["--branch", branch])
+    try:
+        proc = run_bounded(argv, GH_TIMEOUT, "gh run list (roadmap-pages.yml)", cwd=root)
+    except (OSError, RoadmapError) as exc:
+        return {"status": "unknown", "conclusion": None, "url": None, "databaseId": None,
+                "workflow_present": True, "reason": f"gh unavailable: {exc}"}
+    if proc.returncode != 0:
+        return {"status": "unknown", "conclusion": None, "url": None, "databaseId": None,
+                "workflow_present": True, "reason": (proc.stderr or proc.stdout).strip()[:200] or "gh error"}
+    try:
+        runs = json.loads(proc.stdout or "[]")
+    except ValueError:
+        return {"status": "unknown", "conclusion": None, "url": None, "databaseId": None,
+                "workflow_present": True, "reason": "invalid gh output"}
+    if not isinstance(runs, list) or not runs or not isinstance(runs[0], dict):
+        return {"status": "unknown", "conclusion": None, "url": None, "databaseId": None,
+                "workflow_present": True, "reason": "no runs"}
+    latest = runs[0]
+    return {
+        "status": latest.get("status") or "unknown",
+        "conclusion": latest.get("conclusion"),
+        "url": latest.get("url"),
+        "databaseId": latest.get("databaseId"),
+        "workflow_present": True,
+    }
+
+
+def _hub_workflow_status(root: Path, branch: str) -> dict:
+    wf = ".github/workflows/roadmap-pages.yml"
+    present = show(root, branch, wf) is not None or (root / wf).is_file()
+    if not present:
+        return {"status": "unknown", "conclusion": None, "url": None, "databaseId": None,
+                "workflow_present": False, "reason": "workflow file absent"}
+    result = dict(query_hub_workflow(root, branch))
+    result.setdefault("workflow_present", True)
+    return result
+
+
+def _hub_failed(hub: dict) -> bool:
+    return hub.get("status") == "completed" and hub.get("conclusion") not in ("success", "neutral", "skipped", None)
+
+
+def find_open_pr(root: Path, gh_repo: str, branch: str) -> dict | None:
+    """Return the first open PR {number, url, headRefOid, title, body} for head `branch`, or None."""
+    argv = ["gh", "pr", "list", "--repo", gh_repo, "--head", branch, "--state", "open",
+            "--json", "number,url,headRefOid,title,body"]
+    proc = run_bounded(argv, GH_TIMEOUT, f"gh pr list ({branch})", cwd=root)
+    if proc.returncode != 0:
+        raise RoadmapError(f"could not list PRs for {branch}: {(proc.stderr or proc.stdout).strip()[:300]}",
+                           caddis_exit.BLOCKED)
+    prs = json.loads(proc.stdout or "[]")
+    return prs[0] if isinstance(prs, list) and prs else None
+
+
+def edit_pr(root: Path, gh_repo: str, pr_number: int, title: str, body: str) -> None:
+    """Update an existing open PR's title and body via `gh pr edit`."""
+    argv = ["gh", "pr", "edit", str(pr_number), "--repo", gh_repo, "--title", title, "--body", body]
+    proc = run_bounded(argv, GH_TIMEOUT, f"gh pr edit #{pr_number}", cwd=root)
+    if proc.returncode != 0:
+        raise RoadmapError(f"could not update PR #{pr_number}: {(proc.stderr or proc.stdout).strip()[:300]}",
+                           caddis_exit.BLOCKED)
+
+
+def _check_confluence_credentials(env: dict[str, str] | None = None) -> tuple[bool, str]:
+    """Delegate Confluence credential resolution to `caddis_stories` so the two can never drift."""
+    import caddis_stories
+
+    source = os.environ if env is None else env
+    try:
+        caddis_stories.load_config(source)
+        return True, ""
+    except caddis_stories.ConfigError as exc:
+        return False, str(exc)
+
+
+def _configured_story_plans(snap: Snapshot) -> list[tuple[str, str]]:
+    """[(plan_slug, plan_text)] for every plan referenced in `roadmap.md` on origin/<default> that declares both
+    non-empty `jira_epic` and `confluence_parent` in YAML frontmatter."""
+    from caddis_frontmatter import split_document
+
+    seen: set[str] = set()
+    plans: list[tuple[str, str]] = []
+    for ms in snap.roadmap.milestones:
+        for ref in ms.phases:
+            if not REF_RE.match(ref):
+                continue
+            plan = match_ref(ref)
+            if plan in seen:
+                continue
+            seen.add(plan)
+            text = show(snap.root, snap.branch, f".caddis/plans/{plan}.md")
+            if text is None:
+                text = show(snap.root, snap.branch, f".caddis/plans/done/{plan}.md")
+            if text is None:
+                continue
+            meta, _ = split_document(text)
+            epic = meta.get("jira_epic")
+            parent = meta.get("confluence_parent")
+            if isinstance(epic, str) and epic.strip() and isinstance(parent, str) and parent.strip():
+                plans.append((plan, text))
+    return plans
+
+
+def _run_stories_sync(plan_path: Path, dry_run: bool, root: Path | None = None) -> subprocess.CompletedProcess:
+    argv = [sys.executable, str(SCRIPTS_DIR / "caddis_stories.py"), "sync", "--plan", str(plan_path)]
+    if dry_run:
+        argv.append("--dry-run")
+    return run_bounded(argv, STORIES_SYNC_TIMEOUT, f"caddis_stories.py sync ({plan_path.name})", cwd=root)
+
+
+def _sync_roadmap_stories(snap: Snapshot, dry_run: bool, out=print, json_out: bool = False) -> dict:
+    ok, reason = _check_confluence_credentials()
+    if not ok:
+        if not json_out:
+            out(f"SKIPPED: {reason}")
+        return {"status": "skipped", "reason": reason, "plans": []}
+    plans = _configured_story_plans(snap)
+    if not plans:
+        return {"status": "none", "reason": "no plans with jira_epic and confluence_parent", "plans": []}
+    results: list[dict] = []
+    any_failed = False
+    tmp_dir = Path(tempfile.mkdtemp(prefix="caddis-roadmap-stories-"))
+    try:
+        for plan, text in plans:
+            plan_file = tmp_dir / f"{plan}.md"
+            plan_file.write_bytes(text.encode("utf-8"))
+            try:
+                proc = _run_stories_sync(plan_file, dry_run, root=snap.root)
+                entry = {
+                    "plan": plan,
+                    "returncode": proc.returncode,
+                    "stdout": proc.stdout.strip(),
+                    "stderr": proc.stderr.strip(),
+                }
+            except (RoadmapError, OSError) as exc:
+                entry = {
+                    "plan": plan,
+                    "returncode": getattr(exc, "code", caddis_exit.BLOCKED),
+                    "stdout": "",
+                    "stderr": str(exc),
+                }
+            results.append(entry)
+            if entry["returncode"] != 0:
+                any_failed = True
+                if not json_out:
+                    err = entry["stderr"] or entry["stdout"] or f"exit {entry['returncode']}"
+                    out(f"stories {plan}: FAILED ({err})")
+            elif not json_out:
+                out(f"stories {plan}: {'dry-run' if dry_run else 'synced'}")
+    finally:
+        caddis_worktree_safety.remove_tree(tmp_dir)
+    status_word = "failed" if any_failed else ("dry-run" if dry_run else "synced")
+    return {"status": status_word, "plans": results}
+
+
+def _run_tracker_sync(root: Path, slug: str, ref: str, dry_run: bool) -> subprocess.CompletedProcess:
+    subcmd = "render" if dry_run else "sync"
+    argv = [sys.executable, str(SCRIPTS_DIR / "caddis_tracker.py"), subcmd,
+            "--roadmap", slug, "--root", str(root), "--ref", ref]
+    return run_bounded(argv, STORIES_SYNC_TIMEOUT, f"caddis_tracker.py {subcmd} ({slug})", cwd=root)
+
+
+def _sync_roadmap_tracker(snap: Snapshot, dry_run: bool, explicit: bool = False,
+                          out=print, json_out: bool = False) -> dict:
+    tracker_rel = f".caddis/roadmaps/{snap.slug}/tracker.md"
+    if show(snap.root, snap.branch, tracker_rel) is None:
+        if explicit and not json_out:
+            out(f"SKIPPED: no {tracker_rel}")
+        return {"status": "skipped", "reason": "no tracker.md"}
+    ok, reason = _check_confluence_credentials()
+    if not ok:
+        if not json_out:
+            out(f"SKIPPED: {reason}")
+        return {"status": "skipped", "reason": reason}
+    try:
+        proc = _run_tracker_sync(snap.root, snap.slug, f"origin/{snap.branch}", dry_run)
+        entry = {
+            "returncode": proc.returncode,
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+    except (RoadmapError, OSError) as exc:
+        entry = {
+            "returncode": getattr(exc, "code", caddis_exit.BLOCKED),
+            "stdout": "",
+            "stderr": str(exc),
+        }
+    if entry["returncode"] != 0:
+        if not json_out:
+            err = entry["stderr"] or entry["stdout"] or f"exit {entry['returncode']}"
+            out(f"tracker {snap.slug}: FAILED ({err})")
+        return {"status": "failed", **entry}
+    if not json_out:
+        out(f"tracker {snap.slug}: {'dry-run' if dry_run else 'synced'}")
+    return {"status": "dry-run" if dry_run else "synced", **entry}
+
+
+def _apply_reconcile_edits(root: Path, snap: Snapshot, ready: list[Milestone], drift: list[Milestone],
+                           dry_run: bool, out=print, json_out: bool = False) -> tuple[str, list[dict], list[str]]:
+    """Compute the reconciled roadmap text from `snap`. Returns (new_text, transitions, errors)."""
+    new_text = snap.text
+    transitions: list[dict] = []
+    errors: list[str] = []
+    setup = snap.roadmap.exit_setup
+
+    for ms in ready:
+        if dry_run:
+            if ms.exit_check and not json_out:
+                if setup:
+                    out(f"would run setup: {setup}")
+                out(f"would run: {ms.exit_check}")
+            new_text = edit_cell(new_text, ms.id, "Status", "done")
+            transitions.append({"id": ms.id, "from": ms.status, "to": "done", "kind": "rollup"})
+            continue
+
+        rc: int | None = 0
+        output = ""
+        log: Path | None = None
+        secrets: list[str] = []
+        if ms.exit_check:
+            secrets = caddis_redact.load_secrets(Path.home())
+            runs: list[tuple[str, str, int | None, str]] = []
+            setup_rc: int | None = 0
+            with merged_checkout(root, snap.branch) as cwd:
+                if setup:
+                    setup_rc, setup_output = run_check(cwd, setup, EXIT_SETUP_TIMEOUT)
+                    runs.append(("Exit setup", setup, setup_rc, setup_output))
+                if setup_rc == 0:
+                    rc, output = run_check(cwd, ms.exit_check, EXIT_CHECK_TIMEOUT)
+                    runs.append(("Exit check", ms.exit_check, rc, output))
+            if setup_rc != 0:
+                log = keep_check_output(root, snap.slug, ms.id, runs, secrets)
+                errors.append(f"{ms.id}: exit setup failed ({_failure(setup_rc, EXIT_SETUP_TIMEOUT)}); {_log_note(log)}")
+                continue
+            if rc != 0:
+                log = keep_check_output(root, snap.slug, ms.id, runs, secrets)
+                why = env_failure(rc, output)
+                if why is not None:
+                    errors.append(f"{ms.id}: exit check not run ({why}); {_log_note(log)}")
+                    continue
+
+        if rc == 0:
+            new_text = edit_cell(new_text, ms.id, "Status", "done")
+            transitions.append({"id": ms.id, "from": ms.status, "to": "done", "kind": "rollup"})
+        else:
+            failure = _failure(rc, EXIT_CHECK_TIMEOUT)
+            if any(b.type == "data-condition" for b in snap.roadmap.blockers_of(ms.id)):
+                new_text = edit_cell(new_text, ms.id, "Status", "code-done/data-pending")
+                transitions.append({"id": ms.id, "from": ms.status, "to": "code-done/data-pending", "kind": "rollup"})
+            else:
+                reason = blocker_reason(failure, output, secrets)
+                stable = f"exit check failing ({failure})"
+                new_text = add_blocker(new_text, ms.id, "external", reason, same_prefix=stable)
+                transitions.append({"id": ms.id, "from": ms.status, "to": f"block: {reason}", "kind": "rollup-failed"})
+
+    for ms in drift:
+        new_text = edit_cell(new_text, ms.id, "Status", "in-progress")
+        transitions.append({"id": ms.id, "from": "todo", "to": "in-progress", "kind": "in-progress-drift"})
+
+    parse_errors = parse_roadmap(new_text).errors
+    if parse_errors:
+        raise RoadmapError("reconcile edit would make the roadmap malformed: " + "; ".join(parse_errors))
+    return new_text, transitions, errors
+
+
+def _publish_reconcile_pr(root: Path, snap: Snapshot, new_text: str, transitions: list[dict]) -> dict:
+    """Push deterministic branch `roadmap-rollup/<slug>` and open or idempotently reuse its open PR."""
+    gh_repo = gh_repo_of(root)
+    if gh_repo is None:
+        raise RoadmapError("origin is not a GitHub remote; cannot open a docs PR", caddis_exit.NOT_RUN)
+    branch = f"roadmap-rollup/{snap.slug}"
+    path = roadmap_path(snap.slug)
+    summary = ", ".join(f"{t['id']}->{t['to']}" for t in transitions)
+    title = f"docs(roadmap): reconcile {snap.slug} ({summary})"[:120]
+    body = "Roadmap reconcile by caddis_roadmap.py:\n\n" + "\n".join(
+        f"- `{t['id']}`: `{t['from']}` -> `{t['to']}` ({t['kind']})" for t in transitions
+    )
+    existing = find_open_pr(root, gh_repo, branch)
+    tmp = Path(tempfile.mkdtemp(prefix="caddis-roadmap-reconcile-"))
+    worktree = tmp / "wt"
+    pr_info: dict = {"number": None, "url": None, "branch": branch, "action": "none"}
+    try:
+        _git(root, "worktree", "add", "--quiet", "-B", branch, str(worktree), f"origin/{snap.branch}")
+        (worktree / path).write_bytes(new_text.encode("utf-8"))
+        _git(worktree, "add", "--", path)
+        _git(worktree, "commit", "--quiet", "-m", title)
+        new_tree = _git(worktree, "rev-parse", "HEAD^{tree}").stdout.strip()
+
+        same_tree = False
+        if existing is not None:
+            _git(worktree, "fetch", "--quiet", "origin", branch, check=False)
+            existing_oid = existing.get("headRefOid") or f"origin/{branch}"
+            tree_proc = _git(worktree, "rev-parse", f"{existing_oid}^{{tree}}", check=False)
+            if tree_proc.returncode != 0:
+                tree_proc = _git(worktree, "rev-parse", f"origin/{branch}^{{tree}}", check=False)
+            if tree_proc.returncode == 0 and tree_proc.stdout.strip() == new_tree:
+                same_tree = True
+
+        if existing is not None and same_tree:
+            existing_body = (existing.get("body") or "").replace("\r\n", "\n").strip()
+            wanted_body = body.replace("\r\n", "\n").strip()
+            if existing.get("title") != title or existing_body != wanted_body:
+                edit_pr(root, gh_repo, int(existing["number"]), title, body)
+            pr_info = {"number": existing["number"], "url": existing.get("url"), "branch": branch, "action": "reused"}
+        elif existing is not None:
+            _git(worktree, "push", "--quiet", "--force-with-lease", "origin", f"HEAD:{branch}")
+            edit_pr(root, gh_repo, int(existing["number"]), title, body)
+            pr_info = {"number": existing["number"], "url": existing.get("url"), "branch": branch, "action": "updated"}
+        else:
+            _git(worktree, "push", "--quiet", "--force-with-lease", "-u", "origin", branch)
+            pushed_tip = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+            try:
+                pr_num = open_pr(root, gh_repo, branch, snap.branch, title, body)
+            except Exception:
+                _git(root, *caddis_worktree_safety.remote_delete_args(branch, pushed_tip), check=False)
+                raise
+            pr_info = {"number": pr_num, "url": f"https://github.com/{gh_repo}/pull/{pr_num}",
+                       "branch": branch, "action": "opened"}
+    finally:
+        try:
+            caddis_worktree_safety.safe_remove_worktree(root, worktree, force_locked=True, env=_quiet_env())
+            _git(root, "branch", "-D", branch, check=False)
+        finally:
+            caddis_worktree_safety.remove_tree(tmp)
+        _audit(root, snap.slug, {"utc": _utc(), "roadmap": snap.slug, "id": "reconcile", "change": summary,
+                                 "branch": branch, "pr": pr_info.get("number"), "action": pr_info.get("action")})
+    return pr_info
+
+
+def reconcile(root: Path, slug: str, apply: bool = False, stories: bool = False, tracker: bool = False,
+              strict: bool = False, dry_run: bool = False, json_out: bool = False, out=print) -> int:
+    """Inspect (and optionally apply) roadmap rollups, todo->in-progress drift, Hub workflow status, stories, and tracker."""
+    root = Path(root)
+    snap = load(root, slug)
+    ready = _ready_rollups(snap)
+    ready_ids = {ms.id for ms in ready}
+    drift = _in_progress_drift(snap, ready_ids)
+    hub = _hub_workflow_status(root, snap.branch)
+    branch = f"roadmap-rollup/{slug}"
+
+    pr_info: dict | None = None
+    transitions: list[dict] = []
+    apply_errors: list[str] = []
+
+    if apply and (ready or drift):
+        if dry_run:
+            new_text, transitions, apply_errors = _apply_reconcile_edits(root, snap, ready, drift, True, out, json_out)
+            if not json_out and new_text != snap.text:
+                out(f"would push branch {branch}:\n{_diff(snap.text, new_text, roadmap_path(slug))}")
+        else:
+            with _Lock(lock_path(root, slug)):
+                snap = load(root, slug)
+                ready = _ready_rollups(snap)
+                ready_ids = {ms.id for ms in ready}
+                drift = _in_progress_drift(snap, ready_ids)
+                new_text, transitions, apply_errors = _apply_reconcile_edits(
+                    root, snap, ready, drift, False, out, json_out
+                )
+                if new_text != snap.text:
+                    pr_info = _publish_reconcile_pr(root, snap, new_text, transitions)
+
+    # Note: during --apply, Confluence stories/tracker sync reads origin/<branch> (pre-merge state) and updates post-merge when reconcile or CI runs on merged main.
+    stories_result: dict | None = None
+    if stories:
+        stories_result = _sync_roadmap_stories(snap, dry_run, out=out, json_out=json_out)
+
+    tracker_result: dict | None = None
+    if tracker or stories:
+        tracker_result = _sync_roadmap_tracker(snap, dry_run, explicit=tracker, out=out, json_out=json_out)
+
+    hub_is_failed = _hub_failed(hub)
+    hub_is_unknown = hub.get("status") == "unknown" and hub.get("workflow_present", True)
+    stories_failed = bool(stories_result and stories_result.get("status") == "failed")
+    stories_skipped_strict = bool(strict and stories_result and stories_result.get("status") == "skipped")
+    tracker_failed = bool(tracker_result and tracker_result.get("status") == "failed")
+    tracker_skipped_strict = bool(
+        strict and tracker_result
+        and tracker_result.get("status") == "skipped"
+        and tracker_result.get("reason") != "no tracker.md"
+    )
+
+    if apply:
+        failed = bool(apply_errors or hub_is_failed or (strict and hub_is_unknown)
+                      or stories_failed or stories_skipped_strict or tracker_failed or tracker_skipped_strict)
+    else:
+        failed = bool(ready or drift or hub_is_failed or (strict and hub_is_unknown)
+                      or stories_failed or stories_skipped_strict or tracker_failed or tracker_skipped_strict)
+
+    payload = {
+        "schema": JSON_SCHEMA,
+        "roadmap": slug,
+        "branch": branch,
+        "apply": apply,
+        "dry_run": dry_run,
+        "ready_rollups": [{"id": ms.id, "status": ms.status, "phases": ms.phases} for ms in ready],
+        "in_progress_drift": [{"id": ms.id, "status": ms.status, "phases": ms.phases} for ms in drift],
+        "transitions": transitions,
+        "apply_errors": apply_errors,
+        "pr": pr_info,
+        "hub": hub,
+        "stories": stories_result,
+        "tracker": tracker_result,
+        "clean": not failed,
+    }
+    if json_out:
+        out(json.dumps(payload, indent=2))
+    else:
+        ready_text = ", ".join(ms.id for ms in ready) or "none"
+        drift_text = ", ".join(ms.id for ms in drift) or "none"
+        hub_text = f"{hub.get('status')}/{hub.get('conclusion')}" if hub.get("conclusion") else str(hub.get("status"))
+        out(f"reconcile {slug}: ready rollups: {len(ready)} ({ready_text}); "
+            f"in-progress drift: {len(drift)} ({drift_text}); hub: {hub_text}")
+        if pr_info is not None:
+            out(f"PR #{pr_info['number']} ({pr_info['action']}): {pr_info['url']} [{pr_info['branch']}]")
+        for err in apply_errors:
+            out(f"ERROR: {err}")
+        if not failed and not apply:
+            out("clean")
+    return caddis_exit.BLOCKED if failed else caddis_exit.CLEAN
+
+
 # -- CLI ---------------------------------------------------------------------------------------------------------
 
 
@@ -2375,6 +2837,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("rollup", write=True)
     p.add_argument("--id", required=True)
     add("recheck", write=True)
+    p = add("reconcile", write=True, json_out=True)
+    p.add_argument("--apply", action="store_true", help="apply ready rollups and todo->in-progress drift via PR")
+    p.add_argument("--stories", action="store_true",
+                   help="sync configured plans to Confluence via caddis_stories.py (also syncs tracker.md when present on origin/<default>)")
+    p.add_argument("--tracker", action="store_true",
+                   help="sync roadmap tracker.md alone to Confluence via caddis_tracker.py")
+    p.add_argument("--strict", action="store_true", help="fail on unknown Hub workflow status or missing Confluence credentials")
     return parser
 
 
@@ -2424,6 +2893,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         return rollup(root, args.roadmap, args.id, args.dry_run)
     if args.cmd == "recheck":
         return recheck(root, args.roadmap, args.dry_run)
+    if args.cmd == "reconcile":
+        return reconcile(root, args.roadmap, apply=args.apply, stories=args.stories, tracker=args.tracker,
+                         strict=args.strict, dry_run=args.dry_run, json_out=args.json)
     return caddis_exit.ERROR
 
 

@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scopeCss } from "./lib/scope-css.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -65,32 +66,46 @@ export async function buildLibrary() {
   // normalise BEFORE stringify: a CR inside a JSON string becomes the text "\r", which normalise() cannot remove later.
   const js = bundled.replace(marker, () => JSON.stringify(normalise(body)));
   const css = readFileSync(join(root, "src/styles.css"), "utf8");
-  return { js: normalise(js), css };
+  const scopedCss = scopeCss(css, ".fs-root");
+  return { js: normalise(js), css, scopedCss };
+}
+
+export async function checkEngineFiles(baseDir = root) {
+  const target = join(baseDir, "templates/engine.html");
+  const libTarget = join(baseDir, "templates/flow-studio.lib.mjs");
+  const cssTarget = join(baseDir, "templates/flow-studio.css");
+  const scopedCssTarget = join(baseDir, "templates/flow-studio.scoped.css");
+  const html = await buildEngine();
+  const { js, css, scopedCss } = await buildLibrary();
+  const have = existsSync(target) ? normalise(readFileSync(target, "utf8")) : "";
+  const haveLib = existsSync(libTarget) ? normalise(readFileSync(libTarget, "utf8")) : "";
+  const haveCss = existsSync(cssTarget) ? normalise(readFileSync(cssTarget, "utf8")) : "";
+  const haveScopedCss = existsSync(scopedCssTarget) ? normalise(readFileSync(scopedCssTarget, "utf8")) : "";
+  return have === html && haveLib === js && haveCss === normalise(css) && haveScopedCss === scopedCss;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const target = join(root, "templates/engine.html");
   const libTarget = join(root, "templates/flow-studio.lib.mjs");
   const cssTarget = join(root, "templates/flow-studio.css");
+  const scopedCssTarget = join(root, "templates/flow-studio.scoped.css");
   if (process.argv.includes("--check")) {
-    const html = await buildEngine();
-    const { js, css } = await buildLibrary();
-    const have = existsSync(target) ? normalise(readFileSync(target, "utf8")) : "";
-    const haveLib = existsSync(libTarget) ? normalise(readFileSync(libTarget, "utf8")) : "";
-    const haveCss = existsSync(cssTarget) ? readFileSync(cssTarget, "utf8") : "";
-    if (have !== html || haveLib !== js || haveCss !== css) {
+    if (!(await checkEngineFiles(root))) {
       console.error("Generated engine or library files are stale. Run `node --experimental-strip-types scripts/build-engine.mjs` and `node --experimental-strip-types scripts/build-engine.mjs --lib`.");
       process.exit(1);
     }
     console.log("engine and library files are up to date");
   } else if (process.argv.includes("--lib")) {
-    const { js, css } = await buildLibrary();
+    const { js, css, scopedCss } = await buildLibrary();
     writeFileSync(libTarget, js, "utf8");
     writeFileSync(cssTarget, css, "utf8");
-    console.log(`wrote templates/flow-studio.lib.mjs and templates/flow-studio.css`);
+    writeFileSync(scopedCssTarget, scopedCss, "utf8");
+    console.log("wrote templates/flow-studio.lib.mjs, templates/flow-studio.css and templates/flow-studio.scoped.css");
   } else {
     const html = await buildEngine();
+    const scopedCss = scopeCss(readFileSync(join(root, "src/styles.css"), "utf8"), ".fs-root");
     writeFileSync(target, html, "utf8");
-    console.log(`wrote templates/engine.html (${html.length} bytes)`);
+    writeFileSync(scopedCssTarget, scopedCss, "utf8");
+    console.log(`wrote templates/engine.html (${html.length} bytes) and templates/flow-studio.scoped.css`);
   }
 }

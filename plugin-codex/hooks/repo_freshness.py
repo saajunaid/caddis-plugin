@@ -420,6 +420,33 @@ def _missing_gate_note(cwd: str, top: str) -> str:
             f"checks and CI is the first gate. Install it: {how}")
 
 
+def _pending_catchup_note(env: dict | None = None) -> str:
+    """Return a single notice line when owner-waived PRs await deferred cross-vendor audit."""
+    src = os.environ if env is None else env
+    override = (src.get("CADDIS_CATCHUP_FILE") or "").strip()
+    path = Path(override) if override else (Path.home() / ".caddis" / "review-catchup.jsonl")
+    if not path.is_file():
+        return ""
+    pending = 0
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(rec, dict) and rec.get("id") and rec.get("status") == "pending":
+                pending += 1
+    except OSError:
+        return ""
+    if pending <= 0:
+        return ""
+    return (f"[HARNESS] {pending} waived PR(s) awaiting cross-vendor audit: "
+            'python "<home>/.caddis/bin/caddis_run.py" caddis_review_catchup.py run')
+
+
 def report(cwd: str, own_session_id: str = "") -> list[str]:
     """The lines to print. Empty when there is nothing worth saying."""
     global _deadline
@@ -504,6 +531,9 @@ def _report(cwd: str, own_session_id: str = "") -> list[str]:
                      f"re-branch without checking them: git log --oneline {ref}..HEAD")
     if gate_note:
         lines.append(gate_note)
+    catchup_note = _pending_catchup_note()
+    if catchup_note:
+        lines.append(catchup_note)
     return lines
 
 

@@ -97,3 +97,34 @@ def redact_obj(obj, secrets: list[str]):
     if isinstance(obj, list):
         return [redact_obj(v, secrets) for v in obj]
     return obj
+
+
+# ---------------------------------------------------------------- personal data in text from a tracker
+
+# Text that caddis reads from Jira or Confluence (summaries, descriptions, comments, error bodies) can hold customer
+# data. `redact_pii` masks the common shapes before such text is printed or stored. It is a net, not a proof: a name
+# or a free-text address passes. Issue keys (PROJ-123), ISO dates, dotted versions and field ids stay as they are.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+_WIN_PATH = re.compile(r"(?<![\w/])(?:[A-Za-z]:\\|\\\\[A-Za-z0-9._$-]+\\)[^\s\"'<>|]*")
+# A run of digits with optional spaces, dashes or brackets between them. Masked when it holds 8 or more digits
+# (phone, account, card numbers). A dot between digits ends a run, so versions (9.12.4) never match; a full stop
+# after the number does not.
+_DIGIT_RUN = re.compile(r"(?<![\w.-])\+?\d[\d ()-]*\d(?!\w|\.\d)")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2})?$")  # a date, or a date and the hour of a time
+MIN_NUMBER_DIGITS = 8
+
+
+def _mask_number(m: re.Match) -> str:
+    raw = m.group(0)
+    if _ISO_DATE.match(raw) or sum(c.isdigit() for c in raw) < MIN_NUMBER_DIGITS:
+        return raw
+    return "<number>"
+
+
+def redact_pii(text: str) -> str:
+    """`text` with e-mail addresses, Windows paths and long digit runs (phone, account, card) masked."""
+    if not text:
+        return text
+    text = _EMAIL.sub("<email>", text)
+    text = _WIN_PATH.sub("<path>", text)
+    return _DIGIT_RUN.sub(_mask_number, text)

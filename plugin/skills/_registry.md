@@ -50,7 +50,7 @@
 | Skill | Path | When to Use |
 |-------|------|-------------|
 | Code Documentation | `code-documentation/` | Write code documentation: API docs, README files, inline comments and developer guides. |
-| Confluence Hla | `confluence-hla/` | High-Level Architecture (HLA) documents in Simplified Technical English as Confluence Storage Format XHTML with PlantUML. Use for Confluence architecture docs or converting markdown architecture. |
+| Confluence Hla | `confluence-hla/` | Deprecated: use /hla. Redirects to the /hla skill, which publishes through caddis_confluence.py |
 | Explainer Doc | `explainer-doc/` | Write a self-contained hand-off spec for an external team or vendor. Use when the user says "write a spec for the X team", "explainer doc", "spec for a vendor", or "hand this off to Y". |
 | Office Documents Official | `office-documents-official/` | Hint for Office and PDF file work. Use when the user asks to create, edit, read or convert a Word .docx, PDF, PowerPoint .pptx or Excel .xlsx file. caddis does not ship these skills; points to Anthropic's official document-skills plugin. |
 | Tech Explainer | `tech-explainer/` | >- |

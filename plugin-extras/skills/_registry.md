@@ -64,8 +64,6 @@
 | Architecture Document | `architecture-document/` | Generate enterprise HLD and LLD documents from the living Architecture.md, as DOCX (editable) or PPTX (executive summary). |
 | Doc Coauthoring | `doc-coauthoring/` | Structured workflow for co-authoring documentation: transfer context, refine by iteration, test it on readers. Use when the user is writing docs, proposals, technical specs or decision docs. |
 | Documentation Analyzer | `documentation-analyzer/` | Analyze a codebase, explain what the code does, and generate documentation such as README files. |
-| Hld | `hld/` | Generate High-Level Design (HLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
-| Lld | `lld/` | Generate Lower-Level Design (LLD) Markdown and convert it to Confluence Storage Format XHTML with PlantUML diagrams and legends. |
 | Naming Analyzer | `naming-analyzer/` | Suggest better variable, function, and class names based on context and conventions. |
 | Prd To Code | `prd-to-code/` | Turn a PRD into working application code with a 6-phase method. Use when starting a project from requirements or specs. |
 

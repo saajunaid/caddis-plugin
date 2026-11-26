@@ -6,6 +6,7 @@ import type { View, Rect } from "./viewport.ts";
 import type { Geometry } from "./layout.ts";
 
 export interface Els {
+  host: HTMLElement;
   vp: HTMLElement;
   world: HTMLElement;
   svg: SVGSVGElement;

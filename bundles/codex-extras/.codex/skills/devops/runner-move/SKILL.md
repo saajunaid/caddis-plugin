@@ -180,7 +180,7 @@ Write down each effect. Fix them in that tool's own PR. Do not fix them in the p
    the self-hosted runner. Check that it still starts and still works.
 
    ```powershell
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_lanes.py" ci-watch --run <run-id> --repo <owner/name>
+   python "<home>/.caddis/bin/caddis_run.py" caddis_lanes.py ci-watch --run <run-id> --repo <owner/name>
    ```
 3. Only after this run is green, take the next repository. Repeat steps 1 to 6 for each one. Never
    do all repositories at once.

@@ -34,7 +34,7 @@ export function install(ctx: Ctx): PlaybackController {
   };
   function stop(): void {
     playing = false; cancelAnimationFrame(frame); clearTimeout(timer);
-    document.body.classList.remove("playing");
+    e.host.classList.remove("playing");
     e.pbPlay.setAttribute("aria-label", "Play"); e.pbPlay.textContent = "▶";
   }
   function pause(): void {
@@ -154,7 +154,7 @@ export function install(ctx: Ctx): PlaybackController {
     if (!plan.steps.length) return;
     if (t >= plan.totalMs) { t = 0; idx = -1; }
     playing = true;
-    document.body.classList.add("playing");
+    e.host.classList.add("playing");
     e.pbPlay.setAttribute("aria-label", "Pause"); e.pbPlay.textContent = "❚❚";
     e.pbChoices.replaceChildren(); choicesKey = "";
     if (ctx.reduced) reducedStep(); else { stamp = 0; frame = requestAnimationFrame(tick); }

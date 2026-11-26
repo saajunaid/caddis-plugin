@@ -9,12 +9,10 @@ description: "Track milestones across plans in .caddis/roadmaps/<slug>/: next ba
 small docs PR, so it is ordered and recorded in git history. The tool's PRs are merged automatically on green checks
 by `caddis_merge_chain.py --docs-only`; a repo that wants a human to review them protects its default branch.
 
-`scripts/` below is the caddis scripts folder: `${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.212/scripts` in an installed plugin, `scripts/` in
-the caddis source repo.
-
-In text that a later session reads (a roadmap row's check command, a restart prompt, a relay), write a script command as
-`python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is the user's home folder, forward slashes), never the
-expanded plugin path: it holds the plugin version and is gone after the next update. The runner's own prompt does this.
+Invoke caddis scripts cross-agent (Claude Code, agy, and Codex) with
+`python "<home>/.caddis/bin/caddis_run.py" <script> ...` (`<home>` is the user's home folder, forward slashes),
+never the expanded plugin path: it holds the plugin version and is gone after the next update. The runner's own
+prompt does this too.
 
 ## The folder
 
@@ -73,15 +71,18 @@ commands run in a temporary worktree of `origin/<default>` (the merged code), wi
 process tree on timeout.
 
 ```bash
-python scripts/caddis_roadmap.py status  --roadmap <slug> [--json]   # "<done> of <total> done; next <id>; ..."
-python scripts/caddis_roadmap.py next    --roadmap <slug> [--json]   # exit 0 found, 1 nothing ready (reasons)
-python scripts/caddis_roadmap.py check   --roadmap <slug>            # parse errors, unknown refs or types
-python scripts/caddis_roadmap.py set     --roadmap <slug> --id S1 --col Status|Owner|Target --value <v> [--by-owner] [--reason "<r>"]
-python scripts/caddis_roadmap.py block   --roadmap <slug> --id S2 --type <type> --reason "<text>" [--check "<cmd>" --by-owner]
-python scripts/caddis_roadmap.py unblock --roadmap <slug> --id S2 --type <type> --reason "<text>" [--check "<cmd>"] [--by-owner]
-python scripts/caddis_roadmap.py rollup  --roadmap <slug> --id S1
-python scripts/caddis_roadmap.py recheck --roadmap <slug>
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py status    --roadmap <slug> [--json]   # "<done> of <total> done; next <id>; ..."
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py next      --roadmap <slug> [--json]   # exit 0 found, 1 nothing ready (reasons)
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py check     --roadmap <slug>            # parse errors, unknown refs or types
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py set       --roadmap <slug> --id S1 --col Status|Owner|Target --value <v> [--by-owner] [--reason "<r>"]
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py block     --roadmap <slug> --id S2 --type <type> --reason "<text>" [--check "<cmd>" --by-owner]
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py unblock   --roadmap <slug> --id S2 --type <type> --reason "<text>" [--check "<cmd>"] [--by-owner]
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py rollup    --roadmap <slug> --id S1
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py recheck   --roadmap <slug>
+python "<home>/.caddis/bin/caddis_run.py" caddis_roadmap.py reconcile --roadmap <slug> [--apply] [--stories] [--tracker] [--strict] [--dry-run] [--json]
 ```
+
+`reconcile --stories` syncs configured plan stories AND `.caddis/roadmaps/<slug>/tracker.md` when present on `origin/<default>`; `--tracker` syncs `tracker.md` alone.
 
 `next` picks the first milestone in table order that is `todo` or `in-progress`, whose `Depends on` are all `done` or
 `not-needed`, with no Blockers row, Owner `runner` or empty, and a phase not yet merged. It returns that phase.

@@ -30,7 +30,7 @@ or the one `status: current` plan in `.caddis/plans/`). If there is none, or mor
 Some steps below move the files of this checkout (`git rebase`, `switch`, `checkout <branch>`, `pull`, `merge`,
 `stash`, `reset --hard`). Before the first of them, run:
 ```
-python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_checkout_guard.py" shared --root .
+python "<home>/.caddis/bin/caddis_run.py" caddis_checkout_guard.py shared --root .
 ```
 It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when the repo's `AGENTS.md` has a line
 `Shared checkout: yes` (a dev service serves from this checkout), or when `git status` lists a change. With no
@@ -38,11 +38,11 @@ It prints `SHARED: yes <reason>` or `SHARED: no` and exits 0. It says yes when t
 
 - **On `SHARED: no`,** do the steps as written, in this checkout.
 - **On `SHARED: yes`,** never move this checkout. Leave its changes as they are, and report them. Instead:
-  - **Rebase:** `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" rebase-<name> --record --purpose "rebase <name>")" <branch>`, then
+  - **Rebase:** `git worktree add --detach "$(python "<home>/.caddis/bin/caddis_run.py" caddis_worktree_root.py rebase-<name> --record --purpose "rebase <name>")" <branch>`, then
     `git -C <worktree> rebase origin/<default>` and `git -C <worktree> push --force-with-lease origin HEAD:<branch>`.
   - **Pull a branch to test it:** `git fetch origin`, then
-    `git worktree add --detach "$(python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
-    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_worktree_root.py" --bootstrap` (run in the worktree); never link `node_modules` or a venv.
+    `git worktree add --detach "$(python "<home>/.caddis/bin/caddis_run.py" caddis_worktree_root.py test-<name> --record --purpose "test <name>")" origin/<branch>` (for the default branch,
+    `origin/<default>`), and run the gates there. Install dependencies fresh with `python "<home>/.caddis/bin/caddis_run.py" caddis_worktree_root.py --bootstrap` (run in the worktree); never link `node_modules` or a venv.
   - **Clean up after a merge:** do not switch or pull. Run `git fetch --prune`, then
     `git fetch origin <default>:<default>`: it fast-forwards the default branch with no checkout. Git refuses when a
     checkout has the default branch out; then leave it and report it. Delete the local feature branch only when no

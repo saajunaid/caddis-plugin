@@ -128,22 +128,22 @@ The engine generates CSS from 12 canonical domain states defined in `src/stateCs
 
 ## 7. Motion catalogue
 
-`src/styles.css` defines 12 `@keyframes`; the count treats the three flow dash variants (`flow`, `flowd`, `flowc`) separately. Motion is never decorative; every animation carries status information.
+`src/styles.css` defines 12 `@keyframes`; the count treats the three flow dash variants (`fs-flow`, `fs-flowd`, `fs-flowc`) separately. Motion is never decorative; every animation carries status information.
 
 | Animation name | Duration | Easing | Meaning / State Carried |
 |---|---|---|---|
-| `beat` | 2.6s | ease (default), infinite | Live indicator pulse on the header brand dot. Indicates the engine session is active. |
-| `fadein` | 0.6s / 1s (0.5s delay) | ease (default) | Lane bands and the edge layer fade in during initial canvas load. |
-| `rise` | 0.5s / 0.55s / 1.2s | ease (default) / ease-out | Cards, tiles and summary cells enter with subtle upward movement (`translateY(8px)` to `none`); `1.2s` marks a node added by a live update. |
-| `flow` | 3s or 7s | linear infinite | Dash-offset marching on links whose state has `edge: "flow"` (`3s` with `motion: "flow"`, `7s` with `motion: "flow-slow"`). Indicates active data transit. |
-| `flowd` | 3s or 7s | linear infinite | Same marching for `edge: "dash"` links. |
-| `flowc` | 3s or 7s | linear infinite | Same marching for `edge: "dash-short"` links. |
-| `flowhot` | 0.9s | linear infinite | Faster marching on highlighted (hot) edges: search trails, relations, playback. |
-| `selpulse` | 2.4s / 1.8s | ease-out infinite | Expanding glowing ring around a selected card (`2.4s`) or the active playback node (`1.8s`). |
-| `breathe` | 3.2s | ease-in-out infinite | Soft pulsing box-shadow on warning or waiting nodes (`color-mix` with `--warn` or the state tone). |
-| `failflash` | 0.9s | ease-out 1 | Red box-shadow burst indicating SLA breach or what-if blast-radius failure. |
-| `newring` | 1.2s / 1.8s | ease-out 1 | Accent ring on a node changed by a live update (`1.2s`) or newly appeared in a view (`1.8s`). |
-| `ring` | - | - | Defined but referenced by no rule today; reserved. |
+| `fs-beat` | 2.6s | ease (default), infinite | Live indicator pulse on the header brand dot. Indicates the engine session is active. |
+| `fs-fadein` | 0.6s / 1s (0.5s delay) | ease (default) | Lane bands and the edge layer fade in during initial canvas load. |
+| `fs-rise` | 0.5s / 0.55s / 1.2s | ease (default) / ease-out | Cards, tiles and summary cells enter with subtle upward movement (`translateY(8px)` to `none`); `1.2s` marks a node added by a live update. |
+| `fs-flow` | 3s or 7s | linear infinite | Dash-offset marching on links whose state has `edge: "flow"` (`3s` with `motion: "flow"`, `7s` with `motion: "flow-slow"`). Indicates active data transit. |
+| `fs-flowd` | 3s or 7s | linear infinite | Same marching for `edge: "dash"` links. |
+| `fs-flowc` | 3s or 7s | linear infinite | Same marching for `edge: "dash-short"` links. |
+| `fs-flowhot` | 0.9s | linear infinite | Faster marching on highlighted (hot) edges: search trails, relations, playback. |
+| `fs-selpulse` | 2.4s / 1.8s | ease-out infinite | Expanding glowing ring around a selected card (`2.4s`) or the active playback node (`1.8s`). |
+| `fs-breathe` | 3.2s | ease-in-out infinite | Soft pulsing box-shadow on warning or waiting nodes (`color-mix` with `--warn` or the state tone). |
+| `fs-failflash` | 0.9s | ease-out 1 | Red box-shadow burst indicating SLA breach or what-if blast-radius failure. |
+| `fs-newring` | 1.2s / 1.8s | ease-out 1 | Accent ring on a node changed by a live update (`1.2s`) or newly appeared in a view (`1.8s`). |
+| `fs-ring` | - | - | Defined but referenced by no rule today; reserved. |
 
 ---
 

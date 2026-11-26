@@ -64,7 +64,7 @@ _DEPENDS = re.compile(r"^\*\*Depends on:\*\*(.*)$", re.M)
 _FILES_LINE = re.compile(r"^\*\*(?:Touches|Files):\*\*(.*)$", re.M)
 _CROSS_REVIEW = re.compile(r"^\*\*Cross-review:\*\*(.*)$", re.M)
 _SMALL_TIER = re.compile(r"(?i)\btier\s*(0|1-small)\b")
-_TITLE_SUFFIX = re.compile(r"\s+[-—]\s+Implementation Plan\s*$")
+TITLE_SUFFIX = re.compile(r"\s+[-—]\s+Implementation Plan\s*$")
 MAX_WORDS = 25
 MAX_CRITERIA = 5
 STATUS_WORDS = {"todo": "To do", "in-progress": "In progress", "blocked": "Blocked", "done": "Done", "moved": "Moved"}
@@ -223,7 +223,7 @@ def dependency(section: str, previous: str | None) -> str:
     return ", ".join(f"P{i}" for i in ids) if ids else "None"
 
 
-def _tracker_rows(stripped: str) -> dict[str, dict[str, str]]:
+def tracker_rows(stripped: str) -> dict[str, dict[str, str]]:
     """Tracker cells by phase id (lower case): {"status": ..., "milestone": ...}."""
     table = tracker_table(stripped)
     if table is None:
@@ -252,7 +252,7 @@ def _section(path: Path, stripped_lines: list[str], index: int, phase_id: str) -
         return "\n".join(stripped_lines[index:end]).rstrip() + "\n"
 
 
-def _slug(meta: dict, path: Path) -> str:
+def plan_slug(meta: dict, path: Path) -> str:
     raw = meta.get("feature") if isinstance(meta.get("feature"), str) and meta.get("feature") else path.stem
     return re.sub(r"[^a-z0-9-]+", "-", raw.lower()).strip("-") or "plan"
 
@@ -272,10 +272,10 @@ def read_plan(path: Path) -> PlanInfo:
     headings = _headings(text)
     if not headings:
         raise ValueError(f"no '### Phase <n> - <name>' heading in {path.name}")
-    slug = _slug(meta, path)
+    slug = plan_slug(meta, path)
     title_match = re.search(r"^# (.+)$", stripped, re.M)
-    title = _TITLE_SUFFIX.sub("", title_match.group(1)).strip() if title_match else slug
-    tracker = _tracker_rows(stripped)
+    title = TITLE_SUFFIX.sub("", title_match.group(1)).strip() if title_match else slug
+    tracker = tracker_rows(stripped)
     out: list[Story] = []
     previous = None
     for index, pid, name, heading_milestone in headings:
@@ -356,20 +356,20 @@ class MarkerError(ValueError):
     """The plan's markers on the page are broken (a start with no end, an end before the start, two starts)."""
 
 
-def _marker_re(slug: str, kind: str) -> re.Pattern:
+def _marker_re(slug: str, kind: str, prefix: str = "caddis-stories") -> re.Pattern:
     """A start or end anchor macro of `slug`, with or without its `<p>` wrapper and with any added attributes."""
-    name = f"caddis-stories-{re.escape(slug)}-{kind}" + (r"(?:-([0-9a-f]{8}))?" if kind == "start" else "")
+    name = f"{re.escape(prefix)}-{re.escape(slug)}-{kind}" + (r"(?:-([0-9a-f]{8}))?" if kind == "start" else "")
     macro = (r'<ac:structured-macro\b[^>]*\sac:name="anchor"[^>]*>\s*'
              r'<ac:parameter\b[^>]*\sac:name=""[^>]*>\s*' + name + r'\s*</ac:parameter>\s*</ac:structured-macro>')
     return re.compile(r"<p(?:\s[^>]*)?>\s*" + macro + r"\s*</p>|" + macro)
 
 
-def find_section(body: str, slug: str) -> tuple[int, int, str | None] | None:
+def find_section(body: str, slug: str, prefix: str = "caddis-stories") -> tuple[int, int, str | None] | None:
     """(start offset, end offset, stored hash) of the plan's section, or None when the page has none of its markers.
 
     Raises MarkerError when the markers are broken, so a sync never guesses where the section ends."""
-    starts = list(_marker_re(slug, "start").finditer(body))
-    ends = list(_marker_re(slug, "end").finditer(body))
+    starts = list(_marker_re(slug, "start", prefix).finditer(body))
+    ends = list(_marker_re(slug, "end", prefix).finditer(body))
     if not starts and not ends:
         return None
     if len(starts) != 1 or len(ends) != 1:
@@ -380,14 +380,14 @@ def find_section(body: str, slug: str) -> tuple[int, int, str | None] | None:
     return start.start(), end.end(), start.group(1) or start.group(2)
 
 
-def replace_section(body: str, slug: str, section: str) -> tuple[str, str]:
+def replace_section(body: str, slug: str, section: str, prefix: str = "caddis-stories") -> tuple[str, str]:
     """(new body, action): `add` appends the section, `update` replaces the old one in place, `unchanged` keeps the
     body when the stored hash equals the new one. Every byte outside the plan's markers stays the same."""
-    found = find_section(body, slug)
+    found = find_section(body, slug, prefix)
     if found is None:
         return body + section, "add"
     start, end, stored = found
-    own = find_section(section, slug)
+    own = find_section(section, slug, prefix)
     if own is not None and stored is not None and stored == own[2]:
         return body, "unchanged"
     return body[:start] + section + body[end:], "update"
@@ -594,6 +594,25 @@ def _body(page: dict) -> str:
     return ((page.get("body") or {}).get("storage") or {}).get("value") or ""
 
 
+def update_section(client: Confluence, page: dict, slug: str, section: str, dry_run: bool,
+                   prefix: str = "caddis-stories") -> tuple[str, int | None]:
+    """Replace `slug`'s marked section on `page` and PUT it, with one 409 retry on a fresh `get_page`."""
+    new_body, action = replace_section(_body(page), slug, section, prefix=prefix)
+    if action == "unchanged" or dry_run:
+        return action, _version(page)
+    try:
+        updated = client.update_page(page, new_body)
+    except ConfluenceError as err:
+        if err.status != 409:
+            raise
+        page = client.get_page(str(page["id"]))
+        new_body, action = replace_section(_body(page), slug, section, prefix=prefix)
+        if action == "unchanged":
+            return action, _version(page)
+        updated = client.update_page(page, new_body)
+    return action, _version(updated)
+
+
 def sync_plan(info: PlanInfo, client: Confluence, base_url: str, dry_run: bool) -> SyncResult:
     """Write the plan's section to the Epic page under the parent page: create the page when it is missing, else
     replace only the plan's marked section. A dry run reads only. On a 409 the page is read again and written once more.
@@ -611,20 +630,8 @@ def sync_plan(info: PlanInfo, client: Confluence, base_url: str, dry_run: bool) 
         return SyncResult("create-page", str(created.get("id")), _version(created), warnings)
     if parent_id not in {str(a.get("id")) for a in page.get("ancestors") or []}:
         warnings.append(f"page {info.epic} is not under the parent page")
-    new_body, action = replace_section(_body(page), info.slug, section)
-    if action == "unchanged" or dry_run:
-        return SyncResult(action, str(page["id"]), _version(page), warnings)
-    try:
-        updated = client.update_page(page, new_body)
-    except ConfluenceError as err:
-        if err.status != 409:
-            raise
-        page = client.get_page(str(page["id"]))
-        new_body, action = replace_section(_body(page), info.slug, section)
-        if action == "unchanged":
-            return SyncResult(action, str(page["id"]), _version(page), warnings)
-        updated = client.update_page(page, new_body)
-    return SyncResult(action, str(page["id"]), _version(updated), warnings)
+    action, version = update_section(client, page, info.slug, section, dry_run)
+    return SyncResult(action, str(page["id"]), version, warnings)
 
 
 # ---------------------------------------------------------------- command line
@@ -695,7 +702,7 @@ def cmd_check(args, env: Mapping[str, str], client_factory=Confluence) -> int:
     return caddis_exit.CLEAN
 
 
-_EPIC_KEY = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+EPIC_KEY = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 
 
 def cmd_sync(args, env: Mapping[str, str], client_factory=Confluence) -> int:
@@ -706,7 +713,7 @@ def cmd_sync(args, env: Mapping[str, str], client_factory=Confluence) -> int:
     if not info.epic or not info.parent:
         print(f"NOT CONFIGURED: {info.path.name} needs jira_epic and confluence_parent")
         return caddis_exit.NOT_RUN
-    if not _EPIC_KEY.match(info.epic):
+    if not EPIC_KEY.match(info.epic):
         print(f"bad input: jira_epic '{info.epic}' is not a Jira key such as ABC-123", file=sys.stderr)
         return caddis_exit.ERROR
     try:

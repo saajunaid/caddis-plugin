@@ -39,7 +39,7 @@ export function install(ctx: Ctx): void {
     els.zoom.textContent = Math.round(v.k * 100) + "%";
     ctx.fn.stickLabels();
     ctx.fn.placeHeaders();
-    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (document.body.classList.contains("notes")) ctx.fn.placeMarkers(); });
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (els.host.classList.contains("notes")) ctx.fn.placeMarkers(); });
   }
 
   function setView(v: View, animate = false): void {
@@ -162,7 +162,7 @@ export function install(ctx: Ctx): void {
   ro.observe(vp);
   on(ctx, vp, "pointerenter", refreshRect);
   on(ctx, window, "scroll", refreshRect, { passive: true });
-  ctx.disposers.push(() => ro.disconnect());
+  ctx.disposers.push(() => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); clearTimeout(animTimer); });
 
   // ---- tools
   function setTool(id: "select" | "hand"): void {

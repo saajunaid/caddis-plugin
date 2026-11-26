@@ -6,11 +6,11 @@ Use `FlowStudioView` when the page may use the engine's own look. It includes th
 
 ## Install
 
-Copy `react/`, `src/`, `templates/flow-studio.lib.mjs`, `templates/flow-studio.lib.d.mts`, and `templates/flow-studio.css` into the same relative layout in your app. Install React 18 or later. The native route needs only the pure modules under `src/`; the fast route uses the bundled library. Import `flow-studio.css` once for the fast route. Import `react/native/native.css` for the native example only.
+Vendor (and re-vendor) with `node --experimental-strip-types <skill>/scripts/vendor-copy.mjs <app-vendor-dir> [--sha <commit>]`, which copies `react/`, `src/`, `templates/flow-studio.lib.mjs`, `templates/flow-studio.lib.d.mts`, `templates/flow-studio.css`, and `templates/flow-studio.scoped.css` (never `*.test.*`) into the same relative layout and writes `vendor.manifest.json`. Install React 18 or later. The native route needs only the pure modules under `src/`; the fast route uses the bundled library. Inside an app, import `templates/flow-studio.scoped.css` once for the fast route (`flow-studio.css` is for a standalone page only). Import `react/native/native.css` for the native example only. After vendoring or re-vendoring, verify by reading a screenshot of the rendered page.
 
 ```tsx
 import { FlowStudioView, FlowLoading, FlowEmpty, FlowError, type Model } from './react/index.ts';
-import './templates/flow-studio.css';
+import './templates/flow-studio.scoped.css';
 
 type State = { kind: 'loading' } | { kind: 'ready'; model: Model; refreshError?: string } | { kind: 'error'; message: string };
 function FlowPage({ state, onRetry, onSelect }: { state: State; onRetry: () => void; onSelect: (id: string | null) => void }) {

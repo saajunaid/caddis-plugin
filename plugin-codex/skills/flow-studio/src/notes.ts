@@ -9,15 +9,21 @@ export function install(ctx: Ctx): void {
   const notes = ctx.notes.map((n, i) => ({ id: i + 1, ...n }));
 
   const card = (id: number) => els.notelist.querySelector<HTMLElement>(`[data-n="${id}"]`);
-  const anchorOf = (sel: string): Element | null => { try { return document.querySelector(sel); } catch { return null; } };
+  const anchorOf = (sel: string): Element | null => {
+    try { return els.host.matches(sel) ? els.host : els.host.querySelector(sel); } catch { return null; }
+  };
 
   function clearMarkers(): void {
-    document.querySelectorAll(".marker").forEach(m => m.remove());
-    document.querySelectorAll(".anchored").forEach(a => a.classList.remove("anchored"));
+    els.host.querySelectorAll(".marker").forEach(m => m.remove());
+    els.host.querySelectorAll(".anchored").forEach(a => a.classList.remove("anchored"));
   }
 
   function placeMarkers(): void {
     clearMarkers();
+    const hr = els.host.getBoundingClientRect();
+    const isBody = els.host.tagName === "BODY";
+    const originX = hr.left + (els.host.clientLeft || 0) - (isBody ? 0 : els.host.scrollLeft);
+    const originY = hr.top + (els.host.clientTop || 0) - (isBody ? 0 : els.host.scrollTop);
     for (const n of notes) {
       const a = anchorOf(n.anchor);
       if (!a) continue;
@@ -40,20 +46,22 @@ export function install(ctx: Ctx): void {
       const m = el("button", "marker", String(n.id));
       m.type = "button"; m.dataset.n = String(n.id); m.title = n.title;
       m.setAttribute("aria-label", `Note ${n.id}: ${n.title}`);
-      m.style.left = r.left + scrollX - 10 + "px";
-      m.style.top = r.top + scrollY - 10 + "px";
+      m.style.left = r.left - originX - 10 + "px";
+      m.style.top = r.top - originY - 10 + "px";
       m.addEventListener("mouseenter", () => { a.classList.add("anchored"); card(n.id)?.classList.add("on"); });
       m.addEventListener("mouseleave", () => { a.classList.remove("anchored"); card(n.id)?.classList.remove("on"); });
       m.addEventListener("click", () => card(n.id)?.scrollIntoView({ block: "center", behavior: ctx.reduced ? "auto" : "smooth" }));
-      document.body.appendChild(m);
+      els.host.appendChild(m);
     }
   }
 
+  let markerTimer = 0;
   function toggleNotes(next?: boolean): void {
-    const on_ = next === undefined ? !document.body.classList.contains("notes") : next;
-    document.body.classList.toggle("notes", on_);
+    const on_ = next === undefined ? !els.host.classList.contains("notes") : next;
+    els.host.classList.toggle("notes", on_);
     els.notesBtn.setAttribute("aria-pressed", String(on_));
-    if (on_) window.setTimeout(placeMarkers, ctx.reduced ? 30 : 340);
+    window.clearTimeout(markerTimer);
+    if (on_) markerTimer = window.setTimeout(placeMarkers, ctx.reduced ? 30 : 340);
     else clearMarkers();
   }
 
@@ -61,10 +69,11 @@ export function install(ctx: Ctx): void {
     || '<p class="note">This page has no implementation notes.</p>';
   els.notelist.querySelectorAll<HTMLElement>(".ncard").forEach(c => {
     c.addEventListener("mouseenter", () => { const n = notes.find(x => String(x.id) === c.dataset.n); const a = n && anchorOf(n.anchor); if (a) a.classList.add("anchored"); });
-    c.addEventListener("mouseleave", () => document.querySelectorAll(".anchored").forEach(a => a.classList.remove("anchored")));
+    c.addEventListener("mouseleave", () => els.host.querySelectorAll(".anchored").forEach(a => a.classList.remove("anchored")));
   });
   on(ctx, els.notesBtn, "click", () => toggleNotes());
-  on(ctx, window, "scroll", () => { if (document.body.classList.contains("notes")) placeMarkers(); }, { passive: true });
+  on(ctx, window, "scroll", () => { if (els.host.classList.contains("notes")) placeMarkers(); }, { passive: true });
+  ctx.disposers.push(() => { window.clearTimeout(markerTimer); clearMarkers(); els.host.classList.remove("notes"); });
 
   // ---- model reference
   const markdown = (): string => {
@@ -82,18 +91,18 @@ export function install(ctx: Ctx): void {
     <h3>Columns</h3>${rows(model.columns.map(c => `${esc(c.title)}${c.phase ? ` (${esc(c.phase)})` : ""}`))}
     <h3>Lanes</h3>${rows(model.lanes.map(l => `${esc(l.title)}${l.badge ? ` [${esc(l.badge)}]` : ""}${l.note ? `: ${esc(l.note)}` : ""}`))}
     <h3>Size</h3><p>${model.nodes.length} nodes, ${model.links.length} links.</p>`;
-  const msg = (t: string) => { const m = document.getElementById("cpMsg"); if (m) m.textContent = t; };
+  const msg = (t: string) => { const m = els.specbody.querySelector("#cpMsg"); if (m) m.textContent = t; };
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); msg(`${what} copied.`); }
     catch {
       const ta = document.createElement("textarea");
-      ta.value = text; document.body.appendChild(ta); ta.select();
+      ta.value = text; els.host.appendChild(ta); ta.select();
       try { document.execCommand("copy"); msg(`${what} copied.`); } catch { msg("Copy is blocked here: select the text instead."); }
       ta.remove();
     }
   };
-  document.getElementById("cpMd")?.addEventListener("click", () => void copy(markdown(), "Markdown"));
-  document.getElementById("cpJson")?.addEventListener("click", () => void copy(JSON.stringify(model, null, 2), "JSON"));
+  els.specbody.querySelector("#cpMd")?.addEventListener("click", () => void copy(markdown(), "Markdown"));
+  els.specbody.querySelector("#cpJson")?.addEventListener("click", () => void copy(JSON.stringify(model, null, 2), "JSON"));
 
   ctx.fn.toggleNotes = toggleNotes;
   ctx.fn.placeMarkers = placeMarkers;

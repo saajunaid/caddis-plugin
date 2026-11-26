@@ -337,6 +337,131 @@ def _workspace_roots(data):
         return []
     return [str(r) for r in roots if isinstance(r, (str, bytes)) and str(r).strip()]
 
+_AGY_WARN_TOKENS = 250_000
+_AGY_FORCE_TOKENS = 380_000
+_BOT_WARN_TOKENS = 180_000
+_BOT_FORCE_TOKENS = 240_000
+_CTX_LEVEL_RANK = {"ok": 0, "warn": 1, "force": 2}
+
+
+def _last_agy_tokens(transcript_path: str, tail_bytes: int = 262_144) -> int | None:
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
+    try:
+        size = os.path.getsize(transcript_path)
+        with open(transcript_path, "rb") as fh:
+            fh.seek(max(0, size - tail_bytes))
+            lines = fh.read().decode("utf-8", errors="ignore").split("\n")
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"input_tokens"' not in line and '"cache_read_tokens"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        try:
+            in_tok = int(rec.get("input_tokens") or 0)
+            cache_tok = int(rec.get("cache_read_tokens") or 0)
+        except (TypeError, ValueError):
+            continue
+        total = in_tok + cache_tok
+        if total > 0:
+            return total
+    return None
+
+
+def _ctx_thresholds(roots: list[str]) -> tuple[int, int]:
+    role = (os.environ.get("CADDIS_ROLE") or "").strip().lower()
+    is_bot = role in ("coordinator", "bot", "core")
+    if is_bot:
+        warn, force = _BOT_WARN_TOKENS, _BOT_FORCE_TOKENS
+    else:
+        warn, force = _AGY_WARN_TOKENS, _AGY_FORCE_TOKENS
+    # Optional config.toml [context] overrides: global ~/.caddis/config.toml first, then repo overrides on top.
+    cfg_paths = [os.path.join(os.path.expanduser("~"), ".caddis", "config.toml")] + [
+        os.path.join(r, ".caddis", "config.toml") for r in roots
+    ]
+    for cfg in cfg_paths:
+        if not os.path.isfile(cfg):
+            continue
+        try:
+            in_ctx = False
+            with open(cfg, encoding="utf-8", errors="ignore") as fh:
+                for raw in fh:
+                    line = raw.split("#", 1)[0].strip()
+                    if not line:
+                        continue
+                    if line.startswith("["):
+                        in_ctx = line.lower() == "[context]"
+                        continue
+                    if in_ctx and "=" in line:
+                        k, v = [p.strip() for p in line.split("=", 1)]
+                        try:
+                            n = int(v.replace("_", ""))
+                        except ValueError:
+                            continue
+                        if k == "agy_warn" and not is_bot:
+                            warn = n
+                        elif k == "agy_force" and not is_bot:
+                            force = n
+                        elif k == "bot_warn" and is_bot:
+                            warn = n
+                        elif k == "bot_force" and is_bot:
+                            force = n
+        except OSError:
+            continue
+    return warn, force
+
+
+def _context_advisory(data: dict) -> str:
+    """Return a [caddis] context advisory when agy crosses WARN (once) or FORCE (every turn)."""
+    if is_headless():
+        return ""
+    transcript = str(data.get("transcriptPath") or "").strip()
+    tokens = _last_agy_tokens(transcript)
+    if tokens is None:
+        return ""
+    roots = _workspace_roots(data)
+    warn, force = _ctx_thresholds(roots)
+    level = "force" if tokens >= force else ("warn" if tokens >= warn else "ok")
+    conv = str(data.get("conversationId") or "default").strip() or "default"
+    safe_conv = "".join(c if c.isalnum() or c in "-_" else "_" for c in conv)[:80]
+    state_dir = (os.environ.get("CADDIS_AGY_CTX_STATE_DIR") or "").strip() or os.path.join(
+        os.path.expanduser("~"), ".caddis", "tmp", "agy-ctx-state"
+    )
+    state_file = os.path.join(state_dir, f"{safe_conv}.json")
+    prev_level = "ok"
+    try:
+        if os.path.isfile(state_file):
+            with open(state_file, encoding="utf-8") as fh:
+                prev_level = str(json.loads(fh.read()).get("level") or "ok")
+    except Exception:
+        prev_level = "ok"
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump({"level": level, "tokens": tokens}, fh)
+    except OSError:
+        pass
+    if level == "ok":
+        return ""
+    if level == "warn":
+        if _CTX_LEVEL_RANK.get(prev_level, 0) >= _CTX_LEVEL_RANK["warn"]:
+            return ""
+        return (
+            f"[caddis] Context is {tokens:,} tokens (agy warn at {warn:,}). "
+            "Finish the current card or run /compact (or /caddis:handoff before starting a fresh session)."
+        )
+    return (
+        f"[caddis] Context is {tokens:,} tokens (agy stop line {force:,}). "
+        "Start no new card. Update the relay/tasks, run /caddis:handoff, and run /compact or start a fresh session."
+    )
+
+
 def main() -> None:
     try:
         _reconfig = getattr(sys.stdout, "reconfigure", None)
@@ -354,11 +479,15 @@ def main() -> None:
         # Every invocation: the session is working (the hub's session list). Before the first-turn gate.
         _status_beat(data, "working")
         # SessionStart equivalent: the FIRST invocation only (agy 0-indexes invocationNum, so the
-        # first turn is 0, not 1). Anything else (or an unparseable invocationNum) injects nothing.
+        # first turn is 0, not 1). Later invocations emit only the context advisory if triggered.
         try:
-            if int(data.get("invocationNum")) != 0:
-                return
+            is_first = int(data.get("invocationNum")) == 0
         except Exception:
+            is_first = False
+        if not is_first:
+            ctx_msg = _context_advisory(data)
+            if ctx_msg:
+                sys.stdout.write(json.dumps({"injectSteps": [{"ephemeralMessage": ctx_msg}]}))
             return
         if is_headless():
             return

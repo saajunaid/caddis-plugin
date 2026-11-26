@@ -232,6 +232,56 @@ def model_line(role: str) -> str:
     return f"Model for next session: {model}, effort {effort}\n"
 
 
+_AGY_ENV_VARS = ("ANTIGRAVITY_AGENT", "ANTIGRAVITY_CONVERSATION_ID", "ANTIGRAVITY_CLI_ALIAS", "AGY_SESSION_ID")
+_CODEX_ENV_VARS = ("CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_SANDBOX")
+_CLAUDE_ENV_VARS = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+SUPPORTED_AGENTS = ("claude", "agy", "codex")
+
+
+def detect_agent(env: dict[str, str] | None = None) -> str:
+    """Detect the active agent (`claude`, `agy`, or `codex`) from environment markers.
+
+    Explicit `CADDIS_AGENT` wins; then active-session markers for agy, codex, and claude;
+    default is `claude` when no marker is set.
+    """
+    source = os.environ if env is None else env
+    explicit = (source.get("CADDIS_AGENT") or "").strip().lower()
+    if explicit == "antigravity":
+        return "agy"
+    if explicit in SUPPORTED_AGENTS:
+        return explicit
+    if any(source.get(var) for var in _AGY_ENV_VARS):
+        return "agy"
+    if any(source.get(var) for var in _CODEX_ENV_VARS):
+        return "codex"
+    if any(source.get(var) for var in _CLAUDE_ENV_VARS):
+        return "claude"
+    return "claude"
+
+
+def _agy_model_for_role(role: str) -> str:
+    _model, effort = caddis_routing.session_start(role)
+    return caddis_routing.AGY_MODEL_BY_EFFORT.get(
+        effort, caddis_routing.AGY_MODEL_BY_EFFORT[caddis_routing.AGY_DEFAULT_EFFORT]
+    )
+
+
+def _agent_model_line(role: str, agent: str) -> str:
+    if agent == "agy":
+        return f"Agent: agy (model {_agy_model_for_role(role)})\n"
+    if agent == "codex":
+        return "Agent: codex\n"
+    return model_line(role)
+
+
+def _agent_start_command(role: str, name: str, prompt: str, cd: str, agent: str) -> str:
+    if agent == "agy":
+        return f"{cd}agy --model {_agy_model_for_role(role)} {shell_arg(prompt)}"
+    if agent == "codex":
+        return f"{cd}codex {shell_arg(prompt)}"
+    return f"{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
+
+
 def render_sheet(acks: list[Ack], coordinator: str, stamp: datetime) -> str:
     ordered = order(acks, coordinator)
     coord = next((a for a in acks if a.name == coordinator), None)
@@ -596,7 +646,7 @@ RESUME_LINE_LABEL = "In a new terminal, paste this:"
 
 def render_resume(session: str, session_id: str, workstream: str, prompt: str, role: str, stamp: datetime,
                   fleet_mode: bool = False, announce: bool = False, folder: str = "",
-                  root: Path | None = None, rename: bool = False) -> str:
+                  root: Path | None = None, rename: bool = False, agent: str = "claude") -> str:
     """The last output of `/caddis:handoff`. In a fleet close the restart sheet holds the only start line, so the
     block keeps the relay's own prompt and says so.
 
@@ -609,13 +659,13 @@ def render_resume(session: str, session_id: str, workstream: str, prompt: str, r
     restart sheet: Windows PowerShell 5.1 has no `&&`."""
     repo = f"Repo: {root.as_posix()}\n" if root is not None else ""
     cd = f'cd "{root.as_posix()}"; ' if root is not None else ""
-    head = f"{model_line(role)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n{repo}"
+    head = f"{_agent_model_line(role, agent)}=== RESUME ===\nSession: {session} ({session_id})\nWorkstream: {workstream}\n{repo}"
     if fleet_mode:
         return f"{head}{_fenced(prompt)}\nStart line: from the restart sheet\n"
     name = new_name(role, stamp) if rename else workstream
     if announce:
         prompt = f"{prompt}\n{announce_text(name, folder)}"
-    full = f"{cd}claude {_model_flags(role)} --name {name} {shell_arg(prompt)}"
+    full = _agent_start_command(role, name, prompt, cd, agent)
     return (f"{head}{RESUME_PROMPT_LABEL}\n{_fenced(one_line(prompt))}\n"
             f"{RESUME_LINE_LABEL}\n{_fenced(full, 'bash')}\n")
 
@@ -696,8 +746,9 @@ def _resume_block_cli(args: argparse.Namespace) -> int:
     if not _SAFE_NAME.match(role):  # the role goes unquoted into the start line
         sys.stderr.write(f"resume-block failed: bad role {role!r}\n")
         return caddis_exit.BLOCKED
+    agent = getattr(args, "agent", None) or detect_agent()
     print(render_resume(session, args.session_id, args.name, prompt, role, datetime.now(), args.fleet,
-                        args.new_name, root.name, root, rename=args.new_name), end="")
+                        args.new_name, root.name, root, rename=args.new_name, agent=agent), end="")
     return caddis_exit.CLEAN
 
 
@@ -743,6 +794,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--new-name", action="store_true",
                    help="the owner asked for a new session name: name the new terminal <role>-<MMDD>-<HH> and add "
                    "the whoami + announce sentence to both blocks (default: the plain workstream name, no announce)")
+    p.add_argument("--agent", choices=SUPPORTED_AGENTS, default=None,
+                   help="target agent for the start line (default: auto-detected from environment)")
     p = sub.add_parser("capture-check", help="check the relay's capture decision (## Learnings captured)")
     p.add_argument("--relay-file", required=True, type=Path)
     args = parser.parse_args(argv)

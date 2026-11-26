@@ -719,8 +719,51 @@ def load_checks(root: Path, config: Path | None = None):
     return header, checks
 
 
+CODE_GATE_NAMES = frozenset({
+    "ruff-check",
+    "ruff-format",
+    "pytest",
+    "mypy",
+    "tsc",
+    "eslint",
+    "vitest",
+    "checks-hook",
+})
+
+
+def is_doc_path(path: str) -> bool:
+    """True when a pushed path is documentation-only (.caddis/**, docs/**, or *.md)."""
+    norm = path.replace("\\", "/")
+    while norm.startswith("./"):
+        norm = norm.removeprefix("./")
+    return norm.startswith(".caddis/") or norm.startswith("docs/") or norm.lower().endswith(".md")
+
+
+def is_docs_only(changed: set | None) -> bool:
+    """True when `changed` is non-empty and every pushed file is documentation-only."""
+    return bool(changed) and all(is_doc_path(p) for p in changed)
+
+
+def _is_code_gate(check: Check) -> bool:
+    """True when a check is a code/venv/node_modules gate skipped on docs-only pushes."""
+    if check.name in CODE_GATE_NAMES:
+        return True
+    if any("{py}" in a for a in check.argv):
+        return True
+    if check.argv:
+        head = Path(check.argv[0]).name.lower()
+        for suf in (".exe", ".cmd", ".bat", ".ps1"):
+            if head.endswith(suf):
+                head = head[:-len(suf)]
+                break
+        if head in {"npm", "npx", "node", "pnpm", "yarn", "ruff", "pytest", "mypy", "tsc", "eslint", "vitest"}:
+            return True
+    return False
+
+
 def decide(checks: list, changed: set | None, budget_s: float) -> list:
     """[(check, None)] to run it, or [(check, skip line)] by rules 1-4. `changed` None = unknown: paths skip nothing."""
+    docs_only = is_docs_only(changed)
     out = []
     for c in checks:
         line = None
@@ -732,6 +775,8 @@ def decide(checks: list, changed: set | None, budget_s: float) -> list:
             line = f"[skip] {c.name}: measured {_num(c.measured_s)}s, over the {_num(budget_s)}s budget - CI runs it"
         elif c.paths and changed is not None and not any(f.startswith(p) for f in changed for p in c.paths):
             line = f"[skip] {c.name}: no pushed change under {', '.join(c.paths)}"
+        elif docs_only and _is_code_gate(c):
+            line = f"[skip] {c.name}: docs-only change - skipping code gate"
         out.append((c, line))
     return out
 
@@ -909,6 +954,8 @@ def run_checks(root: Path, checks: list, budget_s: float, jobs: int, *, changed:
     0 = pass, 1 = block."""
     start = time.monotonic() if start is None else start
     deadline = start + budget_s
+    if is_docs_only(changed):
+        print(f"[caddis] pre-push: docs-only change ({len(changed)} file(s)) - skipping code gates", flush=True)
     decided = decide(checks, changed, budget_s)
     skipped = 0
     to_run = []

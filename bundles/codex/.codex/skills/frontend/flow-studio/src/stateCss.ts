@@ -11,7 +11,7 @@ const TONES: Record<Tone, string> = { ok: "var(--ok)", warn: "var(--warn)", crit
 export const toneVar = (t: Tone): string => (Object.hasOwn(TONES, t) ? TONES[t] : TONES.muted);
 
 export const DASH: Record<EdgeStyle, string> = { flow: "5 9", dash: "7 6", "dash-short": "3 6", dot: "2 6" };
-const KEYFRAMES: Record<EdgeStyle, string> = { flow: "flow", dash: "flowd", "dash-short": "flowc", dot: "" };
+const KEYFRAMES: Record<EdgeStyle, string> = { flow: "fs-flow", dash: "fs-flowd", "dash-short": "fs-flowc", dot: "" };
 
 export function stateCss(states: Model["states"]): string {
   const out: string[] = [];
@@ -28,7 +28,7 @@ export function stateCss(states: Model["states"]): string {
     }
     out.push(`.node.st-${c}.gateway polygon { stroke:${T}; fill:color-mix(in srgb, ${T} 10%, var(--panel)); }`);
     out.push(`.ev.st-${c} { color:${T}; }`);
-    if (s.motion === "breathe") out.push(`.node.st-${c}:not(.dim) { animation:breathe 3.2s ease-in-out infinite; }`);
+    if (s.motion === "breathe") out.push(`.node.st-${c}:not(.dim) { animation:fs-breathe 3.2s ease-in-out infinite; }`);
 
     const edge: EdgeStyle = Object.hasOwn(DASH, s.edge) ? s.edge : "dash"; // a closed table: an unexpected value never reaches the CSS text
     const flows = edge !== "dot" && (s.motion === "flow" || s.motion === "flow-slow");

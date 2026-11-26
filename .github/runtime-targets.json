@@ -477,6 +477,11 @@
           "destination": "scripts/caddis_stories.py"
         },
         {
+          "root": "scriptsrc",
+          "source": "caddis_tracker.py",
+          "destination": "scripts/caddis_tracker.py"
+        },
+        {
           "root": "harness",
           "source": "scripts/caddis_glossary.py",
           "destination": "scripts/caddis_glossary.py"
@@ -548,6 +553,16 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_review_catchup.py",
+          "destination": "scripts/caddis_review_catchup.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_tasks.py",
+          "destination": "scripts/caddis_tasks.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_hub_collect.py",
           "destination": "scripts/caddis_hub_collect.py"
         },
@@ -605,6 +620,16 @@
           "root": "scriptsrc",
           "source": "caddis_redact.py",
           "destination": "scripts/caddis_redact.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_jira.py",
+          "destination": "scripts/caddis_jira.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_confluence.py",
+          "destination": "scripts/caddis_confluence.py"
         },
         {
           "root": "scriptsrc",
@@ -980,6 +1005,11 @@
           "destination": "scripts/caddis_stories.py"
         },
         {
+          "root": "scriptsrc",
+          "source": "caddis_tracker.py",
+          "destination": "scripts/caddis_tracker.py"
+        },
+        {
           "root": "harness",
           "source": "scripts/caddis_glossary.py",
           "destination": "scripts/caddis_glossary.py"
@@ -1051,6 +1081,16 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_review_catchup.py",
+          "destination": "scripts/caddis_review_catchup.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_tasks.py",
+          "destination": "scripts/caddis_tasks.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_hub_collect.py",
           "destination": "scripts/caddis_hub_collect.py"
         },
@@ -1108,6 +1148,16 @@
           "root": "scriptsrc",
           "source": "caddis_redact.py",
           "destination": "scripts/caddis_redact.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_jira.py",
+          "destination": "scripts/caddis_jira.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_confluence.py",
+          "destination": "scripts/caddis_confluence.py"
         },
         {
           "root": "scriptsrc",
@@ -1265,7 +1315,7 @@
       },
       "plugin": {
         "name": "caddis",
-        "version": "1.3.212",
+        "version": "1.3.213",
         "description": "caddis — agent-agnostic dev harness: lean subagents, TDD commands, tiered skills, and a CLAUDE.md generator.",
         "author": {
           "name": "junaid",
@@ -1584,6 +1634,11 @@
           "destination": "scripts/caddis_stories.py"
         },
         {
+          "root": "scriptsrc",
+          "source": "caddis_tracker.py",
+          "destination": "scripts/caddis_tracker.py"
+        },
+        {
           "root": "harness",
           "source": "scripts/caddis_glossary.py",
           "destination": "scripts/caddis_glossary.py"
@@ -1665,6 +1720,16 @@
         },
         {
           "root": "scriptsrc",
+          "source": "caddis_review_catchup.py",
+          "destination": "scripts/caddis_review_catchup.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_tasks.py",
+          "destination": "scripts/caddis_tasks.py"
+        },
+        {
+          "root": "scriptsrc",
           "source": "caddis_hub_collect.py",
           "destination": "scripts/caddis_hub_collect.py"
         },
@@ -1722,6 +1787,16 @@
           "root": "scriptsrc",
           "source": "caddis_redact.py",
           "destination": "scripts/caddis_redact.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_jira.py",
+          "destination": "scripts/caddis_jira.py"
+        },
+        {
+          "root": "scriptsrc",
+          "source": "caddis_confluence.py",
+          "destination": "scripts/caddis_confluence.py"
         },
         {
           "root": "scriptsrc",
@@ -1910,7 +1985,7 @@
       "workspace_root": "plugin-extras",
       "plugin": {
         "name": "caddis-extras",
-        "version": "1.3.55",
+        "version": "1.3.56",
         "description": "caddis-extras — the full caddis skill library beyond the core tier (cloud, data, the long tail of coding/frontend, media, productivity). Enable on demand to keep always-on context lean.",
         "author": {
           "name": "junaid",
@@ -1928,13 +2003,14 @@
       },
       "copies": [
         {
-          "_comment": "Everything except the core skills and the proprietary document-skills bundle. document-skills is excluded because it is a 3-level nested bundle (docs/document-skills/<pdf|docx|pptx|xlsx>) of Anthropic-proprietary skills that neither flatten nor belong in a public bundle. data-lineage is PRIVATE (owner decision 2026-10-15): it names an internal estate, so it stays in the pool but ships in no bundle; because codex-extras, antigravity-extras and antigravity-plugin-extras reuse this list through excluded_skills_from, one entry here keeps it out of all four extras tiers. office-documents-official is a core skill (claude included_skills, docs), so extras must not ship it again.",
+          "_comment": "Everything except the core skills and the proprietary document-skills bundle. document-skills is excluded because it is a 3-level nested bundle (docs/document-skills/<pdf|docx|pptx|xlsx>) of Anthropic-proprietary skills that neither flatten nor belong in a public bundle. data-lineage is PRIVATE (owner decision 2026-10-15): it named an internal estate, so it stays in the pool but ships in no bundle (since 2026-11-26 it is only a redirect to /lld, removed after one release); because codex-extras, antigravity-extras and antigravity-plugin-extras reuse this list through excluded_skills_from, one entry here keeps it out of all four extras tiers. office-documents-official is a core skill (claude included_skills, docs), so extras must not ship it again. hld (2026-11-26) is a deprecated redirect shim to the core /hla command; on agy and Codex the core bundle already turns the hld command into a skill of the same name, so extras must not ship a second hld skill. Remove the pool folder after one release. The old docs/lld pool skill was removed: the core /lld command is its only source.",
           "source": "skills",
           "destination": "skills",
           "flatten_skills": true,
           "excluded_skills": [
             "document-skills",
             "data-lineage",
+            "hld",
             "office-documents-official",
             "api-design",
             "backend-development",

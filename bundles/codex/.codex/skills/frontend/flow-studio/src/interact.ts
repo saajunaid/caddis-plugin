@@ -163,7 +163,7 @@ export function install(ctx: Ctx): void {
     ctx.simTimers.forEach(t => clearTimeout(t));
     ctx.simTimers = [];
     dropOverlays("ripple");
-    document.querySelectorAll<HTMLElement>(".node.fail").forEach(d => {
+    els.world.querySelectorAll<HTMLElement>(".node.fail").forEach(d => {
       d.classList.remove("fail");
       const sub = d.querySelector(".s");
       if (sub && d.dataset.s !== undefined) { sub.innerHTML = d.dataset.s; delete d.dataset.s; }
@@ -217,7 +217,7 @@ export function install(ctx: Ctx): void {
   }
   function setMode(id: string): void {
     if (ctx.mode === id) return;
-    document.body.classList.remove("intro");
+    els.host.classList.remove("intro");
     clearSim();
     ctx.mode = id;
     const sel = ctx.selected && ctx.nodes.get(ctx.selected);

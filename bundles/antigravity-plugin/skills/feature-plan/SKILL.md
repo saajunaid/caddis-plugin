@@ -41,7 +41,7 @@ Absolute rules in this mode (they override everything below):
   a bullet under `## Constraints & decisions` — never a question to the user.
 - **Honor the caller's output path and slug** (falling back to `.caddis/plans/<feature-slug>.md`);
   set `feature: <slug>` in the frontmatter to that slug.
-- **Do not write `jira_epic` or `confluence_parent`** (Step 1b is interactive only). Add the assumption: no Jira
+- **Do not write `jira_epic`, `confluence_parent`, `confluence_tracker` or `confluence_tracker_parent`** (Step 1b is interactive only). Add the assumption: no Jira
   Epic or Confluence page was given (headless). Add both fields to publish the stories with `/caddis:stories`.
 - **Always write the plan file, then end with exactly one fenced `json` highlights block** — nothing
   after it:
@@ -100,9 +100,13 @@ Skip this step in headless mode. Ask the user one self-contained AskUserQuestion
 - "Is there a Confluence HLA or HLSA page for this project? Give its URL."
 - "Is there a Jira Epic for this work? Give its key, for example ABC-123."
 
+Only when the user gives a Jira Epic, add a third question to the same AskUserQuestion: "Should this work get a Confluence tracker page for managers (swimlanes, status, target dates as estimates, open decisions)? Give the URL of the tracker page, or write 'under <URL>' to create it under that page."
+
 Write `confluence_parent: <URL>` and `jira_epic: <KEY>` into the plan frontmatter only for the answers the user
 gives. With both fields, `/caddis:stories` publishes each phase as a development story to the Confluence page
 titled with the Epic key, and `/caddis:implement` syncs it after each Tracker update.
+
+Write `confluence_tracker: <URL>` for a page URL, or `confluence_tracker_parent: <URL>` for 'under <URL>'. No answer: write neither. The first merge after the plan lands creates or updates the page (`caddis_tracker.py sync-all`).
 
 ## Step 2 — Design phases
 Break the work into **independently completable** phases (~30–60 min each, clear exit gate). Each phase
@@ -320,6 +324,7 @@ status: draft
 feature: <feature-slug>
 jira_epic: <KEY>
 confluence_parent: <URL of the HLA or HLSA page>
+confluence_tracker: <URL of the tracker page, or confluence_tracker_parent: <URL>>
 creation-agent: caddis
 Original Author: Claude Code
 Creation Date: <YYYY-MM-DDTHH:MM:SSZ>
@@ -488,7 +493,7 @@ Three rules: one attempt, one review.
 Notes holds "measured <key>=<value>" for each Requires measured key of the phase.
 ```
 
-`jira_epic` and `confluence_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
+`jira_epic`, `confluence_parent`, `confluence_tracker` and `confluence_tracker_parent`: Only when Step 1b gave them. Leave out a line that has no answer.
 
 Status words (one vocabulary, `scripts/caddis_status.py`): done is `done`, `merged`, `✅`, `☑`, `✔` or `✓`;
 `in progress`, `blocked` and `moved` name the other states; anything else (`not started`, `☐`) is to do. A cell

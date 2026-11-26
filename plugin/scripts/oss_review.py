@@ -1038,6 +1038,8 @@ def build_chain(args: argparse.Namespace, env: dict[str, str]) -> list[tuple]:
     author_order = review_order(args.author, args.tier) if args.author else REVIEW_ORDER
 
     def _same_vendor(name: str) -> bool:
+        if getattr(args, "waive_same_vendor", False):
+            return False
         return author_vendor is not None and VENDOR_OF.get(name) == author_vendor
 
     def _no_reviewer_for_author() -> str:
@@ -1175,7 +1177,81 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     parser.add_argument("--tier", default="1", choices=TIERS,
                         help="review tier from `caddis_gate.py review-tier` (default 1). Tier 2 gives "
                              "agy-written code claude-opus instead of claude-sonnet")
+    parser.add_argument("--waive-same-vendor", action="store_true", default=False,
+                        help="explicit owner waiver allowing same-vendor interim review on low/medium-risk PRs; "
+                             "requires --reason, refuses risk=high / db-tier=high / security areas, and logs "
+                             "to ~/.caddis/review-catchup.jsonl for deferred cross-vendor audit")
+    parser.add_argument("--reason", "--waiver-reason", dest="waiver_reason", default="",
+                        help="owner reason required with --waive-same-vendor")
+    parser.add_argument("--risk", default=None, choices=("low", "normal", "high"),
+                        help="change risk level (required with --waive-same-vendor; waiver refused when high)")
+    parser.add_argument("--db-tier", dest="db_tier", default=None,
+                        help="DB review tier from review-tier (none|low|high; required with --waive-same-vendor; waiver refused when high or unrecognized)")
+    parser.add_argument("--area", default=None,
+                        help="sensitive area from review-tier (required with --waive-same-vendor; waiver refused for security/auth/oauth/sso/jwt/rbac/crypto/secrets)")
+    parser.add_argument("--pr", default=None,
+                        help="optional PR number recorded in ~/.caddis/review-catchup.jsonl when waived")
     args = parser.parse_args(argv)
+    if args.waive_same_vendor:
+        if not (args.waiver_reason or "").strip():
+            sys.stderr.write("same-vendor waiver refused: --waive-same-vendor requires a non-empty --reason.\n")
+            return EXIT_CONFIG
+        raw_range = (args.range or "").strip()
+        if not raw_range or ".." not in raw_range:
+            sys.stderr.write(
+                "same-vendor waiver refused: --waive-same-vendor requires an explicit two-endpoint commit "
+                "--range (e.g. origin/main...HEAD or base..head) so deferred cross-vendor audit can replay exact commits.\n"
+            )
+            return EXIT_CONFIG
+        missing_flags = []
+        if args.risk is None:
+            missing_flags.append("--risk")
+        if args.db_tier is None or not args.db_tier.strip():
+            missing_flags.append("--db-tier")
+        if args.area is None or not args.area.strip():
+            missing_flags.append("--area")
+        if missing_flags:
+            sys.stderr.write(
+                "same-vendor waiver refused: --waive-same-vendor requires explicit --risk, --db-tier, "
+                f"and --area (missing: {', '.join(missing_flags)}).\n"
+            )
+            return EXIT_CONFIG
+        db_tier_norm = args.db_tier.strip().lower()
+        if db_tier_norm not in ("none", "low", "high"):
+            sys.stderr.write(
+                f"same-vendor waiver refused: unrecognized --db-tier {args.db_tier!r} "
+                "(expected none, low, or high).\n"
+            )
+            return EXIT_CONFIG
+        area_tokens = {tok.strip().lower() for tok in re.split(r"[,\s|/_\-]+", args.area or "") if tok.strip()}
+        forbidden_areas = {
+            "security", "auth", "authn", "authz", "authentication", "authorization",
+            "rbac", "crypto", "secrets", "secret", "permission", "permissions",
+            "oauth", "oauth2", "sso", "jwt",
+        }
+        forbidden_substrings = ("security", "oauth", "jwt")
+        sensitive_area = any(
+            tok in forbidden_areas
+            or any(sub in tok for sub in forbidden_substrings)
+            or tok.startswith("sso")
+            or tok.endswith("sso")
+            for tok in area_tokens
+        )
+        if args.risk == "high" or db_tier_norm == "high" or sensitive_area:
+            sys.stderr.write(
+                f"same-vendor waiver refused: high-risk, DB-HIGH, or security/auth changes require true "
+                f"cross-vendor review (risk={args.risk}, db_tier={db_tier_norm}, area={args.area}).\n"
+            )
+            return EXIT_CONFIG
+        waiver_scope = _resolve_waiver_scope(args.cwd, raw_range)
+        if waiver_scope is None:
+            sys.stderr.write(
+                f"same-vendor waiver refused: could not resolve --range {raw_range!r} to immutable commit SHAs "
+                f"in {args.cwd!r}.\n"
+            )
+            return EXIT_CONFIG
+    else:
+        waiver_scope = None
     try:
         resolve_agy_models(args, env)
     except AgyModelError as exc:
@@ -1338,6 +1414,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     # more, smaller calls is the 18-19 Oct 2026 failure.
     down: set[str] = set()
     waited: set[str] = set()
+    used_reviewers: list[str] = []
+    used_providers: list[str] = []
 
     def _try_chain(prompt: str, label: str) -> tuple[str | None, list[str]]:
         """One payload against every provider still up. (review, []) or (None, the failure kinds)."""
@@ -1379,6 +1457,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                 # Loud on purpose, every time: which vendor gave the verdict is a material fact about
                 # the review, and it belongs in the transcript the phase report quotes.
                 mdl = getattr(call, "model", mdl)  # an agy call may have fallen through to a later agy model
+                used_reviewers.append(f"{name}:{mdl}")
+                used_providers.append(name)
                 if idx:
                     print(f"[cross-review] {chain[0][0]} unavailable; reviewed by {name} ({mdl}).")
                 else:
@@ -1415,6 +1495,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         return out, []
 
     verdicts: list[bool | None] = []
+    buffered_reviews: list[str] = []
     for batch_no, batch in enumerate(batches, 1):
         label = f" (batch {batch_no}/{len(batches)})" if len(batches) > 1 else ""
         if len(batches) > 1:
@@ -1433,6 +1514,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             if any(v is False for v in verdicts):
                 # An earlier batch already found a blocking issue. A later failure must not hide it behind
                 # NOT_RUN (3), which reads as "nothing found, retry". Fail closed and report the finding.
+                for buffered in buffered_reviews:
+                    print(buffered)
                 if scope_line:
                     print(scope_line)
                 print("REVIEW: BLOCKING  (an earlier batch blocked; the remaining batches were not reviewed)")
@@ -1440,10 +1523,58 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             return EXIT_CONFIG if not_run else EXIT_ERROR
 
         for review in reviews:
-            print(review)
+            if args.waive_same_vendor:
+                buffered_reviews.append(review)
+            else:
+                print(review)
             verdicts.append(classify_verdict(review))
 
     verdict = aggregate_verdicts(verdicts)
+    author_vendor = VENDOR_OF[args.author] if args.author else None
+    same_vendor_used = bool(
+        author_vendor is not None and any(VENDOR_OF.get(p) == author_vendor for p in used_providers)
+    )
+    waiver_line = ""
+    if args.waive_same_vendor and same_vendor_used and verdict is not None:
+        interim = (
+            ",".join(dict.fromkeys(used_reviewers))
+            if used_reviewers
+            else (f"{chain[0][0]}:{chain[0][1]}" if chain else "unknown")
+        )
+        if verdict is True:
+            try:
+                for _cand in (Path(__file__).resolve().parent, Path(__file__).resolve().parents[2] / "scripts"):
+                    if (_cand / "caddis_review_catchup.py").is_file() and str(_cand) not in sys.path:
+                        sys.path.insert(0, str(_cand))
+                import caddis_review_catchup as _catchup  # noqa: PLC0415
+                assert waiver_scope is not None
+                waiver_repo, waiver_range = waiver_scope
+                _catchup.append_waiver(
+                    repo=waiver_repo,
+                    git_range=waiver_range,
+                    author=args.author or "unknown",
+                    tier=args.tier,
+                    interim_reviewer=interim,
+                    interim_verdict="CLEAN",
+                    reason=args.waiver_reason.strip(),
+                    pr=args.pr,
+                    env=env,
+                )
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[cross-review] ERROR: failed to record same-vendor waiver in catch-up queue: {exc}\n"
+                )
+                return EXIT_ERROR
+            waiver_line = (
+                f"REVIEW-WAIVER: SAME_VENDOR (interim={interim}; reason={args.waiver_reason.strip()}; "
+                "logged for cross-vendor catch-up)"
+            )
+        else:
+            waiver_line = (
+                f"REVIEW-WAIVER: SAME_VENDOR (interim={interim}; verdict=BLOCKING — not queued for catch-up)"
+            )
+    for buffered in buffered_reviews:
+        print(buffered)
     if len(batches) > 1:
         # A LEDGER, not a summary. The live report behind `.caddis/parking-lot/006` said the
         # reader's only defence was "count the REVIEW: lines against the announced batch count" —
@@ -1457,10 +1588,12 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         if unparsed:
             print("[cross-review] a chunk with no verdict is NOT a pass — the overall result "
                   "below is fail-closed.")
-    if scope_line and verdict is not None:
-        # The model's own verdict line came earlier (and the ledger may follow it), so restate the overall
-        # verdict here: the scope line sits directly above the last `REVIEW:` line.
-        print(scope_line)
+    if (scope_line or waiver_line) and verdict is not None:
+        # Keep `REVIEW: CLEAN|BLOCKING` as the final stdout line so callers inspecting the tail line still parse it.
+        if waiver_line:
+            print(waiver_line)
+        if scope_line:
+            print(scope_line)
         print("REVIEW: CLEAN" if verdict else "REVIEW: BLOCKING")
     if verdict is True:
         return EXIT_CLEAN
@@ -1468,6 +1601,59 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
         return EXIT_BLOCKING
     sys.stderr.write("no REVIEW: CLEAN|BLOCKING verdict line found in the model output\n")
     return EXIT_ERROR
+
+
+def _resolve_waiver_scope(cwd: str, git_range: str) -> tuple[str, str] | None:
+    """Resolve worktree path -> main repo root and two-endpoint range -> immutable <base_sha>..<head_sha>.
+    Returns None when either endpoint is missing/flag-like, cannot be verified as a commit, or base == head."""
+    sep = "..." if "..." in git_range else (".." if ".." in git_range else "")
+    if not sep:
+        return None
+    left, right = git_range.split(sep, 1)
+    left = left.strip()
+    right = right.strip()
+    if not left or not right or left.startswith("-") or right.startswith("-"):
+        return None
+    try:
+        common = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if common.returncode != 0 or not common.stdout.strip():
+            return None
+        gdir = Path(common.stdout.strip())
+        gdir = (Path(cwd) / gdir).resolve() if not gdir.is_absolute() else gdir.resolve()
+        repo_path = str(gdir.parent) if gdir.name == ".git" else str(Path(cwd).resolve())
+
+        left_p = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--verify", f"{left}^{{commit}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        right_p = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--verify", f"{right}^{{commit}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if left_p.returncode != 0 or right_p.returncode != 0:
+            return None
+        left_sha = left_p.stdout.strip()
+        head_sha = right_p.stdout.strip()
+        if sep == "...":
+            mb = subprocess.run(
+                ["git", "-C", cwd, "merge-base", left_sha, head_sha],
+                capture_output=True, text=True, timeout=10,
+            )
+            if mb.returncode != 0 or not mb.stdout.strip():
+                return None
+            base_sha = mb.stdout.strip()
+        else:
+            base_sha = left_sha
+        if not (re.fullmatch(r"[0-9a-f]{40}", base_sha) and re.fullmatch(r"[0-9a-f]{40}", head_sha)):
+            return None
+        if base_sha == head_sha:
+            return None
+        return repo_path, f"{base_sha}..{head_sha}"
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":

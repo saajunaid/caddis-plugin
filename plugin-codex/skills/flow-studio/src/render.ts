@@ -125,7 +125,7 @@ function paint(ctx: Ctx, fromSwitch = false): void {
   ctx.geom = computeGeometry({ ...model, links: effective }, { visible: id => { const n = ctx.nodes.get(id); return !!n && nodeVisible(model, mode, n, ctx.collapsed); } });
   ctx.els.world.style.height = ctx.geom.world.h + "px";
   ctx.els.svg.setAttribute("height", String(ctx.geom.world.h));
-  document.body.classList.toggle("alt", !!model.views && mode !== baselineView(model));
+  ctx.els.host.classList.toggle("alt", !!model.views && mode !== baselineView(model));
 
   for (const n of model.nodes) {
     const d = ctx.nodeEls.get(n.id);
