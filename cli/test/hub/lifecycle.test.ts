@@ -76,6 +76,7 @@ const fakeState = (): NonNullable<HubDeps['state']> => ({
   start: () => {},
   stop: () => {},
   refreshAll: async () => {},
+  syncNow: async () => {},
   repoPaths: () => [],
   getState: () => ({
     schema: 1,

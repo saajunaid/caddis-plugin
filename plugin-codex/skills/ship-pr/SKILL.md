@@ -85,7 +85,7 @@ Finished plans close in the PR that finishes them (`/caddis:implement` step 4b).
 PR did, on the files it touches only:
 
 ```bash
-python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
+python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.215/scripts/caddis_tidy.py" --repo-root . --check --commit-range origin/<default>..HEAD
 ```
 
 (`<default>` is the default branch from Step 0. Falls back to `scripts/caddis_tidy.py` from a
@@ -127,15 +127,15 @@ Run `python "<home>/.caddis/bin/caddis_run.py" caddis_gate.py review-tier --rang
 `<base>` is `origin/<default branch>` (on the default branch itself, the commit before this change). Tier 0 or 1-small: no model review. Tier 1: one `/caddis:cross-review`. Tier 2: one `/caddis:cross-review` by one other vendor (two only when the owner asks). No `TIER:` line means tier 2.
 <!-- /shared:cross-review-trigger -->
 When `review-tier` prints `AREA: security-analyst`, also dispatch `security-analyst` on the diff. `ui-design-reviewer` never runs per PR.
-When `review-tier` prints a `DB:` line with reviewers, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_gate.py" db-review --range <base>...HEAD`. On exit 1:
-1. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output (the SQL Server load checklist) into each reviewer's prompt.
-2. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_gate.py" db-review --range <base>...HEAD --print-files`. It prints `FILES: <path>@<blob>,...`.
+When `review-tier` prints a `DB:` line with reviewers, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.215/scripts/caddis_gate.py" db-review --range <base>...HEAD`. On exit 1:
+1. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.215/scripts/caddis_gate.py" db-review --stage diff --print-brief` and paste its output (the SQL Server load checklist) into each reviewer's prompt.
+2. Run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.215/scripts/caddis_gate.py" db-review --range <base>...HEAD --print-files`. It prints `FILES: <path>@<blob>,...`.
 3. Dispatch each reviewer on `git diff <base>...HEAD`. Tell it to read the tests of each file too.
 4. If a reviewer returns `blocking` above 0, fix the code, run its tests and commit the fix. Run `--print-files` again and review the fix diff. Do this at most 3 rounds, then stop and ask the owner.
 5. Write `DB-DIFF <reviewer> <approved|changes-suggested> blocking=<n> files=<FILES>` and the reviewer's full return block into the evidence file. The gate reads `.caddis/reviews/db-<branch>.md`, where the branch name has every `/` replaced with `-` (branch `feat/x` gives `db-feat-x.md`). It also reads every `.caddis/reviews/*.md` file that the PR changes. A plan's evidence file `<plan-stem>-db.md` is read only with `--plan <plan> --phase <N>` or `--evidence <path>`. Give the file the frontmatter `type: review`.
 6. Commit the evidence file and run the gate again. It must exit 0.
 
-`measured-check` has no `--phase` option and checks every `done` row of the plan. For each plan file the PR changes, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_gate.py" measured-check --plan <plan>`. Either gate at exit 1 stops the PR.
+`measured-check` has no `--phase` option and checks every `done` row of the plan. For each plan file the PR changes, run `python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.215/scripts/caddis_gate.py" measured-check --plan <plan>`. Either gate at exit 1 stops the PR.
 
 > **Why this is mechanical and not "consider a review here".** a fleet app shipped four
 > production releases in one day — sixteen fixes across SQL, caches, refresh jobs and React — and
@@ -198,7 +198,7 @@ scope-guard check when present:
 - Gitea lane: poll the run for the PR's head SHA via the API (`deploy-local` skill procedure).
 - GitHub lane: wait for PR checks outside the Claude session via `ci-watch`:
   ```bash
-  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.214/scripts/caddis_lanes.py" ci-watch --pr <pr>
+  python "${HOME}/.codex/plugins/cache/caddis/caddis-codex/1.3.215/scripts/caddis_lanes.py" ci-watch --pr <pr>
   ```
   `RESULT: pass` means every check of the PR's head commit is complete and green; `HEAD:` names that commit.
   Exit codes: **0** pass → continue; **1** fail → read `FAILING:` and the gh output, classify, apply the minimum source fix, then re-push (through Step 4's safety if history must change); **3** could not tell (also: a check still unfinished, or the head's checks unreadable) → watch the queued or unfinished run once with `ci-watch --run <id>` (never a new `--pr` watch); if it stays 3, stop and report, do not merge. One `ci-watch` per PR head; write no "still waiting" turns.

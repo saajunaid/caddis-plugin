@@ -15,10 +15,18 @@ ledger `.caddis/qa/<KEY>.yaml` (JSON, which is valid YAML: ids Q1.. never reused
 PARKED, at most 7 OPEN per round). `qa-post --epic <KEY> --round <N>` previews the comment and prints its sha256;
 `--approve <8 or 64 hex>` posts it only when the hash matches the text now and the leak lint is clean. qa-post is
 refused whenever CADDIS_HEADLESS is set. `qa-pull` reads replies (GET only); `qa-status --gate` exits 1 while a
-blocking question is OPEN. `sync-stories --plan <p> [--issue-type T] [--dry-run]` makes one Story per plan phase,
-idempotent by the label `caddis-<plan>-p<n>`, and never deletes. `transition <KEY> --to <status>` moves an issue.
+blocking question is OPEN. `sync-stories --plan <p> [--issue-type T] [--granularity phase|milestone] [--component C]
+[--dry-run]` makes one Story per plan phase, idempotent by the label `caddis-<plan>-p<n>`, and never deletes. With
+`--granularity milestone` (or `--by-milestone`, or `jira_granularity: milestone` in the plan) it makes one Story per
+deliverable milestone of the plan's Tracker, labelled `caddis-<plan>-m-<milestone>`. A component is optional: it is
+sent only when `--component` or `jira_component:` names one, and `components` is absent from the request otherwise.
+`transition <KEY> --to <status>` moves an issue; `transition-milestone --plan <p> --milestone <ID> --to <status>
+[--fix-version <tag>]` moves the Story of one milestone.
+`dashboard-setup` (Phase 2b) builds four saved JQL filters and a dev dashboard for any scope (project, component,
+Epics, label or raw JQL): it previews and prints a sha256, and `--approve <hash>` writes (never with CADDIS_HEADLESS).
+A Jira that refuses the dashboard or gadget calls gets a printed gadget blueprint instead; the filters stay.
 `JiraAdapter.request` stays GET only; a write goes through `JiraAdapter.write`, which refuses until the command arms
-it, allows only POST/PUT on four REST paths and never DELETE.
+it, allows only POST/PUT on the REST paths in `_WRITE_ROUTES` and never DELETE.
 
 Keys (the environment first, then `CADDIS_KEYS_FILE` or `~/.caddis/keys.env`):
 - `JIRA_URL` (https only) and `JIRA_TOKEN`;
@@ -85,7 +93,14 @@ _WRITE_ROUTES = (
     ("PUT", re.compile(rf"/issue/{_KEY_PART}")),                   # update its summary and description
     ("POST", re.compile(rf"/issue/{_KEY_PART}/comment")),          # one approved Q&A round (qa-post)
     ("POST", re.compile(rf"/issue/{_KEY_PART}/transitions")),      # a workflow transition
+    ("POST", re.compile(r"/filter")),                              # a saved JQL filter (dashboard-setup)
+    ("PUT", re.compile(r"/filter/\d+")),                           # its JQL, when it changed
+    ("POST", re.compile(r"/dashboard")),                           # the dev dashboard
+    ("POST", re.compile(r"/dashboard/\d+/gadget")),                # a gadget on it
+    ("PUT", re.compile(r"/dashboard/\d+/items/\d+/properties/[A-Za-z0-9_.-]+")),  # the gadget's configuration
 )
+# A Jira that does not offer the dashboard or filter-list calls (or locks them) answers with one of these.
+DASHBOARD_REFUSED = (400, 401, 403, 404, 405, 501)
 MAX_SNIPPET = 300
 CHILDREN_MAX = 50
 _ZERO_WIDTH = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
@@ -507,6 +522,50 @@ class JiraAdapter:
                 break
         return found - {""}
 
+    def project_components(self, project: str) -> list[str] | None:
+        """The component names of a project (an empty list when it has none), or None when Jira cannot say."""
+        if not _PROJECT_KEY.fullmatch(project or ""):
+            return None
+        try:
+            data = self._get(f"/project/{quote(project)}/components")
+        except JiraError as err:
+            if err.status in (400, 401, 403, 404):
+                return None
+            raise
+        if not isinstance(data, list):
+            return None
+        return [str(c.get("name") or "") for c in data if isinstance(c, dict)]
+
+    # -- dashboard-setup reads (the writes go through write())
+    @staticmethod
+    def epics_clause(keys: list[str]) -> str:
+        raise NotImplementedError
+
+    def list_filters(self, prefix: str) -> list[dict]:
+        """Filters this login can see, as {id, name, jql, source}. A call this Jira does not have is skipped."""
+        raise NotImplementedError
+
+    def find_dashboard(self, name: str) -> str | None:
+        """The id of an existing dashboard with exactly this name, or None (also when Jira cannot list them)."""
+        raise NotImplementedError
+
+    def _filter_rows(self, path: str, source: str, query: dict | None = None) -> list[dict]:
+        try:
+            data = self._get(path, query)
+        except JiraError as err:
+            if err.status in DASHBOARD_REFUSED:
+                return []
+            raise
+        items = data.get("values") if isinstance(data, dict) else data
+        return [{"id": str(f.get("id") or ""), "name": str(f.get("name") or ""), "jql": str(f.get("jql") or ""),
+                 "source": source} for f in items or [] if isinstance(f, dict) and f.get("id")]
+
+    def filter_url(self, filter_id: str) -> str:
+        return f"{self.base_url}/issues/?filter={quote(str(filter_id))}"
+
+    def dashboard_url(self, dashboard_id: str) -> str:
+        return f"{self.base_url}/secure/Dashboard.jspa?selectPageId={quote(str(dashboard_id))}"
+
     # -- body formats: DC wiki markup, Cloud ADF
     def qa_payload(self, epic: str, rnd: int, open_qs: list[dict], defaults: list[dict]) -> dict:
         raise NotImplementedError
@@ -557,6 +616,28 @@ class JiraDCAdapter(JiraAdapter):
         return [{"id": str(t.get("id") or ""), "name": t.get("name"), "subtask": bool(t.get("subtask"))}
                 for t in projects[0].get("issuetypes") or []]
 
+    @staticmethod
+    def epics_clause(keys: list[str]) -> str:
+        return f'"Epic Link" in ({", ".join(keys)})'
+
+    def list_filters(self, prefix: str) -> list[dict]:
+        found: list[dict] = []
+        for path, source in (("/filter/my", "my"), ("/filter/favourite", "favourite")):
+            found += self._filter_rows(path, source)
+        return found
+
+    def find_dashboard(self, name: str) -> str | None:
+        try:
+            data = self._get("/dashboard", {"filter": "my", "maxResults": 100})
+        except JiraError as err:
+            if err.status in DASHBOARD_REFUSED:
+                return None
+            raise
+        for d in (data.get("dashboards") if isinstance(data, dict) else None) or []:
+            if isinstance(d, dict) and str(d.get("name") or "") == name and d.get("id"):
+                return str(d["id"])
+        return None
+
     def qa_payload(self, epic: str, rnd: int, open_qs: list[dict], defaults: list[dict]) -> dict:
         return {"body": qa_round_wiki(epic, rnd, open_qs, defaults)}
 
@@ -603,6 +684,29 @@ class JiraCloudAdapter(JiraAdapter):
         issues = data.get("issues") or []
         # /search/jql has no total: report what came back, and say when more pages exist.
         return {"total": len(issues), "issues": issues, "more": data.get("isLast") is False}
+
+    @staticmethod
+    def epics_clause(keys: list[str]) -> str:
+        return f"parent in ({', '.join(keys)})"
+
+    def list_filters(self, prefix: str) -> list[dict]:
+        found = self._filter_rows("/filter/my", "my", {"expand": "jql"})
+        found += self._filter_rows("/filter/favourite", "favourite", {"expand": "jql"})
+        found += self._filter_rows("/filter/search", "search",
+                                   {"filterName": prefix, "expand": "jql", "maxResults": 100})
+        return found
+
+    def find_dashboard(self, name: str) -> str | None:
+        try:
+            data = self._get("/dashboard/search", {"dashboardName": name, "maxResults": 100})
+        except JiraError as err:
+            if err.status in DASHBOARD_REFUSED:
+                return None
+            raise
+        for d in (data.get("values") if isinstance(data, dict) else None) or []:
+            if isinstance(d, dict) and str(d.get("name") or "") == name and d.get("id"):
+                return str(d["id"])
+        return None
 
     def qa_payload(self, epic: str, rnd: int, open_qs: list[dict], defaults: list[dict]) -> dict:
         return {"body": qa_round_to_adf(epic, rnd, open_qs, defaults)}
@@ -1216,6 +1320,14 @@ class PlanPhase:
     risk: str = ""
     status: str = ""
     jira_story: str = ""
+    kind: str = "phase"  # "milestone": one unit of sync that stands for several phases
+    members: list[str] = field(default_factory=list)  # a milestone: the ids of its phases
+    unstamped: list[str] = field(default_factory=list)  # a milestone: members with no **Jira Story:** line yet
+
+    @property
+    def tag(self) -> str:
+        """How a row names this unit: `P1` for a phase, `milestone M1` for a milestone."""
+        return f"P{self.pid}" if self.kind == "phase" else f"milestone {self.pid}"
 
 
 _PHASE_HEAD = re.compile(r"^###\s+Phase\s+([0-9][0-9A-Za-z.]*)\s*(?:\u2014|\u2013|-|:)\s*(.+?)\s*$")
@@ -1327,11 +1439,16 @@ def plan_slug(plan_path) -> str:
     return _slug(Path(plan_path).stem)
 
 
-def story_label(slug: str, pid: str) -> str:
+def story_label(slug: str, pid: str, kind: str = "phase") -> str:
+    """`caddis-<plan>-p<n>` for a phase, `caddis-<plan>-m-<milestone>` for a milestone: the two never collide."""
+    if kind == "milestone":
+        return f"caddis-{_slug(slug)}-m-{_slug(pid)}"
     return f"caddis-{_slug(slug)}-p{_slug(pid)}"
 
 
-def story_marker(slug: str, pid: str) -> str:
+def story_marker(slug: str, pid: str, kind: str = "phase") -> str:
+    if kind == "milestone":
+        return f"caddis:{_slug(slug)}#M-{_slug(pid)}"
     return f"caddis:{_slug(slug)}#P{pid}"
 
 
@@ -1341,9 +1458,9 @@ def _fold(text: str) -> str:
 
 def render_story(adapter: JiraAdapter, slug: str, phase: PlanPhase) -> dict:
     """The summary and description caddis writes for one phase (redacted, in the adapter's body format)."""
-    summary = adapter.clean(f"[{_slug(slug)} P{phase.pid}] {phase.title}", MAX_SUMMARY)
+    summary = adapter.clean(f"[{_slug(slug)} {phase.tag}] {phase.title}", MAX_SUMMARY)
     description = adapter.story_description(adapter.clean(phase.goal, None), adapter.clean(phase.exit_gate, None),
-                                            story_marker(slug, phase.pid))
+                                            story_marker(slug, phase.pid, phase.kind))
     return {"summary": summary, "description": description}
 
 
@@ -1371,6 +1488,115 @@ def resolve_issue_type(cli_value: str | None, meta: Mapping, env: Mapping[str, s
     return name, source
 
 
+GRANULARITIES = ("phase", "milestone")
+_COMPONENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _./&()+-]{0,79}")
+_MILESTONE_SPLIT = re.compile(r"\s+(?:—|–|-)\s+|\s*:\s+")
+PLAN_UNIT = "plan"  # the one deliverable for phases with no milestone of their own
+
+
+def resolve_granularity(cli_value: str | None, by_milestone: bool, meta: Mapping) -> tuple[str, str]:
+    """(granularity, source): --granularity, --by-milestone, the plan's `jira_granularity:`, then `phase`."""
+    if cli_value and by_milestone and cli_value != "milestone":
+        raise ValueError("--by-milestone means --granularity milestone; do not combine it with --granularity phase")
+    raw = str(meta.get("jira_granularity") or "").strip().strip('"').strip("'").lower()
+    if cli_value:
+        return cli_value, "--granularity"
+    if by_milestone:
+        return "milestone", "--by-milestone"
+    if raw and raw not in _NONE_VALUES:
+        if raw not in GRANULARITIES:
+            raise ValueError(f"jira_granularity: must be one of {', '.join(GRANULARITIES)}, not {raw!r}")
+        return raw, "jira_granularity"
+    return "phase", "default"
+
+
+def resolve_components(cli_values: list[str] | None, meta: Mapping) -> list[str]:
+    """The component names to set: --component (repeat it or use commas) beats the plan's `jira_component:` (a
+    string, a `[A, B]` list or a YAML list). Empty or `none` means unset: then no component is ever sent."""
+    if cli_values is not None:
+        raw: list = list(cli_values)
+    else:
+        value = meta.get("jira_component")
+        raw = list(value) if isinstance(value, list) else [value or ""]
+    names: list[str] = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text.startswith("[") and text.endswith("]"):
+            text = text[1:-1]
+        for part in text.split(","):
+            part = part.strip().strip('"').strip("'").strip()
+            if part.lower() in _NONE_VALUES:
+                continue
+            if not _COMPONENT_NAME.fullmatch(part):
+                raise ValueError(f"component {part!r} is not a Jira component name")
+            if part.lower() not in {n.lower() for n in names}:
+                names.append(part)
+    return names
+
+
+def _milestone_cell(cell: str) -> tuple[str, str]:
+    """(id, title) from a Tracker Milestone cell: `M1`, `M1 - Export`, `M1: Export` or just a name. ('', '') = none."""
+    text = re.sub(r"[`*]", "", _TRAILING_MARKS.sub("", cell or "")).strip()
+    if text.lower() in _NONE_VALUES or not _slug(text):
+        return "", ""
+    m = _MILESTONE_SPLIT.search(text)
+    if m and _slug(text[:m.start()]):
+        return text[:m.start()].strip(), text[m.end():].strip()
+    return text, ""
+
+
+def milestone_units(phases: list[PlanPhase], text: str, explicit: bool = False) -> list[PlanPhase]:
+    """One unit per deliverable milestone of the plan's `## Tracker` (its `Milestone` column), in order of first
+    appearance. Phases with no milestone share one plan-level unit. A plan with no milestone at all becomes that one
+    plan-level unit, except when `explicit` (the person asked for milestones on the command line): then it is an error.
+    Raises ValueError for that, and for phases of one milestone that already carry different Jira Story keys."""
+    _, body = split_document(text)
+    rows = _tracker_rows(body)
+    groups: dict[str, dict] = {}
+    for p in phases:
+        mid, title = _milestone_cell((rows.get(p.pid.lower()) or {}).get("milestone", ""))
+        key = _slug(mid) if mid else PLAN_UNIT
+        g = groups.setdefault(key, {"id": mid or PLAN_UNIT, "title": title, "phases": []})
+        g["title"] = g["title"] or title
+        g["phases"].append(p)
+    if explicit and not [k for k in groups if k != PLAN_UNIT]:
+        raise ValueError("--by-milestone needs a 'Milestone' column in the plan's ## Tracker with at least one "
+                         "milestone (none found); name the milestones or sync by phase")
+    units: list[PlanPhase] = []
+    for g in groups.values():
+        members: list[PlanPhase] = g["phases"]
+        mid = g["id"]
+        stories = sorted({m.jira_story for m in members if m.jira_story})
+        if len(stories) > 1:
+            raise ValueError(f"milestone {mid}: its phases carry different **Jira Story:** keys ({', '.join(stories)});"
+                             " one milestone has one Story (remove the lines of an earlier by-phase sync)")
+        listing = "; ".join(f"P{m.pid} {m.title}" for m in members)
+        title = g["title"] or ("Plan deliverable" if mid == PLAN_UNIT else "; ".join(m.title for m in members)[:120])
+        head = "Plan deliverable" if mid == PLAN_UNIT else f"Milestone {mid}" + (f": {g['title']}" if g["title"] else "")
+        gates = " ".join(f"P{m.pid}: {m.exit_gate}" for m in members if m.exit_gate)
+        riskiest = max(members, key=lambda m: risk_points(m.risk))  # an unset risk counts as medium
+        done = all(str(m.status).lower().startswith("done") for m in members)
+        units.append(PlanPhase(pid=mid, title=title, goal=f"{head}. Phases: {listing}.", exit_gate=gates,
+                               risk=riskiest.risk, status="done" if done else "open",
+                               jira_story=stories[0] if stories else "", kind="milestone",
+                               members=[m.pid for m in members], unstamped=[m.pid for m in members if not m.jira_story]))
+    return units
+
+
+def sync_units(text: str, phases: list[PlanPhase], granularity: str, explicit: bool = False) -> list[PlanPhase]:
+    """The units sync-stories and gate2 plan rows for: the phases, or the milestones of the plan. By phase, two phases
+    that carry one Story key are refused: a by-milestone sync stamped it, and a by-phase run would fight over it."""
+    if granularity == "milestone":
+        return milestone_units(phases, text, explicit)
+    owner: dict[str, str] = {}
+    for p in phases:
+        if p.jira_story and owner.setdefault(p.jira_story, p.pid) != p.pid:
+            raise ValueError(f"phases {owner[p.jira_story]} and {p.pid} carry the same **Jira Story:** "
+                             f"{p.jira_story} (a by-milestone sync stamped it): use --by-milestone, or remove those "
+                             "lines to sync by phase")
+    return phases
+
+
 def _child_matches(adapter: JiraAdapter, issue: dict, label: str, marker_rx: re.Pattern, key: str = "") -> bool:
     f = issue.get("fields") or {}
     if key and issue.get("key") == key:
@@ -1382,17 +1608,20 @@ def _child_matches(adapter: JiraAdapter, issue: dict, label: str, marker_rx: re.
 
 def plan_story_rows(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], children: list[dict], *, project: str,
                     epic: str, issue_type: str, epic_link_field: str | None, points_field: str | None,
-                    ac_field: str | None = None) -> list[dict]:
-    """One row per phase: CREATE, UPDATE, UNCHANGED, BLOCKED (leak lint) or CONFLICT (two issues match)."""
+                    ac_field: str | None = None, components: list[str] | None = None) -> list[dict]:
+    """One row per unit (a phase, or a milestone): CREATE, UPDATE, UNCHANGED, BLOCKED (leak lint) or CONFLICT (two
+    issues match). `components` are sent only when given: no component, no `components` field at all."""
     origin = _origin(adapter.base_url)
     rows = []
     for phase in phases:
-        label = story_label(slug, phase.pid)
-        marker_rx = re.compile(re.escape(story_marker(slug, phase.pid)) + r"(?![0-9A-Za-z.])")
+        label = story_label(slug, phase.pid, phase.kind)
+        marker_rx = re.compile(re.escape(story_marker(slug, phase.pid, phase.kind)) + r"(?![0-9A-Za-z.])")
         story = render_story(adapter, slug, phase)
-        row = {"phase": phase.pid, "title": adapter.clean(phase.title, MAX_SUMMARY), "status": phase.status,
-               "label": label,
-               "summary": story["summary"], "key": None, "changes": [], "lint": [], "points": None}
+        row = {"phase": phase.pid, "kind": phase.kind, "tag": phase.tag,
+               "members": phase.members or [phase.pid], "unstamped": list(phase.unstamped),
+               "title": adapter.clean(phase.title, MAX_SUMMARY), "status": phase.status, "label": label,
+               "summary": story["summary"], "key": None, "changes": [], "lint": [], "points": None,
+               "components": list(components or [])}
         for part in (phase.title, phase.goal, phase.exit_gate):
             row["lint"] += [f"{h.rule}: {h.excerpt}" for h in leak_lint(part, adapter._secrets, origin)]
         matches = [c for c in children if _child_matches(adapter, c, label, marker_rx, phase.jira_story)]
@@ -1415,19 +1644,29 @@ def plan_story_rows(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], ch
                 row["changes"].append("label")
             if ac_value is not None and _fold(adapter.body_text(f.get(ac_field))) != _fold(adapter.body_text(ac_value)):
                 row["changes"].append("acceptance criteria")
+            missing = []
+            if components:
+                have = {str(c.get("name") or "").lower() for c in f.get("components") or [] if isinstance(c, dict)}
+                missing = [c for c in components if c.lower() not in have]
+                if missing:
+                    row["changes"].append("component")
             row["action"] = "UPDATE" if row["changes"] else "UNCHANGED"
             if row["changes"]:
                 body: dict = {"fields": {"summary": story["summary"], "description": story["description"]}}
                 if "acceptance criteria" in row["changes"]:
                     body["fields"][ac_field] = ac_value
                 if "label" in row["changes"]:
-                    body["update"] = {"labels": [{"add": label}]}
+                    body.setdefault("update", {})["labels"] = [{"add": label}]
+                if missing:  # add only: a component a person set in Jira is never removed
+                    body.setdefault("update", {})["components"] = [{"add": {"name": c}} for c in missing]
                 row["body"] = body
         else:
             row["action"] = "CREATE"
             fields = {"project": {"key": project}, "issuetype": {"name": issue_type}, "summary": story["summary"],
                       "description": story["description"], "labels": [label],
                       **adapter.epic_link(epic, epic_link_field)}
+            if components:
+                fields["components"] = [{"name": c} for c in components]
             if points_field:
                 row["points"] = fields[points_field] = risk_points(phase.risk)
             if ac_value is not None:
@@ -1459,12 +1698,16 @@ class SyncPlan:
     notes: list[str]
     rows: list[dict]
     fetched_by_key: list[str] = field(default_factory=list)  # stamped Story keys the Epic child query did not list
+    components: list[str] = field(default_factory=list)
 
 
-def plan_sync(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], epic: str, issue_type: str) -> SyncPlan:
+def plan_sync(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], epic: str, issue_type: str,
+              components: list[str] | None = None) -> SyncPlan:
     """The read half of sync-stories (GET only, no write is ever armed here): read the Epic (a moved Epic is read by
     the key Jira returns), the project's issue types, the field schema and the Epic's children, then plan one row per
-    phase (CREATE, UPDATE, UNCHANGED, BLOCKED or CONFLICT). `caddis_gate.py gate2` calls it as well.
+    unit (CREATE, UPDATE, UNCHANGED, BLOCKED or CONFLICT). `phases` holds phases or milestone units
+    (`sync_units`). `components` is optional: empty means the project may have none, and none is sent.
+    `caddis_gate.py gate2` calls it as well.
     Raises SyncError (with the exit code) when the sync cannot be planned, and JiraError on a failed request."""
     notes: list[str] = []
     epic_issue = adapter.get_issue(epic)
@@ -1488,7 +1731,22 @@ def plan_sync(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], epic: st
     if fields["story_points"] and not points_field:
         notes.append(f"STORY POINTS: {fields['story_points']} is not on the create screen of {issue_type}: omitted")
     ac_field = fields["acceptance_criteria"] if (screen and fields["acceptance_criteria"] in screen) else None
-    wanted = ["summary", "description", "labels", "issuetype", "status"] + ([ac_field] if ac_field else [])
+    components = list(components or [])
+    if components:
+        known = adapter.project_components(project)
+        if known is None:
+            notes.append(f"WARN: the components of project {project} could not be read; "
+                         f"{', '.join(components)} not checked")
+        else:
+            by_lower = {k.lower(): k for k in known}
+            absent = [c for c in components if c.lower() not in by_lower]
+            if absent:
+                allowed = ", ".join(known) if known else "the project has no components"
+                raise SyncError(f"ERROR: component {', '.join(absent)} is not in project {project} ({allowed}); "
+                                "drop --component / jira_component: for a project without components", caddis_exit.ERROR)
+            components = [by_lower[c.lower()] for c in components]
+    wanted = (["summary", "description", "labels", "issuetype", "status"] + ([ac_field] if ac_field else [])
+              + (["components"] if components else []))
     jql, found, error = find_children(adapter, resolved, wanted, SYNC_CHILDREN_MAX)
     if found is None:
         raise SyncError(f"ERROR: cannot list the children of {resolved}: {error}", caddis_exit.BLOCKED)
@@ -1504,9 +1762,10 @@ def plan_sync(adapter: JiraAdapter, slug: str, phases: list[PlanPhase], epic: st
                 children.append(raw)
                 fetched.append(p.jira_story)
     rows = plan_story_rows(adapter, slug, phases, children, project=project, epic=resolved, issue_type=issue_type,
-                           epic_link_field=epic_field, points_field=points_field, ac_field=ac_field)
+                           epic_link_field=epic_field, points_field=points_field, ac_field=ac_field,
+                           components=components)
     return SyncPlan(resolved, project, issue_type, epic_field, points_field, ac_field, jql, children, notes, rows,
-                    fetched)
+                    fetched, components)
 
 
 # ---------------------------------------------------------------- command line
@@ -1822,7 +2081,7 @@ def cmd_qa_status(args, env, factory) -> int:
 
 def _print_rows(rows: list[dict]) -> None:
     for r in rows:
-        head = f"P{r['phase']} {r['action']}"
+        head = f"{r.get('tag') or 'P' + str(r['phase'])} {r['action']}"
         if r["action"] == "CREATE" or r["action"] == "PLANNED":
             extra = f" label={r['label']}" + (f" points={r['points']}" if r.get("points") else "")
             print(f"{head} {r['summary']}{extra}")
@@ -1849,16 +2108,21 @@ def cmd_sync_stories(args, env, factory) -> int:
     if not phases:
         raise ValueError("the plan has no '### Phase <id> - <title>' sections")
     issue_type, type_source = resolve_issue_type(args.issue_type, meta, env)
+    granularity, gran_source = resolve_granularity(args.granularity, args.by_milestone, meta)
+    components = resolve_components(args.component, meta)
+    units = sync_units(text, phases, granularity, explicit=gran_source.startswith("--"))
     if args.offline:
-        print(f"PLAN: {slug} ({len(phases)} phases)\nEPIC: {epic}\nISSUE TYPE: {issue_type} ({type_source})")
-        for p in phases:
-            print(f"P{p.pid} PLANNED [{slug} P{p.pid}] {p.title} label={story_label(slug, p.pid)} "
+        print(f"PLAN: {slug} ({len(phases)} phases, {len(units)} {granularity} units)\nEPIC: {epic}\n"
+              f"ISSUE TYPE: {issue_type} ({type_source})\nGRANULARITY: {granularity} ({gran_source})\n"
+              f"COMPONENT: {', '.join(components) or '-'}")
+        for p in units:
+            print(f"{p.tag} PLANNED [{slug} {p.tag}] {p.title} label={story_label(slug, p.pid, p.kind)} "
                   f"points={risk_points(p.risk)}")
         print("OFFLINE: Jira was not read and nothing was sent")
         return caddis_exit.CLEAN
     adapter = _adapter(env, factory)
     try:
-        sync = plan_sync(adapter, slug, phases, epic, issue_type)
+        sync = plan_sync(adapter, slug, units, epic, issue_type, components)
     except SyncError as err:
         return _err(err.message, err.code)
     except JiraError as err:
@@ -1877,7 +2141,7 @@ def cmd_sync_stories(args, env, factory) -> int:
                     r["key"] = str(resp.get("key") or "")
                     r["result"] = f"CREATED {r['key']}"
                     if r["key"]:
-                        created[r["phase"]] = r["key"]
+                        created.update({pid: r["key"] for pid in r["members"]})
                 elif r["action"] == "UPDATE":
                     adapter.write("PUT", f"/issue/{quote(r['key'])}", r["body"])
                     r["result"] = f"UPDATED {r['key']}"
@@ -1885,6 +2149,8 @@ def cmd_sync_stories(args, env, factory) -> int:
                 r["result"] = f"FAILED: {err}"
                 failed = True
                 break
+            if r["kind"] == "milestone" and r["action"] in ("UPDATE", "UNCHANGED") and r["key"]:
+                created.update({pid: r["key"] for pid in r["unstamped"] if pid not in created})  # a new phase joins
         if created:
             write_back_story_keys(plan_path, created)
     bad = [r for r in rows if r["action"] in ("BLOCKED", "CONFLICT")]
@@ -1892,13 +2158,16 @@ def cmd_sync_stories(args, env, factory) -> int:
     report = {"plan": slug, "epic": epic, "resolved_epic": resolved, "project": project, "issue_type": issue_type,
               "issue_type_source": type_source, "epic_link_field": epic_field, "story_points_field": points_field,
               "acceptance_criteria_field": ac_field, "children_jql": jql, "dry_run": bool(args.dry_run),
+              "granularity": granularity, "granularity_source": gran_source, "components": sync.components,
               "notes": notes, "rows": rows}
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        print(f"PLAN: {slug} ({len(phases)} phases)")
+        print(f"PLAN: {slug} ({len(phases)} phases, {len(units)} {granularity} units)")
         print(f"EPIC: {epic}" + (f" (moved to {resolved})" if resolved != epic else "") + f", project {project}")
         print(f"ISSUE TYPE: {issue_type} ({type_source})")
+        print(f"GRANULARITY: {granularity} ({gran_source})")
+        print(f"COMPONENT: {', '.join(sync.components) or '-'}")
         print(f"EPIC LINK: {epic_field}")
         print(f"STORY POINTS: {points_field or '-'}")
         print(f"ACCEPTANCE CRITERIA: {ac_field or '-'}")
@@ -1910,7 +2179,7 @@ def cmd_sync_stories(args, env, factory) -> int:
         if args.dry_run:
             print(f"DRY RUN: no write sent ({summary})")
         else:
-            print(f"DONE: {summary}" + (f"; plan updated with {len(created)} Jira Story key(s)" if created else ""))
+            print(f"DONE: {summary}" + (f"; plan updated with {len(created)} Jira Story key line(s)" if created else ""))
     if failed:
         return caddis_exit.BLOCKED
     return caddis_exit.BLOCKED if bad else caddis_exit.CLEAN
@@ -1919,14 +2188,10 @@ def cmd_sync_stories(args, env, factory) -> int:
 _FIX_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 
 
-def cmd_transition(args, env, factory) -> int:
-    key = check_key(args.key)
-    target = (args.to or "").strip()
-    if not target:
-        raise ValueError("--to needs a status name")
-    if args.fix_version and not _FIX_VERSION.fullmatch(args.fix_version):
-        raise ValueError("--fix-version looks like v2026.11.25.1 (letters, digits, . _ + -)")
-    adapter = _adapter(env, factory)
+def _transition_issue(adapter: JiraAdapter, key: str, target: str, fix_version: str | None, dry_run: bool,
+                      as_json: bool, extra: dict | None = None) -> int:
+    """Move one issue to `target` (a status or a transition name) and add `fix_version`. Idempotent: an issue already
+    in the status or already on the version is left alone."""
     try:
         issue = adapter.get_issue(key)
         key = check_key(issue["key"] or key)  # a moved issue: act on the key Jira returns
@@ -1935,6 +2200,9 @@ def cmd_transition(args, env, factory) -> int:
         options = [] if already else adapter.transition_list(key)
     except JiraError as err:
         return _failed(err)
+    versions = {str(v.get("name") or "").lower() for v in (issue.get("raw_fields") or {}).get("fixVersions") or []
+                if isinstance(v, dict)}
+    has_version = bool(fix_version) and fix_version.lower() in versions
     pick = None
     if not already:
         by_status = [t for t in options if t["to"].lower() == target.lower()]
@@ -1949,30 +2217,451 @@ def cmd_transition(args, env, factory) -> int:
             return _err(f"NO TRANSITION: {key} is {current}; no transition to {target!r}. Valid: "
                         + ("; ".join(f"{t['name']} -> {t['to']}" for t in options) or "none"), caddis_exit.BLOCKED)
         pick = candidates[0]
-    result = {"key": key, "from": current, "to": pick["to"] if pick else current, "id": pick["id"] if pick else None,
-              "name": pick["name"] if pick else None, "fix_version": args.fix_version, "dry_run": bool(args.dry_run)}
-    if not args.dry_run:
+    result = {**(extra or {}), "key": key, "from": current, "to": pick["to"] if pick else current,
+              "id": pick["id"] if pick else None, "name": pick["name"] if pick else None,
+              "fix_version": fix_version, "dry_run": bool(dry_run)}
+    if not dry_run:
         adapter.arm_writes()
         try:
-            if args.fix_version:
+            if fix_version and not has_version:
                 adapter.write("PUT", f"/issue/{quote(key)}",
-                              {"update": {"fixVersions": [{"add": {"name": args.fix_version}}]}})
+                              {"update": {"fixVersions": [{"add": {"name": fix_version}}]}})
             if pick:
                 adapter.write("POST", f"/issue/{quote(key)}/transitions", {"transition": {"id": pick["id"]}})
         except JiraError as err:
             return _failed(err)
-    if args.json:
+    if as_json:
         print(json.dumps(result))
         return caddis_exit.CLEAN
-    if args.fix_version:
-        print(f"{'WOULD SET' if args.dry_run else 'SET'} FIX VERSION: {key} {args.fix_version}")
+    if fix_version:
+        if has_version:
+            print(f"FIX VERSION ALREADY: {key} {fix_version}")
+        else:
+            print(f"{'WOULD SET' if dry_run else 'SET'} FIX VERSION: {key} {fix_version}")
     if pick is None:
         print(f"ALREADY: {key} is {current}")
-    elif args.dry_run:
+    elif dry_run:
         print(f'WOULD TRANSITION: {key} {current} -> {pick["to"]} via "{pick["name"]}" (id {pick["id"]})')
     else:
         print(f'TRANSITIONED: {key} {current} -> {pick["to"]} via "{pick["name"]}" (id {pick["id"]})')
     return caddis_exit.CLEAN
+
+
+def _check_transition_input(target: str | None, fix_version: str | None) -> str:
+    target = (target or "").strip()
+    if not target:
+        raise ValueError("--to needs a status name")
+    if fix_version and not _FIX_VERSION.fullmatch(fix_version):
+        raise ValueError("--fix-version looks like v2026.11.25.1 (letters, digits, . _ + -)")
+    return target
+
+
+def cmd_transition(args, env, factory) -> int:
+    key = check_key(args.key)
+    target = _check_transition_input(args.to, args.fix_version)
+    adapter = _adapter(env, factory)
+    return _transition_issue(adapter, key, target, args.fix_version, args.dry_run, args.json)
+
+
+def cmd_transition_milestone(args, env, factory) -> int:
+    """Move the Story of one plan milestone (found by its label under the plan's Epic, else by the key stamped on its
+    phases) to a status, and set the fix version. Re-running it is a no-op."""
+    target = _check_transition_input(args.to, args.fix_version)
+    plan_path = Path(args.plan)
+    text = plan_path.read_text(encoding="utf-8")
+    meta, _ = split_document(text)
+    epic = resolve_plan_epic(meta)
+    if epic is None:
+        print(json.dumps({"skipped": True, "reason": "no jira_epic"}) if args.json else "SKIPPED: no jira_epic")
+        return caddis_exit.CLEAN
+    slug = plan_slug(plan_path)
+    phases = parse_plan_phases(text)
+    wanted = _slug(args.milestone)
+    unit = next((u for u in milestone_units(phases, text) if _slug(u.pid) == wanted), None)
+    if not wanted or unit is None:
+        known = ", ".join(u.pid for u in milestone_units(phases, text)) or "none"
+        raise ValueError(f"the plan has no milestone {args.milestone!r} (milestones: {known})")
+    label = story_label(slug, unit.pid, "milestone")
+    adapter = _adapter(env, factory)
+    try:
+        epic_key = adapter.get_issue(epic)["key"] or epic
+        jql, found, error = find_children(adapter, epic_key, ["summary", "labels", "status"], SYNC_CHILDREN_MAX)
+    except JiraError as err:
+        return _failed(err)
+    if found is None:
+        return _err(f"ERROR: cannot list the children of {epic_key}: {error}", caddis_exit.BLOCKED)
+    matches = [c for c in found["issues"]
+               if label in ((c.get("fields") or {}).get("labels") or []) or (unit.jira_story and c.get("key") == unit.jira_story)]
+    if len(matches) > 1:
+        return _err(f"CONFLICT: {len(matches)} issues carry {label}: " + ", ".join(str(c.get("key")) for c in matches),
+                    caddis_exit.BLOCKED)
+    if not matches:
+        return _err(f"NOT SYNCED: no Story with the label {label} under {epic_key}; run sync-stories --plan "
+                    f"{plan_path.name} --by-milestone first", caddis_exit.BLOCKED)
+    return _transition_issue(adapter, str(matches[0].get("key")), target, args.fix_version, args.dry_run, args.json,
+                             {"milestone": unit.pid, "label": label})
+
+
+# ---------------------------------------------------------------- dashboard-setup (Phase 2b): filters + dev dashboard
+
+SHARE_MODES = ("private", "project", "global")
+DASHBOARD_FORMAT = 1  # bump when the filters or gadgets change shape: an old approval then no longer matches
+MAX_EPICS = 50
+GADGET_PREFIX = "com.atlassian.jira.gadgets:"
+_LABEL = re.compile(r"[A-Za-z0-9_.:-]{1,255}")
+_TITLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _./&:()+-]{0,60}")
+_GADGET_COLUMNS = "issuetype|issuekey|summary|status|assignee|fixVersions"
+# The four gadgets of the dev dashboard. `filter` names the saved filter that feeds the gadget; `config` is the
+# gadget's saved preferences; `settings` is the same thing in words, for the blueprint a person follows by hand.
+_GADGETS = (
+    {"title": "Status Breakdown", "module": "pie-chart-gadget", "kind": "Pie Chart", "filter": "all",
+     "position": {"row": 0, "column": 0},
+     "config": {"statType": "statuses", "isConfigured": "true", "refresh": "false"},
+     "settings": "Statistic Type = Status"},
+    {"title": "Status x Fix Version Matrix", "module": "two-dimensional-stats-gadget",
+     "kind": "Two Dimensional Filter Statistics", "filter": "all", "position": {"row": 0, "column": 1},
+     "config": {"xstattype": "statuses", "ystattype": "fixVersions", "sortDirection": "asc", "sortBy": "natural",
+                "numberToShow": "10", "isConfigured": "true", "refresh": "false"},
+     "settings": "X axis = Status; Y axis = Fix Version"},
+    {"title": "Active Work", "module": "filter-results-gadget", "kind": "Filter Results", "filter": "active",
+     "position": {"row": 1, "column": 0},
+     "config": {"num": "15", "columnNames": _GADGET_COLUMNS, "isConfigured": "true", "refresh": "false"},
+     "settings": "Columns = Type, Key, Summary, Status, Assignee, Fix Version; Number of results = 15"},
+    {"title": "Blocked / Waiting", "module": "filter-results-gadget", "kind": "Filter Results", "filter": "blocked",
+     "position": {"row": 1, "column": 1},
+     "config": {"num": "15", "columnNames": _GADGET_COLUMNS, "isConfigured": "true", "refresh": "false"},
+     "settings": "Columns = Type, Key, Summary, Status, Assignee, Fix Version; Number of results = 15"},
+)
+
+
+def _jql_quote(text: str) -> str:
+    """A JQL string literal. A control character is refused; a quote or a backslash is escaped."""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise ValueError("a JQL value must not hold a control character")
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def check_jql_clause(jql: str) -> str:
+    """A raw `--jql` clause, white space folded. It must be balanced (every quote and parenthesis closes inside it,
+    so it cannot break out of the parentheses caddis wraps it in) and must not hold ORDER BY."""
+    text = re.sub(r"\s+", " ", jql or "").strip()
+    if not text:
+        raise ValueError("--jql is empty")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise ValueError("--jql must not hold a control character")
+    depth, quote_ch, escaped, outside = 0, "", False, []
+    for ch in text:
+        if quote_ch:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote_ch:
+                quote_ch = ""
+            continue
+        if ch in "\"'":
+            quote_ch = ch
+            continue
+        outside.append(ch)
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                raise ValueError("--jql has a closing parenthesis with no opening one")
+    if quote_ch:
+        raise ValueError("--jql has a quote that is never closed")
+    if depth:
+        raise ValueError("--jql has a parenthesis that is never closed")
+    if re.search(r"\border\s+by\b", "".join(outside), re.I):
+        raise ValueError("--jql must be a filter clause with no ORDER BY (caddis adds the order)")
+    return text
+
+
+def dashboard_scope(adapter: JiraAdapter, project: str | None, components: list[str], epics: str | None,
+                    label: str | None, jql: str | None) -> tuple[str, str]:
+    """(scope JQL, default title prefix) from any mix of selectors. Every value is checked, then quoted, so a
+    selector can never add a clause of its own. The component is optional: without it nothing names a component."""
+    clauses: list[str] = []
+    proj = (project or "").strip().upper()
+    if project is not None and not _PROJECT_KEY.fullmatch(proj):
+        raise ValueError("--project looks like PROJ")
+    if proj:
+        clauses.append(f"project = {_jql_quote(proj)}")
+    if components:
+        clauses.append("component in (" + ", ".join(_jql_quote(c) for c in components) + ")")
+    keys: list[str] = []
+    for part in (epics or "").split(","):
+        if part.strip():
+            key = check_key(part)
+            if key not in keys:
+                keys.append(key)
+    if epics is not None and not keys:
+        raise ValueError("--epics needs Epic keys such as PROJ-1,PROJ-2")
+    if len(keys) > MAX_EPICS:
+        raise ValueError(f"--epics takes at most {MAX_EPICS} keys")
+    if keys:
+        clauses.append(adapter.epics_clause(keys))
+    if label is not None:
+        if not _LABEL.fullmatch(label.strip()):
+            raise ValueError("--label is one Jira label (letters, digits, . _ : -; no spaces)")
+        clauses.append(f"labels = {_jql_quote(label.strip())}")
+    if jql is not None:
+        clauses.append(f"({check_jql_clause(jql)})")
+    if not clauses:
+        raise ValueError("dashboard-setup needs at least one scope: --project, --component, --epics, --label or "
+                         "--jql")
+    names = " + ".join(components)  # a comma is not allowed in a title
+    prefix = (f"{proj} - {names}" if proj and components else proj or names or "Engineering")[:61].rstrip(" -+")
+    return " AND ".join(clauses), prefix
+
+
+def dashboard_plan(adapter: JiraAdapter, prefix: str, scope: str, share: str, project: str | None) -> dict:
+    """The whole plan as plain data: four filters and the dashboard with its gadgets. The approval hash is over it."""
+    if not _TITLE.fullmatch(prefix):
+        raise ValueError(f"the title {prefix!r} is not a plain name (letters, digits, spaces and . _ / & : ( ) + -)")
+    filters = [
+        {"slot": "all", "name": f"{prefix}: All Deliverables", "jql": f"{scope} ORDER BY updated DESC, key ASC"},
+        {"slot": "active", "name": f"{prefix}: Active / In Progress",
+         "jql": f'({scope}) AND statusCategory = "In Progress" ORDER BY updated DESC, key ASC'},
+        {"slot": "delivered", "name": f"{prefix}: Delivered by Fix Version",
+         "jql": f"({scope}) AND statusCategory = Done AND fixVersion is not EMPTY "
+                "ORDER BY fixVersion DESC, updated DESC"},
+        {"slot": "blocked", "name": f"{prefix}: Blocked / Waiting",
+         "jql": f'({scope}) AND (status in ("Blocked", "Waiting", "On Hold") OR labels in (blocked, waiting)) '
+                "ORDER BY updated DESC"},
+    ]
+    return {"format": DASHBOARD_FORMAT, "mode": adapter.mode, "prefix": prefix, "share": share,
+            "project": (project or "").strip().upper() or None, "scope": scope, "filters": filters,
+            "dashboard": {"name": f"{prefix}: Dev Dashboard", "gadgets": [dict(g) for g in _GADGETS]}}
+
+
+def dashboard_hash(plan: dict) -> str:
+    """sha256 of the canonical plan. It does not depend on what Jira holds now, only on what would be written."""
+    canonical = json.dumps(plan, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def plan_filter_rows(plan: dict, existing: list[dict]) -> list[dict]:
+    """One row per filter: CREATE, UPDATE (the JQL differs), UNCHANGED or CONFLICT (two filters share the name)."""
+    rows = []
+    for f in plan["filters"]:
+        same = [e for e in existing if e["name"] == f["name"]]
+        ids = sorted({e["id"] for e in same})
+        row = {"slot": f["slot"], "name": f["name"], "jql": f["jql"], "id": None, "action": "CREATE"}
+        if len(ids) > 1:
+            row.update(action="CONFLICT", id=", ".join(ids))
+        elif ids:
+            row["id"] = ids[0]
+            row["action"] = "UNCHANGED" if _fold(same[0]["jql"]) == _fold(f["jql"]) else "UPDATE"
+        rows.append(row)
+    return rows
+
+
+def _share_permissions(adapter: JiraAdapter, plan: dict) -> list[dict]:
+    if plan["share"] == "global":
+        return [{"type": "global"}]
+    if plan["share"] == "project":
+        found = adapter._get(f"/project/{quote(plan['project'] or '')}")
+        pid = str((found or {}).get("id") or "")
+        if not pid.isdigit():
+            raise JiraError(None, "cannot share with the project: Jira did not return its id")
+        return [{"type": "project", "project": {"id": pid}}]
+    return []
+
+
+def _write_filters(adapter: JiraAdapter, plan: dict, rows: list[dict], perms: list[dict]) -> bool:
+    """Create or update the filters (idempotent by exact name; never a DELETE). False on the first failed write."""
+    desc = "Created by caddis dashboard-setup. Change the scope there and run it again."
+    for r in rows:
+        try:
+            if r["action"] == "CREATE":
+                body = {"name": r["name"], "description": desc, "jql": r["jql"], "favourite": True}
+                if perms:
+                    body["sharePermissions"] = perms
+                resp = adapter.write("POST", "/filter", body)
+                r["id"] = str(resp.get("id") or "")
+                if not r["id"].isdigit():
+                    raise JiraError(None, "Jira did not return the id of the new filter")
+                r["result"] = f"CREATED filter {r['id']}"
+            elif r["action"] == "UPDATE":
+                body = {"name": r["name"], "jql": r["jql"]}
+                if perms:
+                    body["sharePermissions"] = perms
+                adapter.write("PUT", f"/filter/{r['id']}", body)
+                r["result"] = f"UPDATED filter {r['id']}"
+            else:
+                r["result"] = f"UNCHANGED filter {r['id']}"
+        except JiraError as err:
+            r["result"] = f"FAILED: {err}"
+            return False
+    return True
+
+
+def _write_dashboard(adapter: JiraAdapter, plan: dict, rows: list[dict], perms: list[dict]) -> dict:
+    """Create the dashboard and its gadgets, best effort. Many Jira servers lock these calls: a refusal is not an
+    error but the `blueprint_fallback` mode (the filters stay, and the blueprint says how to finish by hand)."""
+    spec = plan["dashboard"]
+    out: dict = {"mode": "created", "name": spec["name"], "id": None, "url": None, "gadgets": [], "note": ""}
+    ids = {r["slot"]: r["id"] for r in rows}
+    try:
+        existing = adapter.find_dashboard(spec["name"])
+        if existing:
+            out.update(mode="existing", id=existing, url=adapter.dashboard_url(existing),
+                       note="a dashboard with this name exists; its gadgets were not changed")
+            return out
+        resp = adapter.write("POST", "/dashboard", {
+            "name": spec["name"], "description": "Created by caddis dashboard-setup.",
+            "sharePermissions": perms, "editPermissions": []})
+        dash = str(resp.get("id") or "")
+        if not dash.isdigit():
+            raise JiraError(404, "Jira did not return a usable dashboard id")
+        out.update(id=dash, url=adapter.dashboard_url(dash))
+        for g in spec["gadgets"]:
+            made = adapter.write("POST", f"/dashboard/{dash}/gadget", {
+                "moduleKey": GADGET_PREFIX + g["module"], "title": g["title"], "position": g["position"],
+                "color": "blue"})
+            item = str(made.get("id") or "")
+            if not item.isdigit():
+                raise JiraError(404, "Jira did not return a usable gadget id")
+            adapter.write("PUT", f"/dashboard/{dash}/items/{item}/properties/config",
+                          {**g["config"], "filterId": f"filter-{ids[g['filter']]}"})
+            out["gadgets"].append(g["title"])
+    except JiraError as err:
+        text = adapter.clean(str(err), MAX_ERROR_TEXT)
+        if err.status in DASHBOARD_REFUSED:
+            out.update(mode="blueprint_fallback", note=f"this Jira refused the dashboard calls ({text})")
+        else:
+            out.update(mode="failed", note=text, status=err.status)
+    return out
+
+
+def _dashboard_text(adapter: JiraAdapter, plan: dict, rows: list[dict], dash: dict | None, digest: str | None,
+                    preview: bool) -> list[str]:
+    """The printable report. Every line is redacted by the caller."""
+    lines = [f"DASHBOARD SETUP: {plan['prefix']} ({plan['mode']}, share {plan['share']})", f"SCOPE: {plan['scope']}"]
+    for n, r in enumerate(rows, 1):
+        lines.append(f"FILTER {n} {r['action']}{' ' + r['id'] if r['id'] and r['action'] != 'CREATE' else ''}: "
+                     f"{r['name']}")
+        lines.append(f"  JQL: {r['jql']}")
+        if r.get("result"):
+            lines.append(f"  {r['result']}")
+    spec = plan["dashboard"]
+    if preview:
+        lines.append(f"DASHBOARD PLAN: {spec['name']} with {len(spec['gadgets'])} gadgets (best effort: if this Jira "
+                     "refuses the dashboard calls, a blueprint is printed instead and the filters stay)")
+        for g in spec["gadgets"]:
+            lines.append(f"  GADGET: {g['title']} ({g['kind']}) <- filter {g['filter']}")
+        if digest:
+            lines += [f"APPROVE_SHA256: {digest}", f"APPROVE: {digest[:8]}"]
+        return lines
+    if dash:
+        lines.append(f"DASHBOARD: {dash['mode']}" + (f" ({dash['note']})" if dash.get("note") else ""))
+        if dash.get("url"):
+            lines.append(f"  URL: {dash['url']}")
+        if dash["mode"] in ("blueprint_fallback", "failed"):
+            lines += _blueprint_lines(adapter, plan, rows)
+    return lines
+
+
+def _blueprint_lines(adapter: JiraAdapter, plan: dict, rows: list[dict]) -> list[str]:
+    """The copy-paste Dev Dashboard Gadget Blueprint: each filter with its id, link and JQL, and the four gadgets."""
+    by_slot = {r["slot"]: r for r in rows}
+    lines = ["DEV DASHBOARD GADGET BLUEPRINT",
+             f'In Jira, create a dashboard named "{plan["dashboard"]["name"]}" with two columns, then add:']
+    for n, g in enumerate(plan["dashboard"]["gadgets"], 1):
+        r = by_slot[g["filter"]]
+        lines += [f"  GADGET {n} (row {g['position']['row'] + 1}, column {g['position']['column'] + 1}): "
+                  f"{g['title']} - gadget \"{g['kind']}\"",
+                  f"    Saved filter: {r['name']} (id {r['id'] or '-'})", f"    Settings: {g['settings']}"]
+    lines.append("SAVED FILTERS")
+    for r in rows:
+        lines += [f"  FILTER ID {r['id'] or '-'}: {r['name']}"]
+        if r["id"]:
+            lines.append(f"    URL: {adapter.filter_url(r['id'])}")
+        lines.append(f"    JQL: {r['jql']}")
+    return lines
+
+
+def cmd_dashboard_setup(args, env, factory) -> int:
+    """Four saved JQL filters and a dev dashboard for any scope. Without --approve (or with --dry-run) it only reads
+    Jira and prints the plan and its sha256. `--approve <hash>` writes, and is refused when CADDIS_HEADLESS is set."""
+    if args.approve and is_headless(env):
+        return _err("REFUSED: dashboard-setup --approve is a human step; it never runs when CADDIS_HEADLESS is set",
+                    caddis_exit.BLOCKED)
+    if not (args.project or args.component or args.epics or args.label or args.jql):
+        raise ValueError("dashboard-setup needs at least one scope: --project, --component, --epics, --label or "
+                         "--jql")
+    if args.share == "project" and not args.project:
+        raise ValueError("--share project needs --project")
+    components = resolve_components(args.component, {})
+    adapter = _adapter(env, factory)
+    scope, default_prefix = dashboard_scope(adapter, args.project, components, args.epics, args.label, args.jql)
+    prefix = (args.name or "").strip() or default_prefix
+    plan = dashboard_plan(adapter, prefix, scope, args.share, args.project)
+    digest = dashboard_hash(plan)
+    preview = args.dry_run or not args.approve
+    if not preview and not approval_matches(args.approve, digest):
+        return _err("REFUSED: the approval does not match the plan now (a changed scope, name or share, or a wrong "
+                    "hash). Preview again and approve the new hash. Nothing was sent.", caddis_exit.BLOCKED)
+    try:
+        rows = plan_filter_rows(plan, adapter.list_filters(prefix))
+        existing_dash = adapter.find_dashboard(plan["dashboard"]["name"]) if preview else None
+    except JiraError as err:
+        return _failed(err)
+    conflicts = [r for r in rows if r["action"] == "CONFLICT"]
+    dash: dict | None = None
+    code = caddis_exit.CLEAN
+    if conflicts and not preview:
+        for r in conflicts:
+            print(f"CONFLICT: more than one filter is named {r['name']!r} (ids {r['id']}); rename or merge them in "
+                  "Jira. Nothing was sent.", file=sys.stderr)
+        return caddis_exit.BLOCKED
+    if not preview:
+        try:
+            perms = _share_permissions(adapter, plan)  # one GET (project share only), before any write
+        except JiraError as err:
+            return _failed(err)
+        adapter.arm_writes()
+        if not _write_filters(adapter, plan, rows, perms):
+            code = caddis_exit.BLOCKED
+        else:
+            dash = _write_dashboard(adapter, plan, rows, perms)
+            if dash["mode"] == "failed":
+                code = caddis_exit.NOT_RUN if dash.get("status") is None else caddis_exit.BLOCKED
+    report = {"preview": preview, "digest": digest, "plan": plan, "filters": [
+        {**r, "url": adapter.filter_url(r["id"]) if r["id"] and str(r["id"]).isdigit() else None} for r in rows],
+              "dashboard_mode": (dash or {}).get("mode") or ("existing" if existing_dash else "preview"),
+              "dashboard": dash}
+    if dash and dash["mode"] in ("blueprint_fallback", "failed"):
+        report["blueprint"] = _blueprint_lines(adapter, plan, rows)
+    if args.json:
+        print(_dashboard_json(adapter, report))
+        return code
+    lines = _dashboard_text(adapter, plan, rows, dash, digest if preview else None, preview)
+    if preview and any(r["action"] == "UPDATE" for r in rows):
+        lines.append("NOTE: a filter with this name exists and its JQL differs: approving rewrites it. Use --name to "
+                     "keep two scopes apart.")
+    if preview and existing_dash:
+        lines.append(f"NOTE: a dashboard named {plan['dashboard']['name']!r} exists (id {existing_dash}); "
+                     "it is not changed")
+    if preview:
+        lines.append("PREVIEW: nothing was sent" + (" (--dry-run)" if args.approve else ""))
+        lines.append(f"NEXT: a person reads the plan, then runs: {STABLE_RUN} dashboard-setup <the same selectors> "
+                     f"--approve {digest[:8]}")
+    for line in lines:
+        print(_safe_text(adapter, line))
+    return code
+
+
+def _safe_text(adapter: JiraAdapter, text: str) -> str:
+    """Secrets and personal data masked on every line of a report; line breaks are kept."""
+    text = _ZERO_WIDTH.sub("", text or "")
+    return caddis_redact.redact_pii(caddis_redact.redact(text, adapter._secrets))
+
+
+def _dashboard_json(adapter: JiraAdapter, report: dict) -> str:
+    return _safe_text(adapter, json.dumps(report, indent=2))
 
 
 def _default_factory(cfg: JiraConfig) -> JiraAdapter:
@@ -2016,6 +2705,12 @@ def _parser() -> argparse.ArgumentParser:
     ss = sub.add_parser("sync-stories", help="one Jira Story per plan phase, idempotent by label; never deletes")
     ss.add_argument("--plan", required=True)
     ss.add_argument("--issue-type", help="beats jira_issue_type: / jira_story_type: in the plan (default Story)")
+    ss.add_argument("--granularity", choices=GRANULARITIES,
+                    help="phase (default): a Story per phase; milestone: a Story per Tracker milestone "
+                         "(beats jira_granularity: in the plan)")
+    ss.add_argument("--by-milestone", action="store_true", help="the same as --granularity milestone")
+    ss.add_argument("--component", action="append",
+                    help="a Jira component (repeat or use commas); beats jira_component:. Unset = none is sent")
     ss.add_argument("--dry-run", action="store_true", help="read Jira, print the plan of changes, write nothing")
     ss.add_argument("--offline", action="store_true", help="no Jira at all: print the phases that would sync")
     ss.add_argument("--json", action="store_true")
@@ -2025,6 +2720,26 @@ def _parser() -> argparse.ArgumentParser:
     t.add_argument("--fix-version", help="also add this fix version (for example v2026.11.25.1)")
     t.add_argument("--dry-run", action="store_true")
     t.add_argument("--json", action="store_true")
+    tm = sub.add_parser("transition-milestone", help="move the Story of one plan milestone (and set its fix version)")
+    tm.add_argument("--plan", required=True)
+    tm.add_argument("--milestone", required=True, help="the milestone id from the plan's Tracker, for example M1")
+    tm.add_argument("--to", required=True, help="the target status (or the transition name)")
+    tm.add_argument("--fix-version", help="also add this fix version (for example v2026.11.25.1)")
+    tm.add_argument("--dry-run", action="store_true")
+    tm.add_argument("--json", action="store_true")
+    ds = sub.add_parser("dashboard-setup", help="four saved JQL filters and a dev dashboard for any scope; "
+                                                "preview first, --approve <hash> writes")
+    ds.add_argument("--project", help="a Jira project key")
+    ds.add_argument("--component", action="append", help="a component (repeat or use commas); optional")
+    ds.add_argument("--epics", help="Epic keys, comma separated: the issues under those Epics")
+    ds.add_argument("--label", help="a Jira label")
+    ds.add_argument("--jql", help="an extra JQL filter clause (no ORDER BY), wrapped in parentheses")
+    ds.add_argument("--name", help="the title prefix of the filters and the dashboard")
+    ds.add_argument("--share", choices=SHARE_MODES, default="private",
+                    help="who may see the new filters and dashboard (default private)")
+    ds.add_argument("--dry-run", action="store_true", help="preview only, even with --approve")
+    ds.add_argument("--approve", help="the 8-character prefix or the full sha256 from the preview (a person only)")
+    ds.add_argument("--json", action="store_true")
     return p
 
 
@@ -2038,7 +2753,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         return caddis_exit.CLEAN if exc.code == 0 else caddis_exit.ERROR
     handlers = {"check": cmd_check, "read": cmd_read, "epic": cmd_epic, "qa-draft": cmd_qa_draft,
                 "qa-post": cmd_qa_post, "qa-pull": cmd_qa_pull, "qa-status": cmd_qa_status,
-                "sync-stories": cmd_sync_stories, "transition": cmd_transition}
+                "sync-stories": cmd_sync_stories, "transition": cmd_transition,
+                "transition-milestone": cmd_transition_milestone, "dashboard-setup": cmd_dashboard_setup}
     try:
         return handlers[args.cmd](args, env, factory)
     except ConfigError as exc:

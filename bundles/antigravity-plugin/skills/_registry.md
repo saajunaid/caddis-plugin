@@ -95,7 +95,7 @@
 | Hla | `hla/` | Write the High-Level Architecture (HLA) for Gate 2 sign-off as Markdown in Git, and publish it to Confluence with 2x Mermaid figures |
 | Implement | `implement/` | Headless plan executor — implement an approved plan phase-by-phase on the current feature branch, TDD-first, committing per phase |
 | Install Statusline | `install-statusline/` | Install the caddis status line into Claude Code and agy — one renderer, once per machine |
-| Jira | `jira/` | Jira for a plan — read the Epic, run the human-gated Q&A loop, sync one Story per phase, move issues through the workflow |
+| Jira | `jira/` | Jira for a plan — read the Epic, run the human-gated Q&A loop, sync one Story per phase or per milestone, move issues through the workflow, set up a Jira dev dashboard |
 | Kb | `kb/` | Rebuild the KB index (.caddis/kb/DOC-MAP.md) — create it if missing, index un-indexed notes, report dangling links |
 | Lld | `lld/` | Write the living Low-Level Design (LLD) as Markdown in Git, publish it to Confluence with 2x Mermaid figures, and keep its generated db-catalog and data-lineage sections current |
 | Mermaid Db | `mermaid-db/` | Turn a SQL artifact (proc, view, query, .sql file, or table name) into a Mermaid diagram that explains it — git-diffable, saved as .md |

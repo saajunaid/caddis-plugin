@@ -142,6 +142,48 @@ default. If the command fails, write the model and the effort by hand and say wh
 
 **Escalation.** Escalate to Opus through a SMALL subagent (by-reference brief, reply ≤ 10 lines), never `/model opus` mid-session (the prompt cache is per model, so a switch at 200k re-writes the whole cache), when: a card fails again after its one fix card; a measurement fails a rule (isolate the cause first, then give the owner options); a plan amendment changes the design, not only facts; a risk-high phase reaches review. A fresh Opus session only to write a new plan or a redesign.
 
+### Route a phase by task and risk (routing v3, owner 27 Nov 2026)
+Give every phase a task type and a risk, then ask the router. It reads `routing.toml` (shipped beside
+`caddis_routing.py`; overrides in `~/.caddis/routing.toml`, then `<repo>/.caddis/routing.toml`) and makes no model call:
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" route --task <task> --risk <low|medium|high|critical> [--context-tokens N] --json
+```
+It prints the agent, model, effort, reviewer, `review_mode`, `escalation_next` and `human_approval`. Write that model
+on the `**Model:**` line and that reviewer on the review line. The table:
+
+| Task | Primary | Escalation |
+|---|---|---|
+| `implement_feature`, `ui`, `write_tests`, `small_fix`, `bulk_mechanical_edit`, `bug_sweep` | `gemini-4-carbon-high` | `gemini-4-neon-high`, then `opus` high |
+| `plan_architecture`, `root_cause_analysis` | `gemini-4-neon-high` (risk low or medium) | `opus` high |
+| `hard_reasoning` | `gemini-4-neon-xhigh` | `opus` high |
+| `merge_conflict` | `gemini-4-neon-high` | `opus` high |
+| `critical_seam`, `db_high`, `security_rbac_pii`, `governance_gate` | `opus` high | none |
+| `mockup` (also `ui_mockup`) | `gemini-4-carbon-high` | `sonnet` high, then `opus` high |
+| `classify`, `explore`, `commit_pr_text`, `ci_summary` | `gemini-4-hydrogen-low` | `gemini-4-carbon-medium` |
+
+- Risk high or critical sends every coding, plan, RCA and reasoning task to `opus` high.
+- Hydrogen (`gemini-4-hydrogen-low` only) does read-only tasks. It never codes, writes tests, sweeps bugs, reviews or
+  runs a bot. `lane-check` refuses a Hydrogen `--model` on a phase.
+- Over 400K context tokens the route leaves Neon (512K cap) for Carbon high (1M) or `opus`.
+- To trial Neon high as the coding primary, set `[trial] coding_model = "gemini-4-neon-high"` in an override.
+- A mockup gets a `sonnet` high design review (`warm-editorial-ui`) and `ui-design-reviewer` screenshots.
+
+**Review by risk.** low: deterministic gates only (lint, types, tests). medium: the proven pair may be the same
+vendor: Carbon author -> `gemini-4-neon-high`, Neon high or xhigh author -> `gemini-4-carbon-medium`, `sonnet` ->
+`opus`, `opus` -> `gemini-4-neon-high`. A model never reviews its own output. `gemini-4-carbon-high`,
+`gemini-4-neon-medium` and every Hydrogen model never review. high and critical: always another vendor (agy author ->
+`sonnet`, `opus` at critical; Claude author -> `gemini-4-neon-high`, then `gemini-4-carbon-medium`), plus `sql-expert`
+for `DB: HIGH`. critical also needs the owner's approval. Check a pair with
+`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_gate.py" review-pair --author-model <m> --reviewer-model <m> --risk <r>
+[--allow-same-vendor-cross-model]`.
+
+**Verify the launch.** agy can fall back to another model without a word. After a launch, run
+`python "${CLAUDE_PLUGIN_ROOT}/scripts/caddis_routing.py" verify-launch --requested <model> --effective <the model the
+run reports>`. Exit 1 means the wrong model ran: stop and relaunch, and never count its result.
+
+**Telemetry.** Add `--task-type <task> --risk <risk>` (and `--escalations N`, `--review-findings N` when known) after
+`--caller` on a `caddis_spend.py run` Lane line. The usage log keeps them for the routing evaluation.
+
 ### Size rule: a phase fits one sitting
 One agy card ≤ 6 files; one phase ≤ 12 files and ≤ 6 cards or tasks. Bigger: split (7a, 7b, each with a
 Tracker row) or mark `**Programme phase:** yes — <why>`. A phase that grows past 6 cards during work is
@@ -176,7 +218,9 @@ froze CI on the dev box.
 
 - **review lane (every phase that touches code)** — the reviewer is chosen by the author:
   `/caddis:cross-review --range main..HEAD --author <agy|claude> --tier <TIER>`. Agy-written code gets Claude
-  (Sonnet; Opus at tier 2). Claude-written code gets agy Neon high (Carbon medium if it fails). A same-vendor review never runs.
+  (Sonnet; Opus at tier 2). Claude-written code gets agy Neon high (Carbon medium if it fails). A same-vendor review never runs,
+  except at risk medium for a proven pair: add `--allow-same-vendor-cross-model --risk medium --author-model <model>`
+  (see "Route a phase by task and risk"). The tool refuses that flag at risk high or critical.
 
 **The `Lane:` line is a routing directive read by `/caddis:implement`, not a note.** An interactive
 session that is handed a phase belonging to another lane spawns that lane rather than absorbing the

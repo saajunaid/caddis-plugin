@@ -518,6 +518,7 @@ html[data-motion='off'] .gp-pulse {
 @media print {
   .app-bar,
   .mobile-topbar,
+  .hub-toolbar,
   .drawer-backdrop,
   .sidebar,
   .sidebar-top,

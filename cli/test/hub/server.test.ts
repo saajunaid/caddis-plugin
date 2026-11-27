@@ -964,3 +964,121 @@ describe('pages and unknown routes', () => {
     expect(JSON.parse(r.body)).toMatchObject({ schema: 1, error: 'not_found' });
   });
 });
+
+describe('POST /api/hub/sync', () => {
+  const syncHeaders = (auth: Login, over: Record<string, string | undefined> = {}): Record<string, string> => {
+    const h: Record<string, string | undefined> = {
+      origin: origin(),
+      cookie: auth.cookie,
+      'x-csrf-token': auth.csrf,
+      'x-caddis-hub-tab': auth.tab,
+      ...over,
+    };
+    return Object.fromEntries(Object.entries(h).filter((e): e is [string, string] => e[1] !== undefined));
+  };
+
+  async function restartWith(extra: { onSync?: () => Promise<void>; syncWaitMs?: number }): Promise<Login> {
+    await srv.close();
+    srv = await startServer({
+      host: '127.0.0.1',
+      port: 0,
+      key,
+      getState: () => state,
+      versions,
+      now: () => t,
+      ...extra,
+    });
+    return login();
+  }
+
+  it('without a session cookie gets 401', async () => {
+    let calls = 0;
+    const auth = await restartWith({
+      onSync: async () => {
+        calls += 1;
+      },
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth, { cookie: undefined }));
+    expect(r.status).toBe(401);
+    expect(calls).toBe(0);
+  });
+
+  it('with a wrong Origin gets 403 bad_origin', async () => {
+    let calls = 0;
+    const auth = await restartWith({
+      onSync: async () => {
+        calls += 1;
+      },
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth, { origin: 'http://127.0.0.1:1' }));
+    expect(r.status).toBe(403);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, error: 'bad_origin' });
+    expect(calls).toBe(0);
+  });
+
+  it('with a bad CSRF token gets 403 bad_csrf', async () => {
+    let calls = 0;
+    const auth = await restartWith({
+      onSync: async () => {
+        calls += 1;
+      },
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth, { 'x-csrf-token': `${auth.csrf}x` }));
+    expect(r.status).toBe(403);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, error: 'bad_csrf' });
+    expect(calls).toBe(0);
+  });
+
+  it('with valid cookie and CSRF but missing tab header gets 401', async () => {
+    let calls = 0;
+    const auth = await restartWith({
+      onSync: async () => {
+        calls += 1;
+      },
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth, { 'x-caddis-hub-tab': undefined }));
+    expect(r.status).toBe(401);
+    expect(calls).toBe(0);
+  });
+
+  it('without onSync option answers 404', async () => {
+    const auth = await login();
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth));
+    expect(r.status).toBe(404);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, error: 'not_found' });
+  });
+
+  it('with onSync answers 200 {schema:1, ok:true} and calls onSync once', async () => {
+    let calls = 0;
+    const auth = await restartWith({
+      onSync: async () => {
+        calls += 1;
+      },
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth));
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, ok: true });
+    expect(calls).toBe(1);
+  });
+
+  it('answers 200 with pending:true when onSync never resolves within syncWaitMs', async () => {
+    const auth = await restartWith({
+      syncWaitMs: 50,
+      onSync: () => new Promise<void>(() => {}),
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth));
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, ok: true, pending: true });
+  });
+
+  it('answers 500 sync_failed when onSync rejects', async () => {
+    const auth = await restartWith({
+      onSync: async () => {
+        throw new Error('sync boom');
+      },
+    });
+    const r = await req('POST', '/api/hub/sync', syncHeaders(auth));
+    expect(r.status).toBe(500);
+    expect(JSON.parse(r.body)).toEqual({ schema: 1, error: 'sync_failed' });
+  });
+});

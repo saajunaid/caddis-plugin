@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "1.3.214",
- "generated": "2026-11-26 16:30 UTC",
+ "version": "1.3.215",
+ "generated": "2026-11-27 02:30 UTC",
  "commands": [
   {
    "name": "add-rules",
@@ -334,6 +334,7 @@
     ]
    ],
    "scripts": [
+    "caddis_gate.py",
     "caddis_lanes.py",
     "caddis_routing.py",
     "caddis_spend.py",
@@ -715,8 +716,8 @@
   },
   {
    "name": "jira",
-   "description": "Jira for a plan — read the Epic, run the human-gated Q&A loop, sync one Story per phase, move issues through the workflow",
-   "hint": "<check | read KEY | qa-draft | qa-post | qa-pull | qa-status | sync-stories | transition> [args]",
+   "description": "Jira for a plan — read the Epic, run the human-gated Q&A loop, sync one Story per phase or per milestone, move issues through the workflow, set up a Jira dev dashboard",
+   "hint": "<check | read KEY | qa-draft | qa-post | qa-pull | qa-status | sync-stories | transition | transition-milestone | dashboard-setup> [args]",
    "steps": [
     [
      "",

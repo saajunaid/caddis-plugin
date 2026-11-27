@@ -21,7 +21,7 @@ Prices (optional): when `~/.caddis/spend-cap.toml` has an `[agy]` table with
 `eur_per_million_input_tokens` and `eur_per_million_output_tokens` (finite numbers above 0), a settled
 line records EUR from the token counts. A model can have its own prices in an `[agy.models."<id>"]` table with the
 same two keys. `<id>` is the model id (`gemini-4-carbon-high`) or the id without its effort ending
-(`gemini-4-carbon`); the exact id wins. A model with no table, or a run with no model, uses the `[agy]` prices.
+(`gemini-4-carbon`; `-xhigh` is an effort ending too, so `gemini-4-neon-xhigh` uses `gemini-4-neon`); the exact id wins. A model with no table, or a run with no model, uses the `[agy]` prices.
 Every other key in that file (an old `eur_per_24h`, a reserve) is ignored, and with no valid prices EUR is recorded
 as 0 with `estimated: true`. caddis never writes the file.
 
@@ -32,10 +32,11 @@ Limits:
 CLI:
     python caddis_spend.py check                 always exit 0; prints the status line
     python caddis_spend.py status [--json]       prints the logged spend of the last 24 h
-    python caddis_spend.py run --caller X -- agy ...
-        log, run, settle. Returns agy's own exit code, or 75 when the headless depth is at its limit or the
+    python caddis_spend.py run --caller X [--task-type T --risk R --escalations N --review-findings N] -- agy ...
+        log, run, settle. The optional telemetry flags are written to both log lines when given. Returns agy's own exit code, or 75 when the headless depth is at its limit or the
         log could not be locked or written, or 124 when the command ran past its time limit (--timeout-s,
-        else CADDIS_SPEND_RUN_TIMEOUT_S, else 3600 s) and its process tree was killed. Each refusal also
+        else CADDIS_SPEND_RUN_TIMEOUT_S, else 3600 s) and its process tree was killed; the settled line and a stderr
+        note then give `timeout_kind` (`no_output_stall` at 0 bytes, else `long_run_partial_output`). Each refusal also
         prints a `caddis_spend:` line.
         On Windows the command runs on a hidden desktop (caddis_hidden_desktop.py), so the console windows agy opens
         for its tools never show; CADDIS_AGY_VISIBLE=1 runs it on the normal desktop.
@@ -129,7 +130,49 @@ def _log_path(home: Path) -> Path:
     return home / ".caddis" / "spend" / "agy.jsonl"
 
 
-EFFORT_ENDINGS = ("-low", "-medium", "-high")
+EFFORT_ENDINGS = ("-low", "-medium", "-high", "-xhigh")
+RISKS = ("low", "medium", "high", "critical")
+# Optional outcome telemetry on a `run` (routing v3). Each key is written to the pending and the settled line only when
+# it is given, so old readers (`status`, the hub spend view) see the same lines as before.
+TELEMETRY_KEYS = ("task_type", "risk", "escalations", "review_findings")
+
+
+def model_family(model: str | None) -> str | None:
+    """The model id without its effort ending (`gemini-4-neon-xhigh` -> `gemini-4-neon`), or None when it has none.
+    The longest ending wins. Before `-xhigh` was an ending, `gemini-4-neon-xhigh` had no family and fell back to the
+    `[agy]` prices instead of the `gemini-4-neon` table."""
+    if not model:
+        return None
+    ending = max((e for e in EFFORT_ENDINGS if model.endswith(e) and len(model) > len(e)), key=len, default=None)
+    return model[: -len(ending)] if ending else None
+
+
+def telemetry(task_type: str | None = None, risk: str | None = None, escalations: int | None = None,
+              review_findings: int | None = None) -> dict:
+    """The outcome telemetry fields that were given, typed and checked. Raises ValueError on a bad value."""
+    out: dict = {}
+    if task_type is not None:
+        if not isinstance(task_type, str) or not task_type.strip():
+            raise ValueError("task_type must be a non-empty string")
+        out["task_type"] = task_type.strip()
+    if risk is not None:
+        if risk not in RISKS:
+            raise ValueError(f"risk must be one of {', '.join(RISKS)}")
+        out["risk"] = risk
+    for key, value in (("escalations", escalations), ("review_findings", review_findings)):
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be an integer of 0 or more")
+        out[key] = value
+    return out
+
+
+def timeout_kind(out: str, err: str) -> tuple[str, int]:
+    """(`no_output_stall` | `long_run_partial_output`, bytes printed) for a run that timed out: zero bytes on stdout
+    and stderr is a hang; any output is long work that was cut off."""
+    size = len((out or "").encode("utf-8", errors="replace")) + len((err or "").encode("utf-8", errors="replace"))
+    return ("no_output_stall" if size == 0 else "long_run_partial_output"), size
 
 
 def model_from_argv(argv: list[str]) -> str | None:
@@ -172,8 +215,7 @@ def load_prices(home: Path, model: str | None = None) -> tuple[float, float] | N
         return None
     models = data.get("models")
     if model and isinstance(models, dict):
-        family = next((model[: -len(e)] for e in EFFORT_ENDINGS if model.endswith(e)), None)
-        for key in (model, family):
+        for key in (model, model_family(model)):
             if key and key in models:
                 return _price_pair(models[key])
     return _price_pair(data)
@@ -307,30 +349,34 @@ def committed_last_24h(home: Path, now: datetime) -> float:
     return total
 
 
-def reserve(home: Path, caller: str, now: datetime, model: str | None = None) -> str:
+def reserve(home: Path, caller: str, now: datetime, model: str | None = None, extra: dict | None = None) -> str:
     """Write a `pending` line for a call about to start and return its id. Never refuses for money. The line holds
-    `model` when one is given. Raises TimeoutError when the log cannot be locked, OSError when it cannot be written."""
+    `model` when one is given, and the telemetry fields in `extra` (TELEMETRY_KEYS only). Raises TimeoutError when the
+    log cannot be locked, OSError when it cannot be written."""
     with _locked(home):
         rid = uuid.uuid4().hex
         record = {"kind": "pending", "id": rid, "ts": now.isoformat(), "caller": caller,
                   "pid": os.getpid(), "reserve_eur": 0}
         if model:
             record["model"] = model
+        record.update({k: v for k, v in (extra or {}).items() if k in TELEMETRY_KEYS and v is not None})
         _append(home, record)
         return rid
 
 
 def settle(home: Path, rid: str, tokens: tuple[int, int] | None, now: datetime,
-           duration_s: float | None = None) -> float:
+           duration_s: float | None = None, timeout: tuple[str, int] | None = None) -> float:
     """Write the `settled` line of a call. With token counts and valid prices: the EUR from the counts. With counts
     but no prices: the counts and EUR 0, estimated. With no counts: the pending line's reserve (0 for new lines),
-    estimated. The duration is recorded when given. The prices are the ones of the pending line's model."""
+    estimated. The duration is recorded when given. The prices are the ones of the pending line's model. The pending
+    line's telemetry fields are copied; `timeout` (kind, bytes) adds `timeout_kind` and `output_bytes`."""
     pending = next((r for r in _read(home) if r.get("kind") == "pending" and r.get("id") == rid), {})
     model = pending.get("model") if isinstance(pending.get("model"), str) else None
     prices = load_prices(home, model)
     record: dict = {"kind": "settled", "id": rid, "ts": now.isoformat()}
     if model:
         record["model"] = model
+    record.update({k: pending[k] for k in TELEMETRY_KEYS if k in pending})
     if tokens is None:
         eur = _amount(pending.get("reserve_eur")) or 0.0
         record.update({"tokens_in": 0, "tokens_out": 0, "eur": round(eur, 4), "estimated": True})
@@ -342,6 +388,8 @@ def settle(home: Path, rid: str, tokens: tuple[int, int] | None, now: datetime,
         record.update({"tokens_in": t_in, "tokens_out": t_out, "eur": round(eur, 4), "estimated": estimated})
     if duration_s is not None:
         record["duration_s"] = round(duration_s, 1)
+    if timeout is not None:
+        record["timeout_kind"], record["output_bytes"] = timeout
     with _locked(home):
         _append(home, record)
     return eur
@@ -472,10 +520,11 @@ def _run_child(argv: list[str], env: dict, timeout_s: float) -> tuple[int | None
         raise
 
 
-def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None) -> int:
+def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None, extra: dict | None = None) -> int:
     """Log, run agy, settle. Returns agy's exit code, or RUN_REFUSED (75: headless depth at its limit, or the log
     could not be locked or written) / RUN_TIMEOUT (124: the child ran past `timeout_s`, default run_timeout_s(); its
-    process tree was killed and the call is settled as estimated). Money never refuses a start."""
+    process tree was killed and the call is settled as estimated, with its `timeout_kind`). Money never refuses a
+    start. `extra` is the outcome telemetry (see telemetry()), written to both log lines."""
     now = lambda: datetime.now(timezone.utc)  # noqa: E731
     try:
         env = bump_headless_depth(os.environ)  # before the pending line: a refused start writes nothing
@@ -483,7 +532,7 @@ def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None
         print(str(exc), file=sys.stderr)
         return RUN_REFUSED
     try:
-        rid = reserve(home, caller, now(), model=model_from_argv(argv))
+        rid = reserve(home, caller, now(), model=model_from_argv(argv), extra=extra)
     except TimeoutError as exc:
         print(str(exc), file=sys.stderr)
         return RUN_REFUSED
@@ -493,16 +542,19 @@ def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None
     advise(home, now())  # already at the level before the launch: say so, then start anyway
     out = ""
     counts: tuple[int, int] | None = None
+    timed_out: tuple[str, int] | None = None
     started = time.monotonic()
     try:
         limit = run_timeout_s() if timeout_s is None else timeout_s
         returncode, out, err = _run_child(argv, env, limit)
         if returncode is None:  # timed out: whatever it printed is passed on, but no token count is trusted
+            timed_out = timeout_kind(out, err)  # before the writes: a broken pipe must not lose it from the log
             sys.stdout.write(out)
             sys.stderr.write(err)
             print(f"caddis_spend: {argv[0]} timed out after {limit:g}s; its process tree was killed "
                   f"(settled as estimated). Set CADDIS_SPEND_RUN_TIMEOUT_S or --timeout-s to change the limit.",
                   file=sys.stderr)
+            print(f"caddis_spend: timeout_kind={timed_out[0]} output_bytes={timed_out[1]}", file=sys.stderr)
             return RUN_TIMEOUT
         # Tokens only from JSON mode: in text mode the model's own lines could pose as a usage document.
         if json_mode(argv):
@@ -516,7 +568,7 @@ def run(argv: list[str], caller: str, home: Path, timeout_s: float | None = None
         return 127
     finally:
         try:
-            settle(home, rid, counts, now(), duration_s=time.monotonic() - started)
+            settle(home, rid, counts, now(), duration_s=time.monotonic() - started, timeout=timed_out)
         except Exception as exc:  # the pending line stays unsettled; never lose agy's own result
             print(f"caddis_spend: could not settle {rid}: {exc}", file=sys.stderr)
         advise(home, now())
@@ -569,6 +621,10 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--timeout-s", type=float, default=None,
                        help="kill the command's process tree after this many seconds "
                             "(default: CADDIS_SPEND_RUN_TIMEOUT_S, else 3600)")
+    p_run.add_argument("--task-type", default=None, help="telemetry: the routing task type (caddis_routing.py route)")
+    p_run.add_argument("--risk", choices=RISKS, default=None, help="telemetry: the phase risk")
+    p_run.add_argument("--escalations", type=int, default=None, help="telemetry: escalations before this run")
+    p_run.add_argument("--review-findings", type=int, default=None, help="telemetry: review findings on this work")
     args = parser.parse_args(raw)
     home = Path.home()
     now = datetime.now(timezone.utc)
@@ -589,7 +645,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("run needs the agy command after --")
     if args.timeout_s is not None and not (math.isfinite(args.timeout_s) and args.timeout_s > 0):
         parser.error("--timeout-s must be a number above 0")
-    return run(tail, args.caller, home, timeout_s=args.timeout_s)
+    try:
+        extra = telemetry(args.task_type, args.risk, args.escalations, args.review_findings)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return run(tail, args.caller, home, timeout_s=args.timeout_s, extra=extra)
 
 
 if __name__ == "__main__":

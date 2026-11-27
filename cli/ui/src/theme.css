@@ -1322,6 +1322,51 @@ html[data-motion='off'] .brand-mark-still {
   }
 }
 
+/* "Sync now": a small ghost button at the top right of the page. It is the only child of the toolbar. */
+.hub-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -14px;
+}
+
+.sync-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--pill-ghost-bg);
+  color: var(--text-sub);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) ease,
+    color var(--dur-1) ease,
+    transform 100ms var(--ease-out);
+}
+
+.sync-btn:hover:not(:disabled) {
+  border-color: var(--glass-line-hover);
+  color: var(--text-main);
+}
+
+.sync-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.sync-btn:disabled {
+  cursor: progress;
+  opacity: 0.8;
+}
+
+.sync-btn.syncing svg {
+  animation: hub-spin 900ms linear infinite;
+}
+
 /* Phone and narrow window: the nav becomes a top bar with a menu button. */
 @media (max-width: 720px) {
   .mobile-topbar {

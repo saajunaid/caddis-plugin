@@ -163,3 +163,36 @@ export async function postAction(body: ActionBody): Promise<ActionAccepted | Act
     return { ok: false, status: 0, error: 'network', reason: 'The hub did not answer.' };
   }
 }
+
+export interface SyncOutcome {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * "Sync now": ask the hub to fetch every repo and refresh every source (`POST /api/hub/sync`). The browser adds
+ * Origin; the page adds the CSRF and tab headers. A 403 can mean the CSRF token is old (a hub restart): the page
+ * reads a new one and tries once more. Never throws.
+ */
+export async function postSync(): Promise<SyncOutcome> {
+  const send = async (tab: string): Promise<Response> =>
+    fetch('/api/hub/sync', {
+      method: 'POST',
+      headers: apiHeaders(tab, await csrfToken()),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  try {
+    const tab = getTab();
+    if (!tab) return { ok: false, error: 'Signed out. Run caddis hub open.' };
+    let res = await send(tab);
+    if (res.status === 403) {
+      csrfCache = null;
+      res = await send(tab);
+    }
+    if (res.ok) return { ok: true };
+    return { ok: false, error: res.status === 401 ? 'Signed out. Run caddis hub open.' : `The hub answered ${res.status}.` };
+  } catch {
+    return { ok: false, error: 'The hub did not answer.' };
+  }
+}

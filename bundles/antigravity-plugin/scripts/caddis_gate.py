@@ -25,6 +25,10 @@ EXIT CODES
   2  proceed-with-note — degraded/uncertain; caller proceeds but must record it
   3  wrong-lane        — this phase belongs to another lane; the launch command is on stdout
   4  malformed         — the phase's launch command cannot be spawned safely
+
+  review-pair     a reviewer model may review an author model's change at a risk (routing v3, owner 27 Nov 2026):
+                  0 allowed, 1 refused (own output, banned reviewer, same vendor without the flag or the proven
+                  pair, the flag at a risk other than medium, or routing.toml cannot be read)
 """
 from __future__ import annotations
 
@@ -109,6 +113,8 @@ _LANES_RUN = r'python\s+"?\$\{CLAUDE_PLUGIN_ROOT\}/scripts/caddis_lanes\.py"?\s+
 # rewrites the variable), or the bare repo-relative `scripts/caddis_spend.py` - which gate_lane accepts
 # only in the caddis source repo, because in an app repo that path is a file the agent can write.
 _SPEND_RUN = r'python3?\s+"?[^"\s`]*scripts/caddis_spend\.py"?\s+run'
+# The optional `caddis_spend.py run` flags a Lane line may carry before or after `--caller <name>`.
+_SPEND_FLAGS = r'(?:\s+--(?:timeout-s|task-type|risk|escalations|review-findings)(?:\s+|=)[\w.-]+)*'
 _SPEND_PATH = re.compile(r'python3?\s+"?([^"\s`]*scripts/caddis_spend\.py)"?\s+run')
 # Shell control characters outside the quoted prompt would chain a second, unwrapped command.
 _SHELL_CHAIN = re.compile(r"[;&|`\n]|\$\(")
@@ -142,8 +148,25 @@ MIN_AGY_PRINT_TIMEOUT_S = 40 * 60
 _PRINT_TIMEOUT = re.compile(r"--print-timeout(?:\s+|=)(\d+(?:\.\d+)?)([smh]?)(?=\s|$)")
 
 
+def _routing():
+    """caddis_routing (the model rules of routing v3): beside this file in a bundle, else claude-harness/scripts/."""
+    try:
+        import caddis_routing
+    except ModuleNotFoundError as exc:
+        if exc.name != "caddis_routing":
+            raise
+        here = Path(__file__).resolve()
+        for folder in (here.parent, here.parents[1] / "claude-harness" / "scripts"):
+            if (folder / "caddis_routing.py").is_file() and str(folder) not in sys.path:
+                sys.path.insert(0, str(folder))
+        import caddis_routing
+    return caddis_routing
+
+
+
 def _agy_model_problem(inner: str) -> str:
-    """Why an agy command names no usable model, or "" when it does (`--model <id>` before -p/--print)."""
+    """Why an agy command names no usable model, or "" when it does (`--model <id>` before -p/--print, an id that
+    routing v3 knows, and never Hydrogen: a plan phase writes code, and Hydrogen is read-only)."""
     blank = _QUOTED.sub('""', inner)
     model = re.search(r"(?:^|\s)--model(?:\s+|=)([^\s\-]\S*)", blank)
     if not model:
@@ -151,6 +174,23 @@ def _agy_model_problem(inner: str) -> str:
     flag = re.search(r"(?:^|\s)(?:-p|--print)(?:\s|=|$)", blank)
     if flag and flag.start() < model.start():
         return "puts --model after -p/--print (agy reads --model only before it)"
+    # Fail closed: `--model` appears once in the whole agy command, prompt included. Quote rules differ between
+    # shells (an escaped quote, `""x` concatenation), so no parse of the prompt may decide which flag agy reads.
+    count = len(re.findall(r"--model\b", inner))
+    if count != 1:
+        return f"names --model {count} times (name it once, and never in the prompt)"
+    match = re.search(r"--model(?:\s+|=)(\S+)", inner)
+    if not match:
+        return "passes --model without a value"
+    value = match.group(1)
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]  # one plain pair of quotes around the id
+    routing = _routing()
+    model_id = routing.canonical_model(value)
+    if routing.is_hydrogen(model_id):
+        return f"names {model_id}: Hydrogen is read-only and never runs a coding phase"
+    if model_id not in routing.AGY_MODELS:
+        return f"names {model_id}, which is not an agy model id (e.g. gemini-4-carbon-high, gemini-4-neon-xhigh)"
     return ""
 
 
@@ -192,7 +232,8 @@ def gate_lane(plan: Path, phase: int) -> int:
         return EXIT_MALFORMED
     inner = cmd
     if re.match(_SPEND_RUN, cmd):
-        wrapped = re.match(_SPEND_RUN + r'\s+--caller\s+\S+\s+--\s+(agy\b.*)$', cmd, re.S)
+        wrapped = re.match(_SPEND_RUN + _SPEND_FLAGS + r'\s+--caller\s+\S+' + _SPEND_FLAGS + r'\s+--\s+(agy\b.*)$',
+                           cmd, re.S)
         if not wrapped:
             sys.stderr.write(
                 f"[caddis-gate] phase {phase}'s caddis_spend command is malformed: {cmd}\n"
@@ -277,6 +318,31 @@ def gate_lane(plan: Path, phase: int) -> int:
     print(cmd)
     sys.stderr.write(f"[caddis-gate] phase {phase} belongs to lane '{lane}' — spawn the command above\n")
     return EXIT_WRONG_LANE
+
+
+# ── gate: review-pair (routing v3) ─────────────────────────────────────────────
+
+def gate_review_pair(author: str, reviewer: str, risk: str, allow_same_vendor_cross_model: bool,
+                     repo_root: Path) -> int:
+    """0 when `reviewer` may review `author`'s change at `risk`, 1 with the reason when not (routing v3 rules:
+    caddis_routing.review_pair_problem), and 1 when routing.toml cannot be read: the repo override is a file an
+    agent can write, so a broken one never lets a review through."""
+    routing = _routing()
+    try:
+        config = routing.load_config(Path.home(), repo_root)
+    except routing.RoutingConfigError as exc:
+        sys.stderr.write(f"[caddis-gate] review-pair cannot read the routing rules: {exc}\n")
+        print("REVIEW-PAIR: REFUSED")
+        return EXIT_BLOCKED
+    problem = routing.review_pair_problem(author, reviewer, risk, allow_same_vendor_cross_model, config)
+    if problem:
+        sys.stderr.write(f"[caddis-gate] review-pair refused: {problem}\n")
+        print("REVIEW-PAIR: REFUSED")
+        return EXIT_BLOCKED
+    same = routing.vendor_of(author) == routing.vendor_of(reviewer)
+    print(f"REVIEW-PAIR: OK ({routing.canonical_model(author)} -> {routing.canonical_model(reviewer)}; "
+          f"{'same_vendor_cross_model' if same else 'cross_vendor'}; risk {risk})")
+    return EXIT_OK
 
 
 # ── gate: tracker-vs-git ────────────────────────────────────────────────────
@@ -2255,19 +2321,25 @@ def _lld_page_id(meta: dict, lld_meta: dict, override: str | None, conf) -> tupl
     return None, "no Confluence page id (pass --page-id, or set lld_page_id: in the plan or the LLD frontmatter)"
 
 
+def _row_tag(r: dict) -> str:
+    """`P1` for a phase row, `milestone M1` for a milestone row (jira_granularity: milestone)."""
+    return str(r.get("tag") or f"P{r['phase']}")
+
+
 def _story_reason(rows: list[dict]) -> str | None:
     bad = []
     for r in rows:
+        tag = _row_tag(r)
         if r["action"] == "CREATE":
-            bad.append(f"P{r['phase']} needs CREATE")
+            bad.append(f"{tag} needs CREATE")
         elif r["action"] == "UPDATE":
-            bad.append(f"P{r['phase']} needs UPDATE {r['key']} ({', '.join(r['changes'])})")
+            bad.append(f"{tag} needs UPDATE {r['key']} ({', '.join(r['changes'])})")
         elif r["action"] == "BLOCKED":
-            bad.append(f"P{r['phase']} BLOCKED by the leak lint")
+            bad.append(f"{tag} BLOCKED by the leak lint")
         elif r["action"] == "CONFLICT":
-            bad.append(f"P{r['phase']} CONFLICT ({r['key']})")
+            bad.append(f"{tag} CONFLICT ({r['key']})")
         elif r["action"] != "UNCHANGED":  # fail closed on an action this gate does not know
-            bad.append(f"P{r['phase']} {r['action']}")
+            bad.append(f"{tag} {r['action']}")
     if not bad:
         return None
     done = sum(r["action"] == "UNCHANGED" for r in rows)
@@ -2300,11 +2372,15 @@ def _gate2_stories(name: str, plan: Path, got: _GatePlan, offline: bool, env, ji
         return _not_configured(name, "Jira", exc)
     try:
         issue_type, _ = jira.resolve_issue_type(None, got.meta, env)
+        # The plan's own `jira_granularity:` and `jira_component:` decide what the Stories are, as in sync-stories.
+        granularity, _ = jira.resolve_granularity(None, False, got.meta)
+        units = jira.sync_units(got.text, phases, granularity)
+        components = jira.resolve_components(None, got.meta)
     except ValueError as exc:
         print(f"{name}: ERROR ({exc})")
         return GATE_BAD_INPUT
     try:
-        sync = jira.plan_sync(adapter, jira.plan_slug(plan), phases, got.epic, issue_type)
+        sync = jira.plan_sync(adapter, jira.plan_slug(plan), units, got.epic, issue_type, components)
     except jira.SyncError as err:
         if err.code == GATE_NOT_RUN:
             print(f"{name}: NOT RUN ({err.message})")
@@ -2323,7 +2399,7 @@ def _gate2_stories(name: str, plan: Path, got: _GatePlan, offline: bool, env, ji
     moved = f" (moved to {sync.resolved})" if sync.resolved != got.epic else ""
     print(f"EPIC: {got.epic}{moved}, project {sync.project}, {len(sync.children)} children via {sync.jql}")
     for r in sync.rows:
-        print(f"STORY: P{r['phase']} {r['action']} {r['key'] or '-'}")
+        print(f"STORY: {_row_tag(r)} {r['action']} {r['key'] or '-'}")
     if reason := _story_reason(sync.rows):
         reasons.append(reason)
     if sync.fetched_by_key:  # a stamped key that is not a child of the Epic (unlinked, or under another Epic)
@@ -2471,6 +2547,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="revision range, e.g. origin/main...HEAD (default: the working tree)")
     rw.add_argument("--plan", default=None, help="path to plan markdown")
     rw.add_argument("--phase", default=None, help="phase number or heading")
+    rp = sub.add_parser("review-pair", help="may this reviewer model review this author model's change at this risk")
+    rp.add_argument("--author-model", required=True)
+    rp.add_argument("--reviewer-model", required=True)
+    rp.add_argument("--risk", required=True, choices=("low", "medium", "high", "critical"))
+    rp.add_argument("--allow-same-vendor-cross-model", action="store_true",
+                    help="allow the proven same-vendor pair (risk medium only)")
+    rp.add_argument("--repo-root", default=".")
     vd = sub.add_parser("vendor-drift")
     vd.add_argument("--repo-root", default=".")
     hc = sub.add_parser("handover-check")
@@ -2527,6 +2610,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         if a.cmd == "vendor-drift":
             return gate_vendor_drift(Path(a.repo_root).resolve())
+        if a.cmd == "review-pair":
+            return gate_review_pair(a.author_model, a.reviewer_model, a.risk, a.allow_same_vendor_cross_model,
+                                    Path(a.repo_root).resolve())
         if a.cmd == "handover-check":
             return gate_handover_check(Path(a.doc), Path(a.repo_root).resolve(), a.max_chars)
         return gate_tracker(plan)

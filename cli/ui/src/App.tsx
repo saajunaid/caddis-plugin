@@ -15,6 +15,8 @@ import { parseRoute } from './shell/route';
 import { useTheme } from './shell/useTheme';
 import { useMotion } from './shell/useMotion';
 import { useHubState } from './useHubState';
+import { SyncButton } from './shell/SyncButton';
+import { useSync } from './shell/useSync';
 
 // The guide page loads on demand, so its code and CSS stay out of the first bundle (G6).
 const Guide = lazy(() => import('./guide/Guide').then((m) => ({ default: m.Guide })));
@@ -45,6 +47,7 @@ function useRoute() {
 export function App(): JSX.Element {
   const { state, error, loading, refresh } = useHubState();
   const act = useActions(refresh);
+  const sync = useSync(refresh);
   const nowMs = useNow(5_000);
   const route = useRoute();
   const [theme, setTheme] = useTheme();
@@ -113,6 +116,17 @@ export function App(): JSX.Element {
       </Nav>
       <main className="main-area" id="main-content">
         <div className="page-wrap">
+          {error !== 'unauthorized' && (
+            <div className="hub-toolbar">
+              <SyncButton syncing={sync.syncing} onSync={sync.run} />
+            </div>
+          )}
+          {sync.error && error !== 'unauthorized' && (
+            <div className="banner warn" role="status" data-testid="hub-sync-error">
+              Sync failed: {sync.error}
+              {state ? ' Showing the last data.' : ''}
+            </div>
+          )}
           {state && <Banners state={state} />}
           {error === 'network' && state && <div className="banner warn" role="status">The hub did not answer. Showing the last data.</div>}
           {body}

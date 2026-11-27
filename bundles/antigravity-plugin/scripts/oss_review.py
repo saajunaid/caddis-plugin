@@ -71,6 +71,13 @@ A reviewer of the author's vendor never runs: an explicit --provider of that ven
 review refused"), a REVIEW_PROVIDER of that vendor (env or keys file) is dropped with a note, and the built
 chain is filtered once more. No --author keeps the order above.
 
+Same-vendor cross-model review (owner decision, 27 Nov 2026): `--allow-same-vendor-cross-model --risk medium
+--author-model <id>` lets one proven pair of the author's vendor review first (carbon -> neon-high, neon-high/xhigh ->
+carbon-medium, sonnet -> opus; review.medium_pairs in routing.toml, read through caddis_routing.py). The flag is
+refused (exit 3) at any other risk, when the reviewer is the author model, when the reviewer is banned
+(gemini-4-carbon-high, gemini-4-neon-medium, any Hydrogen model), when the pair is not the proven one, and when
+caddis_routing.py cannot be loaded. The rest of the chain stays cross-vendor.
+
 Diff-size ceiling: an oversized diff sent to a chat-completions endpoint has been observed, live, to
 come back two different unsafe ways — an empty `content` field on an HTTP 200 (at least fails closed:
 no verdict line ⇒ exit 4), and, worse, a `REVIEW: CLEAN` verdict with no substantive engagement (a
@@ -751,6 +758,89 @@ def _load_caddis_review():
     return None
 
 
+def _load_caddis_routing():
+    """caddis_routing as a module: beside this file in a bundle, else the source repo's claude-harness/scripts/
+    folder. None when it is absent or fails to load; the same-vendor cross-model review then fails closed."""
+    loaded = sys.modules.get("caddis_routing")
+    if loaded is not None and callable(getattr(loaded, "review_pair_problem", None)):
+        return loaded
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "caddis_routing.py", here.parents[1] / "claude-harness" / "scripts" / "caddis_routing.py"):
+        if not candidate.is_file():
+            continue
+        saved_path = list(sys.path)
+        sys.path.insert(0, str(candidate.parent))  # caddis_routing imports oss_model from its own folder
+        try:
+            spec = importlib.util.spec_from_file_location("caddis_routing", candidate)
+            if spec is None or spec.loader is None:
+                return None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["caddis_routing"] = module
+            spec.loader.exec_module(module)
+        except Exception:  # noqa: BLE001 - a broken file refuses the same-vendor review, never another review
+            sys.modules.pop("caddis_routing", None)
+            return None
+        finally:
+            sys.path[:] = saved_path
+        return module if callable(getattr(module, "review_pair_problem", None)) else None
+    return None
+
+
+_SENSITIVE_AREAS = frozenset({
+    "security", "auth", "authn", "authz", "authentication", "authorization",
+    "rbac", "crypto", "secrets", "secret", "permission", "permissions",
+    "oauth", "oauth2", "sso", "jwt",
+})
+_SENSITIVE_SUBSTRINGS = ("security", "oauth", "jwt")
+
+
+def sensitive_area(area: str | None) -> bool:
+    """True when a review-tier --area names security, auth, secrets or permissions: such a change needs a
+    cross-vendor reviewer (no waiver, no same-vendor cross-model review)."""
+    tokens = {tok.strip().lower() for tok in re.split(r"[,\s|/_\-]+", area or "") if tok.strip()}
+    return any(tok in _SENSITIVE_AREAS or any(sub in tok for sub in _SENSITIVE_SUBSTRINGS)
+               or tok.startswith("sso") or tok.endswith("sso") for tok in tokens)
+
+
+def same_vendor_cross_model_reviewer(args: argparse.Namespace, env: dict[str, str]) -> tuple[str | None, str]:
+    """(reviewer model, "") when --allow-same-vendor-cross-model may run, else (None, why it is refused).
+
+    The reviewer is --reviewer-model, else the proven medium pair of --author-model. The rules (medium risk only, never
+    the author's own model, never a banned reviewer, only the proven pair) are caddis_routing.review_pair_problem."""
+    if getattr(args, "waive_same_vendor", False):
+        return None, "--allow-same-vendor-cross-model and --waive-same-vendor are separate routes; pass one"
+    if args.risk != "medium":
+        return None, (f"--allow-same-vendor-cross-model is for --risk medium only (got {args.risk or 'none'}); "
+                      "high and critical risk need a cross-vendor reviewer")
+    if (args.db_tier or "").strip().lower() not in ("", "none", "low") or sensitive_area(args.area):
+        return None, (f"DB-HIGH and security/auth changes need a cross-vendor reviewer (db_tier={args.db_tier}, "
+                      f"area={args.area})")
+    if not args.author_model:
+        return None, "--allow-same-vendor-cross-model needs --author-model <the model that wrote the change>"
+    routing = _load_caddis_routing()
+    if routing is None:
+        return None, "caddis_routing.py is not beside this script or in the repo; the pair rules cannot be checked"
+    home = env.get("USERPROFILE") or env.get("HOME")
+    try:
+        config = routing.load_config(Path(home) if home else Path.home(), Path(args.cwd))
+    except routing.RoutingConfigError as exc:
+        return None, f"routing.toml: {exc}"
+    author = routing.canonical_model(args.author_model)
+    reviewer = routing.canonical_model(args.reviewer_model or config["review"].get("medium_pairs", {}).get(author, ""))
+    if not reviewer:
+        return None, f"{author} has no proven medium pair in routing.toml (review.medium_pairs)"
+    problem = routing.review_pair_problem(author, reviewer, args.risk, True, config)
+    if problem:
+        return None, problem
+    author_name = "agy" if routing.vendor_of(author) == "google" else author
+    if args.author and VENDOR_OF.get(args.author) != VENDOR_OF.get(author_name):
+        return None, f"--author {args.author} and --author-model {author} are different vendors"
+    if reviewer not in CLAUDE_PROVIDERS.values() and not AGY_MODEL_ID_RE.fullmatch(reviewer):
+        return None, f"no reviewer here can run {reviewer}"
+    args.author = args.author or author_name
+    return reviewer, ""
+
+
 def _claude_available() -> bool:
     """A Claude reviewer can run here: the claude CLI is on PATH AND caddis_review.py loads. The one check for
     the chain, --check-config and an explicit --provider claude-*. The repo always has caddis_review.py, so the
@@ -1037,6 +1127,8 @@ def build_chain(args: argparse.Namespace, env: dict[str, str]) -> list[tuple]:
     author_vendor = VENDOR_OF[args.author] if args.author else None
     author_order = review_order(args.author, args.tier) if args.author else REVIEW_ORDER
 
+    cross_model = getattr(args, "cross_model_reviewer", None)
+
     def _same_vendor(name: str) -> bool:
         if getattr(args, "waive_same_vendor", False):
             return False
@@ -1125,6 +1217,21 @@ def build_chain(args: argparse.Namespace, env: dict[str, str]) -> list[tuple]:
     # The same-vendor guard is a final filter on the built chain, so no path above (primary, fallback, a
     # future edit) can put the author's vendor in front of its own code.
     chain = [entry for entry in chain if not _same_vendor(entry[0])]
+    # A checked same-vendor cross-model pair (same_vendor_cross_model_reviewer) goes first, alone of its vendor: an
+    # agy reviewer runs that one model with no agy fallback, so no other model of the author's vendor can answer.
+    if cross_model:
+        if cross_model in CLAUDE_PROVIDERS.values():
+            name = next(n for n, alias in CLAUDE_PROVIDERS.items() if alias == cross_model)
+            if not _claude_available():
+                raise ConfigError(f"same-vendor cross-model reviewer {name} needs the claude CLI and caddis_review.py")
+            first = _claude_entry(name)
+        else:
+            if agy_cmd is None:
+                raise ConfigError(f"same-vendor cross-model reviewer {cross_model} needs agy on PATH and "
+                                  "caddis_spend.py")
+            reviewer = AgyReviewer(agy_cmd, [cross_model])
+            first = (AGY_PROVIDER, reviewer.model, "caddis_spend run", reviewer)
+        chain = [first, *[entry for entry in chain if entry[0] != first[0]]]
     if not chain and args.author:
         raise ConfigError(_no_reviewer_for_author()
                           + "Make claude (with caddis_review.py), agy or a provider key available, "
@@ -1183,8 +1290,18 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                              "to ~/.caddis/review-catchup.jsonl for deferred cross-vendor audit")
     parser.add_argument("--reason", "--waiver-reason", dest="waiver_reason", default="",
                         help="owner reason required with --waive-same-vendor")
-    parser.add_argument("--risk", default=None, choices=("low", "normal", "high"),
-                        help="change risk level (required with --waive-same-vendor; waiver refused when high)")
+    parser.add_argument("--risk", default=None, choices=("low", "normal", "medium", "high", "critical"),
+                        help="change risk level (required with --waive-same-vendor, refused when high or critical; "
+                             "--allow-same-vendor-cross-model needs medium)")
+    parser.add_argument("--allow-same-vendor-cross-model", dest="allow_same_vendor_cross_model",
+                        action="store_true", default=False,
+                        help="risk medium only: the proven same-vendor pair for --author-model reviews first "
+                             "(routing.toml review.medium_pairs). Refused at high/critical risk, for the author's own "
+                             "model, and for a banned reviewer (gemini-4-carbon-high, gemini-4-neon-medium, Hydrogen)")
+    parser.add_argument("--author-model", dest="author_model", default=None, metavar="ID",
+                        help="the model that wrote the change (with --allow-same-vendor-cross-model)")
+    parser.add_argument("--reviewer-model", dest="reviewer_model", default=None, metavar="ID",
+                        help="the same-vendor reviewer (default: the author model's proven medium pair)")
     parser.add_argument("--db-tier", dest="db_tier", default=None,
                         help="DB review tier from review-tier (none|low|high; required with --waive-same-vendor; waiver refused when high or unrecognized)")
     parser.add_argument("--area", default=None,
@@ -1192,6 +1309,19 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     parser.add_argument("--pr", default=None,
                         help="optional PR number recorded in ~/.caddis/review-catchup.jsonl when waived")
     args = parser.parse_args(argv)
+    args.cross_model_reviewer = None
+    if args.allow_same_vendor_cross_model:
+        reviewer, why = same_vendor_cross_model_reviewer(args, env)
+        if reviewer is None:
+            sys.stderr.write(f"same-vendor cross-model review refused: {why}.\n")
+            return EXIT_CONFIG
+        args.cross_model_reviewer = reviewer
+        same = VENDOR_OF.get("agy" if reviewer.startswith("gemini-") else reviewer) == VENDOR_OF.get(args.author)
+        sys.stderr.write(f"[cross-review] {'same-vendor' if same else 'cross-vendor'} cross-model review: "
+                         f"{args.author_model} -> {reviewer} (risk medium)\n")
+    elif args.author_model or args.reviewer_model:
+        sys.stderr.write("--author-model and --reviewer-model need --allow-same-vendor-cross-model.\n")
+        return EXIT_CONFIG
     if args.waive_same_vendor:
         if not (args.waiver_reason or "").strip():
             sys.stderr.write("same-vendor waiver refused: --waive-same-vendor requires a non-empty --reason.\n")
@@ -1223,21 +1353,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
                 "(expected none, low, or high).\n"
             )
             return EXIT_CONFIG
-        area_tokens = {tok.strip().lower() for tok in re.split(r"[,\s|/_\-]+", args.area or "") if tok.strip()}
-        forbidden_areas = {
-            "security", "auth", "authn", "authz", "authentication", "authorization",
-            "rbac", "crypto", "secrets", "secret", "permission", "permissions",
-            "oauth", "oauth2", "sso", "jwt",
-        }
-        forbidden_substrings = ("security", "oauth", "jwt")
-        sensitive_area = any(
-            tok in forbidden_areas
-            or any(sub in tok for sub in forbidden_substrings)
-            or tok.startswith("sso")
-            or tok.endswith("sso")
-            for tok in area_tokens
-        )
-        if args.risk == "high" or db_tier_norm == "high" or sensitive_area:
+        if args.risk in ("high", "critical") or db_tier_norm == "high" or sensitive_area(args.area):
             sys.stderr.write(
                 f"same-vendor waiver refused: high-risk, DB-HIGH, or security/auth changes require true "
                 f"cross-vendor review (risk={args.risk}, db_tier={db_tier_norm}, area={args.area}).\n"
@@ -1573,6 +1689,9 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
             waiver_line = (
                 f"REVIEW-WAIVER: SAME_VENDOR (interim={interim}; verdict=BLOCKING — not queued for catch-up)"
             )
+    if getattr(args, "cross_model_reviewer", None) and same_vendor_used and verdict is not None:
+        waiver_line = (f"REVIEW-MODE: SAME_VENDOR_CROSS_MODEL ({args.author_model} -> {args.cross_model_reviewer}; "
+                       "risk medium)")
     for buffered in buffered_reviews:
         print(buffered)
     if len(batches) > 1:

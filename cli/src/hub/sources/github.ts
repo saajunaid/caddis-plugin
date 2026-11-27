@@ -278,6 +278,20 @@ export function prHeads(data: GithubData | null): Record<string, PrHead[]> {
   return out;
 }
 
+/**
+ * A short text that changes when the default branch moves (the newest merge) or an open PR changes
+ * (its number, draft state or head commit). null: this repo has not loaded, so there is nothing to compare.
+ * The hub fetches the repo when this text differs from the one of the poll before.
+ */
+export function githubSignature(slot: GithubRepoSlot): string | null {
+  if (!slot.repo || !Array.isArray(slot.prs)) return null;
+  const prs = slot.prs
+    .map((p) => `${p.number}:${p.draft ? 'draft' : 'ready'}:${p.head_sha}`)
+    .sort()
+    .join(',');
+  return `${slot.merges?.[0]?.merge_sha ?? ''}|${prs}`;
+}
+
 export function createGithubSource(opts: GithubOptions): GithubSource {
   const now = opts.now ?? Date.now;
   const doFetch: FetchFn = opts.fetch ?? ((url, init) => fetch(url, init));

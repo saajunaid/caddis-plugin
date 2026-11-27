@@ -365,6 +365,7 @@ export async function startHub(deps: HubDeps = {}): Promise<RunningHub> {
       now,
       instance: info.instance,
       onStop: () => void stop(),
+      onSync: () => state.syncNow(),
       sessionsFile: sessionsPath(home),
     });
   } catch (e) {

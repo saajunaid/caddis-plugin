@@ -5,6 +5,11 @@
  * every 30 s, GitHub per its `nextDelayMs()` (60 s, or 5 min below the rate reserve) and the
  * coordinator files every 30 s. Each timer is a `setTimeout` chain, so a refresh never overlaps
  * itself. A refresh that throws is caught and recorded. `getState()` joins the sources per repo.
+ *
+ * Fresh refs (`gitFetch.ts`): the collector only reads local `origin/<default>`. The hub runs a read-only
+ * `git fetch` per repo (1) when its GitHub signature changes (a merge or a PR head moved), (2) every
+ * `PERIODIC_FETCH_MS` for repos with a GitHub remote, and (3) on "Sync now". A fetch that brings data
+ * starts a collector refresh at once.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -14,7 +19,17 @@ import { addRepos, normalizeRepoPath, readConfig, readRegistry, repoKey } from '
 import { createAgentsSource, type AgentsSource, type SessionEntry } from './sources/agents.js';
 import { createCollectorSource, type CollectorSource, type Slot } from './sources/collector.js';
 import { createCoordinatorSource, type CoordinatorEntry, type CoordinatorSource } from './sources/coordinator.js';
-import { createGithubSource, prHeads, type GithubRepoSlot, type GithubSource, type RateInfo } from './sources/github.js';
+import {
+  createGithubSource,
+  githubSignature,
+  parseGithubRemote,
+  prHeads,
+  readOriginUrl,
+  type GithubRepoSlot,
+  type GithubSource,
+  type RateInfo,
+} from './sources/github.js';
+import { createGitFetcher, FETCH_CONCURRENCY, mapLimit, PERIODIC_FETCH_MS, type FetchResult, type GitFetcher } from './gitFetch.js';
 import { withTimeout } from './bounded.js';
 import { hubDir } from './paths.js';
 import { bundleManifest, packageInfo } from '../util/pkg.js';
@@ -116,6 +131,8 @@ export interface HubOptions {
   github?: GithubSource;
   coordinator?: CoordinatorSource;
   versions?: () => Versions;
+  /** The read-only `git fetch` of a repo. null: the hub never fetches. Default: the real `git`. */
+  gitFetch?: GitFetcher | null;
 }
 export interface StateHub {
   start(): void;
@@ -123,6 +140,11 @@ export interface StateHub {
   getState(): HubState;
   /** Refresh every source once, in timer order. For tests and a first fill. */
   refreshAll(): Promise<void>;
+  /**
+   * "Sync now": fetch every repo (`git fetch origin --prune`, read-only), then refresh every source. Calls that
+   * overlap share one run. It never rejects: a failed fetch keeps the cached data.
+   */
+  syncNow(): Promise<void>;
   /** The repos the sources read: pinned first, then the registry, without hidden ones. */
   repoPaths(): string[];
 }
@@ -335,6 +357,15 @@ export function createHub(opts: HubOptions = {}): StateHub {
     }
   };
 
+  /** A trigger must never break a refresh or a timer chain. */
+  const safe = (fn: () => void): void => {
+    try {
+      fn();
+    } catch {
+      /* the next poll tries again */
+    }
+  };
+
   const refreshers: Record<SourceName, () => Promise<void>> = {
     agents: () =>
       guarded('agents', async () => {
@@ -342,7 +373,10 @@ export function createHub(opts: HubOptions = {}): StateHub {
         registerSessionRepos();
       }),
     collector: () => guarded('collector', () => collector.refresh()),
-    github: () => guarded('github', () => github.refresh()),
+    github: async () => {
+      await guarded('github', () => github.refresh());
+      safe(fetchOnGithubChange);
+    },
     coordinator: () => guarded('coordinator', () => coordinator.refresh()),
   };
   const delays: Record<SourceName, () => number> = {
@@ -350,6 +384,71 @@ export function createHub(opts: HubOptions = {}): StateHub {
     collector: () => COLLECTOR_EVERY_MS,
     github: () => github.nextDelayMs(),
     coordinator: () => COORDINATOR_EVERY_MS,
+  };
+
+  // --- read-only `git fetch` (see the file comment) ---
+  const gitFetch: GitFetcher | null = opts.gitFetch === undefined ? createGitFetcher() : opts.gitFetch;
+  const lastFetchAt = new Map<string, number>();
+  const baseline = new Map<string, string>();
+  // Repos that "Sync now" just fetched: the next GitHub poll does not fetch them again for the same change.
+  const justFetched = new Set<string>();
+  // Background work started by a trigger. `refreshAll` waits for it; the timers do not.
+  const background = new Set<Promise<unknown>>();
+  const launch = (work: Promise<unknown>): void => {
+    const tracked = work.catch(() => {}).finally(() => background.delete(tracked));
+    background.add(tracked);
+  };
+
+  const keyOf = (p: string): string => repoKey(normalizeRepoPath(p));
+  const fetchOne = async (repoPath: string): Promise<FetchResult> => {
+    lastFetchAt.set(keyOf(repoPath), now());
+    if (!gitFetch) return { path: repoPath, status: 'skipped', error: 'fetch is off' };
+    try {
+      return await gitFetch.fetchRepo(repoPath);
+    } catch (e) {
+      return { path: repoPath, status: 'failed', error: message(e) };
+    }
+  };
+  /** Fetch repos, at most `FETCH_CONCURRENCY` at a time. A fetch that brought refs starts a collector refresh. */
+  const fetchMany = async (paths: string[], refreshCollector = true): Promise<FetchResult[]> => {
+    const results = await mapLimit(paths, FETCH_CONCURRENCY, fetchOne);
+    if (refreshCollector && results.some((r) => r.status === 'fetched')) await refreshers.collector();
+    return results;
+  };
+
+  /** Repos with a GitHub remote not fetched for `PERIODIC_FETCH_MS`. A local read of `.git/config` only. */
+  const duePaths = (): string[] =>
+    repoPaths().filter((p) => {
+      const last = lastFetchAt.get(keyOf(p));
+      if (last !== undefined && now() - last < PERIODIC_FETCH_MS) return false;
+      const url = readOriginUrl(p);
+      return url !== null && parseGithubRemote(url) !== null;
+    });
+  const periodicFetch = (): void => {
+    if (!gitFetch) return;
+    const due = duePaths();
+    // Mark at once, so a second tick before the fetch ends does not select the same repos.
+    for (const p of due) lastFetchAt.set(keyOf(p), now());
+    if (due.length) launch(fetchMany(due));
+  };
+
+  /** Fetch each repo whose GitHub signature differs from its last poll. The first poll only sets the baseline. */
+  const fetchOnGithubChange = (): void => {
+    const slots = github.get().data?.repos ?? [];
+    const changed: string[] = [];
+    for (const slot of slots) {
+      const sig = githubSignature(slot);
+      if (sig === null) continue;
+      const key = keyOf(slot.path);
+      const before = baseline.get(key);
+      baseline.set(key, sig);
+      if (before !== undefined && before !== sig && !justFetched.has(key)) changed.push(slot.path);
+    }
+    // A repo that fails to load for a while keeps its baseline, so a change meanwhile still fetches. Removed repos go.
+    const wanted = new Set(repoPaths().map(keyOf));
+    for (const key of [...baseline.keys()]) if (!wanted.has(key)) baseline.delete(key);
+    justFetched.clear();
+    if (gitFetch && changed.length) launch(fetchMany(changed));
   };
 
   let running = false;
@@ -366,6 +465,7 @@ export function createHub(opts: HubOptions = {}): StateHub {
         } catch {
           /* keep the default */
         }
+        if (running && (name === 'collector' || name === 'github')) safe(periodicFetch);
         schedule(name, next);
       });
     }, delay);
@@ -438,6 +538,17 @@ export function createHub(opts: HubOptions = {}): StateHub {
       audit: readAudit(home),
     };
   };
+  async function refreshAll(): Promise<void> {
+    await refreshers.agents();
+    await refreshers.coordinator();
+    await refreshers.collector();
+    await refreshers.github();
+    safe(periodicFetch);
+    // The fetches the triggers started, and the collector refresh they ask for.
+    while (background.size) await Promise.all([...background]);
+  }
+  let syncing: Promise<void> | null = null;
+
   return {
     start(): void {
       if (running) return;
@@ -461,11 +572,18 @@ export function createHub(opts: HubOptions = {}): StateHub {
       timers.clear();
     },
     getState,
-    async refreshAll(): Promise<void> {
-      await refreshers.agents();
-      await refreshers.coordinator();
-      await refreshers.collector();
-      await refreshers.github();
+    refreshAll,
+    syncNow(): Promise<void> {
+      syncing ??= (async () => {
+        const results = await fetchMany(repoPaths(), false);
+        for (const r of results) if (r.status === 'fetched') justFetched.add(keyOf(r.path));
+        await refreshAll();
+      })()
+        .catch(() => {})
+        .finally(() => {
+          syncing = null;
+        });
+      return syncing;
     },
     repoPaths,
   };

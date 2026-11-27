@@ -1,0 +1,186 @@
+# caddis deterministic model routing, v3 (owner decisions to 27 Nov 2026).
+#
+# `caddis_routing.py route --task <task> --risk <low|medium|high|critical>` reads this file. It makes no model call.
+# Overrides merge on top, table by table (a list replaces the whole list):
+#   this file  ->  ~/.caddis/routing.toml  ->  <repo>/.caddis/routing.toml
+#
+# Hard rules live in caddis_routing.py and no override can lift them:
+# - Hydrogen (gemini-4-hydrogen-low only) does read-only tasks only. It never codes, writes tests, sweeps bugs,
+#   reviews or runs a bot (17 Nov 2026 benchmark).
+# - A model never reviews its own output. gemini-4-carbon-high (10 of 10 reviews NOT_RUN), gemini-4-neon-medium
+#   (approved buggy code in 3 of 20) and every Hydrogen model never review.
+# - Same-vendor cross-model review is for medium risk only. High and critical risk get a cross-vendor reviewer.
+# - Valid ids: opus, sonnet, haiku; gemini-4-carbon-{low,medium,high}; gemini-4-neon-{low,medium,high,xhigh};
+#   gemini-4-hydrogen-{low,medium,high}. There is no carbon-xhigh and no hydrogen-xhigh.
+
+version = 3
+
+[defaults]
+claude_effort = "high"          # the effort of a Claude model that a task row does not set
+agy_print_timeout_s = 2400      # 40m headless --print-timeout; caddis_spend.py run kills at 60m
+
+[context]
+# Neon holds 512K tokens. Over this many context tokens a route leaves Neon for the task's `large_context`
+# model, else this default (Carbon holds 1M).
+neon_guard_tokens = 400000
+large_context_model = "gemini-4-carbon-high"
+
+[trial]
+# Set coding_model to trial another primary for every coding task, e.g. "gemini-4-neon-high". The primary then
+# leaves the escalation ladder. Empty means the task rows below.
+coding_model = ""
+
+# ── tasks ────────────────────────────────────────────────────────────────────────────────────────────────────
+# model            the primary model
+# effort           the effort of a Claude primary (an agy id carries its effort)
+# escalation       the next models in order, after a failure or a stuck run
+# opus_at          the risks that send the task to opus (high) instead
+# large_context    the model over [context].neon_guard_tokens (only when the route would pick Neon)
+# reviewer         a reviewer for this task at every risk (not when it is the author: then the review rules below)
+# extra_reviewers  agent reviewers added at every risk (e.g. ui-design-reviewer screenshots)
+
+[tasks.implement_feature]
+model = "gemini-4-carbon-high"
+escalation = ["gemini-4-neon-high", "opus"]
+opus_at = ["high", "critical"]
+
+[tasks.ui]
+model = "gemini-4-carbon-high"
+escalation = ["gemini-4-neon-high", "opus"]
+opus_at = ["high", "critical"]
+
+[tasks.write_tests]
+model = "gemini-4-carbon-high"
+escalation = ["gemini-4-neon-high", "opus"]
+opus_at = ["high", "critical"]
+
+[tasks.small_fix]
+model = "gemini-4-carbon-high"
+escalation = ["gemini-4-neon-high", "opus"]
+opus_at = ["high", "critical"]
+
+[tasks.bulk_mechanical_edit]
+model = "gemini-4-carbon-high"
+escalation = ["gemini-4-neon-high", "opus"]
+opus_at = ["high", "critical"]
+
+[tasks.bug_sweep]
+model = "gemini-4-carbon-high"
+escalation = ["gemini-4-neon-high", "opus"]
+opus_at = ["high", "critical"]
+
+[tasks.plan_architecture]
+model = "gemini-4-neon-high"
+escalation = ["opus"]
+opus_at = ["high", "critical"]
+large_context = "opus"
+
+[tasks.root_cause_analysis]
+model = "gemini-4-neon-high"
+escalation = ["opus"]
+opus_at = ["high", "critical"]
+large_context = "opus"
+
+[tasks.hard_reasoning]
+model = "gemini-4-neon-xhigh"
+escalation = ["opus"]
+opus_at = ["high", "critical"]
+large_context = "opus"
+
+[tasks.merge_conflict]
+model = "gemini-4-neon-high"
+escalation = ["opus"]
+opus_at = ["high", "critical"]
+
+[tasks.critical_seam]
+model = "opus"
+escalation = []
+opus_at = []
+
+[tasks.db_high]
+model = "opus"
+escalation = []
+opus_at = []
+
+[tasks.security_rbac_pii]
+model = "opus"
+escalation = []
+opus_at = []
+
+[tasks.governance_gate]
+model = "opus"
+escalation = []
+opus_at = []
+
+# Visual HTML prototypes (owner, 27 Nov 2026): Carbon high authors (WebDev Arena visual craft, off the Claude quota);
+# Sonnet high (warm-editorial-ui) reviews the design and takes it over on escalation; Opus high does a final polish.
+# `ui_mockup` is another name for this task.
+[tasks.mockup]
+model = "gemini-4-carbon-high"
+escalation = ["sonnet", "opus"]
+opus_at = []
+reviewer = "sonnet"
+extra_reviewers = ["ui-design-reviewer"]
+
+[tasks.classify]
+model = "gemini-4-hydrogen-low"
+escalation = ["gemini-4-carbon-medium"]
+opus_at = []
+
+[tasks.explore]
+model = "gemini-4-hydrogen-low"
+escalation = ["gemini-4-carbon-medium"]
+opus_at = []
+
+[tasks.commit_pr_text]
+model = "gemini-4-hydrogen-low"
+escalation = ["gemini-4-carbon-medium"]
+opus_at = []
+
+[tasks.ci_summary]
+model = "gemini-4-hydrogen-low"
+escalation = ["gemini-4-carbon-medium"]
+opus_at = []
+
+# ── review (owner, 27 Nov 2026) ──────────────────────────────────────────────────────────────────────────────
+# low       deterministic gates only (lint, types, tests): no reviewer
+# medium    the proven pair for the author below; an author with no pair gets the [review.strict] reviewer
+# high      [review.strict]: always another vendor
+# critical  [review.strict], and the owner approves (human_approval)
+
+[review.medium_pairs]
+"gemini-4-carbon-low" = "gemini-4-neon-high"
+"gemini-4-carbon-medium" = "gemini-4-neon-high"
+"gemini-4-carbon-high" = "gemini-4-neon-high"
+"gemini-4-neon-high" = "gemini-4-carbon-medium"
+"gemini-4-neon-xhigh" = "gemini-4-carbon-medium"
+"sonnet" = "opus"
+"opus" = "gemini-4-neon-high"
+
+[review.strict]
+agy_high = "sonnet"
+agy_critical = "opus"
+claude = "gemini-4-neon-high"
+claude_fallback = "gemini-4-carbon-medium"
+db_high_reviewer = "sql-expert"
+
+# ── always-on bots ───────────────────────────────────────────────────────────────────────────────────────────
+[bots]
+wave = "gemini-4-carbon-high"
+core = "gemini-4-carbon-medium"
+core_merge_conflict = "gemini-4-neon-high"
+ci_watch = "shell"              # pure shell, no model
+
+# ── parallel workers ─────────────────────────────────────────────────────────────────────────────────────────
+# A worker that touches a file on this list runs alone: never in parallel with another worker that touches one.
+# A pattern with no "/" matches the file name at any depth; "**" matches any number of folders.
+[concurrency]
+max_parallel_workers = 4
+sequence_when_touching = [
+    "package.json",
+    "package-lock.json",
+    "pyproject.toml",
+    "uv.lock",
+    "**/migrations/**",
+    "**/*.sql",
+]

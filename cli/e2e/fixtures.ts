@@ -32,6 +32,10 @@ export interface Hub {
   posted: Record<string, unknown>[];
   /** Set how the fake action route answers. The default accepts and adds a `requested` view to the state. */
   reply: (fn: (body: Record<string, unknown>, s: State) => ActionReply) => void;
+  /** How many times the page called `POST /api/hub/sync`. */
+  syncCount: () => number;
+  /** Set what the fake "Sync now" does. The default answers at once. A throw makes the route answer 500. */
+  onSync: (fn: () => Promise<void>) => void;
 }
 
 let requestNo = 0;
@@ -69,6 +73,8 @@ export const test = base.extend<Fixtures>({
       tweak?.(state);
       const key = randomBytes(32).toString('hex');
       const posted: Record<string, unknown>[] = [];
+      let syncs = 0;
+      let syncWork: () => Promise<void> = async () => {};
       let answer: (body: Record<string, unknown>, s: State) => ActionReply = acceptAction;
       const srv = await startServer({
         port: 0,
@@ -76,6 +82,10 @@ export const test = base.extend<Fixtures>({
         getState: () => state,
         ...(benchmarks === undefined ? {} : { getBenchmarks: () => benchmarks }),
         versions: { hub: '0.0.0-e2e' },
+        onSync: async () => {
+          syncs += 1;
+          await syncWork();
+        },
         actions: {
           submit: async (body) => {
             posted.push(body as Record<string, unknown>);
@@ -104,6 +114,10 @@ export const test = base.extend<Fixtures>({
         posted,
         reply: (fn) => {
           answer = fn;
+        },
+        syncCount: () => syncs,
+        onSync: (fn) => {
+          syncWork = fn;
         },
       };
     });

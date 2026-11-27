@@ -18,6 +18,8 @@ export const CSRF_HEADER = 'x-csrf-token';
 export const TAB_HEADER = 'x-caddis-hub-tab';
 /** Largest POST body the server reads. H1 needs no body at all. */
 export const MAX_BODY_BYTES = 16 * 1024;
+/** How long `POST /api/hub/sync` waits for the sync before it replies `pending`. */
+export const SYNC_WAIT_MS = 60_000;
 /** The server key must be at least this long (R19: 32 random bytes). */
 export const MIN_KEY_BYTES = 32;
 
@@ -93,6 +95,10 @@ export interface ServerOptions {
   uiDir?: string;
   /** Called once after `POST /api/hub/stop` has sent its reply (`caddis hub stop`). */
   onStop?: () => void;
+  /** "Sync now": fetch and refresh at once (`hub.syncNow()`). Not set: `POST /api/hub/sync` answers 404. */
+  onSync?: () => Promise<void>;
+  /** The longest `POST /api/hub/sync` waits for `onSync`. Past it the reply says `pending`. Default 60 s. */
+  syncWaitMs?: number;
   /** The owner actions (R32). Not set: `POST /api/actions` answers 404. */
   actions?: Actions;
   /** Review scoreboards from the hub's repos. Not set: `GET /api/benchmarks` answers 404. */
@@ -231,6 +237,7 @@ function keyOk(req: http.IncomingMessage, key: string): boolean {
  * Every request passes the Host check first. Then:
  * - `GET /api/health`, `POST /api/hub/code`, `POST /api/hub/stop`: the key header only (no cookie).
  * - every other non-GET: Origin, then session, then CSRF token.
+ * - `POST /api/hub/sync` ("Sync now"): those three, plus the per-tab token like `/api/actions`.
  * - `GET /api/session`, `GET /api/state`: a session cookie AND its tab token in `X-Caddis-Hub-Tab`.
  * - `GET /api/plan-phase`: one plan phase section, with the same session cookie AND tab token check.
  * - `GET /api/benchmarks`: review scoreboards of the hub's repos, with the same session cookie AND tab token check.
@@ -350,6 +357,24 @@ export async function startServer(opts: ServerOptions): Promise<HubServer> {
       } catch (e) {
         if (e instanceof BodyTooLarge) return tooLarge(req, res);
         throw e;
+      }
+      if (path === '/api/hub/sync' && method === 'POST') {
+        // The per-tab token, as for an action: a cookie replayed from another localhost port cannot start a sync.
+        if (!tabSessionOf(req)) return fail(res, 401, 'unauthorized');
+        if (!opts.onSync) return fail(res, 404, 'not_found');
+        // The sync keeps going after the cap; the page reads the new state on its next poll.
+        let timer: NodeJS.Timeout | undefined;
+        const cap = new Promise<'pending'>((resolve) => {
+          timer = setTimeout(() => resolve('pending'), opts.syncWaitMs ?? SYNC_WAIT_MS);
+        });
+        try {
+          const outcome = await Promise.race([opts.onSync().then(() => 'done' as const), cap]);
+          return send(res, 200, outcome === 'pending' ? { schema: 1, ok: true, pending: true } : { schema: 1, ok: true });
+        } catch {
+          return fail(res, 500, 'sync_failed');
+        } finally {
+          clearTimeout(timer);
+        }
       }
       // R20 (H1): logout. R32 (H3): /api/actions, above.
       if (path === '/api/logout' && method === 'POST') {
